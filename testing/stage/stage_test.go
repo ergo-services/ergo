@@ -143,7 +143,7 @@ func TestStageMonitorDown(t *testing.T) {
 	n.ShouldMonitor().From(w).Target(target).Once().Within(time.Second).Must()
 
 	// ingress: killing the target delivers a Down to the watcher
-	s.Kill(n, target)
+	n.Kill(target)
 	n.ShouldReceiveDown().To(w).About(target).Reason(gen.TerminateReasonKill).
 		Once().Within(time.Second).Must()
 

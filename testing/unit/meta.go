@@ -223,9 +223,7 @@ func (m *mockMeta) Spawn(behavior gen.MetaBehavior, options gen.MetaOptions) (ge
 func (m *mockMeta) SendPriority() gen.MessagePriority { return m.priority }
 
 func (m *mockMeta) SetSendPriority(priority gen.MessagePriority) error {
-	if m.state != gen.MetaStateRunning {
-		return gen.ErrNotAllowed
-	}
+	// the real meta.SetSendPriority (node/meta.go) has no state gate: it just stores.
 	m.priority = priority
 	return nil
 }

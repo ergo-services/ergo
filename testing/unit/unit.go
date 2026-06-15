@@ -13,6 +13,11 @@
 // subscriptions): inbound signals are driven by the test via the Deliver* methods,
 // so there is nothing to observe on the way in. Assert an actor's reaction to a
 // delivery, not the delivery itself. Those ingress records are testing/stage-only.
+//
+// A send the actor addresses to itself is treated the same way: recorded as egress,
+// not looped back into its own mailbox. To drive the reaction, re-deliver it with
+// SendMessage. A Call the actor makes to itself is an outbound Call like any other
+// and needs a stubbed response (OnCall); it does not re-enter the actor.
 package unit
 
 import (
@@ -20,6 +25,7 @@ import (
 	"testing"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 	"ergo.services/ergo/testing/check"
 )
 
@@ -44,10 +50,9 @@ type Subject struct {
 // returned both by unit.Node(...) (configure before spawn) and by Subject.Node()
 // (configure / inspect after spawn).
 //
-// Node().Network() returns a built-in stubbable mock network by default (configure
-// discovery via OnResolve / OnResolveApplication / OnRegistrarEvent); override it
-// wholesale with OnNetwork(func() gen.Network). Node().Cron() requires OnCron(func()
-// gen.Cron); without it a Cron() call fails the test.
+// Node().Network() returns a built-in stubbable mock network (configure discovery via
+// Node().Network().Registrar().Resolver().OnResolve / OnResolveApplication). Node().Cron()
+// returns a built-in mock cron (add jobs via Node().Cron().AddJob; drive via Subject.FireCron).
 type MockNode struct {
 	*mockNode
 	t testing.TB
@@ -83,7 +88,7 @@ func (n *MockNode) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, 
 func (n *MockNode) spawn(factory gen.ProcessFactory, register gen.Atom, options gen.ProcessOptions, args ...any) (*Subject, error) {
 	process := newMockProcess(n.mockNode, register, options)
 	// the process under test is itself a process the node knows about
-	n.mockNode.registerProc(&procEntry{pid: process.pid, name: process.name, parent: process.parent, leader: process.leader, factory: factory, options: options})
+	n.mockNode.registerProc(&procEntry{pid: process.pid, name: process.name, parent: process.parent, leader: process.leader, state: gen.ProcessStateInit})
 	n.mockNode.subjectPID = process.pid // From for RemoteNode egress records
 
 	s := &Subject{
@@ -104,6 +109,9 @@ func (n *MockNode) spawn(factory gen.ProcessFactory, register gen.Atom, options 
 	}
 	// ProcessInit ran in Init state; the process is now Running
 	process.state = gen.ProcessStateRunning
+	if e := n.mockNode.procs[process.pid]; e != nil {
+		e.state = gen.ProcessStateRunning
+	}
 	return s, nil
 }
 
@@ -144,15 +152,32 @@ func (s *Subject) run() {
 	if s.terminated {
 		return
 	}
-	if err := s.behavior.ProcessRun(); err != nil {
+	if err := s.runBehavior(); err != nil {
 		s.terminated = true
 		s.reason = err
 		// the process is Terminated during ProcessTerminate; the real process still
 		// permits the Send family / SendExit there (stateIRT), but not Set*/Call/etc
 		s.process.state = gen.ProcessStateTerminated
+		if e := s.node.procs[s.process.pid]; e != nil {
+			e.state = gen.ProcessStateTerminated
+		}
 		s.behavior.ProcessTerminate(err)
 		s.node.rec.Put(check.Terminated{PID: s.process.pid, Reason: err})
 	}
+}
+
+// runBehavior calls ProcessRun, recovering a panic into TerminateReasonPanic exactly
+// as the real runtime does (node/process_run.go); under -tags=norecover lib.Recover()
+// is false and the panic propagates, also matching production.
+func (s *Subject) runBehavior() (err error) {
+	if lib.Recover() {
+		defer func() {
+			if rcv := recover(); rcv != nil {
+				err = gen.TerminateReasonPanic
+			}
+		}()
+	}
+	return s.behavior.ProcessRun()
 }
 
 // deliver pushes one mailbox message addressed to the process itself (Target = PID).

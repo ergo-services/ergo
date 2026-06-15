@@ -83,7 +83,7 @@ func TestLocalNodeInspect(t *testing.T) {
 	victim := n.Spawn(factoryEcho, gen.ProcessOptions{})
 	n.Send(w, monitorCmd{Target: victim})
 	n.ShouldMonitor().From(w).Target(victim).Once().Within(time.Second).Must()
-	s.Kill(n, victim)
+	n.Kill(victim)
 	n.ShouldReceiveDown().To(w).About(victim).Once().Within(time.Second).Must()
 	if _, err := nd.Inspect(victim); err != gen.ErrProcessTerminated {
 		check.ErrorIs(t, err, gen.ErrProcessUnknown)

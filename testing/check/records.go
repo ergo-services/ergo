@@ -327,6 +327,7 @@ func (r WireDemonitor) String() string {
 type SendEvent struct {
 	From    gen.PID
 	Name    gen.Atom
+	Token   gen.Ref // the producer registration token returned by RegisterEvent
 	Message any
 	Options gen.MessageOptions
 	Error   error
@@ -334,7 +335,7 @@ type SendEvent struct {
 
 func (SendEvent) Kind() string { return "sent_event" }
 func (r SendEvent) String() string {
-	return fmt.Sprintf("SendEvent(from=%s name=%s msg=%#v err=%v)", r.From, r.Name, r.Message, r.Error)
+	return fmt.Sprintf("SendEvent(from=%s name=%s token=%s msg=%#v err=%v)", r.From, r.Name, r.Token, r.Message, r.Error)
 }
 
 // SendResponse is a response a process sent back to a caller's request (egress).
@@ -442,9 +443,10 @@ type SendAfter struct {
 	Message any
 	After   time.Duration
 	Options gen.MessageOptions
+	Error   error
 }
 
 func (SendAfter) Kind() string { return "scheduled_send" }
 func (r SendAfter) String() string {
-	return fmt.Sprintf("SendAfter(from=%s to=%v after=%s msg=%#v)", r.From, r.To, r.After, r.Message)
+	return fmt.Sprintf("SendAfter(from=%s to=%v after=%s msg=%#v err=%v)", r.From, r.To, r.After, r.Message, r.Error)
 }

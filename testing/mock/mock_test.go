@@ -2,6 +2,7 @@ package mock_test
 
 import (
 	"testing"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
@@ -138,4 +139,24 @@ func TestNetworkResolverOverrideReachable(t *testing.T) {
 	r, _ := net.Registrar()
 	_, err := r.Resolver().Resolve(gen.Atom("svc"))
 	check.ErrorIs(t, err, gen.ErrNoRoute)
+}
+
+// SendEvent captures the producer registration token so a test can assert the event
+// was sent under the correct token (which the mock does not validate, unlike a node).
+func TestProcessTSendEventToken(t *testing.T) {
+	p := mock.NewProcessT(t)
+	ref := gen.Ref{Node: "n@h", Creation: 1, ID: [3]uint64{7, 0, 0}}
+	p.SendEvent(gen.Atom("evt"), ref, "payload")
+	p.ShouldSendEvent().Name(gen.Atom("evt")).Token(ref).Once().Assert()
+}
+
+// SendAfter records the override's error (SendAfter record gained an Error field).
+func TestProcessTSendAfterError(t *testing.T) {
+	p := mock.NewProcessT(t)
+	p.OnSendAfter(func(to any, message any, after time.Duration) (gen.CancelFunc, error) {
+		return nil, gen.ErrProcessTerminated
+	})
+	_, err := p.SendAfter(gen.Atom("x"), "m", time.Second)
+	check.ErrorIs(t, err, gen.ErrProcessTerminated)
+	p.ShouldSendAfter().To(gen.Atom("x")).ErrorIs(gen.ErrProcessTerminated).Once().Assert()
 }

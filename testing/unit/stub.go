@@ -14,18 +14,20 @@ import (
 //
 // When several stubs match an operation, the most recently registered one wins.
 type stubs struct {
-	call     []*CallStub
-	spawn    []*SpawnStub
-	meta     []*SpawnMetaStub
-	remote   []*RemoteSpawnStub
-	alias    []*CreateAliasStub
-	regev    []*RegisterEventStub
-	send     []*FailStub
-	link     []*FailStub
-	monitor  []*FailStub
-	exit     []*FailStub
-	exitMeta []*FailStub
-	forward  []*FailStub
+	call      []*CallStub
+	spawn     []*SpawnStub
+	meta      []*SpawnMetaStub
+	remote    []*RemoteSpawnStub
+	alias     []*CreateAliasStub
+	regev     []*RegisterEventStub
+	send      []*FailStub
+	link      []*FailStub
+	unlink    []*FailStub
+	monitor   []*FailStub
+	demonitor []*FailStub
+	exit      []*FailStub
+	exitMeta  []*FailStub
+	forward   []*FailStub
 }
 
 func newStubs() *stubs { return &stubs{} }
@@ -294,10 +296,24 @@ func (a *Subject) OnLink(target any) *FailStub {
 	return s
 }
 
+// OnUnlink stubs an Unlink of target to fail.
+func (a *Subject) OnUnlink(target any) *FailStub {
+	s := &FailStub{to: target}
+	a.stubs.unlink = append(a.stubs.unlink, s)
+	return s
+}
+
 // OnMonitor stubs a Monitor of target to fail.
 func (a *Subject) OnMonitor(target any) *FailStub {
 	s := &FailStub{to: target}
 	a.stubs.monitor = append(a.stubs.monitor, s)
+	return s
+}
+
+// OnDemonitor stubs a Demonitor of target to fail.
+func (a *Subject) OnDemonitor(target any) *FailStub {
+	s := &FailStub{to: target}
+	a.stubs.demonitor = append(a.stubs.demonitor, s)
 	return s
 }
 

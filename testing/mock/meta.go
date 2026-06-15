@@ -172,7 +172,7 @@ func (m *Meta) EnvList() map[gen.Env]any {
 	if m.ov.envList != nil {
 		return m.ov.envList()
 	}
-	return map[gen.Env]any{}
+	return nil
 }
 
 func (m *Meta) EnvDefault(name gen.Env, def any) any {

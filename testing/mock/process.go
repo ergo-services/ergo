@@ -717,7 +717,7 @@ func (p *Process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 	if p.ov.sendAfter != nil {
 		cancel, err = p.ov.sendAfter(to, message, after)
 	}
-	p.put(check.SendAfter{From: p.pid, To: to, Message: message, After: after})
+	p.put(check.SendAfter{From: p.pid, To: to, Message: message, After: after, Error: err})
 	return cancel, err
 }
 
@@ -726,7 +726,7 @@ func (p *Process) SendWithPriorityAfter(to any, message any, priority gen.Messag
 	if p.ov.sendWithPriorityAfter != nil {
 		cancel, err = p.ov.sendWithPriorityAfter(to, message, priority, after)
 	}
-	p.put(check.SendAfter{From: p.pid, To: to, Message: message, After: after, Options: gen.MessageOptions{Priority: priority}})
+	p.put(check.SendAfter{From: p.pid, To: to, Message: message, After: after, Options: gen.MessageOptions{Priority: priority}, Error: err})
 	return cancel, err
 }
 
@@ -735,7 +735,7 @@ func (p *Process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 	if p.ov.sendEvent != nil {
 		err = p.ov.sendEvent(name, token, message)
 	}
-	p.put(check.SendEvent{From: p.pid, Name: name, Message: message, Error: err})
+	p.put(check.SendEvent{From: p.pid, Name: name, Token: token, Message: message, Error: err})
 	return err
 }
 
@@ -1229,9 +1229,11 @@ func (p *Process) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.
 		err = p.ov.forward(to, message, priority)
 	}
 	var from gen.PID
+	var inner any
 	if message != nil {
 		from = message.From
+		inner = message.Message
 	}
-	p.put(check.Forward{By: p.pid, To: to, From: from, Message: message, Error: err})
+	p.put(check.Forward{By: p.pid, To: to, From: from, Message: inner, Error: err})
 	return err
 }

@@ -588,3 +588,89 @@ func TestSmokeSendExitMeta(t *testing.T) {
 		ReasonIs(gen.TerminateReasonShutdown).
 		Once().Assert()
 }
+
+// a panic in a callback is recovered into TerminateReasonPanic, mirroring the real
+// runtime (node/process_run.go), instead of crashing the test.
+type panicActor struct{ act.Actor }
+
+func factoryPanic() gen.ProcessBehavior { return &panicActor{} }
+
+func (a *panicActor) HandleMessage(from gen.PID, message any) error { panic("boom") }
+
+func TestSmokePanicRecovery(t *testing.T) {
+	s, _ := unit.Spawn(t, factoryPanic, gen.ProcessOptions{})
+	s.SendMessage(gen.PID{}, "go")
+	check.True(t, s.Terminated())
+	check.ErrorIs(t, s.Reason(), gen.TerminateReasonPanic)
+}
+
+// Node().ProcessInfo reflects the subject's terminated state (procEntry tracks state).
+func TestSmokeProcessInfoState(t *testing.T) {
+	s, _ := unit.Spawn(t, factorySample, gen.ProcessOptions{})
+	before, _ := s.Node().ProcessInfo(s.PID())
+	check.Equal(t, gen.ProcessStateRunning, before.State)
+
+	s.SendMessage(gen.PID{}, "die") // factorySample returns errBoom
+	after, err := s.Node().ProcessInfo(s.PID())
+	check.NoError(t, err)
+	check.Equal(t, gen.ProcessStateTerminated, after.State)
+}
+
+// Unlink/Demonitor failures can be stubbed (OnUnlink/OnDemonitor) and the error is
+// recorded.
+type linkerActor struct {
+	act.Actor
+	unlinkErr error
+	demonErr  error
+}
+
+func factoryLinker() gen.ProcessBehavior { return &linkerActor{} }
+
+func (a *linkerActor) HandleMessage(from gen.PID, message any) error {
+	a.unlinkErr = a.Unlink(message)
+	a.demonErr = a.Demonitor(message)
+	return nil
+}
+
+func TestSmokeOnUnlinkDemonitor(t *testing.T) {
+	s, _ := unit.Spawn(t, factoryLinker, gen.ProcessOptions{})
+	target := gen.PID{Node: "n@h", ID: 3, Creation: 1}
+	s.OnUnlink(target).Fail(gen.ErrProcessUnknown)
+	s.OnDemonitor(target).Fail(gen.ErrNameUnknown)
+
+	s.SendMessage(gen.PID{}, target)
+
+	b := s.Behavior().(*linkerActor)
+	check.ErrorIs(t, b.unlinkErr, gen.ErrProcessUnknown)
+	check.ErrorIs(t, b.demonErr, gen.ErrNameUnknown)
+	s.ShouldUnlink().Target(target).ErrorIs(gen.ErrProcessUnknown).Once().Assert()
+	s.ShouldDemonitor().Target(target).ErrorIs(gen.ErrNameUnknown).Once().Assert()
+}
+
+// LinkPID to self is rejected (mirrors the real runtime), and ProcessState reflects
+// a terminated process.
+type selfLinkActor struct {
+	act.Actor
+	err error
+}
+
+func factorySelfLink() gen.ProcessBehavior { return &selfLinkActor{} }
+
+func (a *selfLinkActor) HandleMessage(from gen.PID, message any) error {
+	a.err = a.LinkPID(a.PID())
+	return nil
+}
+
+func TestSmokeSelfLinkRejected(t *testing.T) {
+	s, _ := unit.Spawn(t, factorySelfLink, gen.ProcessOptions{})
+	s.SendMessage(gen.PID{}, "go")
+	check.ErrorIs(t, s.Behavior().(*selfLinkActor).err, gen.ErrNotAllowed)
+}
+
+func TestSmokeProcessStateTerminated(t *testing.T) {
+	s, _ := unit.Spawn(t, factorySample, gen.ProcessOptions{})
+	s.SendMessage(gen.PID{}, "die") // factorySample returns errBoom
+	state, err := s.Node().ProcessState(s.PID())
+	check.NoError(t, err)
+	check.Equal(t, gen.ProcessStateTerminated, state)
+}

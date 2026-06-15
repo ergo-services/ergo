@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"ergo.services/ergo/testing/check"
 )
@@ -111,5 +112,78 @@ func TestCheckIsTypeMatcher(t *testing.T) {
 	}
 	if isError("not an error") {
 		t.Fatal("IsType[error] should not match a non-error value")
+	}
+}
+
+// growSource reveals its records only after revealAt polls, so Within's polling can
+// be exercised deterministically (by poll count, not wall-clock data races).
+type growSource struct {
+	recs     []check.Record
+	calls    int
+	revealAt int
+}
+
+func (s *growSource) Records() []check.Record {
+	s.calls++
+	if s.calls >= s.revealAt {
+		return s.recs
+	}
+	return nil
+}
+
+func isA(m msgRec) bool    { return m.from == "a" }
+func isPing(m msgRec) bool { return m.body == "ping" }
+
+// Within waits for a record that appears after several polls.
+func TestCheckWithinFindsLateRecord(t *testing.T) {
+	src := &growSource{recs: snapshot{msgRec{"a", "ping"}}, revealAt: 3}
+	check.For[msgRec](t, src).Where(isPing).Within(2 * time.Second).Once().Assert()
+}
+
+// Within + exact cardinality fails when the count overshoots n between polls (documented).
+func TestCheckWithinExactOvershootFails(t *testing.T) {
+	src := &growSource{recs: snapshot{msgRec{"a", "ping"}, msgRec{"a", "ping"}}, revealAt: 2}
+	ft := &fakeT{}
+	check.For[msgRec](ft, src).Where(isPing).Within(200 * time.Millisecond).Times(1).Assert()
+	if ft.failed == false {
+		t.Fatal("expected Times(1) to fail when the count overshoots to 2")
+	}
+}
+
+// Capture waits (up to Within) and returns the first match.
+func TestCheckCaptureWithin(t *testing.T) {
+	src := &growSource{recs: snapshot{msgRec{"a", "ping"}}, revealAt: 3}
+	r, ok := check.For[msgRec](t, src).Where(isPing).Within(2 * time.Second).Capture()
+	if ok == false || r.body != "ping" {
+		t.Fatalf("Capture: got (%v, %v)", r, ok)
+	}
+}
+
+// Collect returns every match in observation order.
+func TestCheckCollectOrder(t *testing.T) {
+	src := snapshot{msgRec{"a", "1"}, msgRec{"b", "x"}, msgRec{"a", "2"}}
+	got := check.For[msgRec](t, src).Where(isA).Collect()
+	if len(got) != 2 || got[0].body != "1" || got[1].body != "2" {
+		t.Fatalf("Collect order: %v", got)
+	}
+}
+
+// Since scopes the assertion to records observed after a mark.
+func TestCheckSinceScopes(t *testing.T) {
+	full := snapshot{msgRec{"a", "old"}, msgRec{"a", "new"}}
+	check.For[msgRec](t, full).Where(isA).Since(1).Times(1).Assert() // only "new"
+}
+
+// None().Within passes when nothing matches in the window, fails when a match exists.
+func TestCheckNoneWithin(t *testing.T) {
+	src := snapshot{msgRec{"a", "ping"}}
+	check.For[msgRec](t, src).
+		Where(func(m msgRec) bool { return m.body == "nope" }).
+		None().Within(50 * time.Millisecond).Assert()
+
+	ft := &fakeT{}
+	check.For[msgRec](ft, src).Where(isPing).None().Within(50 * time.Millisecond).Assert()
+	if ft.failed == false {
+		t.Fatal("expected None to fail when a match exists")
 	}
 }

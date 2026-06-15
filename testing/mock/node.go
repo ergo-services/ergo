@@ -817,7 +817,7 @@ func (n *Node) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOption
 	if n.ov.sendEvent != nil {
 		err = n.ov.sendEvent(name, token, options, message)
 	}
-	n.put(check.SendEvent{From: n.pid, Name: name, Message: message, Options: options, Error: err})
+	n.put(check.SendEvent{From: n.pid, Name: name, Token: token, Message: message, Options: options, Error: err})
 	return err
 }
 

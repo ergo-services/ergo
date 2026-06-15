@@ -39,6 +39,8 @@ type mockProcess struct {
 	compression gen.Compression
 }
 
+var _ gen.Process = (*mockProcess)(nil)
+
 func newMockProcess(node *mockNode, register gen.Atom, o gen.ProcessOptions) *mockProcess {
 	pid := gen.PID{Node: node.nodeName, ID: 1000, Creation: node.creation}
 	parent := node.nodePID() // node spawns the process under test
@@ -521,7 +523,7 @@ func (p *mockProcess) SendEvent(name gen.Atom, token gen.Ref, message any) error
 	if p.stateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	return p.node.routeSendEvent(p.pid, name, message, p.msgOptions())
+	return p.node.routeSendEvent(p.pid, name, token, message, p.msgOptions())
 }
 
 // delayed sends (timers)
@@ -695,6 +697,9 @@ func (p *mockProcess) LinkPID(target gen.PID) error {
 	if p.stateIR() == false {
 		return gen.ErrNotAllowed
 	}
+	if target == p.pid {
+		return gen.ErrNotAllowed // mirrors the real runtime: no self-link
+	}
 	return p.node.routeLink(p.pid, target)
 }
 func (p *mockProcess) UnlinkPID(target gen.PID) error {
@@ -844,6 +849,9 @@ func (p *mockProcess) InspectMeta(meta gen.Alias, item ...string) (map[string]st
 func (p *mockProcess) Info() (gen.ProcessInfo, error) {
 	if p.ov.info != nil {
 		return p.ov.info()
+	}
+	if p.stateIR() == false {
+		return gen.ProcessInfo{}, gen.ErrNotAllowed
 	}
 	return gen.ProcessInfo{PID: p.pid, Name: p.name, Parent: p.parent, Leader: p.leader, State: p.state, Env: p.env}, nil
 }

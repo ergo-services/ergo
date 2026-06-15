@@ -123,7 +123,7 @@ func runLink(t *testing.T, s *stage.Stage, n *stage.Node, host, w gen.PID, trap 
 		// process itself stays alive
 		unregisterFor(n, bPID, linkTarget)
 	} else if reason == gen.TerminateReasonKill {
-		s.Kill(n, bPID)
+		n.Kill(bPID)
 	} else if err := n.SendExit(bPID, reason); err != nil {
 		t.Fatalf("send exit: %s", err)
 	}

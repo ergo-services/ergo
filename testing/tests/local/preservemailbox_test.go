@@ -44,7 +44,7 @@ func TestLocalPreserveMailbox(t *testing.T) {
 	}{
 		{"Panic", func(s *stage.Stage, n *stage.Node, tgt gen.PID) { n.Send(tgt, "panic") }, gen.TerminateReasonPanic},
 		{"AbnormalReturn", func(s *stage.Stage, n *stage.Node, tgt gen.PID) { n.Send(tgt, "fail") }, errPMAbnormal},
-		{"Kill", func(s *stage.Stage, n *stage.Node, tgt gen.PID) { s.Kill(n, tgt) }, gen.TerminateReasonKill},
+		{"Kill", func(s *stage.Stage, n *stage.Node, tgt gen.PID) { n.Kill(tgt) }, gen.TerminateReasonKill},
 	}
 
 	for _, tc := range cases {

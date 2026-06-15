@@ -15,7 +15,7 @@ import (
 // operation to the route* helpers here, which record the egress as check.Records
 // and consult the stubs for the return value. This mirrors the routing core that
 // stage decorates. Network() returns a built-in stubbable mock (configured via
-// sub.Node().Network()...); Cron() is not yet supported and fails the test.
+// sub.Node().Network()...); Cron() returns a built-in mock cron (sub.Node().Cron()).
 //
 // Every non-egress method first consults its override (see nodeOverrides and the
 // On* setters in node_overrides.go); when unset it falls back to the default below.
@@ -45,21 +45,21 @@ type mockNode struct {
 	ov nodeOverrides
 }
 
+var _ gen.Node = (*mockNode)(nil)
+
 // procEntry is a process the mock node knows about.
 type procEntry struct {
-	pid     gen.PID
-	name    gen.Atom
-	parent  gen.PID
-	leader  gen.PID
-	factory gen.ProcessFactory
-	options gen.ProcessOptions
+	pid    gen.PID
+	name   gen.Atom
+	parent gen.PID
+	leader gen.PID
+	state  gen.ProcessState
 }
 
 type timer struct {
 	from      gen.PID
 	to        any
 	message   any
-	after     time.Duration
 	cancelled bool
 	fired     bool
 }
@@ -136,7 +136,7 @@ func (n *mockNode) routeSpawn(from gen.PID, register gen.Atom, factory gen.Proce
 		if leader == (gen.PID{}) {
 			leader = from
 		}
-		n.registerProc(&procEntry{pid: pid, name: register, parent: from, leader: leader, factory: factory, options: options})
+		n.registerProc(&procEntry{pid: pid, name: register, parent: from, leader: leader, state: gen.ProcessStateRunning})
 	}
 	n.rec.Put(check.Spawn{Parent: from, Child: pid, Register: register, Factory: factory, Options: options, Error: err})
 	return pid, err
@@ -184,8 +184,8 @@ func (n *mockNode) routeSendResponse(from, to gen.PID, ref gen.Ref, message any,
 	return nil
 }
 
-func (n *mockNode) routeSendEvent(from gen.PID, name gen.Atom, message any, options gen.MessageOptions) error {
-	n.rec.Put(check.SendEvent{From: from, Name: name, Message: message, Options: options})
+func (n *mockNode) routeSendEvent(from gen.PID, name gen.Atom, token gen.Ref, message any, options gen.MessageOptions) error {
+	n.rec.Put(check.SendEvent{From: from, Name: name, Token: token, Message: message, Options: options})
 	return nil
 }
 
@@ -195,8 +195,9 @@ func (n *mockNode) routeLink(from gen.PID, target any) error {
 	return err
 }
 func (n *mockNode) routeUnlink(from gen.PID, target any) error {
-	n.rec.Put(check.Unlink{From: from, Target: target})
-	return nil
+	err, _ := resolveFail(n.stubs.unlink, target)
+	n.rec.Put(check.Unlink{From: from, Target: target, Error: err})
+	return err
 }
 func (n *mockNode) routeMonitor(from gen.PID, target any) error {
 	err, _ := resolveFail(n.stubs.monitor, target)
@@ -204,8 +205,9 @@ func (n *mockNode) routeMonitor(from gen.PID, target any) error {
 	return err
 }
 func (n *mockNode) routeDemonitor(from gen.PID, target any) error {
-	n.rec.Put(check.Demonitor{From: from, Target: target})
-	return nil
+	err, _ := resolveFail(n.stubs.demonitor, target)
+	n.rec.Put(check.Demonitor{From: from, Target: target, Error: err})
+	return err
 }
 
 func (n *mockNode) routeForward(by, to, from gen.PID, message any) error {
@@ -243,7 +245,7 @@ func (n *mockNode) routeUnregisterEvent(from gen.PID, name gen.Atom, err error) 
 // schedule records a delayed send and returns a CancelFunc; the harness delivers
 // it when the test fires timers.
 func (n *mockNode) schedule(from gen.PID, to any, message any, after time.Duration, options gen.MessageOptions) gen.CancelFunc {
-	tm := &timer{from: from, to: to, message: message, after: after}
+	tm := &timer{from: from, to: to, message: message}
 	n.timers = append(n.timers, tm)
 	n.rec.Put(check.SendAfter{From: from, To: to, Message: message, After: after, Options: options})
 	return func() bool {
@@ -413,7 +415,7 @@ func (n *mockNode) SendExit(pid gen.PID, reason error) error {
 	return n.routeSendExit(n.nodePID(), pid, reason)
 }
 func (n *mockNode) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
-	return n.routeSendEvent(n.nodePID(), name, message, options)
+	return n.routeSendEvent(n.nodePID(), name, token, message, options)
 }
 
 func (n *mockNode) Call(to any, request any) (any, error) {
@@ -472,6 +474,9 @@ func (n *mockNode) RegisterName(name gen.Atom, pid gen.PID) error {
 	e, ok := n.procs[pid]
 	if ok == false {
 		return gen.ErrProcessUnknown
+	}
+	if e.state == gen.ProcessStateTerminated {
+		return gen.ErrProcessTerminated // mirrors the real runtime: no register for a dead process
 	}
 	if e.name != "" {
 		return gen.ErrTaken // a process may hold only one registered name
@@ -560,7 +565,7 @@ func (n *mockNode) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	if ok == false {
 		return gen.ProcessInfo{}, gen.ErrProcessUnknown
 	}
-	return gen.ProcessInfo{PID: e.pid, Name: e.name, Parent: e.parent, Leader: e.leader, State: gen.ProcessStateRunning, Env: n.env}, nil
+	return gen.ProcessInfo{PID: e.pid, Name: e.name, Parent: e.parent, Leader: e.leader, State: e.state, Env: n.env}, nil
 }
 func (n *mockNode) ProcessList() ([]gen.PID, error) {
 	if n.ov.processList != nil {
@@ -609,10 +614,11 @@ func (n *mockNode) ProcessState(pid gen.PID) (gen.ProcessState, error) {
 	if n.ov.processState != nil {
 		return n.ov.processState(pid)
 	}
-	if _, ok := n.procs[pid]; ok == false {
+	e, ok := n.procs[pid]
+	if ok == false {
 		return 0, gen.ErrProcessUnknown
 	}
-	return gen.ProcessStateRunning, nil
+	return e.state, nil
 }
 
 // applications

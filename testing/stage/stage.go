@@ -224,6 +224,14 @@ func (n *Node) Call(to any, request any) (any, error) { return n.node.Call(to, r
 // SendExit sends an exit signal to a process (node-level, sender is the node).
 func (n *Node) SendExit(pid gen.PID, reason error) error { return n.node.SendExit(pid, reason) }
 
+// Kill force-terminates a process on this node (TerminateReasonKill).
+func (n *Node) Kill(pid gen.PID) {
+	n.t.Helper()
+	if err := n.node.Kill(pid); err != nil {
+		n.t.Fatalf("stage: kill %s: %s", pid, err)
+	}
+}
+
 // ProcessID builds a ProcessID addressing the named process on this node. Handy
 // for cross-node addressing: n1.Call(n2.ProcessID("svc"), req).
 func (n *Node) ProcessID(name gen.Atom) gen.ProcessID {
@@ -248,8 +256,50 @@ func (n *Node) EnableApplicationStart(name gen.Atom, nodes ...gen.Atom) {
 	}
 }
 
+// recordRemoteNode wraps the gen.RemoteNode returned by Connect so node-level remote
+// egress is observable: Spawn/SpawnRegister record check.RemoteSpawn and the
+// ApplicationStart* family records check.RemoteApplicationStart, attributed to the
+// local node (from). Queries and Disconnect delegate to the real remote unchanged.
+type recordRemoteNode struct {
+	gen.RemoteNode
+	from gen.PID
+	rec  *check.Recorder
+}
+
+func (r *recordRemoteNode) Spawn(name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	pid, err := r.RemoteNode.Spawn(name, options, args...)
+	r.rec.Put(check.RemoteSpawn{Parent: r.from, Node: r.RemoteNode.Name(), Name: name, Child: pid, Options: options, Error: err})
+	return pid, err
+}
+func (r *recordRemoteNode) SpawnRegister(register gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	pid, err := r.RemoteNode.SpawnRegister(register, name, options, args...)
+	r.rec.Put(check.RemoteSpawn{Parent: r.from, Node: r.RemoteNode.Name(), Name: name, Register: register, Child: pid, Options: options, Error: err})
+	return pid, err
+}
+func (r *recordRemoteNode) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
+	err := r.RemoteNode.ApplicationStart(name, options)
+	r.rec.Put(check.RemoteApplicationStart{From: r.from, Node: r.RemoteNode.Name(), Name: name, Error: err})
+	return err
+}
+func (r *recordRemoteNode) ApplicationStartTemporary(name gen.Atom, options gen.ApplicationOptions) error {
+	err := r.RemoteNode.ApplicationStartTemporary(name, options)
+	r.rec.Put(check.RemoteApplicationStart{From: r.from, Node: r.RemoteNode.Name(), Name: name, Mode: gen.ApplicationModeTemporary, Error: err})
+	return err
+}
+func (r *recordRemoteNode) ApplicationStartTransient(name gen.Atom, options gen.ApplicationOptions) error {
+	err := r.RemoteNode.ApplicationStartTransient(name, options)
+	r.rec.Put(check.RemoteApplicationStart{From: r.from, Node: r.RemoteNode.Name(), Name: name, Mode: gen.ApplicationModeTransient, Error: err})
+	return err
+}
+func (r *recordRemoteNode) ApplicationStartPermanent(name gen.Atom, options gen.ApplicationOptions) error {
+	err := r.RemoteNode.ApplicationStartPermanent(name, options)
+	r.rec.Put(check.RemoteApplicationStart{From: r.from, Node: r.RemoteNode.Name(), Name: name, Mode: gen.ApplicationModePermanent, Error: err})
+	return err
+}
+
 // Connect establishes a connection from a to b and waits until both sides have
-// registered it, then returns the RemoteNode from a's perspective. The wait is
+// registered it, then returns the RemoteNode from a's perspective (wrapped so its
+// Spawn / ApplicationStart* egress is recorded on a's stream). The wait is
 // deterministic (polls for the reverse registration rather than sleeping).
 func (s *Stage) Connect(a, b *Node) gen.RemoteNode {
 	s.t.Helper()
@@ -269,7 +319,7 @@ func (s *Stage) Connect(a, b *Node) gen.RemoteNode {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	return remote
+	return &recordRemoteNode{RemoteNode: remote, from: a.node.PID(), rec: a.rec}
 }
 
 // ConnectMesh dials every ordered pair of nodes concurrently, so each link is
@@ -316,14 +366,6 @@ func (s *Stage) ConnectMesh(nodes ...*Node) {
 			s.t.Fatalf("stage: mesh of %d nodes did not settle: %d missing connections", len(nodes), missing)
 		}
 		time.Sleep(20 * time.Millisecond)
-	}
-}
-
-// Kill force-terminates a process (TerminateReasonKill).
-func (s *Stage) Kill(n *Node, pid gen.PID) {
-	s.t.Helper()
-	if err := n.node.Kill(pid); err != nil {
-		s.t.Fatalf("stage: kill %s: %s", pid, err)
 	}
 }
 
@@ -542,28 +584,34 @@ type recordBridge struct {
 
 func (b *recordBridge) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
 	err := b.CoreTargetManager.RouteSendPID(from, to, options, message)
-	switch message.(type) {
-	case gen.MessageDownPID, gen.MessageDownProcessID, gen.MessageDownAlias, gen.MessageDownNode, gen.MessageDownEvent:
-		b.rec.Put(check.Down{To: to, Message: message})
-	case gen.MessageEventStart, gen.MessageEventStop:
-		// producer notifications about first subscriber / last unsubscribe
-		b.rec.Put(check.Delivered{From: from, To: to, Message: message})
+	if err == nil {
+		switch message.(type) {
+		case gen.MessageDownPID, gen.MessageDownProcessID, gen.MessageDownAlias, gen.MessageDownNode, gen.MessageDownEvent:
+			b.rec.Put(check.Down{To: to, Message: message})
+		case gen.MessageEventStart, gen.MessageEventStop:
+			// producer notifications about first subscriber / last unsubscribe
+			b.rec.Put(check.Delivered{From: from, To: to, Message: message})
+		}
 	}
 	return err
 }
 
 func (b *recordBridge) RouteSendExitMessages(from gen.PID, to []gen.PID, message any) error {
 	err := b.CoreTargetManager.RouteSendExitMessages(from, to, message)
-	for _, pid := range to {
-		b.rec.Put(check.Exit{To: pid, Message: message})
+	if err == nil {
+		for _, pid := range to {
+			b.rec.Put(check.Exit{To: pid, Message: message})
+		}
 	}
 	return err
 }
 
 func (b *recordBridge) RouteSendEventMessages(from gen.PID, to []gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
 	err := b.CoreTargetManager.RouteSendEventMessages(from, to, options, message)
-	for _, pid := range to {
-		b.rec.Put(check.Event{To: pid, Event: message.Event, Timestamp: message.Timestamp, Message: message.Message})
+	if err == nil {
+		for _, pid := range to {
+			b.rec.Put(check.Event{To: pid, Event: message.Event, Timestamp: message.Timestamp, Message: message.Message})
+		}
 	}
 	return err
 }
@@ -669,6 +717,26 @@ func (p *recordProcess) Unlink(target any) error {
 	p.rec.Put(check.Unlink{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
+func (p *recordProcess) LinkNode(target gen.Atom) error {
+	err := p.Process.LinkNode(target)
+	p.rec.Put(check.Link{From: p.Process.PID(), Target: target, Error: err})
+	return err
+}
+func (p *recordProcess) UnlinkNode(target gen.Atom) error {
+	err := p.Process.UnlinkNode(target)
+	p.rec.Put(check.Unlink{From: p.Process.PID(), Target: target, Error: err})
+	return err
+}
+func (p *recordProcess) MonitorNode(target gen.Atom) error {
+	err := p.Process.MonitorNode(target)
+	p.rec.Put(check.Monitor{From: p.Process.PID(), Target: target, Error: err})
+	return err
+}
+func (p *recordProcess) DemonitorNode(target gen.Atom) error {
+	err := p.Process.DemonitorNode(target)
+	p.rec.Put(check.Demonitor{From: p.Process.PID(), Target: target, Error: err})
+	return err
+}
 
 func (p *recordProcess) UnlinkPID(pid gen.PID) error {
 	err := p.Process.UnlinkPID(pid)
@@ -718,7 +786,7 @@ func (p *recordProcess) msgOptions() gen.MessageOptions {
 func (p *recordProcess) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 	options := p.msgOptions()
 	err := p.Process.SendEvent(name, token, message)
-	p.rec.Put(check.SendEvent{From: p.Process.PID(), Name: name, Message: message, Options: options, Error: err})
+	p.rec.Put(check.SendEvent{From: p.Process.PID(), Name: name, Token: token, Message: message, Options: options, Error: err})
 	return err
 }
 

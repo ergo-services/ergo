@@ -23,7 +23,7 @@ func runMonitorDeath(t *testing.T, s *stage.Stage, n1, n2 *stage.Node, addr stri
 
 	mk := n1.Mark()
 	if reason == gen.TerminateReasonKill {
-		s.Kill(n2, pid)
+		n2.Kill(pid)
 	} else {
 		check.NoError(t, n2.SendExit(pid, reason))
 	}

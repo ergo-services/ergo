@@ -14,7 +14,7 @@ func triggerExit(t *testing.T, s *stage.Stage, n *stage.Node, target gen.PID, re
 	t.Helper()
 	switch reason {
 	case gen.TerminateReasonKill:
-		s.Kill(n, target)
+		n.Kill(target)
 	case gen.TerminateReasonPanic:
 		n.Send(target, "panic")
 	default:

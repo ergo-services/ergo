@@ -56,6 +56,9 @@ func TestDistRemoteApp(t *testing.T) {
 	check.NoError(t, remote.ApplicationStart(appname, gen.ApplicationOptions{}))
 	check.Equal(t, true, containsAtom(n2.Native().ApplicationsRunning(), appname))
 
+	// node-level remote egress is recorded on the initiating node's stream
+	n1.ShouldRemoteApplicationStart().Name(appname).Once().Assert()
+
 	// remote info after start: running
 	info2, err := remote.ApplicationInfo(appname)
 	check.NoError(t, err)

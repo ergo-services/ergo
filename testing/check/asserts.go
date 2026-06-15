@@ -702,6 +702,10 @@ func (a *SendEventAssert) Name(name gen.Atom) *SendEventAssert {
 	a.Where(func(r SendEvent) bool { return r.Name == name })
 	return a
 }
+func (a *SendEventAssert) Token(token gen.Ref) *SendEventAssert {
+	a.Where(func(r SendEvent) bool { return r.Token == token })
+	return a
+}
 func (a *SendEventAssert) Error(target error) *SendEventAssert {
 	a.Where(func(r SendEvent) bool { return r.Error == target })
 	return a
@@ -972,5 +976,13 @@ func (x *SendAfterAssert) Important(important bool) *SendAfterAssert {
 }
 func (x *SendAfterAssert) KeepNetworkOrder(keep bool) *SendAfterAssert {
 	x.Where(func(r SendAfter) bool { return r.Options.KeepNetworkOrder == keep })
+	return x
+}
+func (x *SendAfterAssert) Error(target error) *SendAfterAssert {
+	x.Where(func(r SendAfter) bool { return r.Error == target })
+	return x
+}
+func (x *SendAfterAssert) ErrorIs(target error) *SendAfterAssert {
+	x.Where(func(r SendAfter) bool { return errors.Is(r.Error, target) })
 	return x
 }

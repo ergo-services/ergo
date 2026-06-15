@@ -330,14 +330,14 @@ func TestDistOptSubscriberTermination(t *testing.T) {
 	n1.Send(w, monitorCmd{Target: sub1})
 	n1.ShouldMonitor().From(w).Target(sub1).Once().Within(time.Second).Must()
 	mk := n1.Mark()
-	s.Kill(n1, sub1)
+	n1.Kill(sub1)
 	n1.ShouldReceiveDown().To(w).About(sub1).Since(mk).Once().Within(time.Second).Must()
 
 	// kill the last subscriber
 	n1.Send(w, monitorCmd{Target: sub2})
 	n1.ShouldMonitor().From(w).Target(sub2).Once().Within(time.Second).Must()
 	mk2 := n1.Mark()
-	s.Kill(n1, sub2)
+	n1.Kill(sub2)
 	n1.ShouldReceiveDown().To(w).About(sub2).Since(mk2).Once().Within(time.Second).Must()
 
 	// exactly one wire unlink total: the non-last death sent nothing on the wire
