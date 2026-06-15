@@ -90,18 +90,18 @@ func (c *benchConn) CallProcessID(gen.PID, gen.ProcessID, gen.MessageOptions, an
 func (c *benchConn) CallAlias(gen.PID, gen.Alias, gen.MessageOptions, any) error {
 	return nil
 }
-func (c *benchConn) LinkPID(gen.PID, gen.PID) error  { c.sleep(); return nil }
-func (c *benchConn) UnlinkPID(gen.PID, gen.PID) error { c.sleep(); return nil }
-func (c *benchConn) LinkProcessID(gen.PID, gen.ProcessID) error  { c.sleep(); return nil }
-func (c *benchConn) UnlinkProcessID(gen.PID, gen.ProcessID) error { c.sleep(); return nil }
-func (c *benchConn) LinkAlias(gen.PID, gen.Alias) error  { c.sleep(); return nil }
-func (c *benchConn) UnlinkAlias(gen.PID, gen.Alias) error { c.sleep(); return nil }
-func (c *benchConn) MonitorPID(gen.PID, gen.PID) error  { c.sleep(); return nil }
-func (c *benchConn) DemonitorPID(gen.PID, gen.PID) error { c.sleep(); return nil }
-func (c *benchConn) MonitorProcessID(gen.PID, gen.ProcessID) error  { c.sleep(); return nil }
+func (c *benchConn) LinkPID(gen.PID, gen.PID) error                  { c.sleep(); return nil }
+func (c *benchConn) UnlinkPID(gen.PID, gen.PID) error                { c.sleep(); return nil }
+func (c *benchConn) LinkProcessID(gen.PID, gen.ProcessID) error      { c.sleep(); return nil }
+func (c *benchConn) UnlinkProcessID(gen.PID, gen.ProcessID) error    { c.sleep(); return nil }
+func (c *benchConn) LinkAlias(gen.PID, gen.Alias) error              { c.sleep(); return nil }
+func (c *benchConn) UnlinkAlias(gen.PID, gen.Alias) error            { c.sleep(); return nil }
+func (c *benchConn) MonitorPID(gen.PID, gen.PID) error               { c.sleep(); return nil }
+func (c *benchConn) DemonitorPID(gen.PID, gen.PID) error             { c.sleep(); return nil }
+func (c *benchConn) MonitorProcessID(gen.PID, gen.ProcessID) error   { c.sleep(); return nil }
 func (c *benchConn) DemonitorProcessID(gen.PID, gen.ProcessID) error { c.sleep(); return nil }
-func (c *benchConn) MonitorAlias(gen.PID, gen.Alias) error  { c.sleep(); return nil }
-func (c *benchConn) DemonitorAlias(gen.PID, gen.Alias) error { c.sleep(); return nil }
+func (c *benchConn) MonitorAlias(gen.PID, gen.Alias) error           { c.sleep(); return nil }
+func (c *benchConn) DemonitorAlias(gen.PID, gen.Alias) error         { c.sleep(); return nil }
 func (c *benchConn) LinkEvent(gen.PID, gen.Event) ([]gen.MessageEvent, error) {
 	c.sleep()
 	return nil, nil

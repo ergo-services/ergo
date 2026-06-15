@@ -22,7 +22,7 @@ func TestEncodePtrInt(t *testing.T) {
 	expect := []byte{
 		edtType, 0, 2, // type header
 		edtPtr, edtInt, // type descriptor
-		edtPtr,                          // non-nil marker
+		edtPtr,                  // non-nil marker
 		0, 0, 0, 0, 0, 0, 0, 42, // int value (big endian)
 	}
 
@@ -72,8 +72,8 @@ func TestEncodePtrString(t *testing.T) {
 	expect := []byte{
 		edtType, 0, 2, // type header
 		edtPtr, edtString, // type descriptor
-		edtPtr,       // non-nil marker
-		0, 5,         // string len
+		edtPtr, // non-nil marker
+		0, 5,   // string len
 		'h', 'e', 'l', 'l', 'o',
 	}
 

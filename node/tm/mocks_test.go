@@ -287,7 +287,7 @@ func (c *mockConnection) SendAlias(gen.PID, gen.Alias, gen.MessageOptions, any) 
 func (c *mockConnection) SendEvent(gen.PID, gen.MessageOptions, gen.MessageEvent) error {
 	return nil
 }
-func (c *mockConnection) CallPID(gen.PID, gen.PID, gen.MessageOptions, any) error    { return nil }
+func (c *mockConnection) CallPID(gen.PID, gen.PID, gen.MessageOptions, any) error { return nil }
 func (c *mockConnection) CallProcessID(gen.PID, gen.ProcessID, gen.MessageOptions, any) error {
 	return nil
 }

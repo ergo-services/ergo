@@ -159,7 +159,6 @@ var (
 		gen.TerminateReasonShutdown,
 		gen.TerminateReasonKill,
 		gen.TerminateReasonPanic,
-
 	}
 )
 

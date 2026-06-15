@@ -113,9 +113,9 @@ func TestSupervisorUnitOFORestartsOnAbnormalExit(t *testing.T) {
 	mark := s.Mark()
 	s.DeliverExit(pids[0], errors.New("crash"))
 
-	s.ShouldSpawn().Since(mark).Once().Assert()          // exactly one restart
+	s.ShouldSpawn().Since(mark).Once().Assert() // exactly one restart
 	s.ShouldSpawn().Register("a").Since(mark).Once().Assert()
-	s.ShouldSendExit().Since(mark).None().Assert()       // siblings untouched
+	s.ShouldSendExit().Since(mark).None().Assert() // siblings untouched
 }
 
 // OneForOne + Transient: a normal child exit is NOT restarted.
@@ -377,8 +377,8 @@ func TestSupervisorUnitDefaultCallbacks(t *testing.T) {
 	s, err := unit.Spawn(t, factorySupUnit, gen.ProcessOptions{}, spec)
 	check.NoError(t, err)
 
-	s.SendMessage(gen.PID{}, "ignored")        // -> default HandleMessage (nil)
-	resp, err := s.Call(gen.PID{}, "ignored")  // -> default HandleCall (nil, nil)
+	s.SendMessage(gen.PID{}, "ignored")       // -> default HandleMessage (nil)
+	resp, err := s.Call(gen.PID{}, "ignored") // -> default HandleCall (nil, nil)
 	check.NoError(t, err)
 	check.Nil(t, resp)
 	s.DeliverEvent(gen.Event{Name: "ev"}, "m") // -> default HandleEvent (nil)
@@ -1168,10 +1168,10 @@ func TestSupervisorUnitKeepOrderStressNoPanic(t *testing.T) {
 		check.NoError(t, err)
 		pids := childPIDs(t, s, 4)
 
-		s.DeliverExit(pids[1], errors.New("crash"))          // trigger group restart
-		s.DeliverExit(pids[0], errors.New("independent a"))  // out-of-order independent exits
+		s.DeliverExit(pids[1], errors.New("crash"))         // trigger group restart
+		s.DeliverExit(pids[0], errors.New("independent a")) // out-of-order independent exits
 		s.DeliverExit(pids[3], errors.New("independent d"))
-		s.DeliverExit(pids[2], gen.TerminateReasonShutdown)  // complete
+		s.DeliverExit(pids[2], gen.TerminateReasonShutdown) // complete
 
 		check.False(t, s.Terminated())
 	}

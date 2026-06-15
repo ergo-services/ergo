@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	latency    time.Duration = 500 * time.Nanosecond
-	bufioSize  int           = 65536
+	latency   time.Duration = 500 * time.Nanosecond
+	bufioSize int           = 65536
 )
 
 type Flusher interface {

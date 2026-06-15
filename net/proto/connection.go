@@ -526,8 +526,8 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 		}
 	}
 
-	order := uint8(from.ID % 255 + 1)
-	orderPeer := uint8(to.ID % 255 + 1)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
@@ -592,7 +592,7 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 		}
 	}
 
-	order := uint8(from.ID % 255 + 1)
+	order := uint8(from.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 	}
@@ -652,8 +652,8 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 		return gen.ErrProcessIncarnation
 	}
 
-	order := uint8(from.ID % 255 + 1)
-	orderPeer := uint8(to.ID[1] % 255 + 1)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID[1]%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
@@ -721,7 +721,7 @@ func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message
 		}
 	}
 
-	order := uint8(from.ID % 255 + 1)
+	order := uint8(from.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 	}
@@ -781,8 +781,8 @@ func (c *connection) SendExit(from gen.PID, to gen.PID, reason error) error {
 		return err
 	}
 
-	order := uint8(from.ID % 255 + 1)
-	orderPeer := uint8(to.ID % 255 + 1)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 
 	h := protoWrapReserve
 	buf.B[h+0] = protoMagic
@@ -801,8 +801,8 @@ func (c *connection) SendResponse(from gen.PID, to gen.PID, options gen.MessageO
 	if to.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(from.ID % 255 + 1)
-	orderPeer := uint8(to.ID % 255 + 1)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
@@ -854,8 +854,8 @@ func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.Mes
 		return gen.ErrProcessIncarnation
 	}
 
-	order := uint8(from.ID % 255 + 1)
-	orderPeer := uint8(to.ID % 255 + 1)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
@@ -1055,8 +1055,8 @@ func (c *connection) CallPID(from gen.PID, to gen.PID, options gen.MessageOption
 		return gen.ErrProcessIncarnation
 	}
 
-	order := uint8(from.ID % 255 + 1)
-	orderPeer := uint8(to.ID % 255 + 1)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
@@ -1118,7 +1118,7 @@ func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.M
 		}
 	}
 
-	order := uint8(from.ID % 255 + 1)
+	order := uint8(from.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 	}
@@ -1176,8 +1176,8 @@ func (c *connection) CallAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 		return gen.ErrProcessIncarnation
 	}
 
-	order := uint8(from.ID % 255 + 1)
-	orderPeer := uint8(to.ID[1] % 255 + 1)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID[1]%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
@@ -1235,8 +1235,8 @@ func (c *connection) LinkPID(pid gen.PID, target gen.PID) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(pid.ID % 255 + 1)
-	orderPeer := uint8(target.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageLinkPID{
 		Source: pid,
@@ -1262,8 +1262,8 @@ func (c *connection) UnlinkPID(pid gen.PID, target gen.PID) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(pid.ID % 255 + 1)
-	orderPeer := uint8(target.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageUnlinkPID{
 		Source: pid,
@@ -1285,7 +1285,7 @@ func (c *connection) UnlinkPID(pid gen.PID, target gen.PID) error {
 }
 
 func (c *connection) LinkProcessID(pid gen.PID, target gen.ProcessID) error {
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageLinkProcessID{
 		Source: pid,
@@ -1308,7 +1308,7 @@ func (c *connection) LinkProcessID(pid gen.PID, target gen.ProcessID) error {
 }
 
 func (c *connection) UnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageUnlinkProcessID{
 		Source: pid,
@@ -1334,8 +1334,8 @@ func (c *connection) LinkAlias(pid gen.PID, target gen.Alias) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(pid.ID % 255 + 1)
-	orderPeer := uint8(target.ID[1] % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID[1]%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageLinkAlias{
 		Source: pid,
@@ -1361,8 +1361,8 @@ func (c *connection) UnlinkAlias(pid gen.PID, target gen.Alias) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(pid.ID % 255 + 1)
-	orderPeer := uint8(target.ID[1] % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID[1]%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageUnlinkAlias{
 		Source: pid,
@@ -1384,7 +1384,7 @@ func (c *connection) UnlinkAlias(pid gen.PID, target gen.Alias) error {
 }
 
 func (c *connection) LinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageLinkEvent{
 		Source: pid,
@@ -1413,7 +1413,7 @@ func (c *connection) LinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEven
 }
 
 func (c *connection) UnlinkEvent(pid gen.PID, target gen.Event) error {
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageUnlinkEvent{
 		Source: pid,
@@ -1439,7 +1439,7 @@ func (c *connection) MonitorPID(pid gen.PID, target gen.PID) error {
 		return gen.ErrProcessIncarnation
 	}
 	ref := c.makeRequestRef()
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	message := MessageMonitorPID{
 		Source: pid,
 		Target: target,
@@ -1464,7 +1464,7 @@ func (c *connection) DemonitorPID(pid gen.PID, target gen.PID) error {
 		return gen.ErrProcessIncarnation
 	}
 	ref := c.makeRequestRef()
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	message := MessageDemonitorPID{
 		Source: pid,
 		Target: target,
@@ -1485,7 +1485,7 @@ func (c *connection) DemonitorPID(pid gen.PID, target gen.PID) error {
 }
 
 func (c *connection) MonitorProcessID(pid gen.PID, target gen.ProcessID) error {
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageMonitorProcessID{
 		Source: pid,
@@ -1507,7 +1507,7 @@ func (c *connection) MonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 }
 
 func (c *connection) DemonitorProcessID(pid gen.PID, target gen.ProcessID) error {
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageDemonitorProcessID{
 		Source: pid,
@@ -1533,8 +1533,8 @@ func (c *connection) MonitorAlias(pid gen.PID, target gen.Alias) error {
 		return gen.ErrProcessIncarnation
 	}
 	ref := c.makeRequestRef()
-	order := uint8(pid.ID % 255 + 1)
-	orderPeer := uint8(target.ID[1] % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID[1]%255 + 1)
 	message := MessageMonitorAlias{
 		Source: pid,
 		Target: target,
@@ -1559,8 +1559,8 @@ func (c *connection) DemonitorAlias(pid gen.PID, target gen.Alias) error {
 		return gen.ErrProcessIncarnation
 	}
 	ref := c.makeRequestRef()
-	order := uint8(pid.ID % 255 + 1)
-	orderPeer := uint8(target.ID[1] % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID[1]%255 + 1)
 	message := MessageDemonitorAlias{
 		Source: pid,
 		Target: target,
@@ -1581,7 +1581,7 @@ func (c *connection) DemonitorAlias(pid gen.PID, target gen.Alias) error {
 }
 
 func (c *connection) MonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageMonitorEvent{
 		Source: pid,
@@ -1610,7 +1610,7 @@ func (c *connection) MonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageE
 }
 
 func (c *connection) DemonitorEvent(pid gen.PID, target gen.Event) error {
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageDemonitorEvent{
 		Source: pid,
@@ -1655,7 +1655,7 @@ func (c *connection) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra)
 	// set ref for spawn timeout
 	options.Ref = ref
 
-	order := uint8(pid.ID % 255 + 1)
+	order := uint8(pid.ID%255 + 1)
 
 	message := MessageSpawn{
 		Name:    name,
@@ -3297,8 +3297,8 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID % 255 + 1)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		order := uint8(m.Target.ID%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkPID:
@@ -3310,8 +3310,8 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID % 255 + 1)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		order := uint8(m.Target.ID%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkProcessID:
@@ -3327,7 +3327,7 @@ func (c *connection) routeMessage(msg any) {
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkProcessID:
@@ -3340,7 +3340,7 @@ func (c *connection) routeMessage(msg any) {
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkAlias:
@@ -3355,8 +3355,8 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID[1] % 255 + 1)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		order := uint8(m.Target.ID[1]%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkAlias:
@@ -3368,8 +3368,8 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID[1] % 255 + 1)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		order := uint8(m.Target.ID[1]%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkEvent:
@@ -3385,7 +3385,7 @@ func (c *connection) routeMessage(msg any) {
 		}
 		result := MessageResult{Result: r, Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkEvent:
@@ -3398,7 +3398,7 @@ func (c *connection) routeMessage(msg any) {
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorPID:
@@ -3413,8 +3413,8 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID % 255 + 1)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		order := uint8(m.Target.ID%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorPID:
@@ -3426,8 +3426,8 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID % 255 + 1)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		order := uint8(m.Target.ID%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorProcessID:
@@ -3443,7 +3443,7 @@ func (c *connection) routeMessage(msg any) {
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorProcessID:
@@ -3456,7 +3456,7 @@ func (c *connection) routeMessage(msg any) {
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorAlias:
@@ -3471,8 +3471,8 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID[1] % 255 + 1)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		order := uint8(m.Target.ID[1]%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorAlias:
@@ -3484,8 +3484,8 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID[1] % 255 + 1)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		order := uint8(m.Target.ID[1]%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorEvent:
@@ -3501,7 +3501,7 @@ func (c *connection) routeMessage(msg any) {
 		}
 		result := MessageResult{Result: r, Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorEvent:
@@ -3514,7 +3514,7 @@ func (c *connection) routeMessage(msg any) {
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageSpawn:
@@ -3536,7 +3536,7 @@ func (c *connection) routeMessage(msg any) {
 		}
 		result := MessageResult{Error: err, Result: pid, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Options.ParentPID.ID % 255 + 1)
+		orderPeer := uint8(m.Options.ParentPID.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageApplicationStart:

@@ -122,8 +122,8 @@ func TestActorUnitSplitMessageDispatch(t *testing.T) {
 	acb(s).SetSplitHandle(true)
 	check.True(t, acb(s).SplitHandle())
 
-	s.SendMessage(gen.PID{}, "by-pid")                              // -> HandleMessage
-	s.SendMessageName("svc", gen.PID{}, "by-name")                 // -> HandleMessageName
+	s.SendMessage(gen.PID{}, "by-pid")                                           // -> HandleMessage
+	s.SendMessageName("svc", gen.PID{}, "by-name")                               // -> HandleMessageName
 	s.SendMessageAlias(gen.Alias{Node: "unit@localhost"}, gen.PID{}, "by-alias") // -> HandleMessageAlias
 
 	check.Equal(t, []string{"msg", "name:svc", "alias"}, acb(s).hits)
@@ -247,10 +247,10 @@ func TestActorUnitDefaultCallbacks(t *testing.T) {
 	acb := s.Behavior().(*acuPlain)
 	acb.SetSplitHandle(true)
 
-	s.SendMessage(gen.PID{}, "m")                                  // default HandleMessage (warn)
-	s.SendMessageName("n", gen.PID{}, "m")                        // default HandleMessageName (warn)
+	s.SendMessage(gen.PID{}, "m")                                         // default HandleMessage (warn)
+	s.SendMessageName("n", gen.PID{}, "m")                                // default HandleMessageName (warn)
 	s.SendMessageAlias(gen.Alias{Node: "unit@localhost"}, gen.PID{}, "m") // default HandleMessageAlias (warn)
-	s.DeliverEvent(gen.Event{Name: "e"}, "m")                     // default HandleEvent
+	s.DeliverEvent(gen.Event{Name: "e"}, "m")                             // default HandleEvent
 
 	resp, err := s.Call(gen.PID{}, "q") // default HandleCall (warn, nil)
 	check.NoError(t, err)

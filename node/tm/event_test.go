@@ -17,12 +17,12 @@ type testCore struct {
 	name gen.Atom
 	pid  gen.PID
 
-	mu       sync.Mutex
-	sent     []routedSend
-	exits    []routedExit
-	events   []routedEvent
-	conns    map[gen.Atom]*testConn
-	refSeq   atomic.Uint64
+	mu     sync.Mutex
+	sent   []routedSend
+	exits  []routedExit
+	events []routedEvent
+	conns  map[gen.Atom]*testConn
+	refSeq atomic.Uint64
 }
 
 type routedSend struct {
@@ -142,7 +142,7 @@ func (c *testConn) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOpti
 func (c *testConn) SendEvent(from gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
 	return nil
 }
-func (c *testConn) SendExit(from gen.PID, to gen.PID, reason error) error          { return nil }
+func (c *testConn) SendExit(from gen.PID, to gen.PID, reason error) error { return nil }
 func (c *testConn) SendResponse(from gen.PID, to gen.PID, options gen.MessageOptions, response any) error {
 	return nil
 }
@@ -187,7 +187,7 @@ func (c *testConn) UnlinkPID(pid gen.PID, target gen.PID) error {
 	c.mu.Unlock()
 	return nil
 }
-func (c *testConn) LinkProcessID(pid gen.PID, target gen.ProcessID) error  { return nil }
+func (c *testConn) LinkProcessID(pid gen.PID, target gen.ProcessID) error   { return nil }
 func (c *testConn) UnlinkProcessID(pid gen.PID, target gen.ProcessID) error { return nil }
 func (c *testConn) LinkAlias(pid gen.PID, target gen.Alias) error           { return nil }
 func (c *testConn) UnlinkAlias(pid gen.PID, target gen.Alias) error         { return nil }
@@ -218,7 +218,7 @@ func (c *testConn) DemonitorPID(pid gen.PID, target gen.PID) error {
 	c.mu.Unlock()
 	return nil
 }
-func (c *testConn) MonitorProcessID(pid gen.PID, target gen.ProcessID) error  { return nil }
+func (c *testConn) MonitorProcessID(pid gen.PID, target gen.ProcessID) error   { return nil }
 func (c *testConn) DemonitorProcessID(pid gen.PID, target gen.ProcessID) error { return nil }
 func (c *testConn) MonitorAlias(pid gen.PID, target gen.Alias) error           { return nil }
 func (c *testConn) DemonitorAlias(pid gen.PID, target gen.Alias) error         { return nil }

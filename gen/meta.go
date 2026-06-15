@@ -40,10 +40,10 @@ type MetaBehavior interface {
 // MetaProcess interface provides methods for meta process operations.
 //
 // Meta processes bridge the actor model with the synchronous world by using two goroutines:
-// 1. Forever-running goroutine: Executes Start() method, typically blocked on sync operations
-//    (HTTP server, TCP accept loop, blocking I/O, etc.)
-// 2. Message-handling goroutine: Handles mailbox messages, created only when messages arrive
-//    (same as regular process - sequential message handling)
+//  1. Forever-running goroutine: Executes Start() method, typically blocked on sync operations
+//     (HTTP server, TCP accept loop, blocking I/O, etc.)
+//  2. Message-handling goroutine: Handles mailbox messages, created only when messages arrive
+//     (same as regular process - sequential message handling)
 //
 // This design allows:
 // - One goroutine blocked on sync operations (Start() method)

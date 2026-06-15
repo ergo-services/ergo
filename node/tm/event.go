@@ -444,4 +444,3 @@ func (m *Manager) EventListInfo(timestamp int64, limit int, filter ...func(gen.E
 	}
 	return result, nil
 }
-

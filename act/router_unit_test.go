@@ -252,8 +252,8 @@ func TestRouterUnitReplaceRoute(t *testing.T) {
 	s.DeliverExit(pids["a"], gen.TerminateReasonShutdown) // -> respawn with new spec
 	s.ShouldSpawn().Since(respawnMark).Once().Assert()
 
-	check.Error(t, rctl(s).ReplaceRoute("b", act.Route{Factory: nil}))                                  // nil factory
-	check.Error(t, rctl(s).ReplaceRoute("b", act.Route{Name: "x", Factory: factoryRouteWorker}))        // name mismatch
+	check.Error(t, rctl(s).ReplaceRoute("b", act.Route{Factory: nil}))                           // nil factory
+	check.Error(t, rctl(s).ReplaceRoute("b", act.Route{Name: "x", Factory: factoryRouteWorker})) // name mismatch
 	check.ErrorIs(t, rctl(s).ReplaceRoute("nope", act.Route{Factory: factoryRouteWorker}), gen.ErrNoRoute)
 }
 
@@ -324,8 +324,10 @@ func factoryRtrPlain() gen.ProcessBehavior { return &rtrPlain{} }
 func (r *rtrPlain) Init(args ...any) (act.RouterOptions, error) {
 	return args[0].(act.RouterOptions), nil
 }
-func (r *rtrPlain) RouteMessage(from gen.PID, message any) gen.Atom        { return act.RouteDiscard }
-func (r *rtrPlain) RouteCall(from gen.PID, ref gen.Ref, request any) gen.Atom { return act.RouteDiscard }
+func (r *rtrPlain) RouteMessage(from gen.PID, message any) gen.Atom { return act.RouteDiscard }
+func (r *rtrPlain) RouteCall(from gen.PID, ref gen.Ref, request any) gen.Atom {
+	return act.RouteDiscard
+}
 
 func TestRouterUnitDefaultCallbacks(t *testing.T) {
 	s, err := unit.Spawn(t, factoryRtrPlain, gen.ProcessOptions{}, twoRoutes())
@@ -334,7 +336,7 @@ func TestRouterUnitDefaultCallbacks(t *testing.T) {
 
 	s.SendMessageWithPriority(gen.PID{}, "admin", gen.MessagePriorityHigh) // default HandleMessage
 	s.DeliverEvent(gen.Event{Name: "ev"}, "m")                             // default HandleEvent
-	m, err := s.Inspect(gen.PID{})                                        // default HandleInspect
+	m, err := s.Inspect(gen.PID{})                                         // default HandleInspect
 	check.NoError(t, err)
 	check.NotNil(t, m)
 	s.ShouldTerminate().None().Assert()

@@ -14,11 +14,11 @@ import (
 const maxEncodeDepth = 100
 
 var (
-	ErrBinaryTooLong     = fmt.Errorf("binary too long - max allowed length is 2^32-1 bytes (4GB)")
-	ErrStringTooLong     = fmt.Errorf("string too long - max allowed length is 2^16-1 (65535) bytes")
-	ErrAtomTooLong       = fmt.Errorf("atom too long - max allowed length is 255 bytes")
-	ErrErrorTooLong      = fmt.Errorf("error too long - max allowed length is 32767 bytes")
-	ErrMaxDepthExceeded  = fmt.Errorf("max encoding depth exceeded (cyclic reference?)")
+	ErrBinaryTooLong    = fmt.Errorf("binary too long - max allowed length is 2^32-1 bytes (4GB)")
+	ErrStringTooLong    = fmt.Errorf("string too long - max allowed length is 2^16-1 (65535) bytes")
+	ErrAtomTooLong      = fmt.Errorf("atom too long - max allowed length is 255 bytes")
+	ErrErrorTooLong     = fmt.Errorf("error too long - max allowed length is 32767 bytes")
+	ErrMaxDepthExceeded = fmt.Errorf("max encoding depth exceeded (cyclic reference?)")
 )
 
 type stateEncode struct {

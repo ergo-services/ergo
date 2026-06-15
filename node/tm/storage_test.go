@@ -262,7 +262,7 @@ func TestStorageConcurrentRegisterUnregister(t *testing.T) {
 		go func(base int) {
 			defer wg.Done()
 			for i := 0; i < consumers/workers; i++ {
-				id := uint64(base*consumers+i+1)
+				id := uint64(base*consumers + i + 1)
 				if id%2 == 1 {
 					s.Unregister(tgt, pid(id), KindLink)
 				}
@@ -275,7 +275,7 @@ func TestStorageConcurrentRegisterUnregister(t *testing.T) {
 	expectAlive := 0
 	for w := 0; w < workers; w++ {
 		for i := 0; i < consumers/workers; i++ {
-			id := uint64(w*consumers+i+1)
+			id := uint64(w*consumers + i + 1)
 			if id%2 == 0 {
 				expectAlive++
 			}

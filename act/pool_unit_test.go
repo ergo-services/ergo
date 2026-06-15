@@ -247,7 +247,7 @@ func (p *pluPlain) Init(args ...any) (act.PoolOptions, error) {
 func TestPoolUnitDefaultCallbacks(t *testing.T) {
 	s, err := unit.Spawn(t, factoryPluPlain, gen.ProcessOptions{}, poolOpts(1))
 	check.NoError(t, err)
-	s.SendMessageWithPriority(gen.PID{}, "m", gen.MessagePriorityHigh) // default HandleMessage (warn)
+	s.SendMessageWithPriority(gen.PID{}, "m", gen.MessagePriorityHigh)       // default HandleMessage (warn)
 	resp, err := s.CallWithPriority(gen.PID{}, "q", gen.MessagePriorityHigh) // default HandleCall (warn, nil)
 	check.NoError(t, err)
 	check.Nil(t, resp)

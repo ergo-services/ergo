@@ -1046,7 +1046,7 @@ type ProcessOptionsExtra struct {
 	ParentLeader   PID
 	ParentEnv      map[Env]any
 	ParentLogLevel LogLevel
-	Tracing Tracing
+	Tracing        Tracing
 
 	Register    Atom
 	Application Atom

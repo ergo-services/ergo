@@ -22,12 +22,12 @@ var TracingSamplerDisable TracingSampler = &samplerDisable{}
 
 type samplerAlways struct{}
 
-func (s *samplerAlways) Sample() bool  { return true }
+func (s *samplerAlways) Sample() bool   { return true }
 func (s *samplerAlways) String() string { return "always" }
 
 type samplerDisable struct{}
 
-func (s *samplerDisable) Sample() bool  { return false }
+func (s *samplerDisable) Sample() bool   { return false }
 func (s *samplerDisable) String() string { return "disable" }
 
 // TracingSamplerRatio returns a sampler that traces the given fraction of messages.
@@ -93,4 +93,3 @@ func (s *samplerRateLimit) Sample() bool {
 func (s *samplerRateLimit) String() string {
 	return fmt.Sprintf("rate_limit(%d/s)", s.perSecond)
 }
-

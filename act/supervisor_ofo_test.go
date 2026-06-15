@@ -506,7 +506,7 @@ func TestOFOHistoryCapped(t *testing.T) {
 	sup, pids := setupOFO(t, SupervisorSpec{
 		Restart:             SupervisorRestart{Strategy: SupervisorStrategyPermanent, Intensity: 100, Period: 60},
 		DisableAutoShutdown: true,
-		Children: []SupervisorChildSpec{{Name: "x", Factory: dummyFactory}},
+		Children:            []SupervisorChildSpec{{Name: "x", Factory: dummyFactory}},
 	})
 
 	// drive more restarts than supRestartHistoryMax to exercise the ring buffer
