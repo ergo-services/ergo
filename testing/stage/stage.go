@@ -42,6 +42,14 @@ type StageOptions struct {
 	// (e.g. etcd) for cluster scenarios; it is called once per node, so each node
 	// gets its own instance.
 	Registrar func() (gen.Registrar, error)
+
+	// RegistrarFull selects the in-memory registrar's feature set (ignored when a
+	// custom Registrar factory is set). False (default) is embedded-equivalent: node
+	// routes only; ResolveApplication and Event report ErrUnsupported. True adds
+	// application-route discovery (ResolveApplication) and the canonical
+	// gen.MessageRegistrar* event stream (Registrar().Event()), matching the contract
+	// etcd/saturn implement, so applications that use service discovery can run.
+	RegistrarFull bool
 }
 
 // Stage owns a set of live nodes and tears them down on test cleanup.
@@ -57,10 +65,14 @@ type Stage struct {
 // stage uses a private in-memory registrar shared by its nodes.
 func New(t *testing.T, opts ...StageOptions) *Stage {
 	s := &Stage{t: t, id: stageSeq.Add(1)}
-	if len(opts) > 0 && opts[0].Registrar != nil {
-		s.newRegistrar = opts[0].Registrar
+	var o StageOptions
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	if o.Registrar != nil {
+		s.newRegistrar = o.Registrar
 	} else {
-		store := newMemStore()
+		store := newMemStore(o.RegistrarFull)
 		s.newRegistrar = func() (gen.Registrar, error) { return &memRegistrar{store: store}, nil }
 	}
 	t.Cleanup(s.stop)

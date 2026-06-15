@@ -143,6 +143,38 @@ func (a *RemoteSpawnAssert) ErrorIs(target error) *RemoteSpawnAssert {
 	return a
 }
 
+// RemoteApplicationStartAssert asserts over remote application starts (egress).
+type RemoteApplicationStartAssert struct{ *Assertion[RemoteApplicationStarted] }
+
+// ShouldRemoteApplicationStart starts a remote-application-start assertion on this node.
+func (a *Asserter) ShouldRemoteApplicationStart() *RemoteApplicationStartAssert {
+	return &RemoteApplicationStartAssert{For[RemoteApplicationStarted](a.t, a.rec)}
+}
+func (a *RemoteApplicationStartAssert) From(pid gen.PID) *RemoteApplicationStartAssert {
+	a.Where(func(r RemoteApplicationStarted) bool { return r.From == pid })
+	return a
+}
+func (a *RemoteApplicationStartAssert) To(node gen.Atom) *RemoteApplicationStartAssert {
+	a.Where(func(r RemoteApplicationStarted) bool { return r.Node == node })
+	return a
+}
+func (a *RemoteApplicationStartAssert) Name(name gen.Atom) *RemoteApplicationStartAssert {
+	a.Where(func(r RemoteApplicationStarted) bool { return r.Name == name })
+	return a
+}
+func (a *RemoteApplicationStartAssert) Mode(mode gen.ApplicationMode) *RemoteApplicationStartAssert {
+	a.Where(func(r RemoteApplicationStarted) bool { return r.Mode == mode })
+	return a
+}
+func (a *RemoteApplicationStartAssert) Error(target error) *RemoteApplicationStartAssert {
+	a.Where(func(r RemoteApplicationStarted) bool { return r.Error == target })
+	return a
+}
+func (a *RemoteApplicationStartAssert) ErrorIs(target error) *RemoteApplicationStartAssert {
+	a.Where(func(r RemoteApplicationStarted) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
 // MetaSpawnAssert asserts over meta-process spawns (egress).
 type MetaSpawnAssert struct{ *Assertion[MetaSpawned] }
 

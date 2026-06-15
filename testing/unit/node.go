@@ -14,24 +14,25 @@ import (
 // its pid) and the node itself (from = the node core pid) delegate every outbound
 // operation to the route* helpers here, which record the egress as check.Records
 // and consult the stubs for the return value. This mirrors the routing core that
-// stage decorates. Network()/Cron() require injection.
+// stage decorates. Network() returns a built-in stubbable mock (configured via
+// sub.Node().Network()...); Cron() is not yet supported and fails the test.
 //
 // Every non-egress method first consults its override (see nodeOverrides and the
 // On* setters in node_overrides.go); when unset it falls back to the default below.
 // Egress methods (Send/Call/Spawn/...) keep the typed stub sugar instead.
 type mockNode struct {
-	t        testing.TB
-	rec      *check.Recorder
-	stubs    *stubs
-	timers   []*timer
-	nodeName gen.Atom
-	creation int64
-	logLevel gen.LogLevel
-	nextID   uint64
-	env      map[gen.Env]any
-	network  gen.Network // injected via WithNetwork; nil -> tier-3 fail on Network()
-	cron     gen.Cron    // injected via WithCron
-	log      *mockLog
+	t          testing.TB
+	rec        *check.Recorder
+	stubs      *stubs
+	timers     []*timer
+	nodeName   gen.Atom
+	creation   int64
+	logLevel   gen.LogLevel
+	nextID     uint64
+	env        map[gen.Env]any
+	netmock    *mockNetwork // built-in stubbable network (default behind Network())
+	subjectPID gen.PID      // the process under test (From for RemoteNode egress records)
+	log        *mockLog
 
 	// registry of processes known to this node (the process under test plus every
 	// process it spawned), so the introspection queries can answer from real state
@@ -84,6 +85,7 @@ func newMockNode(t testing.TB, name gen.Atom, o gen.NodeOptions) *mockNode {
 		names:    make(map[gen.Atom]gen.PID),
 	}
 	n.log = newMockLog(n, n.nodePID(), n.logLevel)
+	n.netmock = newMockNetwork(n)
 	return n
 }
 
@@ -246,21 +248,10 @@ func (n *mockNode) schedule(from gen.PID, to any, message any, after time.Durati
 	}
 }
 
-// requireNetwork returns the injected network or fails the test (tier-3).
-func (n *mockNode) requireNetwork() gen.Network {
-	if n.network == nil {
-		n.t.Helper()
-		n.t.Fatalf("unit: process under test called Node().Network(), but no network is injected; pass unit.WithNetwork(...)")
-	}
-	return n.network
-}
-
 func (n *mockNode) requireCron() gen.Cron {
-	if n.cron == nil {
-		n.t.Helper()
-		n.t.Fatalf("unit: process under test called Node().Cron(), but no cron is injected; pass unit.WithCron(...)")
-	}
-	return n.cron
+	n.t.Helper()
+	n.t.Fatalf("unit: process under test called Node().Cron(), but no cron is set; use sub.Node().OnCron(...)")
+	return nil
 }
 
 // unsupported fails the test for a node value-query that has no sensible default
@@ -379,15 +370,9 @@ func (n *mockNode) MakeRefWithDeadline(deadline int64) (gen.Ref, error) {
 // network / cron / managers (injection)
 
 func (n *mockNode) Network() gen.Network {
-	if n.ov.network != nil {
-		return n.ov.network()
-	}
-	return n.requireNetwork()
+	return n.netmock
 }
 func (n *mockNode) Cron() gen.Cron {
-	if n.ov.cron != nil {
-		return n.ov.cron()
-	}
 	return n.requireCron()
 }
 func (n *mockNode) CertManager() gen.CertManager {

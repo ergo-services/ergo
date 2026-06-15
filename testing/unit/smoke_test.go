@@ -81,6 +81,133 @@ func TestSmokeCallWhereMatcher(t *testing.T) {
 	a.ShouldSend().To(gen.Atom("client")).Message("WRONG").None().Assert()
 }
 
+// discoverer resolves an application via the registrar and acts on a running route.
+type discoverer struct{ act.Actor }
+
+func factoryDiscoverer() gen.ProcessBehavior { return &discoverer{} }
+
+func (d *discoverer) HandleMessage(from gen.PID, message any) error {
+	reg, err := d.Node().Network().Registrar()
+	if err != nil {
+		d.Send(gen.Atom("logger"), "no-registrar")
+		return nil
+	}
+	routes, err := reg.Resolver().ResolveApplication(gen.Atom("worker_app"))
+	if err != nil {
+		return nil
+	}
+	for _, r := range routes {
+		if r.State == gen.ApplicationStateRunning {
+			d.Send(gen.ProcessID{Name: "manager", Node: r.Node}, "spawn")
+			return nil
+		}
+	}
+	return nil
+}
+
+// the built-in mock network stubs registrar/resolver discovery per name
+func TestSmokeMockNetworkResolveApplication(t *testing.T) {
+	a, err := unit.Spawn(t, factoryDiscoverer, gen.ProcessOptions{})
+	check.NoError(t, err)
+	a.Node().Network().Registrar().Resolver().OnResolveApplication(gen.Atom("worker_app")).Return(
+		gen.ApplicationRoute{Node: "node2@localhost", State: gen.ApplicationStateLoaded},
+		gen.ApplicationRoute{Node: "node1@localhost", State: gen.ApplicationStateRunning},
+	)
+	a.SendMessage(gen.PID{}, "go")
+	a.ShouldSend().To(gen.ProcessID{Name: "manager", Node: "node1@localhost"}).Message("spawn").Once().Assert()
+}
+
+// FailRegistrar drives the no-registrar branch
+func TestSmokeMockNetworkFailRegistrar(t *testing.T) {
+	a, _ := unit.Spawn(t, factoryDiscoverer, gen.ProcessOptions{})
+	a.Node().Network().FailRegistrar(gen.ErrUnsupported)
+	a.SendMessage(gen.PID{}, "go")
+	a.ShouldSend().To(gen.Atom("logger")).Message("no-registrar").Once().Assert()
+}
+
+// regWatcher subscribes to the registrar event in Init and reacts to a canonical
+// application-started message by forwarding the app name.
+type regWatcher struct{ act.Actor }
+
+func factoryRegWatcher() gen.ProcessBehavior { return &regWatcher{} }
+
+func (w *regWatcher) Init(args ...any) error {
+	reg, err := w.Node().Network().Registrar()
+	if err != nil {
+		return err
+	}
+	ev, err := reg.Event()
+	if err != nil {
+		return err
+	}
+	_, err = w.MonitorEvent(ev)
+	return err
+}
+
+func (w *regWatcher) HandleEvent(message gen.MessageEvent) error {
+	if m, ok := message.Message.(gen.MessageRegistrarApplicationStarted); ok {
+		w.Send(gen.Atom("logger"), m.Route.Name)
+	}
+	return nil
+}
+
+// DeliverRegistrarEvent feeds a canonical registrar message through the subscribed event
+func TestSmokeDeliverRegistrarEvent(t *testing.T) {
+	a, err := unit.Spawn(t, factoryRegWatcher, gen.ProcessOptions{})
+	check.NoError(t, err)
+	a.DeliverRegistrarEvent(gen.MessageRegistrarApplicationStarted{
+		Route: gen.ApplicationRoute{Name: "worker_app", Node: "node1@localhost", State: gen.ApplicationStateRunning},
+	})
+	a.ShouldSend().To(gen.Atom("logger")).Message(gen.Atom("worker_app")).Once().Assert()
+}
+
+// remoteUser spawns on / starts an app on a remote node obtained via GetNode.
+type remoteUser struct{ act.Actor }
+
+func factoryRemoteUser() gen.ProcessBehavior { return &remoteUser{} }
+
+func (u *remoteUser) HandleMessage(from gen.PID, message any) error {
+	rn, err := u.Node().Network().GetNode("peer@localhost")
+	if err != nil {
+		u.Send(gen.Atom("logger"), "no-node")
+		return nil
+	}
+	switch message {
+	case "spawn":
+		rn.Spawn("svc", gen.ProcessOptions{})
+	case "start-app":
+		if e := rn.ApplicationStartPermanent("app", gen.ApplicationOptions{}); e != nil {
+			u.Send(gen.Atom("logger"), "start-failed")
+		}
+	}
+	return nil
+}
+
+// remote Spawn / ApplicationStart via RemoteNode are recorded as egress
+func TestSmokeRemoteNode(t *testing.T) {
+	a, err := unit.Spawn(t, factoryRemoteUser, gen.ProcessOptions{})
+	check.NoError(t, err)
+	rn := a.Node().Network().OnGetNode("peer@localhost")
+	rn.OnSpawn("svc").Return(gen.PID{Node: "peer@localhost", ID: 42})
+	rn.OnApplicationStart("app").Fail(gen.ErrNameUnknown)
+
+	a.SendMessage(gen.PID{}, "spawn")
+	a.ShouldRemoteSpawn().From(a.PID()).To("peer@localhost").Name("svc").
+		Child(gen.PID{Node: "peer@localhost", ID: 42}).Once().Assert()
+
+	a.SendMessage(gen.PID{}, "start-app")
+	a.ShouldRemoteApplicationStart().From(a.PID()).To("peer@localhost").Name("app").
+		Mode(gen.ApplicationModePermanent).ErrorIs(gen.ErrNameUnknown).Once().Assert()
+	a.ShouldSend().To(gen.Atom("logger")).Message("start-failed").Once().Assert()
+}
+
+// unstubbed GetNode returns ErrNoConnection
+func TestSmokeRemoteNodeNoConnection(t *testing.T) {
+	a, _ := unit.Spawn(t, factoryRemoteUser, gen.ProcessOptions{})
+	a.SendMessage(gen.PID{}, "spawn")
+	a.ShouldSend().To(gen.Atom("logger")).Message("no-node").Once().Assert()
+}
+
 // the call into the actor resolves the actor's reply
 func TestSmokeCall(t *testing.T) {
 	a, _ := unit.Spawn(t, factorySample, gen.ProcessOptions{})

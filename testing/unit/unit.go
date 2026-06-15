@@ -44,9 +44,10 @@ type Subject struct {
 // returned both by unit.Node(...) (configure before spawn) and by Subject.Node()
 // (configure / inspect after spawn).
 //
-// gen.NodeOptions carries no mock gen.Network / gen.Cron (only their real config),
-// so inject those with WithNetwork / WithCron before spawning; without them, a
-// Node().Network() / Node().Cron() call from the process fails the test.
+// Node().Network() returns a built-in stubbable mock network by default (configure
+// discovery via OnResolve / OnResolveApplication / OnRegistrarEvent); override it
+// wholesale with OnNetwork(func() gen.Network). Node().Cron() requires OnCron(func()
+// gen.Cron); without it a Cron() call fails the test.
 type MockNode struct {
 	*mockNode
 	t testing.TB
@@ -63,14 +64,6 @@ func Node(t testing.TB, name gen.Atom, options gen.NodeOptions) *MockNode {
 	}
 	return &MockNode{mockNode: newMockNode(t, name, options), t: t}
 }
-
-// WithNetwork injects the gen.Network returned by Node().Network(). Chainable
-// before Spawn. Without it, any Node().Network() call from the process fails the test.
-func (n *MockNode) WithNetwork(network gen.Network) *MockNode { n.mockNode.network = network; return n }
-
-// WithCron injects the gen.Cron returned by Node().Cron(). Chainable before Spawn.
-// Without it, any Node().Cron() call from the process fails the test.
-func (n *MockNode) WithCron(cron gen.Cron) *MockNode { n.mockNode.cron = cron; return n }
 
 // Spawn creates the process under test on this node and runs its ProcessInit.
 // Mirrors gen.Node.Spawn (factory, options, args...); pass gen.ProcessOptions{}
@@ -91,6 +84,7 @@ func (n *MockNode) spawn(factory gen.ProcessFactory, register gen.Atom, options 
 	process := newMockProcess(n.mockNode, register, options)
 	// the process under test is itself a process the node knows about
 	n.mockNode.registerProc(&procEntry{pid: process.pid, name: process.name, parent: process.parent, leader: process.leader, factory: factory, options: options})
+	n.mockNode.subjectPID = process.pid // From for RemoteNode egress records
 
 	s := &Subject{
 		Asserter: check.NewAsserter(n.t, n.mockNode.rec),

@@ -212,3 +212,46 @@ func TestStageTwoApps(t *testing.T) {
 	a.ShouldSend().From(service1).Message(ping{Seq: 5}).Since(m).Once().Within(time.Second).Must()
 	b.ShouldDeliver().To(service2).Message(ping{Seq: 5}).Once().Within(time.Second).Must()
 }
+
+// regSub subscribes to the registrar event stream in Init.
+type regSub struct{ act.Actor }
+
+func factoryRegSub() gen.ProcessBehavior { return &regSub{} }
+
+func (s *regSub) Init(args ...any) error {
+	reg, err := s.Node().Network().Registrar()
+	if err != nil {
+		return err
+	}
+	ev, err := reg.Event()
+	if err != nil {
+		return err
+	}
+	_, err = s.MonitorEvent(ev)
+	return err
+}
+
+// TestStageRegistrarFull: with RegistrarFull, the in-memory registrar serves
+// ResolveApplication and produces the canonical gen.MessageRegistrar* event stream;
+// a subscriber receives ApplicationStarted when an application route is registered.
+func TestStageRegistrarFull(t *testing.T) {
+	s := stage.New(t, stage.StageOptions{RegistrarFull: true})
+	n := s.Node("n")
+	sub := n.Spawn(factoryRegSub, gen.ProcessOptions{})
+	mk := n.Mark()
+
+	reg, err := n.Native().Network().Registrar()
+	check.NoError(t, err)
+	route := gen.ApplicationRoute{Name: "myapp", Node: n.Name(), State: gen.ApplicationStateRunning}
+	check.NoError(t, reg.RegisterApplicationRoute(route))
+
+	n.ShouldReceiveEvent().To(sub).Where(func(e check.Event) bool {
+		m, ok := e.Message.(gen.MessageRegistrarApplicationStarted)
+		return ok && m.Route.Name == "myapp" && m.Route.Node == n.Name()
+	}).Since(mk).Once().Within(time.Second).Must()
+
+	routes, err := reg.Resolver().ResolveApplication("myapp")
+	check.NoError(t, err)
+	check.Equal(t, 1, len(routes))
+	check.Equal(t, gen.ApplicationStateRunning, routes[0].State)
+}

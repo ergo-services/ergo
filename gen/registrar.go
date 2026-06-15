@@ -84,7 +84,7 @@ type Registrar interface {
 	//
 	//   - MessageRegistrarNodeJoined / MessageRegistrarNodeLeft
 	//   - MessageRegistrarConfigUpdate
-	//   - MessageRegistrarApplicationLoaded / Initializing / Started / Stopping / Stopped / Unloaded
+	//   - MessageRegistrarApplicationLoaded / Initializing / Started / Stopping / Unloaded
 	//   - MessageRegistrarProxyRegistered / MessageRegistrarProxyUnregistered
 	//
 	// A specific registrar implementation MAY additionally publish
@@ -346,7 +346,7 @@ type ApplicationRoute struct {
 	// Examples: "blue", "green", "canary", "stable", "maintenance".
 	Tags []Atom
 
-	// State is the current application state (Loaded, Running, Stopped).
+	// State is the current application state (Loaded, Initializing, Running, Stopping).
 	State ApplicationState
 }
 

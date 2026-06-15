@@ -80,7 +80,6 @@ var (
 		gen.MessageRegistrarApplicationInitializing{},
 		gen.MessageRegistrarApplicationStarted{},
 		gen.MessageRegistrarApplicationStopping{},
-		gen.MessageRegistrarApplicationStopped{},
 		gen.MessageRegistrarApplicationUnloaded{},
 		gen.MessageRegistrarProxyRegistered{},
 		gen.MessageRegistrarProxyUnregistered{},

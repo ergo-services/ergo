@@ -69,13 +69,6 @@ type MessageRegistrarApplicationStopping struct {
 	Route ApplicationRoute
 }
 
-// MessageRegistrarApplicationStopped is published when an application has
-// stopped on some node but remains loaded. Route carries a frozen snapshot
-// of the route as it was immediately before the stop.
-type MessageRegistrarApplicationStopped struct {
-	Route ApplicationRoute
-}
-
 // MessageRegistrarApplicationUnloaded is published when an application has
 // been removed from a node entirely. Route carries a frozen snapshot of
 // the route as it was immediately before the removal.

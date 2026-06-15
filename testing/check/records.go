@@ -80,6 +80,23 @@ func (r RemoteSpawned) String() string {
 		r.Parent, r.Node, r.Name, r.Register, r.Child, r.Error)
 }
 
+// RemoteApplicationStarted is an application started (or attempted) on a remote node by a
+// process via RemoteNode.ApplicationStart* (egress). Node is the target node, Name the
+// application, Mode the start variant (zero for the plain ApplicationStart).
+type RemoteApplicationStarted struct {
+	From  gen.PID
+	Node  gen.Atom
+	Name  gen.Atom
+	Mode  gen.ApplicationMode
+	Error error
+}
+
+func (RemoteApplicationStarted) Kind() string { return "remote_application_started" }
+func (r RemoteApplicationStarted) String() string {
+	return fmt.Sprintf("RemoteApplicationStarted(from=%s node=%s name=%s mode=%v err=%v)",
+		r.From, r.Node, r.Name, r.Mode, r.Error)
+}
+
 // MetaSpawned is a meta process spawned (or attempted) by a process (egress). On
 // failure Alias is the zero alias and Error is set.
 type MetaSpawned struct {
