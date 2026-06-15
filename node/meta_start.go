@@ -25,7 +25,7 @@ func (m *meta) start() {
 					m.p.node.aliases.Delete(m.id)
 					atomic.StoreInt32(&m.state, int32(gen.MetaStateTerminated))
 					reason := gen.TerminateReasonPanic
-					m.p.node.RouteTerminateAlias(m.id, reason)
+					m.p.core.RouteTerminateAlias(m.id, reason)
 					m.behavior.Terminate(reason)
 				}
 			}
@@ -48,7 +48,7 @@ func (m *meta) start() {
 		if reason == nil {
 			reason = gen.TerminateReasonNormal
 		}
-		m.p.node.RouteTerminateAlias(m.id, reason)
+		m.p.core.RouteTerminateAlias(m.id, reason)
 		m.behavior.Terminate(reason)
 	}
 }
@@ -76,7 +76,7 @@ func (m *meta) handle() {
 					if old != int32(gen.MetaStateTerminated) {
 						m.p.node.aliases.Delete(m.id)
 						reason = gen.TerminateReasonPanic
-						m.p.node.RouteTerminateAlias(m.id, reason)
+						m.p.core.RouteTerminateAlias(m.id, reason)
 						m.behavior.Terminate(reason)
 					}
 				}
@@ -129,12 +129,12 @@ func (m *meta) handle() {
 				}
 				if reason == nil {
 					if result != nil {
-						m.p.node.RouteSendResponse(m.p.pid, message.From, options, result)
+						m.p.core.RouteSendResponse(m.p.pid, message.From, options, result)
 					}
 					continue
 				}
 				if reason == gen.TerminateReasonNormal && result != nil {
-					m.p.node.RouteSendResponse(m.p.pid, message.From, options, result)
+					m.p.core.RouteSendResponse(m.p.pid, message.From, options, result)
 				}
 			case gen.MailboxMessageTypeInspect:
 				result := m.behavior.HandleInspect(message.From, message.Message.([]string)...)
@@ -144,7 +144,7 @@ func (m *meta) handle() {
 					Compression:      m.p.compression,
 					KeepNetworkOrder: m.p.keeporder.Load(),
 				}
-				m.p.node.RouteSendResponse(m.p.pid, message.From, options, result)
+				m.p.core.RouteSendResponse(m.p.pid, message.From, options, result)
 				atomic.AddUint64(&m.messagesOut, 1)
 				atomic.AddUint64(&m.p.messagesOut, 1)
 				continue
@@ -166,7 +166,7 @@ func (m *meta) handle() {
 			old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
 			if old != int32(gen.MetaStateTerminated) {
 				m.p.node.aliases.Delete(m.id)
-				m.p.node.RouteTerminateAlias(m.id, reason)
+				m.p.core.RouteTerminateAlias(m.id, reason)
 				m.behavior.Terminate(reason)
 			}
 			return

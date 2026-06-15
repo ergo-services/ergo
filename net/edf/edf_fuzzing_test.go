@@ -91,7 +91,7 @@ func compareByEncode(original, decoded any) bool {
 }
 
 func FuzzComplexStruct(f *testing.F) {
-	// seed corpus - разные комбинации примитивов
+	// seed corpus - various primitive combinations
 	f.Add(
 		int8(0), int16(0), int32(0), int64(0),
 		uint8(0), uint16(0), uint32(0), uint64(0),
@@ -105,7 +105,7 @@ func FuzzComplexStruct(f *testing.F) {
 	f.Add(
 		int8(-128), int16(-32768), int32(-2147483648), int64(-9223372036854775808),
 		uint8(0), uint16(0), uint32(0), uint64(0),
-		float32(-1.5), float64(-1.5), false, "тест", []byte{0xff, 0xfe},
+		float32(-1.5), float64(-1.5), false, "test", []byte{0xff, 0xfe},
 	)
 
 	f.Fuzz(func(t *testing.T,

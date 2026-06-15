@@ -135,7 +135,7 @@ func TestTerminatedTargetNodeKillsHostedAndDropsConsumers(t *testing.T) {
 	}
 
 	// Local event's remote subscriber should have been dropped and EventStop
-	// fired (count went 1→0 with notify=true).
+	// fired (count went 1->0 with notify=true).
 	gotStop := false
 	for _, s := range core.sent {
 		if _, ok := s.Message.(gen.MessageEventStop); ok && s.To == producer {

@@ -84,7 +84,7 @@ type Registrar interface {
 	//
 	//   - MessageRegistrarNodeJoined / MessageRegistrarNodeLeft
 	//   - MessageRegistrarConfigUpdate
-	//   - MessageRegistrarApplicationLoaded / Initializing / Started / Stopping / Stopped / Unloaded
+	//   - MessageRegistrarApplicationLoaded / Initializing / Started / Stopping / Unloaded
 	//   - MessageRegistrarProxyRegistered / MessageRegistrarProxyUnregistered
 	//
 	// A specific registrar implementation MAY additionally publish
@@ -115,7 +115,7 @@ type Resolver interface {
 	Resolve(node Atom) ([]Route, error)
 
 	// ResolveProxy resolves proxy routes for the given node name.
-	// Returns proxy paths (node A → proxy B → target node C).
+	// Returns proxy paths (node A -> proxy B -> target node C).
 	// Enables connecting through intermediate proxy nodes.
 	ResolveProxy(node Atom) ([]ProxyRoute, error)
 
@@ -346,7 +346,7 @@ type ApplicationRoute struct {
 	// Examples: "blue", "green", "canary", "stable", "maintenance".
 	Tags []Atom
 
-	// State is the current application state (Loaded, Running, Stopped).
+	// State is the current application state (Loaded, Initializing, Running, Stopping).
 	State ApplicationState
 }
 

@@ -1,850 +1,467 @@
+// Package unit is the in-process single-process test harness. It spawns exactly
+// one gen.ProcessBehavior (act.Actor, act.Supervisor and the rest are just sugar
+// over it) with a mocked gen.Process. That mock process's Node() returns a mock
+// gen.Node, and both delegate every outbound operation to that mock node, which
+// records the egress as check.Records and lets the test stub what those operations
+// return (including errors) to exercise negative paths. Assertions use the shared
+// testing/check grammar, identical to testing/stage; the differences are the mock
+// environment and synchronous (snapshot) assertions.
+//
+// Plane contract: this harness records egress (what the actor does) and its own
+// termination (Terminated), delayed sends (SendAfter), and logs (Log). It
+// does NOT produce the ingress records (Delivered, Down, Exit, Event, and the Wire*
+// subscriptions): inbound signals are driven by the test via the Deliver* methods,
+// so there is nothing to observe on the way in. Assert an actor's reaction to a
+// delivery, not the delivery itself. Those ingress records are testing/stage-only.
+//
+// A send the actor addresses to itself is treated the same way: recorded as egress,
+// not looped back into its own mailbox. To drive the reaction, re-deliver it with
+// SendMessage. A Call the actor makes to itself is an outbound Call like any other
+// and needs a stubbed response (OnCall); it does not re-enter the actor.
 package unit
 
 import (
 	"fmt"
-	"reflect"
-	"strings"
 	"testing"
-	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
+	"ergo.services/ergo/testing/check"
 )
 
-// TestActor provides a test harness for actor testing
-type TestActor struct {
-	t                 testing.TB
-	behavior          gen.ProcessBehavior
-	process           *TestProcess
-	node              *TestNode
-	events            lib.QueueMPSC
-	captures          map[string]any
-	options           TestOptions
-	storedEvents      []Event // Store events separately to avoid consuming them
-	terminated        bool    // Track if actor is terminated
-	terminationReason error   // Store termination reason
+// Subject is the spawned process under test. It embeds *check.Asserter, so the
+// whole Should* grammar is available directly (subject.ShouldSend(), etc.).
+type Subject struct {
+	*check.Asserter
+	t          testing.TB
+	mock       *MockNode
+	behavior   gen.ProcessBehavior
+	process    *mockProcess
+	node       *mockNode
+	stubs      *stubs
+	terminated bool
+	reason     error
 }
 
-// TestOptions configures the test environment
-type TestOptions struct {
-	Args              []any
-	LogLevel          gen.LogLevel
-	Env               map[gen.Env]any
-	Parent            gen.PID
-	Leader            gen.PID
-	Priority          gen.MessagePriority
-	ImportantDelivery bool
-	Register          gen.Atom
-	NodeName          gen.Atom
-	NodeCreation      int64
+// MockNode is the test-facing mock node. It embeds the mocked gen.Node, so every
+// node method (ProcessInfo, ProcessList, ...) and every On<Method> override setter
+// is available directly on it; its own Spawn / SpawnRegister shadow gen.Node.Spawn
+// to return the Subject under test (unit exercises exactly that one process). It is
+// returned both by unit.Node(...) (configure before spawn) and by Subject.Node()
+// (configure / inspect after spawn).
+//
+// Node().Network() returns a built-in stubbable mock network (configure discovery via
+// Node().Network().Registrar().Resolver().OnResolve / OnResolveApplication). Node().Cron()
+// returns a built-in mock cron (add jobs via Node().Cron().AddJob; drive via Subject.FireCron).
+type MockNode struct {
+	*mockNode
+	t testing.TB
 }
 
-// Option is a function for configuring TestOptions
-type Option func(*TestOptions)
-
-// WithArgs sets the arguments for the test actor
-func WithArgs(args ...any) Option {
-	return func(opts *TestOptions) {
-		opts.Args = args
-	}
-}
-
-// WithLogLevel sets the log level for the test actor
-func WithLogLevel(level gen.LogLevel) Option {
-	return func(opts *TestOptions) {
-		opts.LogLevel = level
-	}
-}
-
-// WithEnv sets environment variables for the test actor
-func WithEnv(env map[gen.Env]any) Option {
-	return func(opts *TestOptions) {
-		opts.Env = env
-	}
-}
-
-// WithParent sets the parent PID for the test actor
-func WithParent(parent gen.PID) Option {
-	return func(opts *TestOptions) {
-		opts.Parent = parent
-	}
-}
-
-// WithRegister sets the registered name for the test actor
-func WithRegister(name gen.Atom) Option {
-	return func(opts *TestOptions) {
-		opts.Register = name
-	}
-}
-
-// WithNodeName sets the node name for the test environment
-func WithNodeName(name gen.Atom) Option {
-	return func(opts *TestOptions) {
-		opts.NodeName = name
-	}
-}
-
-// Spawn creates a new test actor instance
-func Spawn(t testing.TB, factory gen.ProcessFactory, options ...Option) (*TestActor, error) {
+// Node creates a mock node. Mirrors stage's s.Node(name, NodeOptions): spawn the
+// process under test on the returned node with Spawn / SpawnRegister. Env is taken
+// from options.Env; the rest of gen.NodeOptions is accepted for parity with a real
+// node but unused by the mock.
+func Node(t testing.TB, name gen.Atom, options gen.NodeOptions) *MockNode {
 	t.Helper()
-
-	// Default options
-	opts := TestOptions{
-		LogLevel:     gen.LogLevelError,
-		NodeName:     "test@localhost",
-		NodeCreation: time.Now().Unix(),
+	if name == "" {
+		name = "unit@localhost"
 	}
+	return &MockNode{mockNode: newMockNode(t, name, options), t: t}
+}
 
-	// Apply options
-	for _, opt := range options {
-		opt(&opts)
-	}
+// Spawn creates the process under test on this node and runs its ProcessInit.
+// Mirrors gen.Node.Spawn (factory, options, args...); pass gen.ProcessOptions{}
+// for defaults. Shadows the embedded gen.Node.Spawn.
+func (n *MockNode) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (*Subject, error) {
+	n.t.Helper()
+	return n.spawn(factory, "", options, args...)
+}
 
-	// Create test environment
-	events := lib.NewQueueMPSC()
-	node := NewTestNode(t, events, opts)
-	process := NewTestProcess(t, events, node, opts)
+// SpawnRegister creates the process under test with a registered name and runs its
+// ProcessInit. Mirrors gen.Node.SpawnRegister (register, factory, options, args...).
+func (n *MockNode) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (*Subject, error) {
+	n.t.Helper()
+	return n.spawn(factory, register, options, args...)
+}
 
-	ta := &TestActor{
-		t:        t,
+func (n *MockNode) spawn(factory gen.ProcessFactory, register gen.Atom, options gen.ProcessOptions, args ...any) (*Subject, error) {
+	process := newMockProcess(n.mockNode, register, options)
+	// the process under test is itself a process the node knows about
+	n.mockNode.registerProc(&procEntry{pid: process.pid, name: process.name, parent: process.parent, leader: process.leader, state: gen.ProcessStateInit})
+	n.mockNode.subjectPID = process.pid // From for RemoteNode egress records
+
+	s := &Subject{
+		Asserter: check.NewAsserter(n.t, n.mockNode.rec),
+		t:        n.t,
+		mock:     n,
+		node:     n.mockNode,
 		process:  process,
-		node:     node,
-		events:   events,
-		captures: make(map[string]any),
-		options:  opts,
+		stubs:    n.mockNode.stubs,
 	}
 
-	// Create the behavior and initialize it
 	behavior := factory()
-	ta.behavior = behavior
+	s.behavior = behavior
+	process.behavior = behavior
 
-	// Set the behavior on the process so it can be retrieved by the actor
-	ta.process.behavior = behavior
-
-	// Set the process to point to our test process (important for act.Actor)
-	if actorBehavior, ok := behavior.(interface {
-		ProcessInit(gen.Process, ...any) error
-	}); ok {
-		if err := actorBehavior.ProcessInit(ta.process, opts.Args...); err != nil {
-			return nil, fmt.Errorf("failed to initialize actor: %v", err)
-		}
+	if err := behavior.ProcessInit(process, args...); err != nil {
+		return nil, fmt.Errorf("unit: ProcessInit: %w", err)
 	}
-
-	return ta, nil
+	// ProcessInit ran in Init state; the process is now Running
+	process.state = gen.ProcessStateRunning
+	if e := n.mockNode.procs[process.pid]; e != nil {
+		e.state = gen.ProcessStateRunning
+	}
+	return s, nil
 }
 
-// SendMessage sends a message to the actor and returns the test actor for chaining
-func (ta *TestActor) SendMessage(from gen.PID, message any) *TestActor {
-	ta.t.Helper()
-
-	// Don't process messages if actor is already terminated
-	if ta.terminated {
-		ta.t.Logf("Attempted to send message %v to terminated actor %s (reason: %v)", message, ta.PID(), ta.terminationReason)
-		return ta
-	}
-
-	// Create a mailbox message for proper message routing
-	mailboxMessage := gen.TakeMailboxMessage()
-	defer gen.ReleaseMailboxMessage(mailboxMessage)
-
-	mailboxMessage.From = from
-	mailboxMessage.Type = gen.MailboxMessageTypeRegular
-	mailboxMessage.Target = ta.process.PID() // Default target
-	mailboxMessage.Message = message
-
-	// Put the message into the main mailbox queue
-	mailbox := ta.process.Mailbox()
-	mailbox.Main.Push(mailboxMessage)
-
-	// Let the behavior process its mailbox by calling ProcessRun
-	if err := ta.behavior.ProcessRun(); err != nil {
-		// Actor returned an error - it should terminate
-		ta.terminated = true
-		ta.terminationReason = err
-
-		// Emit termination event
-		ta.events.Push(TerminateEvent{
-			PID:    ta.PID(),
-			Reason: err,
-		})
-
-		// Only log non-normal termination for debugging
-		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
-			ta.t.Logf("Actor %s terminated with error: %v", ta.PID(), err)
-		}
-	}
-
-	return ta
+// Spawn creates the process under test on a default mock node and runs its
+// ProcessInit. Shortcut for Node(t).Spawn(...); use Node(t, NodeOptions{...}) when
+// you need to inject Network/Cron, set the node name, or seed env.
+func Spawn(t testing.TB, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (*Subject, error) {
+	t.Helper()
+	return Node(t, "unit@localhost", gen.NodeOptions{}).Spawn(factory, options, args...)
 }
 
-// SendMessageWithPriority sends a message with a specific priority. The
-// message lands in Urgent for MessagePriorityMax, System for
-// MessagePriorityHigh, Main for MessagePriorityNormal (default).
-func (ta *TestActor) SendMessageWithPriority(from gen.PID, message any, priority gen.MessagePriority) *TestActor {
-	ta.t.Helper()
+// SpawnRegister creates the process under test with a registered name on a default
+// mock node and runs its ProcessInit. Shortcut for Node(t, ...).SpawnRegister(...).
+func SpawnRegister(t testing.TB, register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (*Subject, error) {
+	t.Helper()
+	return Node(t, "unit@localhost", gen.NodeOptions{}).SpawnRegister(register, factory, options, args...)
+}
 
-	if ta.terminated {
-		ta.t.Logf("Attempted to send message %v to terminated actor %s (reason: %v)", message, ta.PID(), ta.terminationReason)
-		return ta
+// Behavior returns the process's behavior for state inspection.
+func (s *Subject) Behavior() gen.ProcessBehavior { return s.behavior }
+
+// Node returns the mock node backing the process under test. Use it to override node
+// methods (sub.Node().OnProcessInfo(...)) or to inspect node state directly
+// (sub.Node().ProcessList()). It wraps the same node the process sees via its Node().
+func (s *Subject) Node() *MockNode { return s.mock }
+
+// PID returns the process's PID.
+func (s *Subject) PID() gen.PID { return s.process.pid }
+
+// Terminated reports whether the process has terminated.
+func (s *Subject) Terminated() bool { return s.terminated }
+
+// Reason returns the termination reason (nil while running).
+func (s *Subject) Reason() error { return s.reason }
+
+// run drives one ProcessRun and records a Terminated on abnormal return.
+func (s *Subject) run() {
+	if s.terminated {
+		return
 	}
+	if err := s.runBehavior(); err != nil {
+		s.terminated = true
+		s.reason = err
+		// the process is Terminated during ProcessTerminate; the real process still
+		// permits the Send family / SendExit there (stateIRT), but not Set*/Call/etc
+		s.process.state = gen.ProcessStateTerminated
+		if e := s.node.procs[s.process.pid]; e != nil {
+			e.state = gen.ProcessStateTerminated
+		}
+		s.behavior.ProcessTerminate(err)
+		s.node.rec.Put(check.Terminated{PID: s.process.pid, Reason: err})
+	}
+}
 
-	mailboxMessage := gen.TakeMailboxMessage()
-	defer gen.ReleaseMailboxMessage(mailboxMessage)
+// runBehavior calls ProcessRun, recovering a panic into TerminateReasonPanic exactly
+// as the real runtime does (node/process_run.go); under -tags=norecover lib.Recover()
+// is false and the panic propagates, also matching production.
+func (s *Subject) runBehavior() (err error) {
+	if lib.Recover() {
+		defer func() {
+			if rcv := recover(); rcv != nil {
+				err = gen.TerminateReasonPanic
+			}
+		}()
+	}
+	return s.behavior.ProcessRun()
+}
 
-	mailboxMessage.From = from
-	mailboxMessage.Type = gen.MailboxMessageTypeRegular
-	mailboxMessage.Target = ta.process.PID()
-	mailboxMessage.Message = message
+// deliver pushes one mailbox message addressed to the process itself (Target = PID).
+func (s *Subject) deliver(from gen.PID, message any, mtype gen.MailboxMessageType, ref gen.Ref) {
+	s.deliverTo(from, s.process.pid, message, mtype, ref)
+}
 
-	mailbox := ta.process.Mailbox()
+// deliverTo pushes one mailbox message with an explicit Target (how the message was
+// addressed: PID, registered name (gen.Atom), or gen.Alias) and runs the process. The
+// Target drives an actor's split-handler dispatch.
+func (s *Subject) deliverTo(from gen.PID, target any, message any, mtype gen.MailboxMessageType, ref gen.Ref) {
+	s.t.Helper()
+	if s.terminated {
+		s.t.Logf("unit: message to terminated process %s ignored (reason: %v)", s.process.pid, s.reason)
+		return
+	}
+	mm := gen.TakeMailboxMessage()
+	defer gen.ReleaseMailboxMessage(mm)
+	mm.From = from
+	mm.Type = mtype
+	mm.Target = target
+	mm.Message = message
+	mm.Ref = ref
+	// exit signals and inspect requests arrive on the urgent queue (mirrors the runtime)
+	if mtype == gen.MailboxMessageTypeExit || mtype == gen.MailboxMessageTypeInspect {
+		s.process.mailbox.Urgent.Push(mm)
+	} else {
+		s.process.mailbox.Main.Push(mm)
+	}
+	s.run()
+}
+
+// SendMessage delivers a regular message to the process (addressed by PID).
+func (s *Subject) SendMessage(from gen.PID, message any) *Subject {
+	s.deliver(from, message, gen.MailboxMessageTypeRegular, gen.Ref{})
+	return s
+}
+
+// SendMessageName delivers a regular message addressed by registered name. With an
+// actor in split-handler mode this dispatches to HandleMessageName.
+func (s *Subject) SendMessageName(name gen.Atom, from gen.PID, message any) *Subject {
+	s.deliverTo(from, name, message, gen.MailboxMessageTypeRegular, gen.Ref{})
+	return s
+}
+
+// SendMessageAlias delivers a regular message addressed by alias. With an actor in
+// split-handler mode this dispatches to HandleMessageAlias.
+func (s *Subject) SendMessageAlias(alias gen.Alias, from gen.PID, message any) *Subject {
+	s.deliverTo(from, alias, message, gen.MailboxMessageTypeRegular, gen.Ref{})
+	return s
+}
+
+// SendMessageWithPriority delivers a message into the queue for the given priority
+// (Max -> Urgent, High -> System, Normal -> Main).
+func (s *Subject) SendMessageWithPriority(from gen.PID, message any, priority gen.MessagePriority) *Subject {
+	s.t.Helper()
+	if s.terminated {
+		return s
+	}
+	mm := gen.TakeMailboxMessage()
+	defer gen.ReleaseMailboxMessage(mm)
+	mm.From = from
+	mm.Type = gen.MailboxMessageTypeRegular
+	mm.Target = s.process.pid
+	mm.Message = message
 	switch priority {
 	case gen.MessagePriorityMax:
-		mailbox.Urgent.Push(mailboxMessage)
+		s.process.mailbox.Urgent.Push(mm)
 	case gen.MessagePriorityHigh:
-		mailbox.System.Push(mailboxMessage)
+		s.process.mailbox.System.Push(mm)
 	default:
-		mailbox.Main.Push(mailboxMessage)
+		s.process.mailbox.Main.Push(mm)
 	}
+	s.run()
+	return s
+}
 
-	if err := ta.behavior.ProcessRun(); err != nil {
-		ta.terminated = true
-		ta.terminationReason = err
-		ta.events.Push(TerminateEvent{PID: ta.PID(), Reason: err})
-		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
-			ta.t.Logf("Actor %s terminated with error: %v", ta.PID(), err)
+// DeliverExit delivers a MessageExitPID into the urgent queue.
+func (s *Subject) DeliverExit(pid gen.PID, reason error) *Subject {
+	s.deliver(gen.PID{}, gen.MessageExitPID{PID: pid, Reason: reason}, gen.MailboxMessageTypeExit, gen.Ref{})
+	return s
+}
+
+// DeliverExitMessage delivers an arbitrary exit message (ExitPID/ProcessID/Alias/
+// Event/Node) into the urgent queue.
+func (s *Subject) DeliverExitMessage(exit any) *Subject {
+	s.deliver(gen.PID{}, exit, gen.MailboxMessageTypeExit, gen.Ref{})
+	return s
+}
+
+// DeliverDown delivers a MessageDownPID as a regular message (a monitored target
+// died); use DeliverDownMessage for the other Down kinds.
+func (s *Subject) DeliverDown(pid gen.PID, reason error) *Subject {
+	s.deliver(gen.PID{}, gen.MessageDownPID{PID: pid, Reason: reason}, gen.MailboxMessageTypeRegular, gen.Ref{})
+	return s
+}
+
+// DeliverDownMessage delivers an arbitrary down message.
+func (s *Subject) DeliverDownMessage(down any) *Subject {
+	s.deliver(gen.PID{}, down, gen.MailboxMessageTypeRegular, gen.Ref{})
+	return s
+}
+
+// DeliverEvent delivers a pub/sub event to the process's HandleEvent.
+func (s *Subject) DeliverEvent(event gen.Event, message any) *Subject {
+	s.deliver(gen.PID{}, gen.MessageEvent{Event: event, Message: message}, gen.MailboxMessageTypeEvent, gen.Ref{})
+	return s
+}
+
+// DeliverLog delivers a log message to the process's HandleLog (the process must be
+// registered as a logger). Arrives on the dedicated log queue.
+func (s *Subject) DeliverLog(message gen.MessageLog) *Subject {
+	s.t.Helper()
+	if s.terminated {
+		return s
+	}
+	s.process.mailbox.Log.Push(message)
+	s.run()
+	return s
+}
+
+// DeliverSpan delivers a tracing span to the process's HandleSpan (the process must
+// be registered as a tracing exporter).
+func (s *Subject) DeliverSpan(span gen.TracingSpan) *Subject {
+	s.deliver(gen.PID{}, span, gen.MailboxMessageTypeSpan, gen.Ref{})
+	return s
+}
+
+// Call makes a synchronous request to the process (addressed by PID) and resolves
+// the response from the process's reply: an immediate or deferred SendResponse, or an
+// error (SendResponseError or an abnormal HandleCall return).
+func (s *Subject) Call(from gen.PID, request any) (any, error) {
+	s.t.Helper()
+	return s.callTo(from, s.process.pid, request)
+}
+
+// CallName makes a synchronous request addressed by registered name. With an actor
+// in split-handler mode this dispatches to HandleCallName.
+func (s *Subject) CallName(name gen.Atom, from gen.PID, request any) (any, error) {
+	s.t.Helper()
+	return s.callTo(from, name, request)
+}
+
+// CallAlias makes a synchronous request addressed by alias. With an actor in
+// split-handler mode this dispatches to HandleCallAlias.
+func (s *Subject) CallAlias(alias gen.Alias, from gen.PID, request any) (any, error) {
+	s.t.Helper()
+	return s.callTo(from, alias, request)
+}
+
+// CallWithPriority makes a synchronous request delivered at the given priority
+// (Max -> Urgent, High -> System, Normal -> Main). Routers and pools dispatch a
+// high-priority request to the admin HandleCall instead of routing/forwarding it.
+func (s *Subject) CallWithPriority(from gen.PID, request any, priority gen.MessagePriority) (any, error) {
+	s.t.Helper()
+	if s.terminated {
+		return nil, s.reason
+	}
+	if priority == gen.MessagePriorityNormal {
+		return s.callTo(from, s.process.pid, request)
+	}
+	ref := s.node.synthRef()
+	mk := s.node.rec.Mark()
+	mm := gen.TakeMailboxMessage()
+	defer gen.ReleaseMailboxMessage(mm)
+	mm.From = from
+	mm.Type = gen.MailboxMessageTypeRequest
+	mm.Target = s.process.pid
+	mm.Message = request
+	mm.Ref = ref
+	if priority == gen.MessagePriorityMax {
+		s.process.mailbox.Urgent.Push(mm)
+	} else {
+		s.process.mailbox.System.Push(mm)
+	}
+	s.run()
+	return s.resolveResponse(mk, ref)
+}
+
+func (s *Subject) callTo(from gen.PID, target any, request any) (any, error) {
+	if s.terminated {
+		return nil, s.reason
+	}
+	ref := s.node.synthRef()
+	mk := s.node.rec.Mark()
+	s.deliverTo(from, target, request, gen.MailboxMessageTypeRequest, ref)
+	return s.resolveResponse(mk, ref)
+}
+
+// resolveResponse extracts the call response (or termination reason) recorded after
+// mark for the given ref.
+func (s *Subject) resolveResponse(mk int, ref gen.Ref) (any, error) {
+	// a response may have been sent even if the process then terminated (e.g. a
+	// HandleCall returning a result together with TerminateReasonNormal), so look for
+	// the response first and fall back to the termination reason only if none was sent.
+	for _, r := range s.node.rec.Records()[mk:] {
+		sr, ok := r.(check.SendResponse)
+		if ok == false || sr.Ref != ref {
+			continue
+		}
+		if e, ok := sr.Message.(error); ok {
+			return nil, e
+		}
+		return sr.Message, nil
+	}
+	if s.terminated && s.reason != nil {
+		return nil, s.reason
+	}
+	return nil, nil
+}
+
+// Inspect sends an inspection request to the process and resolves the map the
+// process replies with via HandleInspect. from is the inspecting PID (the real
+// Inspect sets the message From to the caller's PID); pass gen.PID{} when the actor
+// ignores it. Mirrors the runtime: the request arrives on the urgent queue and the
+// reply is a SendResponse carrying the result map.
+func (s *Subject) Inspect(from gen.PID, items ...string) (map[string]string, error) {
+	s.t.Helper()
+	if s.terminated {
+		return nil, s.reason
+	}
+	ref := s.node.synthRef()
+	mk := s.node.rec.Mark()
+	s.deliver(from, items, gen.MailboxMessageTypeInspect, ref)
+	if s.terminated && s.reason != nil {
+		return nil, s.reason
+	}
+	for _, r := range s.node.rec.Records()[mk:] {
+		sr, ok := r.(check.SendResponse)
+		if ok == false || sr.Ref != ref {
+			continue
+		}
+		if e, ok := sr.Message.(error); ok {
+			return nil, e
+		}
+		m, _ := sr.Message.(map[string]string)
+		return m, nil
+	}
+	return nil, nil
+}
+
+// FireCron fires the named cron job, delivering its gen.MessageCron to the subject
+// (the common message-to-self cron action). The job must have been added (and not
+// disabled) via Node().Cron().AddJob, mirroring the real scheduler firing only
+// registered jobs. Spawn/remote-spawn cron actions are out of scope here.
+func (s *Subject) FireCron(name gen.Atom) *Subject {
+	s.t.Helper()
+	if s.node.cronmock.fireable(name) == false {
+		s.t.Fatalf("unit: FireCron(%q): no such enabled cron job; the actor must add it via Node().Cron().AddJob first", name)
+	}
+	s.deliver(gen.PID{}, gen.MessageCron{Node: s.node.nodeName, Job: name}, gen.MailboxMessageTypeRegular, gen.Ref{})
+	return s
+}
+
+// FireTimers delivers every scheduled (and not cancelled) SendAfter message whose
+// target is the process under test into its mailbox, in scheduling order, and runs
+// the process. Timers targeting other processes are marked fired but not delivered
+// (the message would leave the process, which the harness only records). Returns the
+// number of timers fired.
+func (s *Subject) FireTimers() int {
+	s.t.Helper()
+	fired := 0
+	for _, tm := range s.node.timers {
+		if tm.fired || tm.cancelled {
+			continue
+		}
+		tm.fired = true
+		fired++
+		if toSelf(tm.to, s.process.pid, s.process.name) {
+			s.deliver(tm.from, tm.message, gen.MailboxMessageTypeRegular, gen.Ref{})
 		}
 	}
-	return ta
+	return fired
 }
 
-// DeliverExit pushes a MessageExitPID into the actor's Urgent queue and runs
-// ProcessRun once. Use this to simulate a worker crash so the actor's exit
-// handler is invoked.
-func (ta *TestActor) DeliverExit(pid gen.PID, reason error) *TestActor {
-	return ta.DeliverExitMessage(gen.MessageExitPID{PID: pid, Reason: reason})
-}
-
-// DeliverExitMessage pushes an arbitrary exit message into the Urgent queue
-// and runs ProcessRun once. Accepts gen.MessageExitPID, gen.MessageExitProcessID,
-// gen.MessageExitAlias, gen.MessageExitEvent or gen.MessageExitNode.
-func (ta *TestActor) DeliverExitMessage(exitMsg any) *TestActor {
-	ta.t.Helper()
-
-	if ta.terminated {
-		ta.t.Logf("Attempted to deliver exit to terminated actor %s (reason: %v)", ta.PID(), ta.terminationReason)
-		return ta
+// toSelf reports whether a SendAfter target addresses the process under test.
+func toSelf(to any, pid gen.PID, name gen.Atom) bool {
+	switch t := to.(type) {
+	case gen.PID:
+		return t == pid
+	case gen.Atom:
+		return name != "" && t == name
+	case gen.ProcessID:
+		return name != "" && t.Name == name
 	}
-
-	mailboxMessage := gen.TakeMailboxMessage()
-	defer gen.ReleaseMailboxMessage(mailboxMessage)
-
-	mailboxMessage.From = gen.PID{}
-	mailboxMessage.Type = gen.MailboxMessageTypeExit
-	mailboxMessage.Target = ta.process.PID()
-	mailboxMessage.Message = exitMsg
-
-	ta.process.Mailbox().Urgent.Push(mailboxMessage)
-
-	if err := ta.behavior.ProcessRun(); err != nil {
-		ta.terminated = true
-		ta.terminationReason = err
-		ta.events.Push(TerminateEvent{PID: ta.PID(), Reason: err})
-		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
-			ta.t.Logf("Actor %s terminated after exit delivery with error: %v", ta.PID(), err)
-		}
-	}
-	return ta
-}
-
-// Call makes a synchronous call to the actor
-func (ta *TestActor) Call(from gen.PID, request any) *CallResult {
-	ta.t.Helper()
-
-	// Don't process calls if actor is already terminated
-	if ta.terminated {
-		ta.t.Logf("Attempted to call terminated actor %s with request %v (reason: %v)", ta.PID(), request, ta.terminationReason)
-		return &CallResult{
-			Request:  request,
-			Response: nil,
-			Error:    ta.terminationReason,
-			Ref:      gen.Ref{},
-			From:     from,
-			actor:    ta,
-		}
-	}
-
-	ref := makeTestRefWithCreation(ta.node.Name(), ta.node.Creation())
-
-	// Create a mailbox message for proper call routing
-	mailboxMessage := gen.TakeMailboxMessage()
-	defer gen.ReleaseMailboxMessage(mailboxMessage)
-
-	mailboxMessage.From = from
-	mailboxMessage.Type = gen.MailboxMessageTypeRequest
-	mailboxMessage.Target = ta.process.PID()
-	mailboxMessage.Message = request
-	mailboxMessage.Ref = ref
-
-	// Put the request into the main mailbox queue
-	mailbox := ta.process.Mailbox()
-	mailbox.Main.Push(mailboxMessage)
-
-	// Let the behavior process its mailbox by calling ProcessRun
-	var callError error
-	if err := ta.behavior.ProcessRun(); err != nil {
-		// Actor returned an error - it should terminate
-		ta.terminated = true
-		ta.terminationReason = err
-		callError = err
-
-		// Emit termination event
-		ta.events.Push(TerminateEvent{
-			PID:    ta.PID(),
-			Reason: err,
-		})
-
-		// Only log non-normal termination for debugging
-		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
-			ta.t.Logf("Actor %s terminated during call with error: %v", ta.PID(), err)
-		}
-	}
-
-	// Check if we got an async response via SendResponse events
-	response, responseError := ta.findResponseForRef(ref)
-
-	// If we have a process error, use that; otherwise use response error
-	finalError := callError
-	if finalError == nil {
-		finalError = responseError
-	}
-
-	return &CallResult{
-		Request:  request,
-		Response: response,
-		Error:    finalError,
-		Ref:      ref,
-		From:     from,
-		actor:    ta,
-	}
-}
-
-// CallWithPriority makes a synchronous call with a specific priority. The
-// request lands in Urgent for MessagePriorityMax, System for
-// MessagePriorityHigh, Main for MessagePriorityNormal (default).
-func (ta *TestActor) CallWithPriority(from gen.PID, request any, priority gen.MessagePriority) *CallResult {
-	ta.t.Helper()
-
-	if ta.terminated {
-		ta.t.Logf("Attempted to call terminated actor %s with request %v (reason: %v)", ta.PID(), request, ta.terminationReason)
-		return &CallResult{
-			Request:  request,
-			Response: nil,
-			Error:    ta.terminationReason,
-			Ref:      gen.Ref{},
-			From:     from,
-			actor:    ta,
-		}
-	}
-
-	ref := makeTestRefWithCreation(ta.node.Name(), ta.node.Creation())
-
-	mailboxMessage := gen.TakeMailboxMessage()
-	defer gen.ReleaseMailboxMessage(mailboxMessage)
-
-	mailboxMessage.From = from
-	mailboxMessage.Type = gen.MailboxMessageTypeRequest
-	mailboxMessage.Target = ta.process.PID()
-	mailboxMessage.Message = request
-	mailboxMessage.Ref = ref
-
-	mailbox := ta.process.Mailbox()
-	switch priority {
-	case gen.MessagePriorityMax:
-		mailbox.Urgent.Push(mailboxMessage)
-	case gen.MessagePriorityHigh:
-		mailbox.System.Push(mailboxMessage)
-	default:
-		mailbox.Main.Push(mailboxMessage)
-	}
-
-	var callError error
-	if err := ta.behavior.ProcessRun(); err != nil {
-		ta.terminated = true
-		ta.terminationReason = err
-		callError = err
-		ta.events.Push(TerminateEvent{PID: ta.PID(), Reason: err})
-		if err != gen.TerminateReasonNormal && err != gen.TerminateReasonShutdown {
-			ta.t.Logf("Actor %s terminated during call with error: %v", ta.PID(), err)
-		}
-	}
-
-	response, responseError := ta.findResponseForRef(ref)
-	finalError := callError
-	if finalError == nil {
-		finalError = responseError
-	}
-
-	return &CallResult{
-		Request:  request,
-		Response: response,
-		Error:    finalError,
-		Ref:      ref,
-		From:     from,
-		actor:    ta,
-	}
-}
-
-// findResponseForRef looks for SendResponse or SendResponseError events matching the ref
-func (ta *TestActor) findResponseForRef(ref gen.Ref) (any, error) {
-	events := ta.Events()
-	for _, event := range events {
-		if responseEvent, ok := event.(SendResponseEvent); ok {
-			if responseEvent.Ref == ref {
-				return responseEvent.Response, nil
-			}
-		}
-		if errorEvent, ok := event.(SendResponseErrorEvent); ok {
-			if errorEvent.Ref == ref {
-				return nil, errorEvent.Error
-			}
-		}
-	}
-	return nil, nil // No response found yet (async response may come later)
-}
-
-// CallResult wraps the result of a call operation
-type CallResult struct {
-	Request  any
-	Response any
-	Error    error
-	Ref      gen.Ref
-	From     gen.PID
-	actor    *TestActor
-}
-
-// GetAsyncResponse waits for and returns the async response from SendResponse events
-func (cr *CallResult) GetAsyncResponse() (any, error) {
-	return cr.actor.findResponseForRef(cr.Ref)
-}
-
-// Behavior returns the underlying actor behavior for direct access
-func (ta *TestActor) Behavior() gen.ProcessBehavior {
-	return ta.behavior
-}
-
-// Process returns the test process for accessing process methods
-func (ta *TestActor) Process() *TestProcess {
-	return ta.process
-}
-
-// Node returns the test node for accessing node methods
-func (ta *TestActor) Node() gen.Node {
-	return ta.node
-}
-
-// PID returns the PID of the test actor
-func (ta *TestActor) PID() gen.PID {
-	return ta.process.PID()
-}
-
-// Capture stores a value with the given name for later retrieval
-func (ta *TestActor) Capture(name string, value any) *TestActor {
-	ta.captures[name] = value
-	return ta
-}
-
-// Retrieved gets a previously captured value
-func (ta *TestActor) Retrieved(name string) any {
-	return ta.captures[name]
-}
-
-// Events returns all captured events for manual inspection
-func (ta *TestActor) Events() []Event {
-	// First, collect any new events from the queue
-	for {
-		event, ok := ta.events.Pop()
-		if !ok {
-			break
-		}
-		ta.storedEvents = append(ta.storedEvents, event.(Event))
-	}
-
-	// Return a copy of stored events
-	result := make([]Event, len(ta.storedEvents))
-	copy(result, ta.storedEvents)
-	return result
-}
-
-// ClearEvents removes all captured events
-func (ta *TestActor) ClearEvents() *TestActor {
-	// Clear the queue
-	for {
-		_, ok := ta.events.Pop()
-		if !ok {
-			break
-		}
-	}
-	// Clear stored events
-	ta.storedEvents = ta.storedEvents[:0]
-	return ta
-}
-
-// EventCount returns the number of captured events
-func (ta *TestActor) EventCount() int {
-	// Make sure we've collected all events first
-	ta.Events()
-	return len(ta.storedEvents)
-}
-
-// LastEvent returns the most recent event
-func (ta *TestActor) LastEvent() Event {
-	events := ta.Events()
-	if len(events) == 0 {
-		return nil
-	}
-	return events[len(events)-1]
-}
-
-// Fluent assertion methods
-func (ta *TestActor) ShouldSend() *SendAssertion {
-	return &SendAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-func (ta *TestActor) ShouldNotSend() *SendAssertion {
-	return &SendAssertion{
-		actor:    ta,
-		expected: false,
-	}
-}
-
-func (ta *TestActor) ShouldSpawn() *SpawnAssertion {
-	return &SpawnAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-func (ta *TestActor) ShouldNotSpawn() *SpawnAssertion {
-	return &SpawnAssertion{
-		actor:    ta,
-		expected: false,
-	}
-}
-
-func (ta *TestActor) ShouldSpawnMeta() *SpawnMetaAssertion {
-	return &SpawnMetaAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-func (ta *TestActor) ShouldLog() *LogAssertion {
-	return &LogAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-func (ta *TestActor) ShouldCall() *CallAssertion {
-	return &CallAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-// Cron assertion methods
-
-// ShouldAddCronJob starts a cron job add assertion
-func (ta *TestActor) ShouldAddCronJob() *CronJobAssertion {
-	return &CronJobAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-		action:   "add",
-	}
-}
-
-// ShouldRemoveCronJob starts a cron job remove assertion
-func (ta *TestActor) ShouldRemoveCronJob() *CronJobAssertion {
-	return &CronJobAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-		action:   "remove",
-	}
-}
-
-// ShouldEnableCronJob starts a cron job enable assertion
-func (ta *TestActor) ShouldEnableCronJob() *CronJobAssertion {
-	return &CronJobAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-		action:   "enable",
-	}
-}
-
-// ShouldDisableCronJob starts a cron job disable assertion
-func (ta *TestActor) ShouldDisableCronJob() *CronJobAssertion {
-	return &CronJobAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-		action:   "disable",
-	}
-}
-
-// ShouldExecuteCronJob starts a cron job execution assertion
-func (ta *TestActor) ShouldExecuteCronJob() *CronJobExecutionAssertion {
-	return &CronJobExecutionAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-// Cron helper methods
-
-// TriggerCronJob manually triggers a cron job for testing
-func (ta *TestActor) TriggerCronJob(name gen.Atom) error {
-	testCron := ta.node.cron
-	return testCron.TriggerJob(name)
-}
-
-// SetCronMockTime sets mock time for cron testing
-func (ta *TestActor) SetCronMockTime(t time.Time) {
-	testCron := ta.node.cron
-	testCron.SetMockTime(t)
-}
-
-// Built-in assertion functions (zero dependencies)
-func Equal(t testing.TB, expected, actual any, msgAndArgs ...any) {
-	t.Helper()
-	if !reflect.DeepEqual(expected, actual) {
-		msg := ""
-		if len(msgAndArgs) > 0 {
-			msg = fmt.Sprintf(msgAndArgs[0].(string), msgAndArgs[1:]...)
-		}
-		t.Errorf("Expected %v, got %v. %s", expected, actual, msg)
-	}
-}
-
-func NotEqual(t testing.TB, expected, actual any, msgAndArgs ...any) {
-	t.Helper()
-	if reflect.DeepEqual(expected, actual) {
-		msg := ""
-		if len(msgAndArgs) > 0 {
-			msg = fmt.Sprintf(msgAndArgs[0].(string), msgAndArgs[1:]...)
-		}
-		t.Errorf("Expected %v to not equal %v. %s", expected, actual, msg)
-	}
-}
-
-func True(t testing.TB, condition bool, msgAndArgs ...any) {
-	t.Helper()
-	if !condition {
-		msg := "Expected condition to be true"
-		if len(msgAndArgs) > 0 {
-			msg = fmt.Sprintf(msgAndArgs[0].(string), msgAndArgs[1:]...)
-		}
-		t.Error(msg)
-	}
-}
-
-func False(t testing.TB, condition bool, msgAndArgs ...any) {
-	t.Helper()
-	if condition {
-		msg := "Expected condition to be false"
-		if len(msgAndArgs) > 0 {
-			msg = fmt.Sprintf(msgAndArgs[0].(string), msgAndArgs[1:]...)
-		}
-		t.Error(msg)
-	}
-}
-
-func Nil(t testing.TB, value any, msgAndArgs ...any) {
-	t.Helper()
-	if value != nil {
-		msg := ""
-		if len(msgAndArgs) > 0 {
-			msg = fmt.Sprintf(msgAndArgs[0].(string), msgAndArgs[1:]...)
-		}
-		t.Errorf("Expected nil, got %v. %s", value, msg)
-	}
-}
-
-func NotNil(t testing.TB, value any, msgAndArgs ...any) {
-	t.Helper()
-	if value == nil {
-		msg := "Expected value to not be nil"
-		if len(msgAndArgs) > 0 {
-			msg = fmt.Sprintf(msgAndArgs[0].(string), msgAndArgs[1:]...)
-		}
-		t.Error(msg)
-	}
-}
-
-func Contains(t testing.TB, haystack, needle string, msgAndArgs ...any) {
-	t.Helper()
-	if !strings.Contains(haystack, needle) {
-		msg := ""
-		if len(msgAndArgs) > 0 {
-			msg = fmt.Sprintf(msgAndArgs[0].(string), msgAndArgs[1:]...)
-		}
-		t.Errorf("Expected %q to contain %q. %s", haystack, needle, msg)
-	}
-}
-
-func IsType(t testing.TB, expectedType, value any, msgAndArgs ...any) {
-	t.Helper()
-	if reflect.TypeOf(value) != reflect.TypeOf(expectedType) {
-		msg := ""
-		if len(msgAndArgs) > 0 {
-			msg = fmt.Sprintf(msgAndArgs[0].(string), msgAndArgs[1:]...)
-		}
-		t.Errorf("Expected type %T, got %T. %s", expectedType, value, msg)
-	}
-}
-
-// RemoteNode returns the TestNetwork to access remote node functionality
-func (ta *TestActor) RemoteNode() *TestNetwork {
-	return ta.node.network
-}
-
-// CreateRemoteNode creates a new remote node for testing
-func (ta *TestActor) CreateRemoteNode(name gen.Atom, connected bool) *TestRemoteNode {
-	return ta.node.network.AddRemoteNode(name, connected)
-}
-
-// GetRemoteNode gets an existing remote node or creates it if it doesn't exist
-func (ta *TestActor) GetRemoteNode(name gen.Atom) (gen.RemoteNode, error) {
-	return ta.node.network.GetNode(name)
-}
-
-// ConnectRemoteNode connects to a remote node (creates connection if needed)
-func (ta *TestActor) ConnectRemoteNode(name gen.Atom) gen.RemoteNode {
-	node, _ := ta.node.network.GetNode(name)
-	return node
-}
-
-// DisconnectRemoteNode disconnects from a remote node
-func (ta *TestActor) DisconnectRemoteNode(name gen.Atom) error {
-	node, err := ta.node.network.Node(name)
-	if err != nil {
-		return err
-	}
-	node.Disconnect()
-	return nil
-}
-
-// ListConnectedNodes returns all connected remote nodes
-func (ta *TestActor) ListConnectedNodes() []gen.Atom {
-	return ta.node.network.Nodes()
-}
-
-// ShouldSendResponse starts a response assertion
-func (ta *TestActor) ShouldSendResponse() *SendResponseAssertion {
-	return &SendResponseAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-// ShouldNotSendResponse starts a negative response assertion
-func (ta *TestActor) ShouldNotSendResponse() *SendResponseAssertion {
-	return &SendResponseAssertion{
-		actor:    ta,
-		expected: false,
-	}
-}
-
-// ShouldSendResponseError starts a response error assertion
-func (ta *TestActor) ShouldSendResponseError() *SendResponseErrorAssertion {
-	return &SendResponseErrorAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-// ShouldNotSendResponseError starts a negative response error assertion
-func (ta *TestActor) ShouldNotSendResponseError() *SendResponseErrorAssertion {
-	return &SendResponseErrorAssertion{
-		actor:    ta,
-		expected: false,
-	}
-}
-
-// Termination-related methods
-
-// IsTerminated returns true if the actor has been terminated
-func (ta *TestActor) IsTerminated() bool {
-	return ta.terminated
-}
-
-// TerminationReason returns the reason for termination, or nil if not terminated
-func (ta *TestActor) TerminationReason() error {
-	return ta.terminationReason
-}
-
-// ShouldTerminate starts a termination assertion
-func (ta *TestActor) ShouldTerminate() *TerminateAssertion {
-	return &TerminateAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-// ShouldNotTerminate starts a negative termination assertion
-func (ta *TestActor) ShouldNotTerminate() *TerminateAssertion {
-	return &TerminateAssertion{
-		actor:    ta,
-		expected: false,
-	}
-}
-
-// Exit assertion methods
-
-// ShouldSendExit starts an exit assertion
-func (ta *TestActor) ShouldSendExit() *ExitAssertion {
-	return &ExitAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-// ShouldNotSendExit starts a negative exit assertion
-func (ta *TestActor) ShouldNotSendExit() *ExitAssertion {
-	return &ExitAssertion{
-		actor:    ta,
-		expected: false,
-	}
-}
-
-// ShouldSendExitMeta starts an exit meta assertion
-func (ta *TestActor) ShouldSendExitMeta() *ExitMetaAssertion {
-	return &ExitMetaAssertion{
-		actor:    ta,
-		expected: true,
-		count:    1,
-	}
-}
-
-// ShouldNotSendExitMeta starts a negative exit meta assertion
-func (ta *TestActor) ShouldNotSendExitMeta() *ExitMetaAssertion {
-	return &ExitMetaAssertion{
-		actor:    ta,
-		expected: false,
-	}
+	return false
 }

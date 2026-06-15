@@ -983,10 +983,10 @@ type ProcessOptions struct {
 
 	// SendPriority sets the default priority for messages sent by this process.
 	// Messages are delivered to receiver's mailbox queues in this order:
-	//  - MessagePriorityMax → Mailbox.Urgent (highest priority)
-	//  - MessagePriorityHigh → Mailbox.System
-	//  - MessagePriorityNormal (default) → Mailbox.Main
-	// Receiver processes mailbox in order: Urgent → System → Main.
+	//  - MessagePriorityMax -> Mailbox.Urgent (highest priority)
+	//  - MessagePriorityHigh -> Mailbox.System
+	//  - MessagePriorityNormal (default) -> Mailbox.Main
+	// Receiver processes mailbox in order: Urgent -> System -> Main.
 	SendPriority MessagePriority
 
 	// ImportantDelivery enables delivery confirmation for messages sent to remote nodes.

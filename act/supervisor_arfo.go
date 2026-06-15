@@ -257,15 +257,19 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 			}
 
 		} else {
-			if len(s.wait) > 0 {
-				// must be 0
-				panic(gen.ErrInternal)
+			if specI < s.restartI {
+				// terminated child is below the restart position (e.g. an
+				// out-of-order or independent exit arrived). Lower the position so
+				// it is included in the restart range.
+				s.restartI = specI
 			}
 
-			if specI < s.restartI {
-				// terminated child is not among we are waiting for termination.
-				// update the position
-				s.restartI = specI
+			if len(s.wait) > 0 {
+				// still waiting for other children to terminate. This child died
+				// out of order (or on its own) while we were sequentially stopping
+				// the group; keep waiting for the rest.
+				action.do = supActionTerminateChildren
+				return action
 			}
 
 			terminate := s.childrenForTermination()
@@ -367,13 +371,20 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 
 	if exceeded {
 		// exceeded intensity. start supervisor termination
+		s.shutdownReason = gen.Errorf("supervisor restart intensity exceeded (max %d in %ds): %w: %w",
+			s.restart.Intensity, s.restart.Period, gen.ErrExceeded, reason)
+
+		if len(runningChildren) == 0 {
+			action.do = supActionTerminate
+			action.reason = s.shutdownReason
+			return action
+		}
+
 		action.terminate = runningChildren
 		action.do = supActionTerminateChildren
 		action.reason = gen.ErrExceeded
 		s.wait = wait
 		s.mode = 3 // shutdown
-		s.shutdownReason = gen.Errorf("supervisor restart intensity exceeded (max %d in %ds): %w: %w",
-			s.restart.Intensity, s.restart.Period, gen.ErrExceeded, reason)
 		return action
 	}
 
@@ -450,11 +461,12 @@ func (s *supARFO) childDisable(name gen.Atom) (supAction, error) {
 			return action, nil
 		}
 
+		cs.disabled = true
+
 		if cs.pid == empty {
 			return action, nil
 		}
 
-		cs.disabled = true
 		action.do = supActionTerminateChildren
 		action.terminate = []gen.PID{cs.pid}
 		action.reason = gen.TerminateReasonShutdown
