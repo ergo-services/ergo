@@ -547,7 +547,10 @@ func (p *mockProcess) SendExitAfter(to gen.PID, reason error, after time.Duratio
 	return p.node.schedule(p.pid, to, gen.MessageExitPID{PID: p.pid, Reason: reason}, after, p.msgOptions()), nil
 }
 func (p *mockProcess) SendExitMetaAfter(meta gen.Alias, reason error, after time.Duration) (gen.CancelFunc, error) {
-	return func() bool { return true }, nil
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
+	return p.node.schedule(p.pid, meta, gen.MessageExitAlias{Alias: meta, Reason: reason}, after, p.msgOptions()), nil
 }
 
 // exit
@@ -558,7 +561,12 @@ func (p *mockProcess) SendExit(to gen.PID, reason error) error {
 	}
 	return p.node.routeSendExit(p.pid, to, reason)
 }
-func (p *mockProcess) SendExitMeta(meta gen.Alias, reason error) error { return nil }
+func (p *mockProcess) SendExitMeta(meta gen.Alias, reason error) error {
+	if p.stateIRT() == false {
+		return gen.ErrNotAllowed
+	}
+	return p.node.routeSendExitMeta(p.pid, meta, reason)
+}
 
 // responses
 

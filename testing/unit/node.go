@@ -170,7 +170,12 @@ func (n *mockNode) routeRemoteSpawn(from gen.PID, node, name, register gen.Atom,
 
 func (n *mockNode) routeSendExit(from, to gen.PID, reason error) error {
 	err, _ := resolveFail(n.stubs.exit, to)
-	n.rec.Put(check.SendExit{From: from, To: to, Reason: reason})
+	n.rec.Put(check.SendExit{From: from, To: to, Reason: reason, Error: err})
+	return err
+}
+func (n *mockNode) routeSendExitMeta(from gen.PID, meta gen.Alias, reason error) error {
+	err, _ := resolveFail(n.stubs.exitMeta, meta)
+	n.rec.Put(check.SendExitMeta{From: from, Meta: meta, Reason: reason, Error: err})
 	return err
 }
 
@@ -249,7 +254,6 @@ func (n *mockNode) schedule(from gen.PID, to any, message any, after time.Durati
 		return true
 	}
 }
-
 
 // unsupported fails the test for a node value-query that has no sensible default
 // and no override (the process consumes the result, so a zero would mislead it).

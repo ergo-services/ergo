@@ -14,17 +14,18 @@ import (
 //
 // When several stubs match an operation, the most recently registered one wins.
 type stubs struct {
-	call    []*CallStub
-	spawn   []*SpawnStub
-	meta    []*SpawnMetaStub
-	remote  []*RemoteSpawnStub
-	alias   []*CreateAliasStub
-	regev   []*RegisterEventStub
-	send    []*FailStub
-	link    []*FailStub
-	monitor []*FailStub
-	exit    []*FailStub
-	forward []*FailStub
+	call     []*CallStub
+	spawn    []*SpawnStub
+	meta     []*SpawnMetaStub
+	remote   []*RemoteSpawnStub
+	alias    []*CreateAliasStub
+	regev    []*RegisterEventStub
+	send     []*FailStub
+	link     []*FailStub
+	monitor  []*FailStub
+	exit     []*FailStub
+	exitMeta []*FailStub
+	forward  []*FailStub
 }
 
 func newStubs() *stubs { return &stubs{} }
@@ -304,6 +305,13 @@ func (a *Subject) OnMonitor(target any) *FailStub {
 func (a *Subject) OnSendExit(pid gen.PID) *FailStub {
 	s := &FailStub{to: pid}
 	a.stubs.exit = append(a.stubs.exit, s)
+	return s
+}
+
+// OnSendExitMeta stubs a SendExitMeta to the meta alias to fail.
+func (a *Subject) OnSendExitMeta(meta gen.Alias) *FailStub {
+	s := &FailStub{to: meta}
+	a.stubs.exitMeta = append(a.stubs.exitMeta, s)
 	return s
 }
 

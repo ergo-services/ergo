@@ -789,6 +789,45 @@ func (x *SendExitAssert) ReasonIs(target error) *SendExitAssert {
 	x.Where(func(r SendExit) bool { return errors.Is(r.Reason, target) })
 	return x
 }
+func (x *SendExitAssert) Error(target error) *SendExitAssert {
+	x.Where(func(r SendExit) bool { return r.Error == target })
+	return x
+}
+func (x *SendExitAssert) ErrorIs(target error) *SendExitAssert {
+	x.Where(func(r SendExit) bool { return errors.Is(r.Error, target) })
+	return x
+}
+
+// SendExitMeta asserts over exit signals a process sent to a meta process (egress).
+type SendExitMetaAssert struct{ *Assertion[SendExitMeta] }
+
+func (a *Asserter) ShouldSendExitMeta() *SendExitMetaAssert {
+	return &SendExitMetaAssert{For[SendExitMeta](a.t, a.rec)}
+}
+func (x *SendExitMetaAssert) From(p gen.PID) *SendExitMetaAssert {
+	x.Where(func(r SendExitMeta) bool { return r.From == p })
+	return x
+}
+func (x *SendExitMetaAssert) Meta(alias gen.Alias) *SendExitMetaAssert {
+	x.Where(func(r SendExitMeta) bool { return r.Meta == alias })
+	return x
+}
+func (x *SendExitMetaAssert) Reason(target error) *SendExitMetaAssert {
+	x.Where(func(r SendExitMeta) bool { return r.Reason == target })
+	return x
+}
+func (x *SendExitMetaAssert) ReasonIs(target error) *SendExitMetaAssert {
+	x.Where(func(r SendExitMeta) bool { return errors.Is(r.Reason, target) })
+	return x
+}
+func (x *SendExitMetaAssert) Error(target error) *SendExitMetaAssert {
+	x.Where(func(r SendExitMeta) bool { return r.Error == target })
+	return x
+}
+func (x *SendExitMetaAssert) ErrorIs(target error) *SendExitMetaAssert {
+	x.Where(func(r SendExitMeta) bool { return errors.Is(r.Error, target) })
+	return x
+}
 
 // LogAssert asserts over log lines a process emitted (egress).
 type LogAssert struct{ *Assertion[Log] }

@@ -354,16 +354,33 @@ func (r SendResponse) String() string {
 	return fmt.Sprintf("SendResponse(from=%s to=%s msg=%#v err=%v)", r.From, r.To, r.Message, r.Error)
 }
 
-// SendExit is an exit signal a process sent via SendExit (egress).
+// SendExit is an exit signal a process sent to a PID via SendExit (egress). Reason
+// is the exit reason delivered; Error is whether the send itself failed.
 type SendExit struct {
 	From   gen.PID
 	To     gen.PID
 	Reason error
+	Error  error
 }
 
 func (SendExit) Kind() string { return "sent_exit" }
 func (r SendExit) String() string {
-	return fmt.Sprintf("SendExit(from=%s to=%s reason=%v)", r.From, r.To, r.Reason)
+	return fmt.Sprintf("SendExit(from=%s to=%s reason=%v err=%v)", r.From, r.To, r.Reason, r.Error)
+}
+
+// SendExitMeta is an exit signal a process sent to a meta process by alias via
+// SendExitMeta (egress). Reason is the exit reason delivered; Error is whether the
+// send itself failed.
+type SendExitMeta struct {
+	From   gen.PID
+	Meta   gen.Alias
+	Reason error
+	Error  error
+}
+
+func (SendExitMeta) Kind() string { return "sent_exit_meta" }
+func (r SendExitMeta) String() string {
+	return fmt.Sprintf("SendExitMeta(from=%s meta=%s reason=%v err=%v)", r.From, r.Meta, r.Reason, r.Error)
 }
 
 // Log is a log line emitted by a process (egress). Message is preformatted.

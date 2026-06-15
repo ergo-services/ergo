@@ -798,7 +798,12 @@ func (p *recordProcess) SendImportant(to any, message any) error {
 
 func (p *recordProcess) SendExit(to gen.PID, reason error) error {
 	err := p.Process.SendExit(to, reason)
-	p.rec.Put(check.SendExit{From: p.Process.PID(), To: to, Reason: reason})
+	p.rec.Put(check.SendExit{From: p.Process.PID(), To: to, Reason: reason, Error: err})
+	return err
+}
+func (p *recordProcess) SendExitMeta(meta gen.Alias, reason error) error {
+	err := p.Process.SendExitMeta(meta, reason)
+	p.rec.Put(check.SendExitMeta{From: p.Process.PID(), Meta: meta, Reason: reason, Error: err})
 	return err
 }
 

@@ -71,33 +71,35 @@ type processOverrides struct {
 // On<Method> setters for the process under test. Configure after spawn; the next
 // delivery uses them.
 
-func (s *Subject) OnNode(fn func() gen.Node)                  { s.process.ov.node = fn }
-func (s *Subject) OnName(fn func() gen.Atom)                  { s.process.ov.name = fn }
-func (s *Subject) OnPID(fn func() gen.PID)                    { s.process.ov.pid = fn }
-func (s *Subject) OnLeader(fn func() gen.PID)                 { s.process.ov.leader = fn }
-func (s *Subject) OnParent(fn func() gen.PID)                 { s.process.ov.parent = fn }
-func (s *Subject) OnApplication(fn func() gen.Application)    { s.process.ov.application = fn }
-func (s *Subject) OnUptime(fn func() int64)                   { s.process.ov.uptime = fn }
-func (s *Subject) OnState(fn func() gen.ProcessState)         { s.process.ov.state = fn }
-func (s *Subject) OnBehavior(fn func() gen.ProcessBehavior)   { s.process.ov.behavior = fn }
-func (s *Subject) OnBehaviorName(fn func() string)            { s.process.ov.behaviorName = fn }
-func (s *Subject) OnMailbox(fn func() gen.ProcessMailbox)     { s.process.ov.mailbox = fn }
-func (s *Subject) OnLog(fn func() gen.Log)                    { s.process.ov.log = fn }
-func (s *Subject) OnAliases(fn func() []gen.Alias)            { s.process.ov.aliases = fn }
-func (s *Subject) OnEvents(fn func() []gen.Atom)              { s.process.ov.events = fn }
+func (s *Subject) OnNode(fn func() gen.Node)                { s.process.ov.node = fn }
+func (s *Subject) OnName(fn func() gen.Atom)                { s.process.ov.name = fn }
+func (s *Subject) OnPID(fn func() gen.PID)                  { s.process.ov.pid = fn }
+func (s *Subject) OnLeader(fn func() gen.PID)               { s.process.ov.leader = fn }
+func (s *Subject) OnParent(fn func() gen.PID)               { s.process.ov.parent = fn }
+func (s *Subject) OnApplication(fn func() gen.Application)  { s.process.ov.application = fn }
+func (s *Subject) OnUptime(fn func() int64)                 { s.process.ov.uptime = fn }
+func (s *Subject) OnState(fn func() gen.ProcessState)       { s.process.ov.state = fn }
+func (s *Subject) OnBehavior(fn func() gen.ProcessBehavior) { s.process.ov.behavior = fn }
+func (s *Subject) OnBehaviorName(fn func() string)          { s.process.ov.behaviorName = fn }
+func (s *Subject) OnMailbox(fn func() gen.ProcessMailbox)   { s.process.ov.mailbox = fn }
+func (s *Subject) OnLog(fn func() gen.Log)                  { s.process.ov.log = fn }
+func (s *Subject) OnAliases(fn func() []gen.Alias)          { s.process.ov.aliases = fn }
+func (s *Subject) OnEvents(fn func() []gen.Atom)            { s.process.ov.events = fn }
 
-func (s *Subject) OnEnvList(fn func() map[gen.Env]any)       { s.process.ov.envList = fn }
-func (s *Subject) OnSetEnv(fn func(name gen.Env, value any)) { s.process.ov.setEnv = fn }
-func (s *Subject) OnEnv(fn func(name gen.Env) (any, bool))   { s.process.ov.env = fn }
+func (s *Subject) OnEnvList(fn func() map[gen.Env]any)             { s.process.ov.envList = fn }
+func (s *Subject) OnSetEnv(fn func(name gen.Env, value any))       { s.process.ov.setEnv = fn }
+func (s *Subject) OnEnv(fn func(name gen.Env) (any, bool))         { s.process.ov.env = fn }
 func (s *Subject) OnEnvDefault(fn func(name gen.Env, def any) any) { s.process.ov.envDefault = fn }
 
-func (s *Subject) OnCompression(fn func() bool)                          { s.process.ov.compression = fn }
-func (s *Subject) OnSetCompression(fn func(enabled bool) error)          { s.process.ov.setCompression = fn }
-func (s *Subject) OnCompressionType(fn func() gen.CompressionType)       { s.process.ov.compressionType = fn }
+func (s *Subject) OnCompression(fn func() bool)                    { s.process.ov.compression = fn }
+func (s *Subject) OnSetCompression(fn func(enabled bool) error)    { s.process.ov.setCompression = fn }
+func (s *Subject) OnCompressionType(fn func() gen.CompressionType) { s.process.ov.compressionType = fn }
 func (s *Subject) OnSetCompressionType(fn func(ctype gen.CompressionType) error) {
 	s.process.ov.setCompressionType = fn
 }
-func (s *Subject) OnCompressionLevel(fn func() gen.CompressionLevel) { s.process.ov.compressionLevel = fn }
+func (s *Subject) OnCompressionLevel(fn func() gen.CompressionLevel) {
+	s.process.ov.compressionLevel = fn
+}
 func (s *Subject) OnSetCompressionLevel(fn func(level gen.CompressionLevel) error) {
 	s.process.ov.setCompressionLevel = fn
 }
@@ -109,9 +111,13 @@ func (s *Subject) OnSendPriority(fn func() gen.MessagePriority) { s.process.ov.s
 func (s *Subject) OnSetSendPriority(fn func(priority gen.MessagePriority) error) {
 	s.process.ov.setSendPriority = fn
 }
-func (s *Subject) OnSetProcessKind(fn func(kind gen.ProcessKind) error) { s.process.ov.setProcessKind = fn }
-func (s *Subject) OnSetKeepNetworkOrder(fn func(order bool) error)      { s.process.ov.setKeepNetworkOrder = fn }
-func (s *Subject) OnKeepNetworkOrder(fn func() bool)                    { s.process.ov.keepNetworkOrder = fn }
+func (s *Subject) OnSetProcessKind(fn func(kind gen.ProcessKind) error) {
+	s.process.ov.setProcessKind = fn
+}
+func (s *Subject) OnSetKeepNetworkOrder(fn func(order bool) error) {
+	s.process.ov.setKeepNetworkOrder = fn
+}
+func (s *Subject) OnKeepNetworkOrder(fn func() bool) { s.process.ov.keepNetworkOrder = fn }
 func (s *Subject) OnSetImportantDelivery(fn func(important bool) error) {
 	s.process.ov.setImportantDelivery = fn
 }
@@ -132,20 +138,28 @@ func (s *Subject) OnInspect(fn func(target gen.PID, item ...string) (map[string]
 func (s *Subject) OnInspectMeta(fn func(meta gen.Alias, item ...string) (map[string]string, error)) {
 	s.process.ov.inspectMeta = fn
 }
-func (s *Subject) OnInfo(fn func() (gen.ProcessInfo, error))               { s.process.ov.info = fn }
-func (s *Subject) OnMetaInfo(fn func(meta gen.Alias) (gen.MetaInfo, error)) { s.process.ov.metaInfo = fn }
+func (s *Subject) OnInfo(fn func() (gen.ProcessInfo, error)) { s.process.ov.info = fn }
+func (s *Subject) OnMetaInfo(fn func(meta gen.Alias) (gen.MetaInfo, error)) {
+	s.process.ov.metaInfo = fn
+}
 
-func (s *Subject) OnPropagatingTrace(fn func() gen.Tracing)      { s.process.ov.propagatingTrace = fn }
-func (s *Subject) OnSetPropagatingTrace(fn func(t gen.Tracing))  { s.process.ov.setPropagatingTrace = fn }
+func (s *Subject) OnPropagatingTrace(fn func() gen.Tracing) { s.process.ov.propagatingTrace = fn }
+func (s *Subject) OnSetPropagatingTrace(fn func(t gen.Tracing)) {
+	s.process.ov.setPropagatingTrace = fn
+}
 func (s *Subject) OnSetTracingAttribute(fn func(key, value string)) {
 	s.process.ov.setTracingAttribute = fn
 }
-func (s *Subject) OnRemoveTracingAttribute(fn func(key string)) { s.process.ov.removeTracingAttribute = fn }
+func (s *Subject) OnRemoveTracingAttribute(fn func(key string)) {
+	s.process.ov.removeTracingAttribute = fn
+}
 func (s *Subject) OnSetTracingSpanAttribute(fn func(key, value string)) {
 	s.process.ov.setTracingSpanAttribute = fn
 }
 func (s *Subject) OnTracingAttributes(fn func() []gen.TracingAttribute) {
 	s.process.ov.tracingAttributes = fn
 }
-func (s *Subject) OnClearTracingSpanAttributes(fn func()) { s.process.ov.clearTracingSpanAttributes = fn }
+func (s *Subject) OnClearTracingSpanAttributes(fn func()) {
+	s.process.ov.clearTracingSpanAttributes = fn
+}
 func (s *Subject) OnSendTracingSpan(fn func(span gen.TracingSpan)) { s.process.ov.sendTracingSpan = fn }

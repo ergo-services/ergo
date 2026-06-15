@@ -562,3 +562,29 @@ func TestSmokeCronRemove(t *testing.T) {
 	a.ShouldRemoveCronJob().Name(gen.Atom("nightly")).Once().Assert()
 	check.ErrorIs(t, a.Node().Cron().RemoveJob(gen.Atom("nightly")), gen.ErrUnknown)
 }
+
+// SendExitMeta egress: the stub error is captured in the check.SendExitMeta record
+// alongside the exit reason (C: unit parity with SendExit).
+type exiterActor struct{ act.Actor }
+
+func factoryExiter() gen.ProcessBehavior { return &exiterActor{} }
+
+func (a *exiterActor) HandleMessage(from gen.PID, message any) error {
+	if alias, ok := message.(gen.Alias); ok {
+		a.SendExitMeta(alias, gen.TerminateReasonShutdown)
+	}
+	return nil
+}
+
+func TestSmokeSendExitMeta(t *testing.T) {
+	s, _ := unit.Spawn(t, factoryExiter, gen.ProcessOptions{})
+	alias := gen.Alias{Node: "unit@localhost", Creation: 1, ID: [3]uint64{7, 0, 0}}
+	s.OnSendExitMeta(alias).Fail(gen.ErrProcessUnknown)
+
+	s.SendMessage(gen.PID{}, alias)
+
+	s.ShouldSendExitMeta().Meta(alias).
+		ErrorIs(gen.ErrProcessUnknown).
+		ReasonIs(gen.TerminateReasonShutdown).
+		Once().Assert()
+}
