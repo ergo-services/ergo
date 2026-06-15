@@ -59,6 +59,14 @@ func releaseNodeCall(r *nodeCall) {
 }
 
 type node struct {
+	// core is the routing surface handed to collaborators (processes, connections,
+	// node-level Send/Call). Defaults to the node itself; a decorator may replace it
+	// (testing/stage) to observe routing and delivery.
+	core gen.Core
+	// wrapProcess optionally decorates the gen.Process handed to a behavior at
+	// ProcessInit (testing/stage) to observe a process's egress actions.
+	wrapProcess func(gen.Process) gen.Process
+
 	name      gen.Atom
 	version   gen.Version
 	framework gen.Version
@@ -141,7 +149,20 @@ type eventOwner struct {
 	last lib.QueueMPSC
 }
 
-func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version) (gen.Node, error) {
+// NodeOptionsExtra carries options not exposed through the public ergo.StartNode
+// entry point. WrapCore decorates the routing surface handed to collaborators;
+// WrapProcess decorates the gen.Process handed to each behavior at ProcessInit.
+type NodeOptionsExtra struct {
+	gen.NodeOptions
+	FrameworkVersion      gen.Version
+	WrapCore              func(gen.Core) gen.Core
+	WrapProcess           func(gen.Process) gen.Process
+	WrapCoreTargetManager func(gen.CoreTargetManager) gen.CoreTargetManager
+}
+
+func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
+	options := extra.NodeOptions
+	frameworkVersion := extra.FrameworkVersion
 	if len(name) > 255 {
 		return nil, gen.ErrAtomTooLong
 	}
@@ -183,6 +204,11 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 		wait: make(chan struct{}),
 	}
+	node.core = node
+	if extra.WrapCore != nil {
+		node.core = extra.WrapCore(node)
+	}
+	node.wrapProcess = extra.WrapProcess
 	node.tracingAttrs.Store(new([]gen.TracingAttribute))
 
 	node.log = createLog(options.Log.Level, node.dolog)
@@ -234,7 +260,11 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 	// create target manager (pub/sub subsystem) before network start
 	// because registrar may call RegisterEvent during network initialization
-	node.targets = tm.Create(createTMBridge(node), tm.Options{})
+	bridge := gen.CoreTargetManager(createTMBridge(node))
+	if extra.WrapCoreTargetManager != nil {
+		bridge = extra.WrapCoreTargetManager(bridge)
+	}
+	node.targets = tm.Create(bridge, tm.Options{})
 
 	node.network = createNetwork(node)
 
@@ -1288,13 +1318,13 @@ func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriorit
 
 	switch t := to.(type) {
 	case gen.Atom:
-		return n.RouteSendProcessID(n.corePID, gen.ProcessID{Name: t, Node: n.name}, options, message)
+		return n.core.RouteSendProcessID(n.corePID, gen.ProcessID{Name: t, Node: n.name}, options, message)
 	case gen.PID:
-		return n.RouteSendPID(n.corePID, t, options, message)
+		return n.core.RouteSendPID(n.corePID, t, options, message)
 	case gen.ProcessID:
-		return n.RouteSendProcessID(n.corePID, t, options, message)
+		return n.core.RouteSendProcessID(n.corePID, t, options, message)
 	case gen.Alias:
-		return n.RouteSendAlias(n.corePID, t, options, message)
+		return n.core.RouteSendAlias(n.corePID, t, options, message)
 	}
 
 	return gen.ErrUnsupported
@@ -1313,7 +1343,7 @@ func (n *node) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOption
 		Message:   message,
 	}
 
-	return n.RouteSendEvent(n.corePID, token, options, em)
+	return n.core.RouteSendEvent(n.corePID, token, options, em)
 }
 
 func (n *node) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
@@ -1361,7 +1391,7 @@ func (n *node) SendExit(pid gen.PID, reason error) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
-	return n.RouteSendExit(n.corePID, pid, reason)
+	return n.core.RouteSendExit(n.corePID, pid, reason)
 }
 
 func (n *node) Call(to any, request any) (any, error) {
@@ -1452,7 +1482,7 @@ func (n *node) callPIDWithOptions(
 
 	options.Ref = ref
 
-	if err = n.RouteCallPID(n.corePID, to, options, request); err != nil {
+	if err = n.core.RouteCallPID(n.corePID, to, options, request); err != nil {
 		releaseNodeCall(call)
 		return nil, err
 	}
@@ -1530,7 +1560,7 @@ func (n *node) callProcessIDWithOptions(
 
 	options.Ref = ref
 
-	if err = n.RouteCallProcessID(n.corePID, to, options, request); err != nil {
+	if err = n.core.RouteCallProcessID(n.corePID, to, options, request); err != nil {
 		releaseNodeCall(call)
 		return nil, err
 	}
@@ -1607,7 +1637,7 @@ func (n *node) callAliasWithOptions(
 
 	options.Ref = ref
 
-	if err = n.RouteCallAlias(n.corePID, to, options, request); err != nil {
+	if err = n.core.RouteCallAlias(n.corePID, to, options, request); err != nil {
 		releaseNodeCall(call)
 		return nil, err
 	}
@@ -1826,8 +1856,11 @@ func (n *node) Kill(pid gen.PID) error {
 		return nil
 	}
 	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
-	// unregister process and stuff belonging to it
-	n.unregisterProcess(p, gen.TerminateReasonKill)
+	// unregister process and stuff belonging to it. wrapPreserveMailbox so killing
+	// a non-running (e.g. sleeping) process captures its mailbox just like the
+	// run-loop kill path does, keeping the exit reason consistent and not losing a
+	// message that raced into the mailbox before the kill.
+	n.unregisterProcess(p, p.wrapPreserveMailbox(gen.TerminateReasonKill))
 
 	go func() {
 		if lib.Recover() {
@@ -2703,6 +2736,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	now := time.Now()
 	p := &process{
 		node:         n,
+		core:         n.core,
 		response:     make(chan response, 10),
 		creation:     now.Unix(),
 		state:        int32(gen.ProcessStateInit),
@@ -2847,6 +2881,12 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	var initErr error
 	deadline := options.Ref.ID[2]
 
+	// the behavior gets the process directly, or a decorator (testing/stage)
+	bp := gen.Process(p)
+	if n.wrapProcess != nil {
+		bp = n.wrapProcess(p)
+	}
+
 	if deadline > 0 {
 		// check if already expired
 		if options.Ref.IsAlive() == false {
@@ -2866,7 +2906,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 
 		go func() {
 			initStart := time.Now()
-			err := behavior.ProcessInit(p, options.Args...)
+			err := behavior.ProcessInit(bp, options.Args...)
 			atomic.StoreUint64(&p.initTime, uint64(time.Since(initStart)))
 
 			// try to claim "init completed"
@@ -2913,7 +2953,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	} else {
 		// no timeout - synchronous behavior
 		initStart := time.Now()
-		initErr = behavior.ProcessInit(p, options.Args...)
+		initErr = behavior.ProcessInit(bp, options.Args...)
 		atomic.StoreUint64(&p.initTime, uint64(time.Since(initStart)))
 	}
 

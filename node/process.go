@@ -14,6 +14,10 @@ import (
 
 type process struct {
 	node *node
+	// core is the routing surface for egress; equals node.core (the node itself,
+	// or a decorator in testing/stage). Internals (spawn, registry, logging) still
+	// go through node directly.
+	core gen.Core
 	pid  gen.PID
 
 	name        gen.Atom
@@ -304,7 +308,7 @@ func (p *process) RemoteSpawn(
 	if p.node.Security().ExposeEnvRemoteSpawn {
 		opts.ParentEnv = p.EnvList()
 	}
-	pid, err := p.node.RouteSpawn(node, name, opts, p.Node().Name())
+	pid, err := p.core.RouteSpawn(node, name, opts, p.Node().Name())
 	if err != nil {
 		return gen.PID{}, err
 	}
@@ -342,7 +346,7 @@ func (p *process) RemoteSpawnRegister(
 	if p.node.Security().ExposeEnvRemoteSpawn {
 		opts.ParentEnv = p.EnvList()
 	}
-	pid, err := p.node.RouteSpawn(node, name, opts, p.Node().Name())
+	pid, err := p.core.RouteSpawn(node, name, opts, p.Node().Name())
 	if err != nil {
 		return gen.PID{}, err
 	}
@@ -603,7 +607,7 @@ func (p *process) DeleteAlias(alias gen.Alias) error {
 		return err
 	}
 
-	p.node.RouteTerminateAlias(alias, gen.ErrUnregistered)
+	p.core.RouteTerminateAlias(alias, gen.ErrUnregistered)
 
 	for i, a := range p.aliases {
 		if a != alias {
@@ -688,7 +692,7 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		options.Ref.ID[2] = 0
 	}
 
-	if err := p.node.RouteSendPID(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteSendPID(p.pid, to, options, message); err != nil {
 		return err
 	}
 
@@ -738,7 +742,7 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 		options.Ref.ID[2] = 0
 	}
 
-	if err := p.node.RouteSendProcessID(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteSendProcessID(p.pid, to, options, message); err != nil {
 		return err
 	}
 
@@ -788,7 +792,7 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 		options.Ref.ID[2] = 0
 	}
 
-	if err := p.node.RouteSendAlias(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteSendAlias(p.pid, to, options, message); err != nil {
 		return err
 	}
 
@@ -820,7 +824,7 @@ func (p *process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 			p.log.Trace("SendAfter %s to %s", after, to)
 		}
 		// we can't use p.Send(...) because it checks the process state
-		// and returns gen.ErrNotAllowed, so use p.node.Route* methods for that
+		// and returns gen.ErrNotAllowed, so use p.core.Route* methods for that
 		options := gen.MessageOptions{
 			Priority:         gen.MessagePriority(p.priority.Load()),
 			Compression:      p.compression,
@@ -829,13 +833,13 @@ func (p *process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 		}
 		switch t := to.(type) {
 		case gen.Atom:
-			err = p.node.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
+			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
 		case gen.PID:
-			err = p.node.RouteSendPID(p.pid, t, options, message)
+			err = p.core.RouteSendPID(p.pid, t, options, message)
 		case gen.ProcessID:
-			err = p.node.RouteSendProcessID(p.pid, t, options, message)
+			err = p.core.RouteSendProcessID(p.pid, t, options, message)
 		case gen.Alias:
-			err = p.node.RouteSendAlias(p.pid, t, options, message)
+			err = p.core.RouteSendAlias(p.pid, t, options, message)
 		}
 
 		if err == nil {
@@ -859,7 +863,7 @@ func (p *process) SendWithPriorityAfter(
 			p.log.Trace("SendWithPriorityAfter %s to %s with priority %s", after, to, priority)
 		}
 		// we can't use p.Send(...) because it checks the process state
-		// and returns gen.ErrNotAllowed, so use p.node.Route* methods for that
+		// and returns gen.ErrNotAllowed, so use p.core.Route* methods for that
 		options := gen.MessageOptions{
 			Priority:         priority,
 			Compression:      p.compression,
@@ -868,13 +872,13 @@ func (p *process) SendWithPriorityAfter(
 		}
 		switch t := to.(type) {
 		case gen.Atom:
-			err = p.node.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
+			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
 		case gen.PID:
-			err = p.node.RouteSendPID(p.pid, t, options, message)
+			err = p.core.RouteSendPID(p.pid, t, options, message)
 		case gen.ProcessID:
-			err = p.node.RouteSendProcessID(p.pid, t, options, message)
+			err = p.core.RouteSendProcessID(p.pid, t, options, message)
 		case gen.Alias:
-			err = p.node.RouteSendAlias(p.pid, t, options, message)
+			err = p.core.RouteSendAlias(p.pid, t, options, message)
 		}
 
 		if err == nil {
@@ -908,7 +912,7 @@ func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 		Message:   message,
 	}
 
-	if err := p.node.RouteSendEvent(p.pid, token, options, em); err != nil {
+	if err := p.core.RouteSendEvent(p.pid, token, options, em); err != nil {
 		return err
 	}
 
@@ -933,7 +937,7 @@ func (p *process) SendExit(to gen.PID, reason error) error {
 	if lib.Verbose() {
 		p.log.Trace("SendExit to %s", to)
 	}
-	err := p.node.RouteSendExit(p.pid, to, reason)
+	err := p.core.RouteSendExit(p.pid, to, reason)
 	if err != nil {
 		return err
 	}
@@ -961,7 +965,7 @@ func (p *process) SendExitAfter(to gen.PID, reason error, after time.Duration) (
 			p.log.Trace("SendExitAfter %s to %s with reason %q", after, to, reason)
 		}
 
-		err := p.node.RouteSendExit(p.pid, to, reason)
+		err := p.core.RouteSendExit(p.pid, to, reason)
 		if err == nil {
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
@@ -1091,7 +1095,7 @@ func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
 	}
-	if err := p.node.RouteSendResponse(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteSendResponse(p.pid, to, options, message); err != nil {
 		return err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
@@ -1126,7 +1130,7 @@ func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) er
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
 	}
-	if err := p.node.RouteSendResponse(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteSendResponse(p.pid, to, options, message); err != nil {
 		return err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
@@ -1169,7 +1173,7 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
 	}
-	if routeErr := p.node.RouteSendResponseError(p.pid, to, options, err); routeErr != nil {
+	if routeErr := p.core.RouteSendResponseError(p.pid, to, options, err); routeErr != nil {
 		return routeErr
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
@@ -1204,7 +1208,7 @@ func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error)
 	if options.Tracing.ID != [2]uint64{} {
 		p.applyTracingAttrs(&options)
 	}
-	if err := p.node.RouteSendResponseError(p.pid, to, options, err); err != nil {
+	if err := p.core.RouteSendResponseError(p.pid, to, options, err); err != nil {
 		return err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
@@ -1292,7 +1296,7 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 		p.log.Trace("CallPID to %s with %s", to, options.Ref)
 	}
 
-	if err := p.node.RouteCallPID(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteCallPID(p.pid, to, options, message); err != nil {
 		return nil, err
 	}
 
@@ -1329,7 +1333,7 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 	if lib.Verbose() {
 		p.log.Trace("CallProcessID %s with %s", to, options.Ref)
 	}
-	if err := p.node.RouteCallProcessID(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteCallProcessID(p.pid, to, options, message); err != nil {
 		return nil, err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
@@ -1367,7 +1371,7 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 		p.log.Trace("CallAlias %s with %s", to, options.Ref)
 	}
 
-	if err := p.node.RouteCallAlias(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteCallAlias(p.pid, to, options, message); err != nil {
 		return nil, err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
@@ -1555,7 +1559,7 @@ func (p *process) LinkPID(target gen.PID) error {
 		p.log.Trace("LinkPID with %s", target)
 	}
 
-	if err := p.node.RouteLinkPID(p.pid, target); err != nil {
+	if err := p.core.RouteLinkPID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1581,7 +1585,7 @@ func (p *process) UnlinkPID(target gen.PID) error {
 		p.log.Trace("UnlinkPID with %s", target)
 	}
 
-	if err := p.node.RouteUnlinkPID(p.pid, target); err != nil {
+	if err := p.core.RouteUnlinkPID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1605,7 +1609,7 @@ func (p *process) LinkProcessID(target gen.ProcessID) error {
 		p.log.Trace("LinkProcessID with %s", target)
 	}
 
-	if err := p.node.RouteLinkProcessID(p.pid, target); err != nil {
+	if err := p.core.RouteLinkProcessID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1627,7 +1631,7 @@ func (p *process) UnlinkProcessID(target gen.ProcessID) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteUnlinkProcessID(p.pid, target); err != nil {
+	if err := p.core.RouteUnlinkProcessID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1649,7 +1653,7 @@ func (p *process) LinkAlias(target gen.Alias) error {
 		return gen.ErrTargetExist
 	}
 
-	if err := p.node.RouteLinkAlias(p.pid, target); err != nil {
+	if err := p.core.RouteLinkAlias(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1671,7 +1675,7 @@ func (p *process) UnlinkAlias(target gen.Alias) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteUnlinkAlias(p.pid, target); err != nil {
+	if err := p.core.RouteUnlinkAlias(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1692,7 +1696,7 @@ func (p *process) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		return nil, gen.ErrTargetExist
 	}
 
-	lastEventMessages, err := p.node.RouteLinkEvent(p.pid, target)
+	lastEventMessages, err := p.core.RouteLinkEvent(p.pid, target)
 	if err != nil {
 		return nil, err
 	}
@@ -1715,7 +1719,7 @@ func (p *process) UnlinkEvent(target gen.Event) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteUnlinkEvent(p.pid, target); err != nil {
+	if err := p.core.RouteUnlinkEvent(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1801,7 +1805,7 @@ func (p *process) MonitorPID(target gen.PID) error {
 		return gen.ErrTargetExist
 	}
 
-	if err := p.node.RouteMonitorPID(p.pid, target); err != nil {
+	if err := p.core.RouteMonitorPID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1823,7 +1827,7 @@ func (p *process) DemonitorPID(target gen.PID) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteDemonitorPID(p.pid, target); err != nil {
+	if err := p.core.RouteDemonitorPID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1839,7 +1843,7 @@ func (p *process) MonitorProcessID(target gen.ProcessID) error {
 		return gen.ErrTargetExist
 	}
 
-	if err := p.node.RouteMonitorProcessID(p.pid, target); err != nil {
+	if err := p.core.RouteMonitorProcessID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1861,7 +1865,7 @@ func (p *process) DemonitorProcessID(target gen.ProcessID) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteDemonitorProcessID(p.pid, target); err != nil {
+	if err := p.core.RouteDemonitorProcessID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1877,7 +1881,7 @@ func (p *process) MonitorAlias(target gen.Alias) error {
 		return gen.ErrTargetExist
 	}
 
-	if err := p.node.RouteMonitorAlias(p.pid, target); err != nil {
+	if err := p.core.RouteMonitorAlias(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1899,7 +1903,7 @@ func (p *process) DemonitorAlias(target gen.Alias) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteDemonitorAlias(p.pid, target); err != nil {
+	if err := p.core.RouteDemonitorAlias(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1920,7 +1924,7 @@ func (p *process) MonitorEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		return nil, gen.ErrTargetExist
 	}
 
-	lastEventMessages, err := p.node.RouteMonitorEvent(p.pid, target)
+	lastEventMessages, err := p.core.RouteMonitorEvent(p.pid, target)
 	if err != nil {
 		return nil, err
 	}
@@ -1943,7 +1947,7 @@ func (p *process) DemonitorEvent(target gen.Event) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteDemonitorEvent(p.pid, target); err != nil {
+	if err := p.core.RouteDemonitorEvent(p.pid, target); err != nil {
 		return err
 	}
 
@@ -2218,7 +2222,7 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 			if options.Tracing.ID != [2]uint64{} {
 				p.applyTracingAttrs(&options)
 			}
-			p.node.RouteSendResponseError(p.pid, r.from, options, nil)
+			p.core.RouteSendResponseError(p.pid, r.from, options, nil)
 		}
 		return true
 	}

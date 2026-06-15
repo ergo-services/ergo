@@ -184,13 +184,13 @@ type ApplicationSpec struct {
 	// LogLevel sets the default logging level for application processes.
 	LogLevel LogLevel
 
-	// InitTimeout limits the Init callback. 0 → DefaultApplicationInitTimeout.
+	// InitTimeout limits the Init callback. 0 -> DefaultApplicationInitTimeout.
 	InitTimeout time.Duration
 
-	// StartTimeout limits the Start callback. 0 → DefaultApplicationStartTimeout.
+	// StartTimeout limits the Start callback. 0 -> DefaultApplicationStartTimeout.
 	StartTimeout time.Duration
 
-	// StopTimeout limits the Stop callback. 0 → DefaultApplicationStopTimeout.
+	// StopTimeout limits the Stop callback. 0 -> DefaultApplicationStopTimeout.
 	StopTimeout time.Duration
 }
 

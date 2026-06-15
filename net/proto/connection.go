@@ -1793,6 +1793,20 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 func (c *connection) Terminate(reason error) {
 	c.terminated.Store(true)
 
+	// fail every pending synchronous request so in-flight remote operations (call,
+	// link/monitor/demonitor/unlink, remote spawn, ...) return immediately with
+	// ErrNoConnection instead of blocking until DefaultRequestTimeout once the
+	// connection is gone.
+	c.requestsMutex.Lock()
+	for ref, ch := range c.requests {
+		select {
+		case ch <- MessageResult{Error: gen.ErrNoConnection, Ref: ref}:
+		default:
+		}
+		delete(c.requests, ref)
+	}
+	c.requestsMutex.Unlock()
+
 	c.pool_mutex.Lock()
 	defer c.pool_mutex.Unlock()
 	for _, pi := range c.pool {

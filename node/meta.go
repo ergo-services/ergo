@@ -77,7 +77,7 @@ func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 		Compression:      compression,
 		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
-	if err := m.p.node.RouteSendResponse(m.p.pid, to, options, message); err != nil {
+	if err := m.p.core.RouteSendResponse(m.p.pid, to, options, message); err != nil {
 		return err
 	}
 	atomic.AddUint64(&m.messagesOut, 1)
@@ -100,7 +100,7 @@ func (m *meta) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 		Compression:      compression,
 		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
-	if rerr := m.p.node.RouteSendResponse(m.p.pid, to, options, err); rerr != nil {
+	if rerr := m.p.core.RouteSendResponse(m.p.pid, to, options, err); rerr != nil {
 		return rerr
 	}
 	atomic.AddUint64(&m.messagesOut, 1)
@@ -196,19 +196,19 @@ func (m *meta) send(to any, message any) error {
 			return nil
 		}
 
-		if err := m.p.node.RouteSendPID(m.p.pid, t, options, message); err != nil {
+		if err := m.p.core.RouteSendPID(m.p.pid, t, options, message); err != nil {
 			return err
 		}
 	case gen.Atom:
-		if err := m.p.node.RouteSendProcessID(m.p.pid, gen.ProcessID{Name: t}, options, message); err != nil {
+		if err := m.p.core.RouteSendProcessID(m.p.pid, gen.ProcessID{Name: t}, options, message); err != nil {
 			return err
 		}
 	case gen.ProcessID:
-		if err := m.p.node.RouteSendProcessID(m.p.pid, t, options, message); err != nil {
+		if err := m.p.core.RouteSendProcessID(m.p.pid, t, options, message); err != nil {
 			return err
 		}
 	case gen.Alias:
-		if err := m.p.node.RouteSendAlias(m.p.pid, t, options, message); err != nil {
+		if err := m.p.core.RouteSendAlias(m.p.pid, t, options, message); err != nil {
 			return err
 		}
 	default:

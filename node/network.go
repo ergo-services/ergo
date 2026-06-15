@@ -1047,7 +1047,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		result.Custom = opts
 	}
 
-	pconn, err := proto.NewConnection(n.node, result, log)
+	pconn, err := proto.NewConnection(n.node.core, result, log)
 	if err != nil {
 		conn.Close()
 		return nil, err
@@ -1647,7 +1647,7 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 		Creation: result.PeerCreation,
 	}
 	log.setSource(logSource)
-	conn, err := a.proto.NewConnection(n.node, result, log)
+	conn, err := a.proto.NewConnection(n.node.core, result, log)
 	if err != nil {
 		n.node.Log().Warning("unable to create new connection: %s", err)
 		c.Close()

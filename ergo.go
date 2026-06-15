@@ -32,10 +32,5 @@ func StartNode(name gen.Atom, options gen.NodeOptions) (gen.Node, error) {
 
 	options.Applications = append(defaultApps, options.Applications...)
 
-	n, err := node.Start(name, options, FrameworkVersion)
-	if err != nil {
-		return nil, err
-	}
-
-	return n, nil
+	return node.Start(name, node.NodeOptionsExtra{NodeOptions: options, FrameworkVersion: FrameworkVersion})
 }

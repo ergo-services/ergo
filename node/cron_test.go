@@ -406,13 +406,13 @@ func TestCronOverlapFix(t *testing.T) {
 		t.Errorf("Expected Jan 15, 2024 12:00 (Monday, 15th) to match '0 12 15 * 1'")
 	}
 
-	// Monday, Jan 8, 2024 12:00 - should match (weekday=Monday, even though day≠15)
+	// Monday, Jan 8, 2024 12:00 - should match (weekday=Monday, even though day!=15)
 	jan8_2024 := time.Date(2024, 1, 8, 12, 0, 0, 0, time.UTC)
 	if !spec.IsRunAt(jan8_2024) {
 		t.Errorf("Expected Jan 8, 2024 12:00 (Monday, 8th) to match '0 12 15 * 1' - weekday should match")
 	}
 
-	// Tuesday, Jan 15, 2024 12:00 - should match (day=15, even though weekday≠Monday)
+	// Tuesday, Jan 15, 2024 12:00 - should match (day=15, even though weekday!=Monday)
 	jan15_2024_tue := time.Date(2024, 1, 16, 12, 0, 0, 0, time.UTC) // 16th is Tuesday, but let's use 15th
 	jan15_2024_tue = time.Date(2024, 2, 15, 12, 0, 0, 0, time.UTC)  // Feb 15, 2024 is Thursday
 	if !spec.IsRunAt(jan15_2024_tue) {
