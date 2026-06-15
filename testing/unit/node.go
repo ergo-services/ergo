@@ -108,7 +108,7 @@ func (n *mockNode) synthRef() gen.Ref {
 
 func (n *mockNode) routeSend(from gen.PID, to any, message any, options gen.MessageOptions) error {
 	err, _ := resolveFail(n.stubs.send, to)
-	n.rec.Put(check.Sent{From: from, To: to, Message: message, Options: options, Error: err})
+	n.rec.Put(check.Send{From: from, To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
@@ -120,7 +120,7 @@ func (n *mockNode) routeCall(from gen.PID, to any, request any) (any, error) {
 		n.t.Helper()
 		n.t.Fatalf("unit: process under test called Call to %v with %#v, but no response is stubbed; add OnCall(%v).Respond(...) or .Fail(...)", to, request, to)
 	}
-	n.rec.Put(check.Called{From: from, To: to, Request: request, Response: resp, Error: err})
+	n.rec.Put(check.Call{From: from, To: to, Request: request, Response: resp, Error: err})
 	return resp, err
 }
 
@@ -136,7 +136,7 @@ func (n *mockNode) routeSpawn(from gen.PID, register gen.Atom, factory gen.Proce
 		}
 		n.registerProc(&procEntry{pid: pid, name: register, parent: from, leader: leader, factory: factory, options: options})
 	}
-	n.rec.Put(check.Spawned{Parent: from, Child: pid, Register: register, Factory: factory, Options: options, Error: err})
+	n.rec.Put(check.Spawn{Parent: from, Child: pid, Register: register, Factory: factory, Options: options, Error: err})
 	return pid, err
 }
 
@@ -153,7 +153,7 @@ func (n *mockNode) routeSpawnMeta(from gen.PID, behavior gen.MetaBehavior) (gen.
 	if ok == false {
 		alias = n.synthAlias()
 	}
-	n.rec.Put(check.MetaSpawned{Parent: from, Alias: alias, Error: err})
+	n.rec.Put(check.SpawnMeta{Parent: from, Alias: alias, Error: err})
 	return alias, err
 }
 
@@ -162,48 +162,48 @@ func (n *mockNode) routeRemoteSpawn(from gen.PID, node, name, register gen.Atom,
 	if ok == false {
 		pid = n.synthPID()
 	}
-	n.rec.Put(check.RemoteSpawned{Parent: from, Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
+	n.rec.Put(check.RemoteSpawn{Parent: from, Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
 	return pid, err
 }
 
 func (n *mockNode) routeSendExit(from, to gen.PID, reason error) error {
 	err, _ := resolveFail(n.stubs.exit, to)
-	n.rec.Put(check.SentExit{From: from, To: to, Reason: reason})
+	n.rec.Put(check.SendExit{From: from, To: to, Reason: reason})
 	return err
 }
 
 func (n *mockNode) routeSendResponse(from, to gen.PID, ref gen.Ref, message any, options gen.MessageOptions) error {
-	n.rec.Put(check.SentResponse{From: from, To: to, Ref: ref, Message: message, Options: options})
+	n.rec.Put(check.SendResponse{From: from, To: to, Ref: ref, Message: message, Options: options})
 	return nil
 }
 
 func (n *mockNode) routeSendEvent(from gen.PID, name gen.Atom, message any, options gen.MessageOptions) error {
-	n.rec.Put(check.SentEvent{From: from, Name: name, Message: message, Options: options})
+	n.rec.Put(check.SendEvent{From: from, Name: name, Message: message, Options: options})
 	return nil
 }
 
 func (n *mockNode) routeLink(from gen.PID, target any) error {
 	err, _ := resolveFail(n.stubs.link, target)
-	n.rec.Put(check.Linked{From: from, Target: target, Error: err})
+	n.rec.Put(check.Link{From: from, Target: target, Error: err})
 	return err
 }
 func (n *mockNode) routeUnlink(from gen.PID, target any) error {
-	n.rec.Put(check.Unlinked{From: from, Target: target})
+	n.rec.Put(check.Unlink{From: from, Target: target})
 	return nil
 }
 func (n *mockNode) routeMonitor(from gen.PID, target any) error {
 	err, _ := resolveFail(n.stubs.monitor, target)
-	n.rec.Put(check.Monitored{From: from, Target: target, Error: err})
+	n.rec.Put(check.Monitor{From: from, Target: target, Error: err})
 	return err
 }
 func (n *mockNode) routeDemonitor(from gen.PID, target any) error {
-	n.rec.Put(check.Demonitored{From: from, Target: target})
+	n.rec.Put(check.Demonitor{From: from, Target: target})
 	return nil
 }
 
 func (n *mockNode) routeForward(by, to, from gen.PID, message any) error {
 	err, _ := resolveFail(n.stubs.forward, to)
-	n.rec.Put(check.Forwarded{By: by, To: to, From: from, Message: message, Error: err})
+	n.rec.Put(check.Forward{By: by, To: to, From: from, Message: message, Error: err})
 	return err
 }
 
@@ -212,11 +212,11 @@ func (n *mockNode) routeCreateAlias(from gen.PID) (gen.Alias, error) {
 	if ok == false {
 		alias = n.synthAlias()
 	}
-	n.rec.Put(check.AliasCreated{PID: from, Alias: alias, Error: err})
+	n.rec.Put(check.CreateAlias{PID: from, Alias: alias, Error: err})
 	return alias, err
 }
 func (n *mockNode) routeDeleteAlias(from gen.PID, alias gen.Alias, err error) error {
-	n.rec.Put(check.AliasDeleted{PID: from, Alias: alias, Error: err})
+	n.rec.Put(check.DeleteAlias{PID: from, Alias: alias, Error: err})
 	return err
 }
 
@@ -225,11 +225,11 @@ func (n *mockNode) routeRegisterEvent(from gen.PID, name gen.Atom) (gen.Ref, err
 	if ok == false {
 		ref = n.synthRef()
 	}
-	n.rec.Put(check.EventRegistered{PID: from, Name: name, Ref: ref, Error: err})
+	n.rec.Put(check.RegisterEvent{PID: from, Name: name, Ref: ref, Error: err})
 	return ref, err
 }
 func (n *mockNode) routeUnregisterEvent(from gen.PID, name gen.Atom, err error) error {
-	n.rec.Put(check.EventUnregistered{PID: from, Name: name, Error: err})
+	n.rec.Put(check.UnregisterEvent{PID: from, Name: name, Error: err})
 	return err
 }
 
@@ -238,7 +238,7 @@ func (n *mockNode) routeUnregisterEvent(from gen.PID, name gen.Atom, err error) 
 func (n *mockNode) schedule(from gen.PID, to any, message any, after time.Duration, options gen.MessageOptions) gen.CancelFunc {
 	tm := &timer{from: from, to: to, message: message, after: after}
 	n.timers = append(n.timers, tm)
-	n.rec.Put(check.ScheduledSend{From: from, To: to, Message: message, After: after, Options: options})
+	n.rec.Put(check.SendAfter{From: from, To: to, Message: message, After: after, Options: options})
 	return func() bool {
 		if tm.fired || tm.cancelled {
 			return false

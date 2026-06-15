@@ -94,7 +94,7 @@ func (w *watcher) HandleMessage(from gen.PID, message any) error {
 	if ok == false {
 		return nil
 	}
-	// ignore the monitor error (the failure is captured in the Monitored record);
+	// ignore the monitor error (the failure is captured in the Monitor record);
 	// the watcher must survive a failed monitor so the test can observe it.
 	if ev, isEvent := c.Target.(gen.Event); isEvent {
 		_, _ = w.MonitorEvent(ev)

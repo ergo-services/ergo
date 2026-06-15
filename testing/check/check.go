@@ -86,7 +86,10 @@ func For[R Record](t T, src Source) *Assertion[R] {
 }
 
 // Where adds a typed filter predicate.
-func (a *Assertion[R]) Where(pred func(R) bool) *Assertion[R] { a.preds = append(a.preds, pred); return a }
+func (a *Assertion[R]) Where(pred func(R) bool) *Assertion[R] {
+	a.preds = append(a.preds, pred)
+	return a
+}
 
 // Once expects exactly one match.
 func (a *Assertion[R]) Once() *Assertion[R] { a.card = cardExactly; a.n = 1; return a }
@@ -128,10 +131,20 @@ func (a *Assertion[R]) records() []Record {
 }
 
 // Assert evaluates the assertion (non-fatal).
-func (a *Assertion[R]) Assert() { a.t.Helper(); if a.evaluate() == false { a.fail(false) } }
+func (a *Assertion[R]) Assert() {
+	a.t.Helper()
+	if a.evaluate() == false {
+		a.fail(false)
+	}
+}
 
 // Must evaluates the assertion and stops the test on failure (fatal).
-func (a *Assertion[R]) Must() { a.t.Helper(); if a.evaluate() == false { a.fail(true) } }
+func (a *Assertion[R]) Must() {
+	a.t.Helper()
+	if a.evaluate() == false {
+		a.fail(true)
+	}
+}
 
 // Capture returns the first matching record (waiting up to Within for async).
 func (a *Assertion[R]) Capture() (R, bool) {

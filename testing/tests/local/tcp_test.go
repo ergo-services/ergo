@@ -16,7 +16,7 @@ import (
 )
 
 // tcpEvent is what a TCP-handling actor reports to the collector for each TCP
-// event it receives, so the events are observable as Sent records (a meta
+// event it receives, so the events are observable as Send records (a meta
 // delivering to its own parent is a self-send that bypasses the core recorder,
 // so the receiving actor re-reports instead).
 type tcpEvent struct {

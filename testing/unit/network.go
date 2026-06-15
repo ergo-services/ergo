@@ -245,8 +245,8 @@ func (s *Subject) DeliverRegistrarEvent(message any) *Subject {
 
 //
 // RemoteNode mock: Network().GetNode(name) returns a *mockRemoteNode (gen.RemoteNode);
-// configure it via Network().OnGetNode(name). Spawn/SpawnRegister record RemoteSpawned,
-// ApplicationStart* record RemoteApplicationStarted; both stub their return. Until
+// configure it via Network().OnGetNode(name). Spawn/SpawnRegister record RemoteSpawn,
+// ApplicationStart* record RemoteApplicationStart; both stub their return. Until
 // configured, GetNode(name)/Node(name) return gen.ErrNoConnection.
 //
 
@@ -286,7 +286,7 @@ func (r *mockRemoteNode) doSpawn(register, name gen.Atom, options gen.ProcessOpt
 	if res, ok := r.spawn[name]; ok {
 		pid, err = res.pid, res.err
 	}
-	r.net.node.rec.Put(check.RemoteSpawned{
+	r.net.node.rec.Put(check.RemoteSpawn{
 		Parent: r.net.node.subjectPID, Node: r.name, Name: name,
 		Register: register, Child: pid, Options: options, Error: err,
 	})
@@ -302,7 +302,7 @@ func (r *mockRemoteNode) SpawnRegister(register gen.Atom, name gen.Atom, options
 
 func (r *mockRemoteNode) appStartMode(name gen.Atom, mode gen.ApplicationMode) error {
 	err := r.appStart[name]
-	r.net.node.rec.Put(check.RemoteApplicationStarted{
+	r.net.node.rec.Put(check.RemoteApplicationStart{
 		From: r.net.node.subjectPID, Node: r.name, Name: name, Mode: mode, Error: err,
 	})
 	return err

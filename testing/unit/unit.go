@@ -8,7 +8,7 @@
 // environment and synchronous (snapshot) assertions.
 //
 // Plane contract: this harness records egress (what the actor does) and its own
-// termination (Terminated), delayed sends (ScheduledSend), and logs (Logged). It
+// termination (Terminated), delayed sends (SendAfter), and logs (Log). It
 // does NOT produce the ingress records (Delivered, Down, Exit, Event, and the Wire*
 // subscriptions): inbound signals are driven by the test via the Deliver* methods,
 // so there is nothing to observe on the way in. Assert an actor's reaction to a
@@ -349,7 +349,7 @@ func (s *Subject) resolveResponse(mk int, ref gen.Ref) (any, error) {
 	// HandleCall returning a result together with TerminateReasonNormal), so look for
 	// the response first and fall back to the termination reason only if none was sent.
 	for _, r := range s.node.rec.Records()[mk:] {
-		sr, ok := r.(check.SentResponse)
+		sr, ok := r.(check.SendResponse)
 		if ok == false || sr.Ref != ref {
 			continue
 		}
@@ -381,7 +381,7 @@ func (s *Subject) Inspect(from gen.PID, items ...string) (map[string]string, err
 		return nil, s.reason
 	}
 	for _, r := range s.node.rec.Records()[mk:] {
-		sr, ok := r.(check.SentResponse)
+		sr, ok := r.(check.SendResponse)
 		if ok == false || sr.Ref != ref {
 			continue
 		}

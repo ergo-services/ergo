@@ -13,7 +13,7 @@ import (
 
 // poolWorker is a pool member. It answers calls with its own pid (so a forwarded
 // call returns the worker that handled it) and ignores async messages (the
-// forward itself is observed via the Forwarded record, not a worker side effect).
+// forward itself is observed via the Forward record, not a worker side effect).
 type poolWorker struct{ act.Actor }
 
 func factoryPoolWorker() gen.ProcessBehavior { return &poolWorker{} }
@@ -125,8 +125,8 @@ func sameSet(a, b []gen.PID) bool {
 // (never forwarded). AddWorkers grows the ring (new workers appended), and
 // RemoveWorkers shrinks it by dropping the oldest workers; in both cases the
 // updated worker set keeps serving round-robin. Verified deterministically:
-// forwards are observed in order via Forwarded records, the worker set/order via
-// Spawned records.
+// forwards are observed in order via Forward records, the worker set/order via
+// Spawn records.
 func TestLocalPool(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")
@@ -265,7 +265,7 @@ func TestLocalPool(t *testing.T) {
 	n.ShouldReceiveDown().To(watcher).About(victim).Since(mkKill).Once().Within(time.Second).Must()
 
 	// a full cycle: one forward lands on the dead slot and triggers exactly one
-	// respawn (the failed forward to the dead worker emits no Forwarded)
+	// respawn (the failed forward to the dead worker emits no Forward)
 	mkResp := n.Mark()
 	for i := 0; i < 2; i++ {
 		_, err := n.Call(pool, "ping")

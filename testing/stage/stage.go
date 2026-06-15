@@ -7,8 +7,8 @@
 //
 // Plane contract: this harness records both ingress (Delivered, Down, Exit, Event,
 // and the Wire* subscriptions) and egress. It does NOT produce Terminated (observe a
-// process stopping via a Down/Exit on a monitor or link), ScheduledSend (timers run
-// for real; observe the eventual Sent/Delivered), or Logged (the node logger is
+// process stopping via a Down/Exit on a monitor or link), SendAfter (timers run
+// for real; observe the eventual Send/Delivered), or Log (the node logger is
 // disabled). Those three are testing/unit-only.
 package stage
 
@@ -327,11 +327,10 @@ func (s *Stage) Kill(n *Node, pid gen.PID) {
 	}
 }
 
-
 // recordCore: ingress on the routing surface (gen.Core)
 // Two kinds of happening cross this surface: a message delivered into a local
-// mailbox (the egress counterpart is Sent), and a remote subscription arriving
-// over the wire (the egress counterpart is Linked/Monitored).
+// mailbox (the egress counterpart is Send), and a remote subscription arriving
+// over the wire (the egress counterpart is Link/Monitor).
 
 type recordCore struct {
 	gen.Core
@@ -577,127 +576,127 @@ type recordProcess struct {
 
 func (p *recordProcess) Monitor(target any) error {
 	err := p.Process.Monitor(target)
-	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Monitor{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) MonitorPID(pid gen.PID) error {
 	err := p.Process.MonitorPID(pid)
-	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: pid, Error: err})
+	p.rec.Put(check.Monitor{From: p.Process.PID(), Target: pid, Error: err})
 	return err
 }
 
 func (p *recordProcess) MonitorProcessID(target gen.ProcessID) error {
 	err := p.Process.MonitorProcessID(target)
-	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Monitor{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) MonitorAlias(target gen.Alias) error {
 	err := p.Process.MonitorAlias(target)
-	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Monitor{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) MonitorEvent(target gen.Event) ([]gen.MessageEvent, error) {
 	last, err := p.Process.MonitorEvent(target)
-	p.rec.Put(check.Monitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Monitor{From: p.Process.PID(), Target: target, Error: err})
 	return last, err
 }
 
 func (p *recordProcess) Demonitor(target any) error {
 	err := p.Process.Demonitor(target)
-	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Demonitor{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) DemonitorPID(pid gen.PID) error {
 	err := p.Process.DemonitorPID(pid)
-	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: pid, Error: err})
+	p.rec.Put(check.Demonitor{From: p.Process.PID(), Target: pid, Error: err})
 	return err
 }
 
 func (p *recordProcess) DemonitorProcessID(target gen.ProcessID) error {
 	err := p.Process.DemonitorProcessID(target)
-	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Demonitor{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) DemonitorAlias(target gen.Alias) error {
 	err := p.Process.DemonitorAlias(target)
-	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Demonitor{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) DemonitorEvent(target gen.Event) error {
 	err := p.Process.DemonitorEvent(target)
-	p.rec.Put(check.Demonitored{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Demonitor{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) Link(target any) error {
 	err := p.Process.Link(target)
-	p.rec.Put(check.Linked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Link{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) LinkPID(pid gen.PID) error {
 	err := p.Process.LinkPID(pid)
-	p.rec.Put(check.Linked{From: p.Process.PID(), Target: pid, Error: err})
+	p.rec.Put(check.Link{From: p.Process.PID(), Target: pid, Error: err})
 	return err
 }
 
 func (p *recordProcess) LinkProcessID(target gen.ProcessID) error {
 	err := p.Process.LinkProcessID(target)
-	p.rec.Put(check.Linked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Link{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) LinkAlias(target gen.Alias) error {
 	err := p.Process.LinkAlias(target)
-	p.rec.Put(check.Linked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Link{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
 	last, err := p.Process.LinkEvent(target)
-	p.rec.Put(check.Linked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Link{From: p.Process.PID(), Target: target, Error: err})
 	return last, err
 }
 
 func (p *recordProcess) Unlink(target any) error {
 	err := p.Process.Unlink(target)
-	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Unlink{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) UnlinkPID(pid gen.PID) error {
 	err := p.Process.UnlinkPID(pid)
-	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: pid, Error: err})
+	p.rec.Put(check.Unlink{From: p.Process.PID(), Target: pid, Error: err})
 	return err
 }
 
 func (p *recordProcess) UnlinkProcessID(target gen.ProcessID) error {
 	err := p.Process.UnlinkProcessID(target)
-	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Unlink{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) UnlinkAlias(target gen.Alias) error {
 	err := p.Process.UnlinkAlias(target)
-	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Unlink{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 func (p *recordProcess) UnlinkEvent(target gen.Event) error {
 	err := p.Process.UnlinkEvent(target)
-	p.rec.Put(check.Unlinked{From: p.Process.PID(), Target: target, Error: err})
+	p.rec.Put(check.Unlink{From: p.Process.PID(), Target: target, Error: err})
 	return err
 }
 
 // msgOptions reconstructs the effective gen.MessageOptions the wrapped process will
 // build for a Send from its current public state - the same fields the real Send
-// reads. The egress (Sent/SentEvent/SentResponse) is recorded at this process-API
+// reads. The egress (Send/SendEvent/SendResponse) is recorded at this process-API
 // seam (locality-independent, original target), so it carries the options here
 // rather than at the core seam (which sees a resolved target and only local
 // deliveries). One-shot overrides (SendWithPriority/SendImportant) are applied from
@@ -719,14 +718,14 @@ func (p *recordProcess) msgOptions() gen.MessageOptions {
 func (p *recordProcess) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 	options := p.msgOptions()
 	err := p.Process.SendEvent(name, token, message)
-	p.rec.Put(check.SentEvent{From: p.Process.PID(), Name: name, Message: message, Options: options, Error: err})
+	p.rec.Put(check.SendEvent{From: p.Process.PID(), Name: name, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	options := p.msgOptions()
 	err := p.Process.SendResponse(to, ref, message)
-	p.rec.Put(check.SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: message, Options: options, Error: err})
+	p.rec.Put(check.SendResponse{From: p.Process.PID(), To: to, Ref: ref, Message: message, Options: options, Error: err})
 	return err
 }
 
@@ -734,14 +733,14 @@ func (p *recordProcess) SendResponseImportant(to gen.PID, ref gen.Ref, message a
 	options := p.msgOptions()
 	options.ImportantDelivery = true
 	err := p.Process.SendResponseImportant(to, ref, message)
-	p.rec.Put(check.SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: message, Options: options, Error: err})
+	p.rec.Put(check.SendResponse{From: p.Process.PID(), To: to, Ref: ref, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendResponseError(to gen.PID, ref gen.Ref, e error) error {
 	options := p.msgOptions()
 	err := p.Process.SendResponseError(to, ref, e)
-	p.rec.Put(check.SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: e, Options: options, Error: err})
+	p.rec.Put(check.SendResponse{From: p.Process.PID(), To: to, Ref: ref, Message: e, Options: options, Error: err})
 	return err
 }
 
@@ -749,35 +748,35 @@ func (p *recordProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, e er
 	options := p.msgOptions()
 	options.ImportantDelivery = true
 	err := p.Process.SendResponseErrorImportant(to, ref, e)
-	p.rec.Put(check.SentResponse{From: p.Process.PID(), To: to, Ref: ref, Message: e, Options: options, Error: err})
+	p.rec.Put(check.SendResponse{From: p.Process.PID(), To: to, Ref: ref, Message: e, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) Send(to any, message any) error {
 	options := p.msgOptions()
 	err := p.Process.Send(to, message)
-	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
+	p.rec.Put(check.Send{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendPID(to gen.PID, message any) error {
 	options := p.msgOptions()
 	err := p.Process.SendPID(to, message)
-	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
+	p.rec.Put(check.Send{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendProcessID(to gen.ProcessID, message any) error {
 	options := p.msgOptions()
 	err := p.Process.SendProcessID(to, message)
-	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
+	p.rec.Put(check.Send{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendAlias(to gen.Alias, message any) error {
 	options := p.msgOptions()
 	err := p.Process.SendAlias(to, message)
-	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
+	p.rec.Put(check.Send{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
@@ -785,7 +784,7 @@ func (p *recordProcess) SendWithPriority(to any, message any, priority gen.Messa
 	options := p.msgOptions()
 	options.Priority = priority
 	err := p.Process.SendWithPriority(to, message, priority)
-	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
+	p.rec.Put(check.Send{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
@@ -793,109 +792,109 @@ func (p *recordProcess) SendImportant(to any, message any) error {
 	options := p.msgOptions()
 	options.ImportantDelivery = true
 	err := p.Process.SendImportant(to, message)
-	p.rec.Put(check.Sent{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
+	p.rec.Put(check.Send{From: p.Process.PID(), To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
 func (p *recordProcess) SendExit(to gen.PID, reason error) error {
 	err := p.Process.SendExit(to, reason)
-	p.rec.Put(check.SentExit{From: p.Process.PID(), To: to, Reason: reason})
+	p.rec.Put(check.SendExit{From: p.Process.PID(), To: to, Reason: reason})
 	return err
 }
 
 func (p *recordProcess) Call(to any, request any) (any, error) {
 	response, err := p.Process.Call(to, request)
-	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallWithTimeout(to any, request any, timeout int) (any, error) {
 	response, err := p.Process.CallWithTimeout(to, request, timeout)
-	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
 	response, err := p.Process.CallWithPriority(to, request, priority)
-	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallImportant(to any, request any) (any, error) {
 	response, err := p.Process.CallImportant(to, request)
-	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallPID(to gen.PID, request any, timeout int) (any, error) {
 	response, err := p.Process.CallPID(to, request, timeout)
-	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
 	response, err := p.Process.CallProcessID(to, request, timeout)
-	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
 	response, err := p.Process.CallAlias(to, request, timeout)
-	p.rec.Put(check.Called{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	pid, err := p.Process.Spawn(factory, options, args...)
-	p.rec.Put(check.Spawned{Parent: p.Process.PID(), Child: pid, Factory: factory, Options: options, Error: err})
+	p.rec.Put(check.Spawn{Parent: p.Process.PID(), Child: pid, Factory: factory, Options: options, Error: err})
 	return pid, err
 }
 
 func (p *recordProcess) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	pid, err := p.Process.SpawnRegister(register, factory, options, args...)
-	p.rec.Put(check.Spawned{Parent: p.Process.PID(), Child: pid, Register: register, Factory: factory, Options: options, Error: err})
+	p.rec.Put(check.Spawn{Parent: p.Process.PID(), Child: pid, Register: register, Factory: factory, Options: options, Error: err})
 	return pid, err
 }
 
 func (p *recordProcess) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	pid, err := p.Process.RemoteSpawn(node, name, options, args...)
-	p.rec.Put(check.RemoteSpawned{Parent: p.Process.PID(), Node: node, Name: name, Child: pid, Options: options, Error: err})
+	p.rec.Put(check.RemoteSpawn{Parent: p.Process.PID(), Node: node, Name: name, Child: pid, Options: options, Error: err})
 	return pid, err
 }
 
 func (p *recordProcess) RemoteSpawnRegister(node gen.Atom, name gen.Atom, register gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	pid, err := p.Process.RemoteSpawnRegister(node, name, register, options, args...)
-	p.rec.Put(check.RemoteSpawned{Parent: p.Process.PID(), Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
+	p.rec.Put(check.RemoteSpawn{Parent: p.Process.PID(), Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
 	return pid, err
 }
 
 func (p *recordProcess) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {
 	alias, err := p.Process.SpawnMeta(behavior, options)
-	p.rec.Put(check.MetaSpawned{Parent: p.Process.PID(), Alias: alias, Error: err})
+	p.rec.Put(check.SpawnMeta{Parent: p.Process.PID(), Alias: alias, Error: err})
 	return alias, err
 }
 
 func (p *recordProcess) CreateAlias() (gen.Alias, error) {
 	alias, err := p.Process.CreateAlias()
-	p.rec.Put(check.AliasCreated{PID: p.Process.PID(), Alias: alias, Error: err})
+	p.rec.Put(check.CreateAlias{PID: p.Process.PID(), Alias: alias, Error: err})
 	return alias, err
 }
 
 func (p *recordProcess) DeleteAlias(alias gen.Alias) error {
 	err := p.Process.DeleteAlias(alias)
-	p.rec.Put(check.AliasDeleted{PID: p.Process.PID(), Alias: alias, Error: err})
+	p.rec.Put(check.DeleteAlias{PID: p.Process.PID(), Alias: alias, Error: err})
 	return err
 }
 
 func (p *recordProcess) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
 	ref, err := p.Process.RegisterEvent(name, options)
-	p.rec.Put(check.EventRegistered{PID: p.Process.PID(), Name: name, Ref: ref, Error: err})
+	p.rec.Put(check.RegisterEvent{PID: p.Process.PID(), Name: name, Ref: ref, Error: err})
 	return ref, err
 }
 
 func (p *recordProcess) UnregisterEvent(name gen.Atom) error {
 	err := p.Process.UnregisterEvent(name)
-	p.rec.Put(check.EventUnregistered{PID: p.Process.PID(), Name: name, Error: err})
+	p.rec.Put(check.UnregisterEvent{PID: p.Process.PID(), Name: name, Error: err})
 	return err
 }
 
@@ -904,7 +903,6 @@ func (p *recordProcess) Forward(to gen.PID, message *gen.MailboxMessage, priorit
 	// target mailbox and may be processed/released concurrently.
 	from, msg := message.From, message.Message
 	err := p.Process.Forward(to, message, priority)
-	p.rec.Put(check.Forwarded{By: p.Process.PID(), To: to, From: from, Message: msg, Error: err})
+	p.rec.Put(check.Forward{By: p.Process.PID(), To: to, From: from, Message: msg, Error: err})
 	return err
 }
-

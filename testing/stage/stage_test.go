@@ -174,7 +174,7 @@ func TestStageSince(t *testing.T) {
 }
 
 // TestStageSendPriority: the effective send priority is observable on the egress
-// Sent record in stage exactly as in unit (same ShouldSend().Priority() assertion).
+// Send record in stage exactly as in unit (same ShouldSend().Priority() assertion).
 func TestStageSendPriority(t *testing.T) {
 	s := stage.New(t)
 	n := s.Node("n")

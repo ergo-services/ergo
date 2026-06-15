@@ -9,11 +9,11 @@ import (
 
 // records
 
-// Sent is an outgoing message observed at the sender (egress). Error is the
+// Send is an outgoing message observed at the sender (egress). Error is the
 // outcome of the send call (nil on success). Options is the effective
 // gen.MessageOptions the send was issued with (priority, compression, keep-order,
 // important delivery) - what the routing core receives.
-type Sent struct {
+type Send struct {
 	From    gen.PID
 	To      any
 	Message any
@@ -21,14 +21,14 @@ type Sent struct {
 	Error   error
 }
 
-func (Sent) Kind() string { return "sent" }
-func (r Sent) String() string {
-	return fmt.Sprintf("Sent(from=%s to=%v msg=%#v err=%v)", r.From, r.To, r.Message, r.Error)
+func (Send) Kind() string { return "sent" }
+func (r Send) String() string {
+	return fmt.Sprintf("Send(from=%s to=%v msg=%#v err=%v)", r.From, r.To, r.Message, r.Error)
 }
 
-// Called is an outgoing request observed at the caller (egress). Error is the
+// Call is an outgoing request observed at the caller (egress). Error is the
 // outcome of the call (nil on success); Response is the value returned.
-type Called struct {
+type Call struct {
 	From     gen.PID
 	To       any
 	Request  any
@@ -36,17 +36,17 @@ type Called struct {
 	Error    error
 }
 
-func (Called) Kind() string { return "called" }
-func (r Called) String() string {
-	return fmt.Sprintf("Called(from=%s to=%v req=%#v err=%v)", r.From, r.To, r.Request, r.Error)
+func (Call) Kind() string { return "called" }
+func (r Call) String() string {
+	return fmt.Sprintf("Call(from=%s to=%v req=%#v err=%v)", r.From, r.To, r.Request, r.Error)
 }
 
-// Spawned is a child process created (or attempted) by a process (egress). On
+// Spawn is a child process created (or attempted) by a process (egress). On
 // failure Child is the zero PID and Error is set. Factory is the spawned factory
 // (set by harnesses that know it, e.g. the unit mock); zero otherwise. Register is
 // the name for a SpawnRegister (empty for an anonymous Spawn). Options is the
 // gen.ProcessOptions the spawn was requested with.
-type Spawned struct {
+type Spawn struct {
 	Parent   gen.PID
 	Child    gen.PID
 	Register gen.Atom
@@ -55,16 +55,16 @@ type Spawned struct {
 	Error    error
 }
 
-func (Spawned) Kind() string { return "spawned" }
-func (r Spawned) String() string {
-	return fmt.Sprintf("Spawned(parent=%s child=%s register=%s err=%v)", r.Parent, r.Child, r.Register, r.Error)
+func (Spawn) Kind() string { return "spawned" }
+func (r Spawn) String() string {
+	return fmt.Sprintf("Spawn(parent=%s child=%s register=%s err=%v)", r.Parent, r.Child, r.Register, r.Error)
 }
 
-// RemoteSpawned is a process spawned (or attempted) on a remote node by name
+// RemoteSpawn is a process spawned (or attempted) on a remote node by name
 // (egress). Node is the target node, Name the remote factory name, Register the
 // name to register the child under (empty for a plain RemoteSpawn). On failure
 // Child is the zero PID and Error is set.
-type RemoteSpawned struct {
+type RemoteSpawn struct {
 	Parent   gen.PID
 	Node     gen.Atom
 	Name     gen.Atom
@@ -74,16 +74,16 @@ type RemoteSpawned struct {
 	Error    error
 }
 
-func (RemoteSpawned) Kind() string { return "remote_spawned" }
-func (r RemoteSpawned) String() string {
-	return fmt.Sprintf("RemoteSpawned(parent=%s node=%s name=%s register=%s child=%s err=%v)",
+func (RemoteSpawn) Kind() string { return "remote_spawned" }
+func (r RemoteSpawn) String() string {
+	return fmt.Sprintf("RemoteSpawn(parent=%s node=%s name=%s register=%s child=%s err=%v)",
 		r.Parent, r.Node, r.Name, r.Register, r.Child, r.Error)
 }
 
-// RemoteApplicationStarted is an application started (or attempted) on a remote node by a
+// RemoteApplicationStart is an application started (or attempted) on a remote node by a
 // process via RemoteNode.ApplicationStart* (egress). Node is the target node, Name the
 // application, Mode the start variant (zero for the plain ApplicationStart).
-type RemoteApplicationStarted struct {
+type RemoteApplicationStart struct {
 	From  gen.PID
 	Node  gen.Atom
 	Name  gen.Atom
@@ -91,83 +91,83 @@ type RemoteApplicationStarted struct {
 	Error error
 }
 
-func (RemoteApplicationStarted) Kind() string { return "remote_application_started" }
-func (r RemoteApplicationStarted) String() string {
-	return fmt.Sprintf("RemoteApplicationStarted(from=%s node=%s name=%s mode=%v err=%v)",
+func (RemoteApplicationStart) Kind() string { return "remote_application_started" }
+func (r RemoteApplicationStart) String() string {
+	return fmt.Sprintf("RemoteApplicationStart(from=%s node=%s name=%s mode=%v err=%v)",
 		r.From, r.Node, r.Name, r.Mode, r.Error)
 }
 
-// MetaSpawned is a meta process spawned (or attempted) by a process (egress). On
+// SpawnMeta is a meta process spawned (or attempted) by a process (egress). On
 // failure Alias is the zero alias and Error is set.
-type MetaSpawned struct {
+type SpawnMeta struct {
 	Parent gen.PID
 	Alias  gen.Alias
 	Error  error
 }
 
-func (MetaSpawned) Kind() string { return "meta_spawned" }
-func (r MetaSpawned) String() string {
-	return fmt.Sprintf("MetaSpawned(parent=%s alias=%s err=%v)", r.Parent, r.Alias, r.Error)
+func (SpawnMeta) Kind() string { return "meta_spawned" }
+func (r SpawnMeta) String() string {
+	return fmt.Sprintf("SpawnMeta(parent=%s alias=%s err=%v)", r.Parent, r.Alias, r.Error)
 }
 
-// AliasCreated is an alias created (or attempted) by a process via CreateAlias
+// CreateAlias is an alias created (or attempted) by a process via CreateAlias
 // (egress). On failure Alias is the zero alias and Error is set.
-type AliasCreated struct {
+type CreateAlias struct {
 	PID   gen.PID
 	Alias gen.Alias
 	Error error
 }
 
-func (AliasCreated) Kind() string { return "alias_created" }
-func (r AliasCreated) String() string {
-	return fmt.Sprintf("AliasCreated(pid=%s alias=%s err=%v)", r.PID, r.Alias, r.Error)
+func (CreateAlias) Kind() string { return "alias_created" }
+func (r CreateAlias) String() string {
+	return fmt.Sprintf("CreateAlias(pid=%s alias=%s err=%v)", r.PID, r.Alias, r.Error)
 }
 
-// AliasDeleted is an alias removed (or attempted) by a process via DeleteAlias
+// DeleteAlias is an alias removed (or attempted) by a process via DeleteAlias
 // (egress).
-type AliasDeleted struct {
+type DeleteAlias struct {
 	PID   gen.PID
 	Alias gen.Alias
 	Error error
 }
 
-func (AliasDeleted) Kind() string { return "alias_deleted" }
-func (r AliasDeleted) String() string {
-	return fmt.Sprintf("AliasDeleted(pid=%s alias=%s err=%v)", r.PID, r.Alias, r.Error)
+func (DeleteAlias) Kind() string { return "alias_deleted" }
+func (r DeleteAlias) String() string {
+	return fmt.Sprintf("DeleteAlias(pid=%s alias=%s err=%v)", r.PID, r.Alias, r.Error)
 }
 
-// EventRegistered is an event producer registered (or attempted) by a process via
+// RegisterEvent is an event producer registered (or attempted) by a process via
 // RegisterEvent (egress). Ref is the producer token returned on success.
-type EventRegistered struct {
+type RegisterEvent struct {
 	PID   gen.PID
 	Name  gen.Atom
 	Ref   gen.Ref
 	Error error
 }
 
-func (EventRegistered) Kind() string { return "event_registered" }
-func (r EventRegistered) String() string {
-	return fmt.Sprintf("EventRegistered(pid=%s name=%s err=%v)", r.PID, r.Name, r.Error)
+func (RegisterEvent) Kind() string { return "event_registered" }
+func (r RegisterEvent) String() string {
+	return fmt.Sprintf("RegisterEvent(pid=%s name=%s err=%v)", r.PID, r.Name, r.Error)
 }
 
-// EventUnregistered is an event producer removed (or attempted) by a process via
+// UnregisterEvent is an event producer removed (or attempted) by a process via
 // UnregisterEvent (egress).
-type EventUnregistered struct {
+type UnregisterEvent struct {
 	PID   gen.PID
 	Name  gen.Atom
 	Error error
 }
 
-func (EventUnregistered) Kind() string { return "event_unregistered" }
-func (r EventUnregistered) String() string {
-	return fmt.Sprintf("EventUnregistered(pid=%s name=%s err=%v)", r.PID, r.Name, r.Error)
+func (UnregisterEvent) Kind() string { return "event_unregistered" }
+func (r UnregisterEvent) String() string {
+	return fmt.Sprintf("UnregisterEvent(pid=%s name=%s err=%v)", r.PID, r.Name, r.Error)
 }
 
-// Forwarded is a message handed (or attempted) to another process via Forward,
+// Forward is a message handed (or attempted) to another process via Forward,
 // observed at the forwarder (egress). Used by act.Pool (round-robin) and
 // act.Router (by-name routing). By is the forwarder, To the target, From the
 // original sender; Error is the outcome of the forward.
-type Forwarded struct {
+type Forward struct {
 	By      gen.PID
 	To      gen.PID
 	From    gen.PID
@@ -175,9 +175,9 @@ type Forwarded struct {
 	Error   error
 }
 
-func (Forwarded) Kind() string { return "forwarded" }
-func (r Forwarded) String() string {
-	return fmt.Sprintf("Forwarded(by=%s to=%s from=%s msg=%#v err=%v)", r.By, r.To, r.From, r.Message, r.Error)
+func (Forward) Kind() string { return "forwarded" }
+func (r Forward) String() string {
+	return fmt.Sprintf("Forward(by=%s to=%s from=%s msg=%#v err=%v)", r.By, r.To, r.From, r.Message, r.Error)
 }
 
 // Delivered is a message delivered into a local mailbox on this node (ingress).
@@ -228,52 +228,52 @@ func (r Event) String() string {
 	return fmt.Sprintf("Event(to=%s %s msg=%#v)", r.To, r.Event, r.Message)
 }
 
-// Monitored is a monitor set up (or attempted) by a process (egress).
-type Monitored struct {
+// Monitor is a monitor set up (or attempted) by a process (egress).
+type Monitor struct {
 	From   gen.PID
 	Target any
 	Error  error
 }
 
-func (Monitored) Kind() string { return "monitored" }
-func (r Monitored) String() string {
-	return fmt.Sprintf("Monitored(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
+func (Monitor) Kind() string { return "monitored" }
+func (r Monitor) String() string {
+	return fmt.Sprintf("Monitor(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
 }
 
-// Demonitored is a monitor removed (or attempted) by a process (egress).
-type Demonitored struct {
+// Demonitor is a monitor removed (or attempted) by a process (egress).
+type Demonitor struct {
 	From   gen.PID
 	Target any
 	Error  error
 }
 
-func (Demonitored) Kind() string { return "demonitored" }
-func (r Demonitored) String() string {
-	return fmt.Sprintf("Demonitored(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
+func (Demonitor) Kind() string { return "demonitored" }
+func (r Demonitor) String() string {
+	return fmt.Sprintf("Demonitor(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
 }
 
-// Linked is a link set up (or attempted) by a process (egress).
-type Linked struct {
+// Link is a link set up (or attempted) by a process (egress).
+type Link struct {
 	From   gen.PID
 	Target any
 	Error  error
 }
 
-func (Linked) Kind() string { return "linked" }
-func (r Linked) String() string {
-	return fmt.Sprintf("Linked(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
+func (Link) Kind() string { return "linked" }
+func (r Link) String() string {
+	return fmt.Sprintf("Link(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
 }
 
-// Unlinked is a link removed (or attempted) by a process (egress).
-type Unlinked struct {
+// Unlink is a link removed (or attempted) by a process (egress).
+type Unlink struct {
 	From   gen.PID
 	Target any
 	Error  error
 }
 
-func (Unlinked) Kind() string { return "unlinked" }
-func (r Unlinked) String() string {
-	return fmt.Sprintf("Unlinked(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
+func (Unlink) Kind() string { return "unlinked" }
+func (r Unlink) String() string {
+	return fmt.Sprintf("Unlink(from=%s target=%v err=%v)", r.From, r.Target, r.Error)
 }
 
 // WireLink is a remote consumer's link arriving over the connection (ingress on
@@ -322,9 +322,9 @@ func (r WireDemonitor) String() string {
 	return fmt.Sprintf("WireDemonitor(from=%s target=%v)", r.From, r.Target)
 }
 
-// SentEvent is an event published by a process (egress). Error is the outcome of
+// SendEvent is an event published by a process (egress). Error is the outcome of
 // the publish (nil on success).
-type SentEvent struct {
+type SendEvent struct {
 	From    gen.PID
 	Name    gen.Atom
 	Message any
@@ -332,15 +332,15 @@ type SentEvent struct {
 	Error   error
 }
 
-func (SentEvent) Kind() string { return "sent_event" }
-func (r SentEvent) String() string {
-	return fmt.Sprintf("SentEvent(from=%s name=%s msg=%#v err=%v)", r.From, r.Name, r.Message, r.Error)
+func (SendEvent) Kind() string { return "sent_event" }
+func (r SendEvent) String() string {
+	return fmt.Sprintf("SendEvent(from=%s name=%s msg=%#v err=%v)", r.From, r.Name, r.Message, r.Error)
 }
 
-// SentResponse is a response a process sent back to a caller's request (egress).
+// SendResponse is a response a process sent back to a caller's request (egress).
 // Error is the outcome of the send call (nil on success); for an error response
 // (SendResponseError) the responded error is carried in Message.
-type SentResponse struct {
+type SendResponse struct {
 	From    gen.PID
 	To      gen.PID
 	Ref     gen.Ref
@@ -349,34 +349,33 @@ type SentResponse struct {
 	Error   error
 }
 
-func (SentResponse) Kind() string { return "sent_response" }
-func (r SentResponse) String() string {
-	return fmt.Sprintf("SentResponse(from=%s to=%s msg=%#v err=%v)", r.From, r.To, r.Message, r.Error)
+func (SendResponse) Kind() string { return "sent_response" }
+func (r SendResponse) String() string {
+	return fmt.Sprintf("SendResponse(from=%s to=%s msg=%#v err=%v)", r.From, r.To, r.Message, r.Error)
 }
 
-
-// SentExit is an exit signal a process sent via SendExit (egress).
-type SentExit struct {
+// SendExit is an exit signal a process sent via SendExit (egress).
+type SendExit struct {
 	From   gen.PID
 	To     gen.PID
 	Reason error
 }
 
-func (SentExit) Kind() string { return "sent_exit" }
-func (r SentExit) String() string {
-	return fmt.Sprintf("SentExit(from=%s to=%s reason=%v)", r.From, r.To, r.Reason)
+func (SendExit) Kind() string { return "sent_exit" }
+func (r SendExit) String() string {
+	return fmt.Sprintf("SendExit(from=%s to=%s reason=%v)", r.From, r.To, r.Reason)
 }
 
-// Logged is a log line emitted by a process (egress). Message is preformatted.
-type Logged struct {
+// Log is a log line emitted by a process (egress). Message is preformatted.
+type Log struct {
 	From    gen.PID
 	Level   gen.LogLevel
 	Message string
 }
 
-func (Logged) Kind() string { return "logged" }
-func (r Logged) String() string {
-	return fmt.Sprintf("Logged(from=%s level=%v msg=%q)", r.From, r.Level, r.Message)
+func (Log) Kind() string { return "logged" }
+func (r Log) String() string {
+	return fmt.Sprintf("Log(from=%s level=%v msg=%q)", r.From, r.Level, r.Message)
 }
 
 // Terminated is the subject actor's own termination, observed directly by the
@@ -391,9 +390,9 @@ func (r Terminated) String() string {
 	return fmt.Sprintf("Terminated(pid=%s reason=%v)", r.PID, r.Reason)
 }
 
-// ScheduledSend is a delayed send a process scheduled via SendAfter (egress). It is
+// SendAfter is a delayed send a process scheduled via SendAfter (egress). It is
 // not delivered until the harness fires its timers.
-type ScheduledSend struct {
+type SendAfter struct {
 	From    gen.PID
 	To      any
 	Message any
@@ -401,7 +400,7 @@ type ScheduledSend struct {
 	Options gen.MessageOptions
 }
 
-func (ScheduledSend) Kind() string { return "scheduled_send" }
-func (r ScheduledSend) String() string {
-	return fmt.Sprintf("ScheduledSend(from=%s to=%v after=%s msg=%#v)", r.From, r.To, r.After, r.Message)
+func (SendAfter) Kind() string { return "scheduled_send" }
+func (r SendAfter) String() string {
+	return fmt.Sprintf("SendAfter(from=%s to=%v after=%s msg=%#v)", r.From, r.To, r.After, r.Message)
 }

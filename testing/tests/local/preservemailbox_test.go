@@ -14,7 +14,7 @@ import (
 var errPMAbnormal = errors.New("pm: abnormal return")
 
 // pmActor terminates abnormally on command: panic, or an abnormal callback return.
-// (Kill is driven externally.) Spawned with PreserveMailbox so each path captures
+// (Kill is driven externally.) Spawn with PreserveMailbox so each path captures
 // the mailbox into a *gen.Error.
 type pmActor struct{ act.Actor }
 

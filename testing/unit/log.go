@@ -7,7 +7,7 @@ import (
 	"ergo.services/ergo/testing/check"
 )
 
-// mockLog implements gen.Log, recording every log line as a check.Logged on the
+// mockLog implements gen.Log, recording every log line as a check.Log on the
 // node recorder. Both the mock process and the mock node use it (each with its
 // own from PID).
 type mockLog struct {
@@ -46,7 +46,7 @@ func (l *mockLog) emit(level gen.LogLevel, format string, args ...any) {
 	if l.level > level {
 		return
 	}
-	l.node.rec.Put(check.Logged{From: l.from, Level: level, Message: fmt.Sprintf(format, args...)})
+	l.node.rec.Put(check.Log{From: l.from, Level: level, Message: fmt.Sprintf(format, args...)})
 }
 
 func (l *mockLog) Trace(format string, args ...any)   { l.emit(gen.LogLevelTrace, format, args...) }

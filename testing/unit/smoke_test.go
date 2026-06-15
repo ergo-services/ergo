@@ -515,10 +515,10 @@ func TestSmokeProcessInfoOverride(t *testing.T) {
 	check.Equal(t, gen.Atom("overridden"), b.childName)
 }
 
-// SendAfter is recorded as a ScheduledSend and not delivered until FireTimers.
+// SendAfter is recorded as a SendAfter and not delivered until FireTimers.
 func TestSmokeTimer(t *testing.T) {
 	a, _ := unit.Spawn(t, factoryTimed, gen.ProcessOptions{})
-	a.ShouldScheduleSend().To(a.PID()).Message("tick").Once().Assert()
+	a.ShouldSendAfter().To(a.PID()).Message("tick").Once().Assert()
 	a.ShouldSend().To(gen.Atom("done")).None().Assert()
 
 	fired := a.FireTimers()

@@ -92,7 +92,7 @@ func TestLocalSupervisorARFOEnable(t *testing.T) {
 		dv, err := n.Call(sup, disableReq{Name: "c0"})
 		check.NoError(t, err)
 		check.Equal(t, "", dv)
-		n.ShouldSend().From(sup).Where(func(r check.Sent) bool {
+		n.ShouldSend().From(sup).Where(func(r check.Send) bool {
 			cs, ok := r.Message.(childStopped)
 			return ok && cs.PID == c0
 		}).Since(mk).Once().Within(time.Second).Must()
@@ -108,8 +108,8 @@ func TestLocalSupervisorARFOEnable(t *testing.T) {
 	}
 }
 
-func isStop(r check.Sent) bool  { _, ok := r.Message.(childStopped); return ok }
-func isStart(r check.Sent) bool { _, ok := r.Message.(childStarted); return ok }
+func isStop(r check.Send) bool  { _, ok := r.Message.(childStopped); return ok }
+func isStart(r check.Send) bool { _, ok := r.Message.(childStarted); return ok }
 
 // runArfo kills children[idx] with reason and verifies the cascade: stopCount
 // children terminate and startCount restart (0 if no restart), the killed child's

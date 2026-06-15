@@ -128,7 +128,7 @@ func TestLocalSupervisorRestartIntensityDisable(t *testing.T) {
 	// barrier: wait until the supervisor handled the exceeding termination of c0
 	// (the death notification reaches the supervisor independently of our calls,
 	// so a plain Call would race it). childStopped fires from HandleChildTerminate.
-	n.ShouldSend().From(sup).Where(func(r check.Sent) bool {
+	n.ShouldSend().From(sup).Where(func(r check.Send) bool {
 		cs, ok := r.Message.(childStopped)
 		return ok && cs.PID == killed
 	}).Since(mk).Once().Within(time.Second).Must()
