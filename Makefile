@@ -20,9 +20,14 @@ test: clean ## Run every test verbosely with a freshly cleared cache
 test-race: clean ## Run every test under the race detector with a freshly cleared cache
 	$(GO) test -race ./...
 
-cover: clean ## Run all tests with coverage; per-package output and the total
-	$(GO) test -cover -coverprofile=$(COVER) ./...
-	@$(GO) tool cover -func=$(COVER) | awk 'END { print "total coverage: " $$NF }'
+cover: clean ## Run every test (incl. integration) measuring coverage of all non-testing packages; print only the total
+	@echo "coverage: running all tests (incl. integration), this takes a bit..."
+	@pkgs=$$($(GO) list ./... | grep -v '/testing/' | paste -sd, -); \
+	log=$$(mktemp); \
+	$(GO) test -coverpkg="$$pkgs" -coverprofile=$(COVER) ./... >"$$log" 2>&1; ec=$$?; \
+	if [ $$ec -ne 0 ]; then cat "$$log"; rm -f "$$log"; exit $$ec; fi; \
+	rm -f "$$log"; \
+	$(GO) tool cover -func=$(COVER) | awk 'END { print "total coverage: " $$NF }'
 
 cover-html: cover ## Build an HTML coverage report (coverage.html) from the profile
 	$(GO) tool cover -html=$(COVER) -o coverage.html
@@ -50,4 +55,4 @@ tidy: ## Verify go.mod/go.sum are tidy
 	$(GO) mod tidy -diff
 
 clean: ## Drop the cached test results
-	$(GO) clean -testcache
+	@$(GO) clean -testcache

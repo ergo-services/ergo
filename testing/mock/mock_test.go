@@ -20,6 +20,7 @@ var (
 	_ gen.RemoteNode  = mock.NewRemoteNode()
 	_ gen.Registrar   = mock.NewRegistrar()
 	_ gen.Resolver    = mock.NewResolver()
+	_ gen.Core        = mock.NewCore()
 )
 
 // dumb mock: override a couple of methods, inject into code that consumes the
