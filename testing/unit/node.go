@@ -31,6 +31,7 @@ type mockNode struct {
 	nextID     uint64
 	env        map[gen.Env]any
 	netmock    *mockNetwork // built-in stubbable network (default behind Network())
+	cronmock   *mockCron    // built-in cron (default behind Cron())
 	subjectPID gen.PID      // the process under test (From for RemoteNode egress records)
 	log        *mockLog
 
@@ -86,6 +87,7 @@ func newMockNode(t testing.TB, name gen.Atom, o gen.NodeOptions) *mockNode {
 	}
 	n.log = newMockLog(n, n.nodePID(), n.logLevel)
 	n.netmock = newMockNetwork(n)
+	n.cronmock = newMockCron(n)
 	return n
 }
 
@@ -248,11 +250,6 @@ func (n *mockNode) schedule(from gen.PID, to any, message any, after time.Durati
 	}
 }
 
-func (n *mockNode) requireCron() gen.Cron {
-	n.t.Helper()
-	n.t.Fatalf("unit: process under test called Node().Cron(), but no cron is set; use sub.Node().OnCron(...)")
-	return nil
-}
 
 // unsupported fails the test for a node value-query that has no sensible default
 // and no override (the process consumes the result, so a zero would mislead it).
@@ -373,7 +370,7 @@ func (n *mockNode) Network() gen.Network {
 	return n.netmock
 }
 func (n *mockNode) Cron() gen.Cron {
-	return n.requireCron()
+	return n.cronmock
 }
 func (n *mockNode) CertManager() gen.CertManager {
 	if n.ov.certManager != nil {

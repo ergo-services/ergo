@@ -811,6 +811,58 @@ func (x *LogAssert) Containing(substr string) *LogAssert {
 	return x
 }
 
+// AddCronJobAssert asserts over cron jobs registered on a node (egress).
+type AddCronJobAssert struct{ *Assertion[AddCronJob] }
+
+// ShouldAddCronJob starts a cron-job-add assertion on this node.
+func (a *Asserter) ShouldAddCronJob() *AddCronJobAssert {
+	return &AddCronJobAssert{For[AddCronJob](a.t, a.rec)}
+}
+func (a *AddCronJobAssert) From(pid gen.PID) *AddCronJobAssert {
+	a.Where(func(r AddCronJob) bool { return r.From == pid })
+	return a
+}
+func (a *AddCronJobAssert) Name(name gen.Atom) *AddCronJobAssert {
+	a.Where(func(r AddCronJob) bool { return r.Name == name })
+	return a
+}
+func (a *AddCronJobAssert) Spec(spec string) *AddCronJobAssert {
+	a.Where(func(r AddCronJob) bool { return r.Spec == spec })
+	return a
+}
+func (a *AddCronJobAssert) Error(target error) *AddCronJobAssert {
+	a.Where(func(r AddCronJob) bool { return r.Error == target })
+	return a
+}
+func (a *AddCronJobAssert) ErrorIs(target error) *AddCronJobAssert {
+	a.Where(func(r AddCronJob) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+// RemoveCronJobAssert asserts over cron jobs removed on a node (egress).
+type RemoveCronJobAssert struct{ *Assertion[RemoveCronJob] }
+
+// ShouldRemoveCronJob starts a cron-job-remove assertion on this node.
+func (a *Asserter) ShouldRemoveCronJob() *RemoveCronJobAssert {
+	return &RemoveCronJobAssert{For[RemoveCronJob](a.t, a.rec)}
+}
+func (a *RemoveCronJobAssert) From(pid gen.PID) *RemoveCronJobAssert {
+	a.Where(func(r RemoveCronJob) bool { return r.From == pid })
+	return a
+}
+func (a *RemoveCronJobAssert) Name(name gen.Atom) *RemoveCronJobAssert {
+	a.Where(func(r RemoveCronJob) bool { return r.Name == name })
+	return a
+}
+func (a *RemoveCronJobAssert) Error(target error) *RemoveCronJobAssert {
+	a.Where(func(r RemoveCronJob) bool { return r.Error == target })
+	return a
+}
+func (a *RemoveCronJobAssert) ErrorIs(target error) *RemoveCronJobAssert {
+	a.Where(func(r RemoveCronJob) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
 // TerminateAssert asserts over the subject actor's own termination (unit). With
 // no terminate, None() confirms the actor survived.
 type TerminateAssert struct{ *Assertion[Terminated] }

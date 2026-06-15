@@ -394,6 +394,19 @@ func (s *Subject) Inspect(from gen.PID, items ...string) (map[string]string, err
 	return nil, nil
 }
 
+// FireCron fires the named cron job, delivering its gen.MessageCron to the subject
+// (the common message-to-self cron action). The job must have been added (and not
+// disabled) via Node().Cron().AddJob, mirroring the real scheduler firing only
+// registered jobs. Spawn/remote-spawn cron actions are out of scope here.
+func (s *Subject) FireCron(name gen.Atom) *Subject {
+	s.t.Helper()
+	if s.node.cronmock.fireable(name) == false {
+		s.t.Fatalf("unit: FireCron(%q): no such enabled cron job; the actor must add it via Node().Cron().AddJob first", name)
+	}
+	s.deliver(gen.PID{}, gen.MessageCron{Node: s.node.nodeName, Job: name}, gen.MailboxMessageTypeRegular, gen.Ref{})
+	return s
+}
+
 // FireTimers delivers every scheduled (and not cancelled) SendAfter message whose
 // target is the process under test into its mailbox, in scheduling order, and runs
 // the process. Timers targeting other processes are marked fired but not delivered

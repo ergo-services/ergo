@@ -525,3 +525,40 @@ func TestSmokeTimer(t *testing.T) {
 	check.Equal(t, 1, fired)
 	a.ShouldSend().To(gen.Atom("done")).Message("fired").Once().Assert()
 }
+
+// cron jobs are recorded as AddCronJob/RemoveCronJob and only fire on FireCron.
+type cronActor struct {
+	act.Actor
+	fired int
+}
+
+func factoryCron() gen.ProcessBehavior { return &cronActor{} }
+
+func (c *cronActor) Init(args ...any) error {
+	return c.Node().Cron().AddJob(gen.CronJob{Name: gen.Atom("nightly"), Spec: "0 0 * * *"})
+}
+
+func (c *cronActor) HandleMessage(from gen.PID, message any) error {
+	if m, ok := message.(gen.MessageCron); ok {
+		c.fired++
+		c.Send(gen.Atom("reporter"), m.Job)
+	}
+	return nil
+}
+
+func TestSmokeCron(t *testing.T) {
+	a, _ := unit.Spawn(t, factoryCron, gen.ProcessOptions{})
+	a.ShouldAddCronJob().Name(gen.Atom("nightly")).Spec("0 0 * * *").Once().Assert()
+	a.ShouldSend().To(gen.Atom("reporter")).None().Assert() // not fired yet
+
+	a.FireCron(gen.Atom("nightly"))
+	check.Equal(t, 1, a.Behavior().(*cronActor).fired)
+	a.ShouldSend().To(gen.Atom("reporter")).Message(gen.Atom("nightly")).Once().Assert()
+}
+
+func TestSmokeCronRemove(t *testing.T) {
+	a, _ := unit.Spawn(t, factoryCron, gen.ProcessOptions{})
+	check.NoError(t, a.Node().Cron().RemoveJob(gen.Atom("nightly")))
+	a.ShouldRemoveCronJob().Name(gen.Atom("nightly")).Once().Assert()
+	check.ErrorIs(t, a.Node().Cron().RemoveJob(gen.Atom("nightly")), gen.ErrUnknown)
+}

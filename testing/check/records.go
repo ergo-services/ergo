@@ -378,6 +378,33 @@ func (r Log) String() string {
 	return fmt.Sprintf("Log(from=%s level=%v msg=%q)", r.From, r.Level, r.Message)
 }
 
+// AddCronJob is a cron job registered (or attempted) by a process via Cron().AddJob
+// (egress). Spec is the crontab schedule. On a duplicate name Error is gen.ErrTaken.
+type AddCronJob struct {
+	From  gen.PID
+	Name  gen.Atom
+	Spec  string
+	Error error
+}
+
+func (AddCronJob) Kind() string { return "add_cron_job" }
+func (r AddCronJob) String() string {
+	return fmt.Sprintf("AddCronJob(from=%s name=%s spec=%q err=%v)", r.From, r.Name, r.Spec, r.Error)
+}
+
+// RemoveCronJob is a cron job removed (or attempted) by a process via Cron().RemoveJob
+// (egress). On an unknown name Error is gen.ErrUnknown.
+type RemoveCronJob struct {
+	From  gen.PID
+	Name  gen.Atom
+	Error error
+}
+
+func (RemoveCronJob) Kind() string { return "remove_cron_job" }
+func (r RemoveCronJob) String() string {
+	return fmt.Sprintf("RemoveCronJob(from=%s name=%s err=%v)", r.From, r.Name, r.Error)
+}
+
 // Terminated is the subject actor's own termination, observed directly by the
 // in-process harness (unit). reason is wrapped in *gen.Error when PreserveMailbox.
 type Terminated struct {
