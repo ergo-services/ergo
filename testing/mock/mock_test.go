@@ -21,6 +21,9 @@ var (
 	_ gen.Registrar   = mock.NewRegistrar()
 	_ gen.Resolver    = mock.NewResolver()
 	_ gen.Core        = mock.NewCore()
+
+	_ gen.CoreTargetManager = mock.NewCoreTargetManager()
+	_ gen.Connection        = mock.NewConnection()
 )
 
 // dumb mock: override a couple of methods, inject into code that consumes the

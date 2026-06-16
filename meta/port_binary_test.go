@@ -8,10 +8,49 @@ import (
 	"time"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/testing/mock"
 )
 
-type mockMetaProcess struct {
-	result chan any
+// newPortMeta returns a meta-process mock whose Send hands the message to the
+// returned channel (consumed by waitForPortData), and whose logger panics on
+// Error/Panic so an unexpected port error surfaces loudly.
+func newPortMeta() (gen.MetaProcess, chan any) {
+	result := make(chan any)
+
+	mp := mock.NewMeta()
+	mp.OnSend(func(to, message any) error {
+		select {
+		case result <- message:
+		case <-time.After(100 * time.Millisecond):
+			panic("no reader")
+		}
+		return nil
+	})
+
+	lg := mock.NewLog()
+	lg.OnError(func(format string, args ...any) { panic(fmt.Sprintf(format, args...)) })
+	lg.OnPanic(func(format string, args ...any) { panic(fmt.Sprintf(format, args...)) })
+	mp.OnLog(func() gen.Log { return lg })
+
+	return mp, result
+}
+
+func waitForPortData(result chan any, expecting []byte) error {
+	select {
+	case r := <-result:
+		data, ok := r.(MessagePortData)
+		if ok == false {
+			fmt.Printf("got incorrect result (expected MessagePortData): %#v\n", r)
+			return gen.ErrIncorrect
+		}
+		if bytes.Equal(data.Data, expecting) == false {
+			fmt.Printf("got incorrect data (expected %#v): %#v\n", expecting, data.Data)
+			return gen.ErrMalformed
+		}
+		return nil
+	case <-time.After(100 * time.Millisecond):
+		return gen.ErrTimeout
+	}
 }
 
 func TestPortBinaryWithHeader(t *testing.T) {
@@ -19,9 +58,7 @@ func TestPortBinaryWithHeader(t *testing.T) {
 	p := port{
 		out: r,
 	}
-	mp := &mockMetaProcess{
-		result: make(chan any),
-	}
+	mp, result := newPortMeta()
 
 	p.MetaProcess = mp
 	p.options.Binary.Enable = true
@@ -43,23 +80,23 @@ func TestPortBinaryWithHeader(t *testing.T) {
 	buf3 := buf[9:]
 
 	w.Write(buf1) // chunk1 + tail
-	if err := mp.waitFor([]byte{0, 0, 1, 100}); err != nil {
+	if err := waitForPortData(result, []byte{0, 0, 1, 100}); err != nil {
 		panic(err)
 	}
 
 	w.Write(buf2) // not enough for the chunk2
-	if err := mp.waitFor([]byte{}); err != gen.ErrTimeout {
+	if err := waitForPortData(result, []byte{}); err != gen.ErrTimeout {
 		panic("malformed")
 	}
 
 	w.Write(buf3) // expecting chunk2 and chunk3
-	if err := mp.waitFor([]byte{0, 0, 3, 101, 102, 103}); err != nil {
+	if err := waitForPortData(result, []byte{0, 0, 3, 101, 102, 103}); err != nil {
 		panic(err)
 	}
-	if err := mp.waitFor([]byte{0, 0, 2, 104, 105}); err != nil {
+	if err := waitForPortData(result, []byte{0, 0, 2, 104, 105}); err != nil {
 		panic(err)
 	}
-	if err := mp.waitFor([]byte{}); err != gen.ErrTimeout {
+	if err := waitForPortData(result, []byte{}); err != gen.ErrTimeout {
 		panic("malformed. must be timeout here")
 	}
 }
@@ -69,9 +106,7 @@ func TestPortBinaryFixedLength(t *testing.T) {
 	p := port{
 		out: r,
 	}
-	mp := &mockMetaProcess{
-		result: make(chan any),
-	}
+	mp, result := newPortMeta()
 
 	p.MetaProcess = mp
 	p.options.Binary.Enable = true
@@ -91,103 +126,27 @@ func TestPortBinaryFixedLength(t *testing.T) {
 	buf3 := buf[5:]
 
 	w.Write(buf1) // not enough for the chunk1
-	if err := mp.waitFor([]byte{}); err != gen.ErrTimeout {
+	if err := waitForPortData(result, []byte{}); err != gen.ErrTimeout {
 		panic(err)
 	}
 
 	w.Write(buf2) // expecting chunk1
-	if err := mp.waitFor([]byte{100, 101, 102}); err != nil {
+	if err := waitForPortData(result, []byte{100, 101, 102}); err != nil {
 		panic(err)
 	}
 	// not enough for the chunk2
-	if err := mp.waitFor([]byte{103, 104, 105}); err != gen.ErrTimeout {
+	if err := waitForPortData(result, []byte{103, 104, 105}); err != gen.ErrTimeout {
 		panic("malformed")
 	}
 
 	w.Write(buf3) // expecting chunk2 and chunk3
-	if err := mp.waitFor([]byte{103, 104, 105}); err != nil {
+	if err := waitForPortData(result, []byte{103, 104, 105}); err != nil {
 		panic(err)
 	}
-	if err := mp.waitFor([]byte{106, 107, 108}); err != nil {
+	if err := waitForPortData(result, []byte{106, 107, 108}); err != nil {
 		panic(err)
 	}
-	if err := mp.waitFor([]byte{}); err != gen.ErrTimeout {
+	if err := waitForPortData(result, []byte{}); err != gen.ErrTimeout {
 		panic("malformed. must be timeout here")
 	}
 }
-func (m *mockMetaProcess) waitFor(expecting []byte) error {
-	select {
-	case r := <-m.result:
-		switch res := r.(type) {
-		case MessagePortData:
-			if !bytes.Equal(res.Data, expecting) {
-				fmt.Printf("got incorrect data (expected %#v): %#v\n", expecting, res.Data)
-				return gen.ErrMalformed
-			}
-			return nil
-		default:
-			fmt.Printf("got incorrect result (expected MessagePortData): %#v\n", r)
-			return gen.ErrIncorrect
-		}
-	case <-time.After(100 * time.Millisecond):
-		return gen.ErrTimeout
-
-	}
-}
-
-//
-// Mock interfaces
-//
-
-func (m *mockMetaProcess) ID() gen.Alias   { return gen.Alias{} }
-func (m *mockMetaProcess) Parent() gen.PID { return gen.PID{} }
-func (m *mockMetaProcess) Send(to any, message any) error {
-	select {
-	case m.result <- message:
-	case <-time.After(100 * time.Millisecond):
-		panic("no reader")
-	}
-	return nil
-}
-func (m *mockMetaProcess) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	return nil
-}
-func (m *mockMetaProcess) SendResponse(to gen.PID, ref gen.Ref, message any) error {
-	return nil
-}
-func (m *mockMetaProcess) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
-	return nil
-}
-func (m *mockMetaProcess) Spawn(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {
-	return gen.Alias{}, nil
-}
-func (m *mockMetaProcess) SendPriority() gen.MessagePriority {
-	return gen.MessagePriorityNormal
-}
-func (m *mockMetaProcess) SetSendPriority(priority gen.MessagePriority) error {
-	return nil
-}
-func (m *mockMetaProcess) Env(name gen.Env) (any, bool)         { return nil, false }
-func (m *mockMetaProcess) EnvList() map[gen.Env]any             { return nil }
-func (m *mockMetaProcess) EnvDefault(name gen.Env, def any) any { return def }
-func (m *mockMetaProcess) Log() gen.Log                         { return &mockLog{} }
-func (m *mockMetaProcess) Compression() bool                    { return false }
-func (m *mockMetaProcess) SetCompression(enabled bool) error    { return nil }
-
-type mockLog struct{}
-
-func (l *mockLog) Level() gen.LogLevel                { return gen.LogLevelInfo }
-func (l *mockLog) SetLevel(level gen.LogLevel) error  { return nil }
-func (l *mockLog) Logger() string                     { return "" }
-func (l *mockLog) SetLogger(name string)              {}
-func (l *mockLog) Fields() []gen.LogField             { return nil }
-func (l *mockLog) AddFields(fields ...gen.LogField)   {}
-func (l *mockLog) DeleteFields(fields ...string)      {}
-func (l *mockLog) PushFields() int                    { return 0 }
-func (l *mockLog) PopFields() int                     { return 0 }
-func (l *mockLog) Trace(format string, args ...any)   {}
-func (l *mockLog) Debug(format string, args ...any)   {}
-func (l *mockLog) Info(format string, args ...any)    {}
-func (l *mockLog) Warning(format string, args ...any) {}
-func (l *mockLog) Error(format string, args ...any)   { panic(fmt.Sprintf(format, args...)) }
-func (l *mockLog) Panic(format string, args ...any)   { panic(fmt.Sprintf(format, args...)) }

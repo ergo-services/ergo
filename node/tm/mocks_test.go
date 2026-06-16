@@ -1,16 +1,17 @@
 package tm
 
 import (
-	"net"
 	"sync/atomic"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
+	"ergo.services/ergo/testing/mock"
 )
 
-// mockCore mirrors tm's mockCore with lock-free queues for recorded
-// operations, so ported tests can read them via Item()/Next() and the
-// count/get helpers below.
+// mockCore is the tm test recorder: it owns lock-free queues of recorded
+// operations (read via the count/get helpers below) and builds the gen
+// CoreTargetManager / Connection that the Manager talks to, wiring each routed
+// operation into those queues through testing/mock overrides.
 type mockCore struct {
 	name            gen.Atom
 	pid             gen.PID
@@ -96,214 +97,167 @@ func newMockCore(nodeName string) *mockCore {
 	}
 }
 
-func (m *mockCore) Name() gen.Atom { return m.name }
-func (m *mockCore) PID() gen.PID   { return m.pid }
-func (m *mockCore) Log() gen.Log   { return nil }
-func (m *mockCore) MakeRef() gen.Ref {
-	return gen.Ref{Node: m.name, Creation: m.pid.Creation, ID: [3]uint64{m.refSeq.Add(1), 0, 0}}
+// ctm builds the gen.CoreTargetManager the Manager is created with: identity and
+// MakeRef come from this mockCore, and each routed delivery is recorded into the
+// matching queue. GetConnection hands back a recording connection (or the
+// configured connection error).
+func (m *mockCore) ctm() gen.CoreTargetManager {
+	c := mock.NewCoreTargetManager()
+	c.OnName(func() gen.Atom { return m.name })
+	c.OnPID(func() gen.PID { return m.pid })
+	c.OnMakeRef(func() gen.Ref {
+		return gen.Ref{Node: m.name, Creation: m.pid.Creation, ID: [3]uint64{m.refSeq.Add(1), 0, 0}}
+	})
+	c.OnRouteSendPID(func(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
+		switch message.(type) {
+		case gen.MessageDownPID, gen.MessageDownProcessID, gen.MessageDownAlias, gen.MessageDownEvent, gen.MessageDownNode:
+			m.sentDowns.Push(downRequest{from: from, to: to, message: message})
+		case gen.MessageEventStart:
+			m.sentEventStarts.Push(eventNotification{producer: to})
+		case gen.MessageEventStop:
+			m.sentEventStops.Push(eventNotification{producer: to})
+		case gen.MessageEvent:
+			m.sentEvents.Push(eventDelivery{from: from, to: to})
+		}
+		return nil
+	})
+	c.OnRouteSendExitMessages(func(from gen.PID, to []gen.PID, message any) error {
+		for _, pid := range to {
+			m.sentExits.Push(exitRequest{from: from, to: pid, message: message})
+		}
+		return nil
+	})
+	c.OnRouteSendEventMessages(func(from gen.PID, to []gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
+		for _, pid := range to {
+			m.sentEvents.Push(eventDelivery{from: from, to: pid})
+		}
+		return nil
+	})
+	c.OnGetConnection(func(node gen.Atom) (gen.Connection, error) {
+		if m.connectionError != nil {
+			return nil, m.connectionError
+		}
+		return m.conn(), nil
+	})
+	return c
 }
 
-func (m *mockCore) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
-	switch message.(type) {
-	case gen.MessageDownPID, gen.MessageDownProcessID, gen.MessageDownAlias, gen.MessageDownEvent, gen.MessageDownNode:
-		m.sentDowns.Push(downRequest{from: from, to: to, message: message})
-	case gen.MessageEventStart:
-		m.sentEventStarts.Push(eventNotification{producer: to})
-	case gen.MessageEventStop:
-		m.sentEventStops.Push(eventNotification{producer: to})
-	case gen.MessageEvent:
-		m.sentEvents.Push(eventDelivery{from: from, to: to})
-	}
-	return nil
-}
+// conn builds a recording gen.Connection. It snapshots linkError at build time
+// (mirroring the per-connection capture the manager sees) and records every
+// link/monitor/event/terminate into the parent mockCore's queues.
+func (m *mockCore) conn() gen.Connection {
+	linkErr := m.linkError
+	c := mock.NewConnection()
 
-func (m *mockCore) RouteSendExitMessages(from gen.PID, to []gen.PID, message any) error {
-	for _, pid := range to {
-		m.sentExits.Push(exitRequest{from: from, to: pid, message: message})
-	}
-	return nil
-}
+	c.OnLinkPID(func(from gen.PID, to gen.PID) error {
+		if linkErr != nil {
+			return linkErr
+		}
+		m.sentLinks.Push(linkRequest{from: from, to: to})
+		return nil
+	})
+	c.OnUnlinkPID(func(from gen.PID, to gen.PID) error {
+		m.sentUnlinks.Push(linkRequest{from: from, to: to})
+		return nil
+	})
+	c.OnMonitorPID(func(from gen.PID, to gen.PID) error {
+		if linkErr != nil {
+			return linkErr
+		}
+		m.sentMonitors.Push(monitorRequest{from: from, to: to})
+		return nil
+	})
+	c.OnDemonitorPID(func(from gen.PID, to gen.PID) error {
+		m.sentDemonitors.Push(monitorRequest{from: from, to: to})
+		return nil
+	})
 
-func (m *mockCore) RouteSendEventMessages(from gen.PID, to []gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
-	for _, pid := range to {
-		m.sentEvents.Push(eventDelivery{from: from, to: pid})
-	}
-	return nil
-}
+	c.OnLinkProcessID(func(from gen.PID, to gen.ProcessID) error {
+		if linkErr != nil {
+			return linkErr
+		}
+		m.sentLinks.Push(linkRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
+		return nil
+	})
+	c.OnUnlinkProcessID(func(from gen.PID, to gen.ProcessID) error {
+		m.sentUnlinks.Push(linkRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
+		return nil
+	})
+	c.OnMonitorProcessID(func(from gen.PID, to gen.ProcessID) error {
+		if linkErr != nil {
+			return linkErr
+		}
+		m.sentMonitors.Push(monitorRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
+		return nil
+	})
+	c.OnDemonitorProcessID(func(from gen.PID, to gen.ProcessID) error {
+		m.sentDemonitors.Push(monitorRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
+		return nil
+	})
 
-func (m *mockCore) GetConnection(node gen.Atom) (gen.Connection, error) {
-	if m.connectionError != nil {
-		return nil, m.connectionError
-	}
-	return &mockConnection{core: m, linkError: m.linkError}, nil
-}
+	c.OnLinkAlias(func(from gen.PID, to gen.Alias) error {
+		if linkErr != nil {
+			return linkErr
+		}
+		m.sentLinks.Push(linkRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
+		return nil
+	})
+	c.OnUnlinkAlias(func(from gen.PID, to gen.Alias) error {
+		m.sentUnlinks.Push(linkRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
+		return nil
+	})
+	c.OnMonitorAlias(func(from gen.PID, to gen.Alias) error {
+		if linkErr != nil {
+			return linkErr
+		}
+		m.sentMonitors.Push(monitorRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
+		return nil
+	})
+	c.OnDemonitorAlias(func(from gen.PID, to gen.Alias) error {
+		m.sentDemonitors.Push(monitorRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
+		return nil
+	})
 
-type mockConnection struct {
-	core      *mockCore
-	linkError error
-}
+	c.OnLinkEvent(func(from gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+		if linkErr != nil {
+			return nil, linkErr
+		}
+		m.sentEventLinks.Push(eventLinkRequest{from: from, event: event})
+		if m.eventBuffers != nil {
+			return m.eventBuffers[event], nil
+		}
+		return nil, nil
+	})
+	c.OnMonitorEvent(func(from gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+		if linkErr != nil {
+			return nil, linkErr
+		}
+		m.sentEventLinks.Push(eventLinkRequest{from: from, event: event})
+		if m.eventBuffers != nil {
+			return m.eventBuffers[event], nil
+		}
+		return nil, nil
+	})
 
-func (c *mockConnection) Node() gen.RemoteNode { return nil }
+	c.OnSendTerminatePID(func(target gen.PID, reason error) error {
+		m.sentTermPIDs.Push(termRequest{target: target, reason: reason})
+		return nil
+	})
+	c.OnSendTerminateProcessID(func(target gen.ProcessID, reason error) error {
+		m.sentTermProcIDs.Push(termRequest{target: target, reason: reason})
+		return nil
+	})
+	c.OnSendTerminateAlias(func(target gen.Alias, reason error) error {
+		m.sentTermAliases.Push(termRequest{target: target, reason: reason})
+		return nil
+	})
+	c.OnSendTerminateEvent(func(target gen.Event, reason error) error {
+		m.sentTermEvents.Push(termRequest{target: target, reason: reason})
+		return nil
+	})
 
-func (c *mockConnection) LinkPID(from gen.PID, to gen.PID) error {
-	if c.linkError != nil {
-		return c.linkError
-	}
-	c.core.sentLinks.Push(linkRequest{from: from, to: to})
-	return nil
+	return c
 }
-
-func (c *mockConnection) UnlinkPID(from gen.PID, to gen.PID) error {
-	c.core.sentUnlinks.Push(linkRequest{from: from, to: to})
-	return nil
-}
-
-func (c *mockConnection) MonitorPID(from gen.PID, to gen.PID) error {
-	if c.linkError != nil {
-		return c.linkError
-	}
-	c.core.sentMonitors.Push(monitorRequest{from: from, to: to})
-	return nil
-}
-
-func (c *mockConnection) DemonitorPID(from gen.PID, to gen.PID) error {
-	c.core.sentDemonitors.Push(monitorRequest{from: from, to: to})
-	return nil
-}
-
-func (c *mockConnection) LinkProcessID(from gen.PID, to gen.ProcessID) error {
-	if c.linkError != nil {
-		return c.linkError
-	}
-	c.core.sentLinks.Push(linkRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
-	return nil
-}
-
-func (c *mockConnection) UnlinkProcessID(from gen.PID, to gen.ProcessID) error {
-	c.core.sentUnlinks.Push(linkRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
-	return nil
-}
-
-func (c *mockConnection) MonitorProcessID(from gen.PID, to gen.ProcessID) error {
-	if c.linkError != nil {
-		return c.linkError
-	}
-	c.core.sentMonitors.Push(monitorRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
-	return nil
-}
-
-func (c *mockConnection) DemonitorProcessID(from gen.PID, to gen.ProcessID) error {
-	c.core.sentDemonitors.Push(monitorRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
-	return nil
-}
-
-func (c *mockConnection) LinkAlias(from gen.PID, to gen.Alias) error {
-	if c.linkError != nil {
-		return c.linkError
-	}
-	c.core.sentLinks.Push(linkRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
-	return nil
-}
-
-func (c *mockConnection) UnlinkAlias(from gen.PID, to gen.Alias) error {
-	c.core.sentUnlinks.Push(linkRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
-	return nil
-}
-
-func (c *mockConnection) MonitorAlias(from gen.PID, to gen.Alias) error {
-	if c.linkError != nil {
-		return c.linkError
-	}
-	c.core.sentMonitors.Push(monitorRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
-	return nil
-}
-
-func (c *mockConnection) DemonitorAlias(from gen.PID, to gen.Alias) error {
-	c.core.sentDemonitors.Push(monitorRequest{from: from, to: gen.PID{Node: to.Node, ID: 0}})
-	return nil
-}
-
-func (c *mockConnection) LinkEvent(from gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
-	if c.linkError != nil {
-		return nil, c.linkError
-	}
-	c.core.sentEventLinks.Push(eventLinkRequest{from: from, event: event})
-	var buffer []gen.MessageEvent
-	if c.core.eventBuffers != nil {
-		buffer = c.core.eventBuffers[event]
-	}
-	return buffer, nil
-}
-
-func (c *mockConnection) UnlinkEvent(from gen.PID, event gen.Event) error {
-	return nil
-}
-
-func (c *mockConnection) MonitorEvent(from gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
-	if c.linkError != nil {
-		return nil, c.linkError
-	}
-	c.core.sentEventLinks.Push(eventLinkRequest{from: from, event: event})
-	var buffer []gen.MessageEvent
-	if c.core.eventBuffers != nil {
-		buffer = c.core.eventBuffers[event]
-	}
-	return buffer, nil
-}
-
-func (c *mockConnection) DemonitorEvent(from gen.PID, event gen.Event) error {
-	return nil
-}
-
-func (c *mockConnection) SendTerminatePID(target gen.PID, reason error) error {
-	c.core.sentTermPIDs.Push(termRequest{target: target, reason: reason})
-	return nil
-}
-
-func (c *mockConnection) SendTerminateProcessID(target gen.ProcessID, reason error) error {
-	c.core.sentTermProcIDs.Push(termRequest{target: target, reason: reason})
-	return nil
-}
-
-func (c *mockConnection) SendTerminateAlias(target gen.Alias, reason error) error {
-	c.core.sentTermAliases.Push(termRequest{target: target, reason: reason})
-	return nil
-}
-
-func (c *mockConnection) SendTerminateEvent(target gen.Event, reason error) error {
-	c.core.sentTermEvents.Push(termRequest{target: target, reason: reason})
-	return nil
-}
-
-// Stubs for the rest of gen.Connection.
-
-func (c *mockConnection) SendPID(gen.PID, gen.PID, gen.MessageOptions, any) error {
-	return nil
-}
-func (c *mockConnection) SendProcessID(gen.PID, gen.ProcessID, gen.MessageOptions, any) error {
-	return nil
-}
-func (c *mockConnection) SendAlias(gen.PID, gen.Alias, gen.MessageOptions, any) error { return nil }
-func (c *mockConnection) SendEvent(gen.PID, gen.MessageOptions, gen.MessageEvent) error {
-	return nil
-}
-func (c *mockConnection) CallPID(gen.PID, gen.PID, gen.MessageOptions, any) error { return nil }
-func (c *mockConnection) CallProcessID(gen.PID, gen.ProcessID, gen.MessageOptions, any) error {
-	return nil
-}
-func (c *mockConnection) CallAlias(gen.PID, gen.Alias, gen.MessageOptions, any) error { return nil }
-func (c *mockConnection) SendExit(gen.PID, gen.PID, error) error                      { return nil }
-func (c *mockConnection) SendResponse(gen.PID, gen.PID, gen.MessageOptions, any) error {
-	return nil
-}
-func (c *mockConnection) SendResponseError(gen.PID, gen.PID, gen.MessageOptions, error) error {
-	return nil
-}
-func (c *mockConnection) RemoteSpawn(gen.Atom, gen.ProcessOptionsExtra) (gen.PID, error) {
-	return gen.PID{}, nil
-}
-func (c *mockConnection) Join(net.Conn, string, gen.NetworkDial, []byte) error { return nil }
-func (c *mockConnection) Terminate(error)                                      {}
 
 // Queue helpers
 
@@ -414,5 +368,5 @@ func (m *mockCore) getAllSentEvents() []eventDelivery {
 // newManagerWithMock constructs a Manager backed by a fresh mockCore.
 func newManagerWithMock(nodeName string) (*Manager, *mockCore) {
 	core := newMockCore(nodeName)
-	return Create(core, Options{}).(*Manager), core
+	return Create(core.ctm(), Options{}).(*Manager), core
 }
