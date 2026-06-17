@@ -19,7 +19,8 @@ import (
 //
 // Every non-egress method first consults its override (see nodeOverrides and the
 // On* setters in node_overrides.go); when unset it falls back to the default below.
-// Egress methods (Send/Call/Spawn/...) keep the typed stub sugar instead.
+// Egress methods (Send/Call/Spawn/...) consult the typed stubs instead; their On*
+// setters live on both the node and the Subject (shared storage).
 type mockNode struct {
 	t          testing.TB
 	rec        *check.Recorder

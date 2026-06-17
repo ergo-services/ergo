@@ -8,8 +8,8 @@ import (
 
 // nodeOverrides holds an optional handler per non-egress gen.Node method. When a
 // field is set, the corresponding mockNode method returns the handler's result
-// instead of the default. Egress methods (Send/Call/Spawn/...) are controlled via
-// the typed stub sugar on the Subject instead.
+// instead of the default. Egress methods (Send/Call/Spawn/...) are configured via
+// the typed stub setters (On*), available on both the node and the Subject.
 //
 // The On<Method> setters live on *mockNode, so they promote onto MockNode: a test
 // configures them via sub.Node().On<Method>(...) (or before spawn on the node from

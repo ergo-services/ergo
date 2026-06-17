@@ -337,3 +337,94 @@ func (a *Subject) OnForward(to gen.PID) *FailStub {
 	a.stubs.forward = append(a.stubs.forward, s)
 	return s
 }
+
+// Node-level egress stubs. The mock node has its own egress (Call, Send, Spawn,
+// ...) routing through the same stubs as the process under test, so these setters
+// promote onto MockNode: they configure the node's own egress and let any egress
+// be stubbed before the process is created, e.g. unit.Node(t).OnCall(...).Spawn(...)
+// or sub := n.Prepare(...); sub.OnCall(...); sub.Run(). They share storage with the
+// Subject setters above.
+
+func (n *mockNode) OnCall(to any) *CallStub {
+	s := &CallStub{to: to}
+	n.stubs.call = append(n.stubs.call, s)
+	return s
+}
+
+func (n *mockNode) OnSpawn(factory gen.ProcessFactory) *SpawnStub {
+	s := &SpawnStub{factory: factoryPtr(factory)}
+	n.stubs.spawn = append(n.stubs.spawn, s)
+	return s
+}
+
+func (n *mockNode) OnSpawnMeta(sample gen.MetaBehavior) *SpawnMetaStub {
+	s := &SpawnMetaStub{typ: reflect.TypeOf(sample)}
+	n.stubs.meta = append(n.stubs.meta, s)
+	return s
+}
+
+func (n *mockNode) OnRemoteSpawn(node, name gen.Atom) *RemoteSpawnStub {
+	s := &RemoteSpawnStub{node: node, name: name}
+	n.stubs.remote = append(n.stubs.remote, s)
+	return s
+}
+
+func (n *mockNode) OnCreateAlias() *CreateAliasStub {
+	s := &CreateAliasStub{}
+	n.stubs.alias = append(n.stubs.alias, s)
+	return s
+}
+
+func (n *mockNode) OnRegisterEvent(name gen.Atom) *RegisterEventStub {
+	s := &RegisterEventStub{name: name}
+	n.stubs.regev = append(n.stubs.regev, s)
+	return s
+}
+
+func (n *mockNode) OnSend(to any) *FailStub {
+	s := &FailStub{to: to}
+	n.stubs.send = append(n.stubs.send, s)
+	return s
+}
+
+func (n *mockNode) OnLink(target any) *FailStub {
+	s := &FailStub{to: target}
+	n.stubs.link = append(n.stubs.link, s)
+	return s
+}
+
+func (n *mockNode) OnUnlink(target any) *FailStub {
+	s := &FailStub{to: target}
+	n.stubs.unlink = append(n.stubs.unlink, s)
+	return s
+}
+
+func (n *mockNode) OnMonitor(target any) *FailStub {
+	s := &FailStub{to: target}
+	n.stubs.monitor = append(n.stubs.monitor, s)
+	return s
+}
+
+func (n *mockNode) OnDemonitor(target any) *FailStub {
+	s := &FailStub{to: target}
+	n.stubs.demonitor = append(n.stubs.demonitor, s)
+	return s
+}
+
+func (n *mockNode) OnSendExit(pid gen.PID) *FailStub {
+	s := &FailStub{to: pid}
+	n.stubs.exit = append(n.stubs.exit, s)
+	return s
+}
+
+func (n *mockNode) OnSendExitMeta(meta gen.Alias) *FailStub {
+	s := &FailStub{to: meta}
+	n.stubs.exitMeta = append(n.stubs.exitMeta, s)
+	return s
+}
+
+func (n *mockNode) OnForward(to gen.PID) *FailStub {
+	s := &FailStub{to: to}
+	n.stubs.forward = append(n.stubs.forward, s)
+	return s
+}

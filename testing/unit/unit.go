@@ -39,6 +39,8 @@ type Subject struct {
 	process    *mockProcess
 	node       *mockNode
 	stubs      *stubs
+	args       []any // deferred ProcessInit args, set by Prepare, consumed by Run
+	inited     bool  // Run has been called (ProcessInit ran); gates delivery and double-run
 	terminated bool
 	reason     error
 }
@@ -71,21 +73,45 @@ func Node(t testing.TB, name gen.Atom, options gen.NodeOptions) *MockNode {
 }
 
 // Spawn creates the process under test on this node and runs its ProcessInit.
-// Mirrors gen.Node.Spawn (factory, options, args...); pass gen.ProcessOptions{}
-// for defaults. Shadows the embedded gen.Node.Spawn.
+// Equivalent to Prepare followed by Run. Mirrors gen.Node.Spawn (factory,
+// options, args...); pass gen.ProcessOptions{} for defaults.
 func (n *MockNode) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (*Subject, error) {
 	n.t.Helper()
-	return n.spawn(factory, "", options, args...)
+	s := n.prepare(factory, "", options, args...)
+	if err := s.Run(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
-// SpawnRegister creates the process under test with a registered name and runs its
-// ProcessInit. Mirrors gen.Node.SpawnRegister (register, factory, options, args...).
+// SpawnRegister is Spawn with a registered name. Equivalent to PrepareRegister
+// followed by Run. Mirrors gen.Node.SpawnRegister.
 func (n *MockNode) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (*Subject, error) {
 	n.t.Helper()
-	return n.spawn(factory, register, options, args...)
+	s := n.prepare(factory, register, options, args...)
+	if err := s.Run(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
-func (n *MockNode) spawn(factory gen.ProcessFactory, register gen.Atom, options gen.ProcessOptions, args ...any) (*Subject, error) {
+// Prepare creates the process under test and returns its Subject WITHOUT running
+// ProcessInit, so the actor's outbound operations during Init can be stubbed first
+// (sub.OnCall, sub.OnSpawn, ...). Call sub.Run() to run ProcessInit with the args
+// given here. Until Run, the process is not initialized: any delivery
+// (SendMessage / Call / Deliver* / ...) fails loudly. Spawn is Prepare + Run.
+func (n *MockNode) Prepare(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) *Subject {
+	n.t.Helper()
+	return n.prepare(factory, "", options, args...)
+}
+
+// PrepareRegister is Prepare with a registered name.
+func (n *MockNode) PrepareRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) *Subject {
+	n.t.Helper()
+	return n.prepare(factory, register, options, args...)
+}
+
+func (n *MockNode) prepare(factory gen.ProcessFactory, register gen.Atom, options gen.ProcessOptions, args ...any) *Subject {
 	process := newMockProcess(n.mockNode, register, options)
 	// the process under test is itself a process the node knows about
 	n.mockNode.registerProc(&procEntry{pid: process.pid, name: process.name, parent: process.parent, leader: process.leader, state: gen.ProcessStateInit})
@@ -98,21 +124,43 @@ func (n *MockNode) spawn(factory gen.ProcessFactory, register gen.Atom, options 
 		node:     n.mockNode,
 		process:  process,
 		stubs:    n.mockNode.stubs,
+		args:     args,
 	}
-
 	behavior := factory()
 	s.behavior = behavior
 	process.behavior = behavior
+	return s
+}
 
-	if err := behavior.ProcessInit(process, args...); err != nil {
-		return nil, fmt.Errorf("unit: ProcessInit: %w", err)
+// Run runs the prepared process's ProcessInit (with the args passed to Prepare),
+// transitioning it from Init to Running. Spawn calls this for you; after Prepare
+// call it explicitly. Calling Run twice fails loudly.
+func (s *Subject) Run() error {
+	s.t.Helper()
+	if s.inited {
+		s.t.Fatalf("unit: Run called twice (the process under test is already initialized)")
+		return nil
+	}
+	s.inited = true
+	if err := s.behavior.ProcessInit(s.process, s.args...); err != nil {
+		return fmt.Errorf("unit: ProcessInit: %w", err)
 	}
 	// ProcessInit ran in Init state; the process is now Running
-	process.state = gen.ProcessStateRunning
-	if e := n.mockNode.procs[process.pid]; e != nil {
+	s.process.state = gen.ProcessStateRunning
+	if e := s.node.procs[s.process.pid]; e != nil {
 		e.state = gen.ProcessStateRunning
 	}
-	return s, nil
+	return nil
+}
+
+// requireInited fails loudly when an operation needs the process to have run its
+// ProcessInit (Prepare without Run): a process that has not passed Init cannot
+// receive anything.
+func (s *Subject) requireInited(op string) {
+	s.t.Helper()
+	if s.inited == false {
+		s.t.Fatalf("unit: %s before the process is initialized; call Run() after Prepare (or use Spawn)", op)
+	}
 }
 
 // Spawn creates the process under test on a default mock node and runs its
@@ -128,6 +176,22 @@ func Spawn(t testing.TB, factory gen.ProcessFactory, options gen.ProcessOptions,
 func SpawnRegister(t testing.TB, register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (*Subject, error) {
 	t.Helper()
 	return Node(t, "unit@localhost", gen.NodeOptions{}).SpawnRegister(register, factory, options, args...)
+}
+
+// Prepare creates the process under test on a default mock node WITHOUT running
+// ProcessInit, so the actor's Init-time outbound operations can be stubbed before
+// Run. Shortcut for Node(t).Prepare(...); use Node(t, NodeOptions{...}) when you
+// need to inject Network/Cron, set the node name, or seed env.
+func Prepare(t testing.TB, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) *Subject {
+	t.Helper()
+	return Node(t, "unit@localhost", gen.NodeOptions{}).Prepare(factory, options, args...)
+}
+
+// PrepareRegister creates the process under test with a registered name on a default
+// mock node without running ProcessInit. Shortcut for Node(t, ...).PrepareRegister(...).
+func PrepareRegister(t testing.TB, register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) *Subject {
+	t.Helper()
+	return Node(t, "unit@localhost", gen.NodeOptions{}).PrepareRegister(register, factory, options, args...)
 }
 
 // Behavior returns the process's behavior for state inspection.
@@ -190,6 +254,7 @@ func (s *Subject) deliver(from gen.PID, message any, mtype gen.MailboxMessageTyp
 // Target drives an actor's split-handler dispatch.
 func (s *Subject) deliverTo(from gen.PID, target any, message any, mtype gen.MailboxMessageType, ref gen.Ref) {
 	s.t.Helper()
+	s.requireInited("delivery")
 	if s.terminated {
 		s.t.Logf("unit: message to terminated process %s ignored (reason: %v)", s.process.pid, s.reason)
 		return
@@ -234,6 +299,7 @@ func (s *Subject) SendMessageAlias(alias gen.Alias, from gen.PID, message any) *
 // (Max -> Urgent, High -> System, Normal -> Main).
 func (s *Subject) SendMessageWithPriority(from gen.PID, message any, priority gen.MessagePriority) *Subject {
 	s.t.Helper()
+	s.requireInited("delivery")
 	if s.terminated {
 		return s
 	}
@@ -291,6 +357,7 @@ func (s *Subject) DeliverEvent(event gen.Event, message any) *Subject {
 // registered as a logger). Arrives on the dedicated log queue.
 func (s *Subject) DeliverLog(message gen.MessageLog) *Subject {
 	s.t.Helper()
+	s.requireInited("delivery")
 	if s.terminated {
 		return s
 	}
@@ -333,6 +400,7 @@ func (s *Subject) CallAlias(alias gen.Alias, from gen.PID, request any) (any, er
 // high-priority request to the admin HandleCall instead of routing/forwarding it.
 func (s *Subject) CallWithPriority(from gen.PID, request any, priority gen.MessagePriority) (any, error) {
 	s.t.Helper()
+	s.requireInited("Call")
 	if s.terminated {
 		return nil, s.reason
 	}
@@ -358,6 +426,7 @@ func (s *Subject) CallWithPriority(from gen.PID, request any, priority gen.Messa
 }
 
 func (s *Subject) callTo(from gen.PID, target any, request any) (any, error) {
+	s.requireInited("Call")
 	if s.terminated {
 		return nil, s.reason
 	}
@@ -439,6 +508,7 @@ func (s *Subject) FireCron(name gen.Atom) *Subject {
 // number of timers fired.
 func (s *Subject) FireTimers() int {
 	s.t.Helper()
+	s.requireInited("FireTimers")
 	fired := 0
 	for _, tm := range s.node.timers {
 		if tm.fired || tm.cancelled {

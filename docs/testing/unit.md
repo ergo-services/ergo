@@ -95,6 +95,20 @@ sub.OnSend("svc").FailFunc(func() error {
 
 Two things hold for every stub. Whatever it decides, the action is still recorded - the stub shapes the return value, it does not hide the send from `ShouldSend`. And a stub you never set is permissive: an unstubbed `Call` returns `(nil, nil)`, a value-producing operation returns a synthetic value, an error-only one succeeds. The single loud exception is an unstubbed *resolve* through the mock network, because a forgotten discovery stub is almost always a bug, not an intended default.
 
+A stub only answers a call made after you set it. For a call from a handler that is enough - set the stub after spawn, before the input that triggers it, as above. But some actors call a dependency in `Init` itself: a supervisor that registers with a service as it starts, for one. By the time `Spawn` returns, `Init` has already run, so a stub set on the returned `Subject` is too late.
+
+Split the spawn for that case. `Prepare` builds the actor and hands back its `Subject` without running `Init`; you set the stubs, then `Run` runs `Init` with them in place:
+
+```go
+sub := unit.Prepare(t, factoryRadarSup, gen.ProcessOptions{})
+sub.OnCall("radar_health").Fail(gen.ErrProcessUnknown) // the service is not running
+if err := sub.Run(); err != nil {
+    t.Fatal(err)
+}
+```
+
+`Spawn` is exactly `Prepare` followed by `Run`, so reach for the split only to stub before `Init`. Until `Run` the actor is not initialized: any driver fails the test loudly rather than run against a half-built actor, and calling `Run` twice fails the same way. The same egress stubs are also on the node - `unit.Node(t, ...).OnCall(...)`, sharing one store with the `Subject` setters - so you can stub before the actor is built, or control the node's own outbound calls.
+
 ### Controlling What the Actor Reads
 
 The mirror image is what the actor reads, and it comes from two sources: the actor reads things about itself, and it reads things from its node. Configure either after spawn, before the input that needs it.
