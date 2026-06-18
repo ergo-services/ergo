@@ -428,3 +428,20 @@ func (n *mockNode) OnForward(to gen.PID) *FailStub {
 	n.stubs.forward = append(n.stubs.forward, s)
 	return s
 }
+
+// Meta-level egress stubs. A meta process has its own stub store, isolated from the
+// parent actor: only Send and child SpawnMeta consult stubs (SendResponse is always
+// recorded, and a meta has no Call). Set them on the MetaSubject before the egress
+// happens; for Init-time egress, on a PrepareMeta'd subject before Run.
+
+func (m *MetaSubject) OnSend(to any) *FailStub {
+	s := &FailStub{to: to}
+	m.stubs.send = append(m.stubs.send, s)
+	return s
+}
+
+func (m *MetaSubject) OnSpawnMeta(sample gen.MetaBehavior) *SpawnMetaStub {
+	s := &SpawnMetaStub{typ: reflect.TypeOf(sample)}
+	m.stubs.meta = append(m.stubs.meta, s)
+	return s
+}

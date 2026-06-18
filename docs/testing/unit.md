@@ -107,7 +107,7 @@ if err := sub.Run(); err != nil {
 }
 ```
 
-`Spawn` is exactly `Prepare` followed by `Run`, so reach for the split only to stub before `Init`. Until `Run` the actor is not initialized: any driver fails the test loudly rather than run against a half-built actor, and calling `Run` twice fails the same way. The same egress stubs are also on the node - `unit.Node(t, ...).OnCall(...)`, sharing one store with the `Subject` setters - so you can stub before the actor is built, or control the node's own outbound calls.
+`Spawn` is exactly `Prepare` followed by `Run`, so reach for the split only to stub before `Init`. Until `Run` the actor is not initialized: any driver fails the test loudly rather than run against a half-built actor, and calling `Run` twice fails the same way. The node has its own egress stubs (`unit.Node(t, ...).OnCall(...)`), a separate scope from the actor's: they shape the node's own outbound calls and do not reach the process under test, just as a meta's stubs are its own.
 
 ### Controlling What the Actor Reads
 
@@ -174,6 +174,8 @@ m.ShouldSend().To("client").Message("got:hello").Once().Assert()
 ```
 
 A meta shares its parent's journal and its egress is observed as coming from the parent PID, exactly how the runtime routes it. `DeliverMessage`, `Request`, `Inspect`, and `Terminate` drive the matching callbacks, and the state gates apply - `SendResponse` is rejected outside a running callback, just as in production.
+
+The meta's outbound calls are stubbed on its own scope, not the parent's: `m.OnSend` and `m.OnSpawnMeta` configure only this meta, and the parent actor's stubs do not reach it. As with the actor, a stub must be set before the egress happens, so to shape what the meta does in its own `Init`, prepare it first: `sub.PrepareMeta(...)` builds the meta without running `Init`, you set its stubs, then `m.Run()` runs `Init`. `SpawnMeta` is `PrepareMeta` followed by `Run`.
 
 ## Choosing Between Unit and Stage
 

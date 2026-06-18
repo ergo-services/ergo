@@ -117,13 +117,17 @@ func (n *MockNode) prepare(factory gen.ProcessFactory, register gen.Atom, option
 	n.mockNode.registerProc(&procEntry{pid: process.pid, name: process.name, parent: process.parent, leader: process.leader, state: gen.ProcessStateInit})
 	n.mockNode.subjectPID = process.pid // From for RemoteNode egress records
 
+	// the process under test has its own egress stub scope, isolated from the node
+	st := newStubs()
+	process.stubs = st
+
 	s := &Subject{
 		Asserter: check.NewAsserter(n.t, n.mockNode.rec),
 		t:        n.t,
 		mock:     n,
 		node:     n.mockNode,
 		process:  process,
-		stubs:    n.mockNode.stubs,
+		stubs:    st,
 		args:     args,
 	}
 	behavior := factory()

@@ -440,9 +440,9 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			limit = 500
 		}
 
-		hash := fmt.Sprintf("%x", hashStr(fmt.Sprintf("%s|%d|%s|%s|%v|%v", r.Name, limit, r.TypePattern, r.MessagePattern, r.MessageExclude, r.Force)))
+		hash := fmt.Sprintf("%x", hashStr(fmt.Sprintf("%s|%d|%s|%s|%v|%v|%v", r.Name, limit, r.TypePattern, r.MessagePattern, r.MessageExclude, r.Force, r.Verbose)))
 		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEvent, hash))
-		_, err := i.SpawnRegister(pname, factory_event, opts, r.Name, limit, r.TypePattern, r.MessagePattern, r.MessageExclude, hash, r.Force)
+		_, err := i.SpawnRegister(pname, factory_event, opts, r.Name, limit, r.TypePattern, r.MessagePattern, r.MessageExclude, hash, r.Force, r.Verbose)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}

@@ -18,6 +18,7 @@ func factoryPrNoop() gen.ProcessBehavior { return &prNoopActor{} }
 type prDepActor struct {
 	act.Actor
 	arg      string
+	gotResp  any
 	callErr  error
 	childPID gen.PID
 	ready    bool
@@ -27,7 +28,8 @@ func (a *prDepActor) Init(args ...any) error {
 	if len(args) > 0 {
 		a.arg, _ = args[0].(string)
 	}
-	_, err := a.Call("dep", "register")
+	resp, err := a.Call("dep", "register")
+	a.gotResp = resp
 	a.callErr = err
 	if err != nil && err != gen.ErrProcessUnknown {
 		return err
@@ -60,17 +62,20 @@ func TestPrepareRunStubsBeforeInit(t *testing.T) {
 	check.True(t, b.ready)
 }
 
-// Node-level OnCall set before spawn resolves the actor's Init-time Call.
-func TestNodeLevelOnCallPreSpawn(t *testing.T) {
-	n := unit.Node(t, "unit@localhost", gen.NodeOptions{})
-	n.OnCall("dep").Fail(gen.ErrProcessUnknown)
-	sub, err := n.Spawn(factoryPrDep, gen.ProcessOptions{})
-	if err != nil {
-		t.Fatalf("spawn: %v", err)
-	}
-	b := sub.Behavior().(*prDepActor)
-	check.ErrorIs(t, b.callErr, gen.ErrProcessUnknown)
-	check.True(t, b.ready)
+// Node and process stub scopes are independent: a process stub answers the
+// actor's own Call, a node stub answers the node's own Call, and neither leaks.
+func TestNodeProcessStubsIsolated(t *testing.T) {
+	sub := unit.Prepare(t, factoryPrDep, gen.ProcessOptions{})
+	sub.OnCall("dep").Respond("PROC")        // process scope
+	sub.Node().OnCall("dep").Respond("NODE") // node scope
+	check.NoError(t, sub.Run())
+
+	// the actor's Init Call resolved the process stub
+	check.Equal(t, "PROC", sub.Behavior().(*prDepActor).gotResp)
+	// the node's own Call resolves the node stub
+	got, err := sub.Node().Call("dep", "register")
+	check.NoError(t, err)
+	check.Equal(t, "NODE", got)
 }
 
 // gen.Node's own Call is overridable via the node-level OnCall.
@@ -86,15 +91,28 @@ func TestNodeOwnCallOverridable(t *testing.T) {
 	check.Equal(t, "OK", got)
 }
 
+// prArgActor records its Init args without any outbound egress.
+type prArgActor struct {
+	act.Actor
+	arg string
+}
+
+func (a *prArgActor) Init(args ...any) error {
+	if len(args) > 0 {
+		a.arg, _ = args[0].(string)
+	}
+	return nil
+}
+func factoryPrArg() gen.ProcessBehavior { return &prArgActor{} }
+
 // Spawn one-liner still works after the Prepare+Run refactor and forwards args.
 func TestSpawnStillWorksAndForwardsArgs(t *testing.T) {
 	n := unit.Node(t, "unit@localhost", gen.NodeOptions{})
-	n.OnCall("dep").Fail(gen.ErrProcessUnknown)
-	sub, err := n.Spawn(factoryPrDep, gen.ProcessOptions{}, "ARG2")
+	sub, err := n.Spawn(factoryPrArg, gen.ProcessOptions{}, "ARG2")
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	check.Equal(t, "ARG2", sub.Behavior().(*prDepActor).arg)
+	check.Equal(t, "ARG2", sub.Behavior().(*prArgActor).arg)
 }
 
 // After Prepare+Run the subject drives deliveries normally.

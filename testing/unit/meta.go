@@ -24,18 +24,34 @@ type MetaSubject struct {
 	t        testing.TB
 	behavior gen.MetaBehavior
 	meta     *mockMeta
+	stubs    *stubs // the meta's own egress stubs, isolated from the parent actor
+	inited   bool   // Run has been called (meta Init ran); gates drivers and double-run
 }
 
 // SpawnMeta instantiates a meta-process behavior under the parent actor, runs its
-// Init, and returns a MetaSubject to drive it. Init runs in the pre-running state
-// (Send and Spawn are allowed, SendResponse is not, matching the runtime). If Init
-// fails the meta is left terminated and the error is returned.
+// Init, and returns a MetaSubject to drive it. Equivalent to PrepareMeta followed
+// by Run. Init runs in the pre-running state (Send and Spawn are allowed,
+// SendResponse is not, matching the runtime). If Init fails the meta is left
+// terminated and the error is returned.
 func (s *Subject) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) (*MetaSubject, error) {
+	s.t.Helper()
+	ms := s.PrepareMeta(behavior, options)
+	err := ms.Run()
+	return ms, err
+}
+
+// PrepareMeta instantiates a meta-process behavior under the parent actor and
+// returns its MetaSubject WITHOUT running Init, so the meta's Init-time egress can
+// be stubbed first on its own scope (ms.OnSend, ms.OnSpawnMeta). Call ms.Run() to
+// run Init. The meta's stubs are isolated from the parent actor; its records still
+// land in the shared journal.
+func (s *Subject) PrepareMeta(behavior gen.MetaBehavior, options gen.MetaOptions) *MetaSubject {
 	s.t.Helper()
 	level := options.LogLevel
 	if level == gen.LogLevelDefault {
 		level = s.node.logLevel
 	}
+	st := newStubs()
 	m := &mockMeta{
 		node:        s.node,
 		proc:        s.process,
@@ -45,18 +61,41 @@ func (s *Subject) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 		priority:    options.SendPriority,
 		compression: options.Compression,
 		log:         newMockLog(s.node, s.process.pid, level),
+		stubs:       st,
 	}
-	ms := &MetaSubject{
+	return &MetaSubject{
 		Asserter: check.NewAsserter(s.t, s.node.rec),
 		t:        s.t,
 		behavior: behavior,
 		meta:     m,
+		stubs:    st,
 	}
-	err := behavior.Init(m)
+}
+
+// Run runs the prepared meta's Init. SpawnMeta calls this for you; after PrepareMeta
+// call it explicitly. Calling Run twice fails loudly. If Init fails the meta is left
+// terminated and the error is returned.
+func (m *MetaSubject) Run() error {
+	m.t.Helper()
+	if m.inited {
+		m.t.Fatalf("unit: meta Run called twice (the meta is already initialized)")
+		return nil
+	}
+	m.inited = true
+	err := m.behavior.Init(m.meta)
 	if err != nil {
-		m.state = gen.MetaStateTerminated
+		m.meta.state = gen.MetaStateTerminated
 	}
-	return ms, err
+	return err
+}
+
+// requireInited fails loudly when a driver runs before the meta's Init (PrepareMeta
+// without Run).
+func (m *MetaSubject) requireInited(op string) {
+	m.t.Helper()
+	if m.inited == false {
+		m.t.Fatalf("unit: %s before the meta is initialized; call Run() after PrepareMeta (or use SpawnMeta)", op)
+	}
 }
 
 // Behavior returns the meta behavior under test for white-box assertions.
@@ -75,6 +114,7 @@ func (m *MetaSubject) State() gen.MetaState { return m.meta.state }
 // the Running state. A non-nil return terminates the meta.
 func (m *MetaSubject) DeliverMessage(from gen.PID, message any) *MetaSubject {
 	m.t.Helper()
+	m.requireInited("DeliverMessage")
 	m.requireAlive("DeliverMessage")
 	m.meta.state = gen.MetaStateRunning
 	reason := m.behavior.HandleMessage(from, message)
@@ -92,6 +132,7 @@ func (m *MetaSubject) DeliverMessage(from gen.PID, message any) *MetaSubject {
 // runtime. A non-normal error terminates the meta.
 func (m *MetaSubject) Request(from gen.PID, request any) (any, error) {
 	m.t.Helper()
+	m.requireInited("Request")
 	m.requireAlive("Request")
 	ref := m.meta.node.synthRef()
 	m.meta.state = gen.MetaStateRunning
@@ -118,6 +159,7 @@ func (m *MetaSubject) Request(from gen.PID, request any) (any, error) {
 // Inspect runs HandleInspect in the Running state and returns its map.
 func (m *MetaSubject) Inspect(from gen.PID, items ...string) map[string]string {
 	m.t.Helper()
+	m.requireInited("Inspect")
 	m.requireAlive("Inspect")
 	m.meta.state = gen.MetaStateRunning
 	result := m.behavior.HandleInspect(from, items...)
@@ -131,6 +173,7 @@ func (m *MetaSubject) Inspect(from gen.PID, items ...string) map[string]string {
 // a Start() that blocks on I/O belongs in the stage harness.
 func (m *MetaSubject) Start() error {
 	m.t.Helper()
+	m.requireInited("Start")
 	m.requireAlive("Start")
 	m.meta.state = gen.MetaStateSleep
 	err := m.behavior.Start()
@@ -145,6 +188,7 @@ func (m *MetaSubject) Start() error {
 // Terminate runs the behavior's Terminate(reason) and marks the meta terminated.
 func (m *MetaSubject) Terminate(reason error) *MetaSubject {
 	m.t.Helper()
+	m.requireInited("Terminate")
 	if m.meta.state == gen.MetaStateTerminated {
 		m.t.Fatalf("unit: Terminate called on an already terminated meta")
 	}
@@ -175,6 +219,7 @@ type mockMeta struct {
 	priority    gen.MessagePriority
 	state       gen.MetaState
 	compression bool
+	stubs       *stubs // the meta's own egress stubs (shared with its MetaSubject)
 }
 
 var _ gen.MetaProcess = (*mockMeta)(nil)
@@ -190,13 +235,13 @@ func (m *mockMeta) ID() gen.Alias   { return m.id }
 func (m *mockMeta) Parent() gen.PID { return m.parent }
 
 func (m *mockMeta) Send(to any, message any) error {
-	return m.node.routeSend(m.parent, to, message, m.options())
+	return m.node.routeSend(m.stubs, m.parent, to, message, m.options())
 }
 
 func (m *mockMeta) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
 	opts := m.options()
 	opts.Priority = priority
-	return m.node.routeSend(m.parent, to, message, opts)
+	return m.node.routeSend(m.stubs, m.parent, to, message, opts)
 }
 
 func (m *mockMeta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
@@ -217,7 +262,7 @@ func (m *mockMeta) Spawn(behavior gen.MetaBehavior, options gen.MetaOptions) (ge
 	if m.state == gen.MetaStateTerminated {
 		return gen.Alias{}, gen.ErrNotAllowed
 	}
-	return m.node.routeSpawnMeta(m.parent, behavior)
+	return m.node.routeSpawnMeta(m.stubs, m.parent, behavior)
 }
 
 func (m *mockMeta) SendPriority() gen.MessagePriority { return m.priority }

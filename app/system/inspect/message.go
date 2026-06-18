@@ -475,9 +475,10 @@ type RequestInspectEvent struct {
 	Name           gen.Atom
 	Limit          int
 	TypePattern    string // substring match against %T
-	MessagePattern string // substring match against %#v
+	MessagePattern string // substring match against the value (readable + verbose forms)
 	MessageExclude bool
 	Force          bool
+	Verbose        bool // also include the full %#v form in InspectEventEntry.Verbose
 }
 type ResponseInspectEvent struct {
 	Event       gen.Event
@@ -490,7 +491,8 @@ type ResponseInspectEvent struct {
 type InspectEventEntry struct {
 	Timestamp int64
 	Type      string // %T
-	Message   string // %#v
+	Message   string // %+v — readable form (honors Stringer/error on every level)
+	Verbose   string // %#v — full Go-syntax form; set only when RequestInspectEvent.Verbose and it differs from Message
 }
 
 type MessageInspectEvent struct {

@@ -23,6 +23,7 @@ type event struct {
 	messagePattern string
 	messageExclude bool
 	forced         bool
+	verbose        bool
 
 	generating bool
 	loopID     uint64
@@ -47,6 +48,7 @@ func (ie *event) Init(args ...any) error {
 	ie.messageExclude = args[4].(bool)
 	hash := args[5].(string)
 	ie.forced = args[6].(bool)
+	ie.verbose = args[7].(bool)
 
 	ie.ring = make([]InspectEventEntry, ie.limit)
 	ie.target = gen.Event{Name: name, Node: ie.Node().Name()}
@@ -207,10 +209,8 @@ func (ie *event) reasonFor(info gen.EventInfo, others int64) string {
 
 func (ie *event) toEntry(em gen.MessageEvent) (InspectEventEntry, bool) {
 	typ := fmt.Sprintf("%T", em.Message)
-	val := fmt.Sprintf("%#v", em.Message)
-	if val == "" {
-		val = fmt.Sprintf("%+v", em.Message)
-	}
+	readable := fmt.Sprintf("%+v", em.Message) // honors Stringer/error on every level
+	verbose := fmt.Sprintf("%#v", em.Message)  // full Go-syntax; used for filtering and (optionally) sent
 
 	if ie.typePattern != "" {
 		if strings.Contains(strings.ToLower(typ), ie.typePattern) == false {
@@ -218,12 +218,21 @@ func (ie *event) toEntry(em gen.MessageEvent) (InspectEventEntry, bool) {
 		}
 	}
 	if ie.messagePattern != "" {
-		contains := strings.Contains(strings.ToLower(val), ie.messagePattern)
+		// match against both forms so a search finds Stringer output as well as struct internals
+		contains := strings.Contains(strings.ToLower(readable), ie.messagePattern) ||
+			strings.Contains(strings.ToLower(verbose), ie.messagePattern)
 		if ie.messageExclude == contains {
 			return InspectEventEntry{}, false
 		}
 	}
-	return InspectEventEntry{Timestamp: em.Timestamp, Type: typ, Message: val}, true
+
+	entry := InspectEventEntry{Timestamp: em.Timestamp, Type: typ, Message: readable}
+	// only carry the verbose form when requested and it actually adds information,
+	// so plain values (where %+v == %#v) never double the payload
+	if ie.verbose && verbose != readable {
+		entry.Verbose = verbose
+	}
+	return entry, true
 }
 
 func (ie *event) pushEntry(e InspectEventEntry) {

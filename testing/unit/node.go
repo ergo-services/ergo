@@ -107,18 +107,20 @@ func (n *mockNode) synthRef() gen.Ref {
 	return gen.Ref{Node: n.nodeName, Creation: n.creation, ID: [3]uint64{n.nextID, 0, 0}}
 }
 
-// route helpers (record + stub), shared by process and node
+// route helpers (record + stub). The stub store is passed in (st), so each source
+// resolves from its own scope: the process from sub.stubs, the node from n.stubs,
+// a meta from its own stubs. Recording always lands in the shared journal (n.rec).
 
-func (n *mockNode) routeSend(from gen.PID, to any, message any, options gen.MessageOptions) error {
-	err, _ := resolveFail(n.stubs.send, to)
+func (n *mockNode) routeSend(st *stubs, from gen.PID, to any, message any, options gen.MessageOptions) error {
+	err, _ := resolveFail(st.send, to)
 	n.rec.Put(check.Send{From: from, To: to, Message: message, Options: options, Error: err})
 	return err
 }
 
 // routeCall is tier-3 strict: an unstubbed call has no sensible default (the
-// response drives the process's logic), so it fails the test loudly.
-func (n *mockNode) routeCall(from gen.PID, to any, request any) (any, error) {
-	resp, err, ok := n.stubs.resolveCall(to, request)
+// response drives the caller's logic), so it fails the test loudly.
+func (n *mockNode) routeCall(st *stubs, from gen.PID, to any, request any) (any, error) {
+	resp, err, ok := st.resolveCall(to, request)
 	if ok == false {
 		n.t.Helper()
 		n.t.Fatalf("unit: process under test called Call to %v with %#v, but no response is stubbed; add OnCall(%v).Respond(...) or .Fail(...)", to, request, to)
@@ -127,8 +129,8 @@ func (n *mockNode) routeCall(from gen.PID, to any, request any) (any, error) {
 	return resp, err
 }
 
-func (n *mockNode) routeSpawn(from gen.PID, register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions) (gen.PID, error) {
-	pid, err, ok := n.stubs.resolveSpawn(factory)
+func (n *mockNode) routeSpawn(st *stubs, from gen.PID, register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions) (gen.PID, error) {
+	pid, err, ok := st.resolveSpawn(factory)
 	if ok == false {
 		pid = n.synthPID()
 	}
@@ -151,8 +153,8 @@ func (n *mockNode) registerProc(e *procEntry) {
 	}
 }
 
-func (n *mockNode) routeSpawnMeta(from gen.PID, behavior gen.MetaBehavior) (gen.Alias, error) {
-	alias, err, ok := n.stubs.resolveSpawnMeta(behavior)
+func (n *mockNode) routeSpawnMeta(st *stubs, from gen.PID, behavior gen.MetaBehavior) (gen.Alias, error) {
+	alias, err, ok := st.resolveSpawnMeta(behavior)
 	if ok == false {
 		alias = n.synthAlias()
 	}
@@ -160,8 +162,8 @@ func (n *mockNode) routeSpawnMeta(from gen.PID, behavior gen.MetaBehavior) (gen.
 	return alias, err
 }
 
-func (n *mockNode) routeRemoteSpawn(from gen.PID, node, name, register gen.Atom, options gen.ProcessOptions) (gen.PID, error) {
-	pid, err, ok := n.stubs.resolveRemoteSpawn(node, name)
+func (n *mockNode) routeRemoteSpawn(st *stubs, from gen.PID, node, name, register gen.Atom, options gen.ProcessOptions) (gen.PID, error) {
+	pid, err, ok := st.resolveRemoteSpawn(node, name)
 	if ok == false {
 		pid = n.synthPID()
 	}
@@ -169,13 +171,13 @@ func (n *mockNode) routeRemoteSpawn(from gen.PID, node, name, register gen.Atom,
 	return pid, err
 }
 
-func (n *mockNode) routeSendExit(from, to gen.PID, reason error) error {
-	err, _ := resolveFail(n.stubs.exit, to)
+func (n *mockNode) routeSendExit(st *stubs, from, to gen.PID, reason error) error {
+	err, _ := resolveFail(st.exit, to)
 	n.rec.Put(check.SendExit{From: from, To: to, Reason: reason, Error: err})
 	return err
 }
-func (n *mockNode) routeSendExitMeta(from gen.PID, meta gen.Alias, reason error) error {
-	err, _ := resolveFail(n.stubs.exitMeta, meta)
+func (n *mockNode) routeSendExitMeta(st *stubs, from gen.PID, meta gen.Alias, reason error) error {
+	err, _ := resolveFail(st.exitMeta, meta)
 	n.rec.Put(check.SendExitMeta{From: from, Meta: meta, Reason: reason, Error: err})
 	return err
 }
@@ -190,35 +192,35 @@ func (n *mockNode) routeSendEvent(from gen.PID, name gen.Atom, token gen.Ref, me
 	return nil
 }
 
-func (n *mockNode) routeLink(from gen.PID, target any) error {
-	err, _ := resolveFail(n.stubs.link, target)
+func (n *mockNode) routeLink(st *stubs, from gen.PID, target any) error {
+	err, _ := resolveFail(st.link, target)
 	n.rec.Put(check.Link{From: from, Target: target, Error: err})
 	return err
 }
-func (n *mockNode) routeUnlink(from gen.PID, target any) error {
-	err, _ := resolveFail(n.stubs.unlink, target)
+func (n *mockNode) routeUnlink(st *stubs, from gen.PID, target any) error {
+	err, _ := resolveFail(st.unlink, target)
 	n.rec.Put(check.Unlink{From: from, Target: target, Error: err})
 	return err
 }
-func (n *mockNode) routeMonitor(from gen.PID, target any) error {
-	err, _ := resolveFail(n.stubs.monitor, target)
+func (n *mockNode) routeMonitor(st *stubs, from gen.PID, target any) error {
+	err, _ := resolveFail(st.monitor, target)
 	n.rec.Put(check.Monitor{From: from, Target: target, Error: err})
 	return err
 }
-func (n *mockNode) routeDemonitor(from gen.PID, target any) error {
-	err, _ := resolveFail(n.stubs.demonitor, target)
+func (n *mockNode) routeDemonitor(st *stubs, from gen.PID, target any) error {
+	err, _ := resolveFail(st.demonitor, target)
 	n.rec.Put(check.Demonitor{From: from, Target: target, Error: err})
 	return err
 }
 
-func (n *mockNode) routeForward(by, to, from gen.PID, message any) error {
-	err, _ := resolveFail(n.stubs.forward, to)
+func (n *mockNode) routeForward(st *stubs, by, to, from gen.PID, message any) error {
+	err, _ := resolveFail(st.forward, to)
 	n.rec.Put(check.Forward{By: by, To: to, From: from, Message: message, Error: err})
 	return err
 }
 
-func (n *mockNode) routeCreateAlias(from gen.PID) (gen.Alias, error) {
-	alias, err, ok := n.stubs.resolveCreateAlias()
+func (n *mockNode) routeCreateAlias(st *stubs, from gen.PID) (gen.Alias, error) {
+	alias, err, ok := st.resolveCreateAlias()
 	if ok == false {
 		alias = n.synthAlias()
 	}
@@ -230,8 +232,8 @@ func (n *mockNode) routeDeleteAlias(from gen.PID, alias gen.Alias, err error) er
 	return err
 }
 
-func (n *mockNode) routeRegisterEvent(from gen.PID, name gen.Atom) (gen.Ref, error) {
-	ref, err, ok := n.stubs.resolveRegisterEvent(name)
+func (n *mockNode) routeRegisterEvent(st *stubs, from gen.PID, name gen.Atom) (gen.Ref, error) {
+	ref, err, ok := st.resolveRegisterEvent(name)
 	if ok == false {
 		ref = n.synthRef()
 	}
@@ -407,45 +409,45 @@ func (n *mockNode) NetworkStop() error {
 // egress (record + stub, sender = node core pid)
 
 func (n *mockNode) Send(to any, message any) error {
-	return n.routeSend(n.nodePID(), to, message, gen.MessageOptions{})
+	return n.routeSend(n.stubs, n.nodePID(), to, message, gen.MessageOptions{})
 }
 func (n *mockNode) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	return n.routeSend(n.nodePID(), to, message, gen.MessageOptions{Priority: priority})
+	return n.routeSend(n.stubs, n.nodePID(), to, message, gen.MessageOptions{Priority: priority})
 }
 func (n *mockNode) SendExit(pid gen.PID, reason error) error {
-	return n.routeSendExit(n.nodePID(), pid, reason)
+	return n.routeSendExit(n.stubs, n.nodePID(), pid, reason)
 }
 func (n *mockNode) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
 	return n.routeSendEvent(n.nodePID(), name, token, message, options)
 }
 
 func (n *mockNode) Call(to any, request any) (any, error) {
-	return n.routeCall(n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
 }
 func (n *mockNode) CallWithTimeout(to any, request any, timeout int) (any, error) {
-	return n.routeCall(n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
 }
 func (n *mockNode) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
-	return n.routeCall(n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
 }
 func (n *mockNode) CallImportant(to any, request any) (any, error) {
-	return n.routeCall(n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
 }
 func (n *mockNode) CallPID(to gen.PID, request any, timeout int) (any, error) {
-	return n.routeCall(n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
 }
 func (n *mockNode) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
-	return n.routeCall(n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
 }
 func (n *mockNode) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
-	return n.routeCall(n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
 }
 
 func (n *mockNode) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
-	return n.routeSpawn(n.nodePID(), "", factory, options)
+	return n.routeSpawn(n.stubs, n.nodePID(), "", factory, options)
 }
 func (n *mockNode) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
-	return n.routeSpawn(n.nodePID(), register, factory, options)
+	return n.routeSpawn(n.stubs, n.nodePID(), register, factory, options)
 }
 
 func (n *mockNode) Kill(pid gen.PID) error {
@@ -507,7 +509,7 @@ func (n *mockNode) UnregisterName(name gen.Atom) (gen.PID, error) {
 // events
 
 func (n *mockNode) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
-	return n.routeRegisterEvent(n.nodePID(), name)
+	return n.routeRegisterEvent(n.stubs, n.nodePID(), name)
 }
 func (n *mockNode) UnregisterEvent(name gen.Atom) error {
 	var err error
