@@ -507,7 +507,7 @@ type MessageInspectEvent struct {
 	Node        gen.Atom
 	Info        gen.EventInfo
 	Entries     []InspectEventEntry
-	Suppressed  int64 // cumulative entries dropped by the per-tick storm cap
+	Suppressed  int64 // entries dropped this tick by the storm cap (rate/s, not cumulative)
 	Closed      bool
 	Reason      string
 	Watching    bool

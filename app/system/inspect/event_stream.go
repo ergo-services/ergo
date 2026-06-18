@@ -47,12 +47,11 @@ type eventStream struct {
 	passiveSeen         bool
 	passivePublished    int64
 
-	ring       []InspectEventEntry
-	pos        int
-	full       bool
-	received   int64
-	flushed    int64
-	suppressed int64
+	ring     []InspectEventEntry
+	pos      int
+	full     bool
+	received int64
+	flushed  int64
 }
 
 func (ie *eventStream) Init(args ...any) error {
@@ -204,16 +203,13 @@ func (ie *eventStream) flush() {
 	if delta < deliver {
 		deliver = delta
 	}
-	if delta > deliver {
-		ie.suppressed += delta - deliver
-	}
 	entries := snap[int64(len(snap))-deliver:]
 
 	ie.SendEvent(ie.event, ie.token, MessageInspectEvent{
 		Node:        ie.Node().Name(),
 		Info:        gen.EventInfo{Event: ie.target},
 		Entries:     entries,
-		Suppressed:  ie.suppressed,
+		Suppressed:  delta - deliver, // this tick only (rate/s), not cumulative
 		Watching:    ie.watching,
 		WatchReason: ie.watchReason,
 	})
@@ -315,7 +311,6 @@ func (ie *eventStream) publishStatus() {
 	ie.SendEvent(ie.event, ie.token, MessageInspectEvent{
 		Node:        ie.Node().Name(),
 		Info:        gen.EventInfo{Event: ie.target},
-		Suppressed:  ie.suppressed,
 		Watching:    ie.watching,
 		WatchReason: ie.watchReason,
 	})
