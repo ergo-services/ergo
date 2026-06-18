@@ -472,18 +472,25 @@ type MessageInspectEventList struct {
 // event
 
 type RequestInspectEvent struct {
-	Name           gen.Atom
-	Limit          int
-	TypePattern    string // substring match against %T
-	MessagePattern string // substring match against the value (readable + verbose forms)
-	MessageExclude bool
-	Force          bool
-	Verbose        bool // also include the full %#v form in InspectEventEntry.Verbose
+	Name gen.Atom
 }
 type ResponseInspectEvent struct {
-	Event       gen.Event
-	Info        gen.EventInfo
-	Buffer      []InspectEventEntry
+	Event gen.Event
+	Info  gen.EventInfo
+}
+
+type RequestInspectEventStream struct {
+	Name           gen.Atom
+	Limit          int
+	TypePattern    string
+	MessagePattern string
+	MessageExclude bool
+	Force          bool
+	Verbose        bool
+}
+type ResponseInspectEventStream struct {
+	Event       gen.Event // inspector's own event to monitor
+	Target      gen.Event // observed event, for client-side routing
 	Watching    bool
 	WatchReason string
 }
@@ -491,19 +498,18 @@ type ResponseInspectEvent struct {
 type InspectEventEntry struct {
 	Timestamp int64
 	Type      string // %T
-	Message   string // %+v — readable form (honors Stringer/error on every level)
-	Verbose   string // %#v — full Go-syntax form; set only when RequestInspectEvent.Verbose and it differs from Message
+	Message   string // %+v
+	Verbose   string // %#v, set only when stream Verbose is on and differs from Message
 }
 
 type MessageInspectEvent struct {
 	Node        gen.Atom
 	Info        gen.EventInfo
-	Entries     []InspectEventEntry
-	Suppressed  int64
+	Entry       InspectEventEntry
 	Closed      bool
 	Reason      string
 	Watching    bool
-	WatchReason string // idle_gated|notify_off|other_subscribers|publishes_regardless|forced
+	WatchReason string
 }
 
 // application list

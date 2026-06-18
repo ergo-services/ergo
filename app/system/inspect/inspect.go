@@ -59,6 +59,7 @@ const (
 	inspectEventListIdlePeriod = 5 * time.Second
 
 	inspectEvent           = "inspect_event"
+	inspectEventStream     = "inspect_event_stream"
 	inspectEventPeriod     = time.Second
 	inspectEventIdlePeriod = 10 * time.Second
 
@@ -434,6 +435,28 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 				Level:  gen.CompressionBestSpeed,
 			},
 		}
+		hash := fmt.Sprintf("%x", hashStr(string(r.Name)))
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEvent, hash))
+		_, err := i.SpawnRegister(pname, factory_event, opts, eventArgs{Name: r.Name, Hash: hash})
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(pname, forward)
+		return nil, nil
+
+	case RequestInspectEventStream:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+			Compression: gen.Compression{
+				Enable: true,
+				Type:   gen.CompressionTypeGZIP,
+				Level:  gen.CompressionBestSpeed,
+			},
+		}
 
 		limit := r.Limit
 		if limit < 1 {
@@ -441,8 +464,17 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		}
 
 		hash := fmt.Sprintf("%x", hashStr(fmt.Sprintf("%s|%d|%s|%s|%v|%v|%v", r.Name, limit, r.TypePattern, r.MessagePattern, r.MessageExclude, r.Force, r.Verbose)))
-		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEvent, hash))
-		_, err := i.SpawnRegister(pname, factory_event, opts, r.Name, limit, r.TypePattern, r.MessagePattern, r.MessageExclude, hash, r.Force, r.Verbose)
+		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectEventStream, hash))
+		_, err := i.SpawnRegister(pname, factory_event_stream, opts, eventStreamArgs{
+			Name:           r.Name,
+			Limit:          limit,
+			TypePattern:    r.TypePattern,
+			MessagePattern: r.MessagePattern,
+			MessageExclude: r.MessageExclude,
+			Hash:           hash,
+			Force:          r.Force,
+			Verbose:        r.Verbose,
+		})
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}
