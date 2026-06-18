@@ -23,9 +23,8 @@ type eventStreamArgs struct {
 	Verbose        bool
 }
 
-// eventStream monitors the target (gated) and re-publishes each value on its own
-// event, buffered to the target's size so the framework hands the backlog to
-// every new monitor.
+// eventStream monitors the target (gated): a ring serves the backlog to every
+// subscriber, per-tick deltas stream live with a suppressed count.
 type eventStream struct {
 	act.Actor
 	token  gen.Ref
@@ -47,6 +46,13 @@ type eventStream struct {
 	publishesRegardless bool
 	passiveSeen         bool
 	passivePublished    int64
+
+	ring       []InspectEventEntry
+	pos        int
+	full       bool
+	received   int64
+	flushed    int64
+	suppressed int64
 }
 
 func (ie *eventStream) Init(args ...any) error {
@@ -64,17 +70,14 @@ func (ie *eventStream) Init(args ...any) error {
 	ie.SetProcessKind(gen.ProcessKindMonitor)
 	ie.SetCompression(true)
 
-	bufSize := ie.limit
-	if info, err := ie.Node().EventInfo(ie.target); err == nil {
-		if info.BufferSize > 0 && info.BufferSize < bufSize {
-			bufSize = info.BufferSize
-		}
+	// ring = scope (limit): the retention window. Target backlog is capped to it.
+	size := ie.limit
+	if size < 1 {
+		size = 1
 	}
-	if bufSize < 1 {
-		bufSize = 1
-	}
+	ie.ring = make([]InspectEventEntry, size)
 
-	eopts := gen.EventOptions{Notify: true, Buffer: bufSize}
+	eopts := gen.EventOptions{Notify: true}
 	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectEventStream, a.Hash))
 	token, err := ie.RegisterEvent(evname, eopts)
 	if err != nil {
@@ -101,6 +104,7 @@ func (ie *eventStream) HandleMessage(from gen.PID, message any) error {
 		}
 		prevWatching, prevReason := ie.watching, ie.watchReason
 		ie.evaluate(info)
+		ie.flush()
 		if ie.watching != prevWatching || ie.watchReason != prevReason {
 			ie.publishStatus()
 		}
@@ -113,6 +117,7 @@ func (ie *eventStream) HandleMessage(from gen.PID, message any) error {
 		ie.SendResponse(m.pid, m.ref, ResponseInspectEventStream{
 			Event:       gen.Event{Name: ie.event, Node: ie.Node().Name()},
 			Target:      ie.target,
+			Buffer:      ie.ringSnapshot(),
 			Watching:    ie.watching,
 			WatchReason: ie.watchReason,
 		})
@@ -128,7 +133,7 @@ func (ie *eventStream) HandleMessage(from gen.PID, message any) error {
 		ie.generating = true
 		ie.Send(ie.PID(), flushEvent{id: ie.loopID})
 
-	case gen.MessageEventStop:
+	case gen.MessageEventStop: // release the target so we never hold the producer
 		ie.generating = false
 		if ie.watching {
 			ie.DemonitorEvent(ie.target)
@@ -137,7 +142,7 @@ func (ie *eventStream) HandleMessage(from gen.PID, message any) error {
 		}
 		ie.SendAfter(ie.PID(), shutdown{}, inspectEventIdlePeriod)
 
-	case gen.MessageDownEvent:
+	case gen.MessageDownEvent: // target unregistered or producer gone
 		if m.Event != ie.target {
 			break
 		}
@@ -156,11 +161,65 @@ func (ie *eventStream) HandleEvent(message gen.MessageEvent) error {
 		return nil
 	}
 	if e, ok := ie.toEntry(message); ok {
-		ie.publishEntry(e)
+		ie.capture(e)
 	}
 	return nil
 }
 
+func (ie *eventStream) capture(e InspectEventEntry) {
+	ie.ring[ie.pos] = e
+	ie.pos++
+	if ie.pos >= len(ie.ring) {
+		ie.pos = 0
+		ie.full = true
+	}
+	ie.received++
+}
+
+func (ie *eventStream) ringSnapshot() []InspectEventEntry {
+	if ie.full == false && ie.pos == 0 {
+		return nil
+	}
+	if ie.full {
+		out := make([]InspectEventEntry, 0, len(ie.ring))
+		out = append(out, ie.ring[ie.pos:]...)
+		out = append(out, ie.ring[:ie.pos]...)
+		return out
+	}
+	out := make([]InspectEventEntry, ie.pos)
+	copy(out, ie.ring[:ie.pos])
+	return out
+}
+
+// flush sends the entries captured since the last flush as one batch, capping to the ring and counting the rest as suppressed.
+func (ie *eventStream) flush() {
+	delta := ie.received - ie.flushed
+	if delta <= 0 {
+		return
+	}
+	ie.flushed = ie.received
+
+	snap := ie.ringSnapshot()
+	deliver := int64(len(snap))
+	if delta < deliver {
+		deliver = delta
+	}
+	if delta > deliver {
+		ie.suppressed += delta - deliver
+	}
+	entries := snap[int64(len(snap))-deliver:]
+
+	ie.SendEvent(ie.event, ie.token, MessageInspectEvent{
+		Node:        ie.Node().Name(),
+		Info:        gen.EventInfo{Event: ie.target},
+		Entries:     entries,
+		Suppressed:  ie.suppressed,
+		Watching:    ie.watching,
+		WatchReason: ie.watchReason,
+	})
+}
+
+// evaluate gates monitoring so the inspector never starts or holds a notify-gated producer.
 func (ie *eventStream) evaluate(info gen.EventInfo) {
 	others := info.Subscribers
 	if ie.watching {
@@ -190,14 +249,15 @@ func (ie *eventStream) evaluate(info gen.EventInfo) {
 		ie.watchReason = ie.reasonFor(info, others)
 		for _, em := range buf {
 			if e, ok := ie.toEntry(em); ok {
-				ie.publishEntry(e)
+				ie.capture(e)
 			}
 		}
+		ie.flushed = ie.received // backlog goes out via requestInspect, not the flush delta
 		return
 	}
 
 	if want == false && ie.watching {
-		ie.DemonitorEvent(ie.target)
+		ie.DemonitorEvent(ie.target) // let the producer get its Stop
 		ie.watching = false
 		ie.passiveSeen = false
 		ie.watchReason = "idle_gated"
@@ -251,20 +311,11 @@ func (ie *eventStream) toEntry(em gen.MessageEvent) (InspectEventEntry, bool) {
 	return entry, true
 }
 
-func (ie *eventStream) publishEntry(e InspectEventEntry) {
-	ie.SendEvent(ie.event, ie.token, MessageInspectEvent{
-		Node:        ie.Node().Name(),
-		Info:        gen.EventInfo{Event: ie.target},
-		Entry:       e,
-		Watching:    ie.watching,
-		WatchReason: ie.watchReason,
-	})
-}
-
 func (ie *eventStream) publishStatus() {
 	ie.SendEvent(ie.event, ie.token, MessageInspectEvent{
 		Node:        ie.Node().Name(),
 		Info:        gen.EventInfo{Event: ie.target},
+		Suppressed:  ie.suppressed,
 		Watching:    ie.watching,
 		WatchReason: ie.watchReason,
 	})

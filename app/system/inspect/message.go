@@ -489,8 +489,9 @@ type RequestInspectEventStream struct {
 	Verbose        bool
 }
 type ResponseInspectEventStream struct {
-	Event       gen.Event // inspector's own event to monitor
-	Target      gen.Event // observed event, for client-side routing
+	Event       gen.Event           // inspector's own event to monitor
+	Target      gen.Event           // observed event, for client-side routing
+	Buffer      []InspectEventEntry // backlog snapshot returned to every subscriber
 	Watching    bool
 	WatchReason string
 }
@@ -505,7 +506,8 @@ type InspectEventEntry struct {
 type MessageInspectEvent struct {
 	Node        gen.Atom
 	Info        gen.EventInfo
-	Entry       InspectEventEntry
+	Entries     []InspectEventEntry
+	Suppressed  int64 // cumulative entries dropped by the per-tick storm cap
 	Closed      bool
 	Reason      string
 	Watching    bool

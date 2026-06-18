@@ -16,8 +16,7 @@ type eventArgs struct {
 	Hash string
 }
 
-// event polls EventInfo(target) once per second and publishes stats. It does
-// not monitor the target, so it never starts or holds the producer.
+// event polls EventInfo(target) and publishes stats; it never monitors the target.
 type event struct {
 	act.Actor
 	token  gen.Ref
