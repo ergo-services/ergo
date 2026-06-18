@@ -102,6 +102,7 @@ func Types() []any {
 		RequestInspectProcessRange{}, ResponseInspectProcessRange{},
 		RequestInspectEventList{}, ResponseInspectEventList{}, MessageInspectEventList{},
 		RequestInspectEvent{}, ResponseInspectEvent{}, InspectEventEntry{}, MessageInspectEvent{},
+		RequestInspectEventStream{}, ResponseInspectEventStream{},
 		RequestInspectLog{}, ResponseInspectLog{}, InspectLogEntry{}, MessageInspectLog{},
 		RequestInspectProcess{}, ResponseInspectProcess{}, MessageInspectProcess{},
 		RequestInspectProcessState{}, ResponseInspectProcessState{}, MessageInspectProcessState{},

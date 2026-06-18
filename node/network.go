@@ -1107,7 +1107,11 @@ func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.
 	}
 
 	err := proto.Serve(conn, redial)
-	n.unregisterConnection(name, err)
+	reason := err
+	if reason == nil {
+		reason = gen.TerminateReasonNormal
+	}
+	n.unregisterConnection(name, reason)
 	conn.Terminate(err)
 }
 
