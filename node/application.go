@@ -308,6 +308,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 	a.started = time.Now().Unix()
 	a.mu.Unlock()
 	a.log.Info("started")
+	a.node.publishCoreEvent(gen.MessageCoreApplicationStarted{Name: a.spec.Name, Mode: mode})
 
 	startTimeout := pickAppTimeout(a.spec.StartTimeout, options.StartTimeout, gen.DefaultApplicationStartTimeout)
 	a.runStartCallback(mode, startTimeout)
@@ -474,6 +475,7 @@ func (a *application) finalizeStop() {
 		a.reason = gen.TerminateReasonNormal
 	}
 	reasonCopy := a.reason
+	modeCopy := a.mode
 	a.mu.Unlock()
 
 	// claim the stop once, only from the current incarnation's live state
@@ -497,6 +499,7 @@ func (a *application) finalizeStop() {
 	}
 
 	a.log.Info("stopped with reason %s", reasonCopy)
+	a.node.publishCoreEvent(gen.MessageCoreApplicationStopped{Name: a.spec.Name, Mode: modeCopy, Reason: reasonCopy})
 	a.runTerminateCallback(reasonCopy)
 
 	if a.node.Network().Mode() != gen.NetworkModeEnabled {

@@ -1680,7 +1680,7 @@ func (n *network) registerConnection(name gen.Atom, conn gen.Connection) (gen.Co
 	}
 	n.connectionsEstablished.Add(1)
 	n.node.log.Info("new connection with %s (%s)", name, name.CRC32())
-	// TODO create event gen.MessageNetworkEvent
+	n.node.RouteNodeUp(name)
 	return conn, nil
 }
 
@@ -1693,5 +1693,4 @@ func (n *network) unregisterConnection(name gen.Atom, reason error) {
 		n.node.log.Info("connection with %s (%s) terminated", name, name.CRC32())
 	}
 	n.node.RouteNodeDown(name, reason)
-	// TODO create event gen.MessageNetworkEvent
 }

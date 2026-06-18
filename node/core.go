@@ -1527,11 +1527,24 @@ func (n *node) RouteApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) 
 	return n.ApplicationInfo(name)
 }
 
+func (n *node) RouteNodeUp(name gen.Atom) {
+	if lib.Verbose() {
+		n.log.Trace("RouteNodeUp for %s ", name)
+	}
+	n.publishCoreEvent(gen.MessageCoreNodeConnected{Name: name})
+}
+
 func (n *node) RouteNodeDown(name gen.Atom, reason error) {
 	if lib.Verbose() {
 		n.log.Trace("RouteNodeDown for %s ", name)
 	}
 	n.targets.TerminatedTargetNode(name, reason)
+	n.publishCoreEvent(gen.MessageCoreNodeDisconnected{Name: name, Reason: reason})
+}
+
+// publishCoreEvent publishes a message on the node-local CoreEvent system bus.
+func (n *node) publishCoreEvent(message any) {
+	n.SendEvent(gen.CoreEvent, n.coreEventsToken, gen.MessageOptions{}, message)
 }
 
 func (n *node) MakeTraceID() gen.Tracing {

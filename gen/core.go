@@ -52,6 +52,7 @@ type Core interface {
 	RouteApplicationStart(name Atom, mode ApplicationMode, options ApplicationOptionsExtra, source Atom) error
 	RouteApplicationInfo(name Atom) (ApplicationInfo, error)
 
+	RouteNodeUp(node Atom)
 	RouteNodeDown(node Atom, reason error)
 
 	MakeRef() Ref

@@ -173,6 +173,8 @@ Applications stop in three ways.
 
 The application can also stop itself based on its mode. In Transient or Permanent mode, process failures trigger automatic shutdown according to the mode's rules. The same `Stop` then `Terminate` callback flow runs, dispatched from a coordinator goroutine so the process termination path is not blocked.
 
+A stop is not a restart. The node does not bring a stopped application back; recovery is left to you. The application could announce its own death from `Terminate` by sending a message somewhere, but it is better left to the bus: hand-wiring notifications couples the application to whoever cares and reinvents what events already do. The node publishes the stop for you as a `gen.MessageCoreApplicationStopped` carrying the application name and the reason it stopped; interested processes subscribe and the application never tracks who is watching. Subscribe to `gen.CoreEvent` to act on it, locally or, since events cross nodes, from one observer watching every node in the cluster. See [The Node's Own Event Bus](events.md#the-nodes-own-event-bus).
+
 ## Environment and Configuration
 
 Applications have environment variables that all their processes inherit. These override node-level variables but are overridden by process-specific variables. This creates a natural layering: node provides defaults, application provides service-specific values, processes can override for their specific needs.

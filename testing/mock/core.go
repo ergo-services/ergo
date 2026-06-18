@@ -48,6 +48,7 @@ type coreOverrides struct {
 	routeSpawn              func(node gen.Atom, name gen.Atom, options gen.ProcessOptionsExtra, source gen.Atom) (gen.PID, error)
 	routeApplicationStart   func(name gen.Atom, mode gen.ApplicationMode, options gen.ApplicationOptionsExtra, source gen.Atom) error
 	routeApplicationInfo    func(name gen.Atom) (gen.ApplicationInfo, error)
+	routeNodeUp             func(node gen.Atom)
 	routeNodeDown           func(node gen.Atom, reason error)
 	makeRef                 func() gen.Ref
 	makeRefWithDeadline     func(deadline int64) (gen.Ref, error)
@@ -167,6 +168,7 @@ func (c *Core) OnRouteApplicationStart(fn func(name gen.Atom, mode gen.Applicati
 func (c *Core) OnRouteApplicationInfo(fn func(name gen.Atom) (gen.ApplicationInfo, error)) {
 	c.ov.routeApplicationInfo = fn
 }
+func (c *Core) OnRouteNodeUp(fn func(node gen.Atom))                 { c.ov.routeNodeUp = fn }
 func (c *Core) OnRouteNodeDown(fn func(node gen.Atom, reason error)) { c.ov.routeNodeDown = fn }
 func (c *Core) OnMakeRef(fn func() gen.Ref)                          { c.ov.makeRef = fn }
 func (c *Core) OnMakeRefWithDeadline(fn func(deadline int64) (gen.Ref, error)) {
@@ -474,6 +476,12 @@ func (c *Core) RouteApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) 
 		return c.ov.routeApplicationInfo(name)
 	}
 	return gen.ApplicationInfo{}, nil
+}
+
+func (c *Core) RouteNodeUp(node gen.Atom) {
+	if c.ov.routeNodeUp != nil {
+		c.ov.routeNodeUp(node)
+	}
 }
 
 func (c *Core) RouteNodeDown(node gen.Atom, reason error) {

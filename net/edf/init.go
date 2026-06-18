@@ -84,6 +84,11 @@ var (
 		gen.MessageRegistrarProxyRegistered{},
 		gen.MessageRegistrarProxyUnregistered{},
 
+		gen.MessageCoreApplicationStarted{},
+		gen.MessageCoreApplicationStopped{},
+		gen.MessageCoreNodeConnected{},
+		gen.MessageCoreNodeDisconnected{},
+
 		gen.TracingPoint(0),
 		gen.TracingKind(0),
 		gen.TracingFlags(0),

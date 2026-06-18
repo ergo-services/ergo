@@ -135,6 +135,43 @@ Events declared here are registered as open events with the node as producer. By
 
 If your event requires the token check and you only want a specific process to publish, register it imperatively via `node.RegisterEvent(..., gen.EventOptions{Open: false})` and distribute the token through environment variables or process arguments.
 
+### The Node's Own Event Bus
+
+*Introduced in v3.3.0.*
+
+The node runs one node-level event for you, always: `gen.CoreEvent`. You do not register it and you never publish to it. The node publishes the facts of its own lifecycle there, and any process can subscribe to react to them without polling.
+
+Today the node reports four things on this bus: an application reached the running state, an application stopped (carrying the reason it stopped), a remote node connected, and a remote node disconnected. You subscribe the same way you subscribe to any event, then handle the message types you care about:
+
+```go
+func (a *watcher) Init(args ...any) error {
+    _, err := a.MonitorEvent(gen.Event{Name: gen.CoreEvent})
+    return err
+}
+
+func (a *watcher) HandleEvent(event gen.MessageEvent) error {
+    switch m := event.Message.(type) {
+    case gen.MessageCoreApplicationStopped:
+        a.Log().Warning("application %s stopped: %s", m.Name, m.Reason)
+    case gen.MessageCoreNodeDisconnected:
+        a.Log().Warning("node %s disconnected: %s", m.Name, m.Reason)
+    }
+    return nil
+}
+```
+
+A subscriber reacts only to the transitions it cares about and ignores the rest. The bus keeps the last 1000 events, and `MonitorEvent` returns that buffer on subscription (the example above discards it with `_`). A subscriber that needs recent history reads those returned events and processes them at its discretion, so a process that subscribes after an application has already stopped still learns of the stop, and a restarted observer does not start blind.
+
+Since events are network-transparent, this bus is at its most useful across nodes. Name a remote node and you watch its lifecycle from anywhere:
+
+```go
+a.MonitorEvent(gen.Event{Name: gen.CoreEvent, Node: "worker1@host"})
+```
+
+A single observer process can subscribe to the `gen.CoreEvent` of every node in the cluster and learn, in one place and with no polling and no protocol of its own, when each node's applications start and stop and when each node gains or loses a peer. And if a watched node becomes unreachable, the monitor on its event fires with reason `gen.ErrNoConnection`, so the disappearance of the node is delivered to you through the same subscription.
+
+This bus is local to each node and is available even with networking disabled. It tells you about one node: its own applications and the peers connected to it. Cluster-wide facts, such as a node joining or leaving the cluster or an application's availability across the cluster, are reported separately by the registrar (see [Service Discovering](../networking/service-discovering.md)).
+
 ## Network Transparency
 
 Events work across nodes seamlessly. A producer on node A can publish events that subscribers on nodes B, C, and D receive. The framework handles the network distribution.

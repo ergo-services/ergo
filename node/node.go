@@ -272,7 +272,7 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 		return nil, err
 	}
 
-	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{})
+	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{Buffer: 1000})
 
 	// Pre-register user-declared node-level events before starting cron and
 	// applications so processes can subscribe from Init() without racing the
