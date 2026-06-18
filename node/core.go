@@ -356,7 +356,6 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			return gen.ErrMetaMailboxFull
 		}
 		atomic.AddUint64(&m.messagesIn, 1)
-		atomic.AddUint64(&p.messagesIn, 1)
 		if tracingActive {
 			nanos := time.Now().UnixNano()
 			if from.Node == n.name {
@@ -1068,7 +1067,6 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			return gen.ErrMetaMailboxFull
 		}
 		atomic.AddUint64(&m.messagesIn, 1)
-		atomic.AddUint64(&p.messagesIn, 1)
 		if tracingActive {
 			nanos := time.Now().UnixNano()
 			if from.Node == n.name {
