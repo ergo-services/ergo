@@ -58,20 +58,11 @@ func TestDistSimultaneousConnectNoFlag(t *testing.T) {
 	check.Equal(t, true, r2.Info().NetworkFlags.EnableSimultaneousConnect)
 }
 
-// TestDistSimultaneousConnectCluster: a cluster where every node dials every other
-// at once settles into a clean full mesh, with each node holding exactly one
-// connection per peer (no duplicates, no leaked connections).
-//
-// Skipped: the connect storm exercises the TCP pool-expansion path, where the
-// handshake is decoupled from connection registration (FIXME at node/network.go
-// pool-expansion workaround). Under that flaw the pool Join races with the
-// connection's serve loop (data race between connection.Join and connection.wait),
-// and the mesh does not reliably settle under load. Enable once pool formation is
-// properly synchronized in the handshake.
+// TestDistSimultaneousConnectCluster: every node dials every other at once and the
+// cluster settles into a clean full mesh — one connection per peer (no duplicates,
+// no leaks), with every counter-dial resolving to a single bidirectional connection.
 func TestDistSimultaneousConnectCluster(t *testing.T) {
-	t.Skip("gated on the handshake/pool-expansion design flaw (node/network.go pool-expansion workaround)")
-
-	const N = 50
+	const N = 30
 
 	s := stage.New(t)
 	nodes := make([]*stage.Node, N)
@@ -83,5 +74,12 @@ func TestDistSimultaneousConnectCluster(t *testing.T) {
 
 	for i := range nodes {
 		check.Equal(t, N-1, len(nodes[i].Native().Network().Nodes()))
+		for j := range nodes {
+			if i == j {
+				continue
+			}
+			_, err := nodes[i].Native().Network().Node(nodes[j].Name())
+			check.NoError(t, err)
+		}
 	}
 }

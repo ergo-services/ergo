@@ -65,8 +65,9 @@ type network struct {
 	enableSpawn    sync.Map
 	enableAppStart sync.Map
 
-	connections sync.Map // gen.Atom (peer name) => gen.Connection
-	pending     sync.Map // gen.Atom (peer name) => *pendingEntry
+	connections     sync.Map // gen.Atom (peer name) => gen.Connection (routing index)
+	connectionsByID sync.Map // string (ConnectionID) => gen.Connection (authoritative dedup + pool-join attach)
+	pending         sync.Map // gen.Atom (peer name) => *pendingEntry
 
 	connectionsEstablished atomic.Uint64
 	connectionsLost        atomic.Uint64
@@ -1067,40 +1068,36 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return c, tail, nil
 	}
 
-	c, err := n.registerConnection(result.Peer, pconn)
-	if err == nil {
-		pconn.Join(conn, result.ConnectionID, redial, result.Tail)
-		go n.serve(proto, pconn, redial)
-		return pconn, nil
+	owner, loaded := n.connectionsByID.LoadOrStore(result.ConnectionID, pconn)
+	if loaded {
+		// connection with this ID already exists (e.g. simultaneous connect): fold
+		// our TCP into the owner's pool and drop our duplicate.
+		pconn.Terminate(nil)
+		oc := owner.(gen.Connection)
+		if jerr := oc.Join(conn, result.ConnectionID, redial, result.Tail); jerr != nil {
+			conn.Close()
+		}
+		return oc, nil
 	}
 
-	if err != gen.ErrTaken {
-		pconn.Terminate(err)
+	n.registerConnection(result.Peer, pconn)
+	if jerr := pconn.Join(conn, result.ConnectionID, redial, result.Tail); jerr != nil {
+		n.connectionsByID.Delete(result.ConnectionID)
+		pconn.Terminate(nil)
 		conn.Close()
-		return nil, err
+		return nil, jerr
 	}
-
-	// ErrTaken: another path registered first
-	pconn.Terminate(nil) // cleanup abandoned pconn
-
-	// with deterministic ID, join our TCP into the existing connection
-	if jerr := c.Join(conn, result.ConnectionID, redial, result.Tail); jerr != nil {
-		conn.Close()
-		return c, nil
-	}
-
-	// expand pool (existing connection may have been registered by accept with nil redial)
-	go n.expandPool(c, redial, result.ConnectionID, result.PoolSize, result.PoolDSN)
-	return c, nil
+	go n.serve(proto, pconn, redial, result.ConnectionID)
+	return pconn, nil
 }
 
-func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.NetworkDial) {
+func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.NetworkDial, connID string) {
 	name := conn.Node().Name()
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
 				n.node.log.Panic("connection with %s (%s) terminated abnormally: %v", name, name.CRC32(), r)
-				n.unregisterConnection(name, gen.TerminateReasonPanic)
+				n.unregisterConnection(name, conn, connID, gen.TerminateReasonPanic)
 				conn.Terminate(gen.TerminateReasonPanic)
 			}
 		}()
@@ -1111,26 +1108,8 @@ func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.
 	if reason == nil {
 		reason = gen.TerminateReasonNormal
 	}
-	n.unregisterConnection(name, reason)
+	n.unregisterConnection(name, conn, connID, reason)
 	conn.Terminate(err)
-}
-
-func (n *network) expandPool(c gen.Connection, redial gen.NetworkDial,
-	connID string, poolSize int, poolDSN []string) {
-	if poolSize < 2 || len(poolDSN) == 0 {
-		return
-	}
-	for i := 1; i < poolSize; i++ {
-		dsn := poolDSN[i%len(poolDSN)]
-		nc, tail, err := redial(dsn, connID)
-		if err != nil {
-			continue
-		}
-		if err := c.Join(nc, connID, redial, tail); err != nil {
-			nc.Close()
-			return // pool full or connection terminated
-		}
-	}
 }
 
 func (n *network) connectProxy(name gen.Atom, route gen.NetworkProxyRoute) (gen.Connection, error) {
@@ -1552,7 +1531,7 @@ func (n *network) accept(a *acceptor) {
 
 func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOptions) {
 	c.SetDeadline(time.Now().Add(gen.DefaultHandshakeTimeout))
-	result, err := a.handshake.Accept(n.node, c, hopts)
+	result, err := a.handshake.Negotiate(n.node, c, hopts)
 	if err != nil {
 		if err != io.EOF {
 			n.node.Log().Warning("unable to handshake with %s: %s", c.RemoteAddr().String(), err)
@@ -1579,59 +1558,19 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 	}
 	result.AtomMapping = mapping
 
-	// check if we already have connection with this node
-	if v, exist := n.connections.Load(result.Peer); exist {
-		conn := v.(gen.Connection)
-		if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
+	// pool-join: Negotiate did the full short exchange. Attach this TCP to the
+	// connection registered by ConnectionID. The owner registered it before
+	// sending its introduce, so a pool-join (its initiator dials only after the
+	// primary handshake finished) always finds it. No polling.
+	if result.PeerCreation == 0 {
+		v, ok := n.connectionsByID.Load(result.ConnectionID)
+		if ok == false {
+			c.Close()
+			return
+		}
+		if err := v.(gen.Connection).Join(c, result.ConnectionID, nil, result.Tail); err != nil {
 			c.Close()
 		}
-		return
-	}
-
-	// Primary connection: announce pending BEFORE heavy work so pool
-	// expansion TCPs (PeerCreation == 0) can wait for registration.
-	if result.PeerCreation != 0 {
-		acceptPending := &pendingEntry{ready: make(chan struct{})}
-		if _, loaded := n.pending.LoadOrStore(result.Peer, acceptPending); loaded {
-			acceptPending = nil
-		}
-		defer func() {
-			if acceptPending != nil {
-				n.pending.Delete(result.Peer)
-				close(acceptPending.ready)
-			}
-		}()
-	}
-
-	// Pool expansion (Join handshake, PeerCreation == 0).
-	//
-	// FIXME: workaround for a handshake design flaw with TCP pool expansion.
-	// The initiator starts dialing pool expansion connections (Join handshake)
-	// immediately after completing the primary handshake. These arrive at the
-	// acceptor as separate goroutines running handleAccepted(). The Join
-	// handshake (2 messages) completes faster than the primary handshake
-	// (5 messages), so the pool expansion TCP can reach this point before the
-	// primary TCP goroutine has finished registering the connection in
-	// n.connections. Without the retry, the pool TCP is closed, causing
-	// broken pipe on the initiator side for any pool_item using that TCP.
-	// Once the handshake protocol is redesigned to properly synchronize pool
-	// formation, this workaround can be removed.
-	if result.PeerCreation == 0 {
-		for i := 0; i < 3; i++ {
-			if pe, exist := n.pending.Load(result.Peer); exist {
-				entry := pe.(*pendingEntry)
-				<-entry.ready
-			}
-			if v, exist := n.connections.Load(result.Peer); exist {
-				conn := v.(gen.Connection)
-				if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
-					c.Close()
-				}
-				return
-			}
-			time.Sleep(300 * time.Millisecond)
-		}
-		c.Close()
 		return
 	}
 
@@ -1658,38 +1597,57 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 		return
 	}
 
-	if _, err := n.registerConnection(result.Peer, conn); err != nil {
-		// connect() registered between our Load and LoadOrStore
-		conn.Terminate(nil)
+	// register by ConnectionID BEFORE Accept sends our accept/introduce: any
+	// pool-join is guaranteed to arrive after this registration (happens-before).
+	owner, loaded := n.connectionsByID.LoadOrStore(result.ConnectionID, conn)
 
-		// with deterministic ID, join TCP into the existing connection
-		existing, ok := n.connections.Load(result.Peer)
-		if ok == false {
-			c.Close()
-			return
+	result, err = a.handshake.Accept(n.node, c, hopts, result)
+	if err != nil {
+		if loaded == false {
+			n.connectionsByID.Delete(result.ConnectionID)
 		}
-		ec := existing.(gen.Connection)
-		if jerr := ec.Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
+		if err != io.EOF {
+			n.node.Log().Warning("unable to finish handshake with %s: %s", result.Peer, err)
+		}
+		a.handshakeErrors.Add(1)
+		conn.Terminate(nil)
+		c.Close()
+		return
+	}
+
+	if loaded {
+		// connection with this ID already exists (simultaneous connect or a
+		// redundant primary): fold our TCP into the owner's pool
+		conn.Terminate(nil)
+		if jerr := owner.(gen.Connection).Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
 			c.Close()
 		}
 		return
 	}
-	conn.Join(c, result.ConnectionID, nil, result.Tail)
-	go n.serve(a.proto, conn, nil)
+
+	n.registerConnection(result.Peer, conn)
+	if jerr := conn.Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
+		n.connectionsByID.Delete(result.ConnectionID)
+		conn.Terminate(nil)
+		c.Close()
+		return
+	}
+	go n.serve(a.proto, conn, nil, result.ConnectionID)
 }
 
-func (n *network) registerConnection(name gen.Atom, conn gen.Connection) (gen.Connection, error) {
-	if v, exist := n.connections.LoadOrStore(name, conn); exist {
-		return v.(gen.Connection), gen.ErrTaken
-	}
+// registerConnection sets the routing index by peer name. Dedup is handled by
+// connectionsByID; this just points routing at the owner (overwrites a stale
+// entry from a previous incarnation).
+func (n *network) registerConnection(name gen.Atom, conn gen.Connection) {
+	n.connections.Store(name, conn)
 	n.connectionsEstablished.Add(1)
 	n.node.log.Info("new connection with %s (%s)", name, name.CRC32())
 	n.node.RouteNodeUp(name)
-	return conn, nil
 }
 
-func (n *network) unregisterConnection(name gen.Atom, reason error) {
-	n.connections.Delete(name)
+func (n *network) unregisterConnection(name gen.Atom, conn gen.Connection, connID string, reason error) {
+	n.connectionsByID.Delete(connID)
+	n.connections.CompareAndDelete(name, conn) // keep a newer incarnation's routing entry
 	n.connectionsLost.Add(1)
 	if reason != nil {
 		n.node.log.Info("connection with %s (%s) terminated with reason: %s", name, name.CRC32(), reason)

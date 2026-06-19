@@ -324,10 +324,11 @@ func (s *Stage) Connect(a, b *Node) gen.RemoteNode {
 
 // ConnectMesh dials every ordered pair of nodes concurrently, so each link is
 // attempted from both sides at once and exercises simultaneous-connect collision
-// resolution. It then waits until every node sees every other, re-dialing any
-// missing pair until the mesh settles or the deadline passes (a real cluster
-// retries dials that the TCP backlog dropped under a connect storm). Duplicate
-// detection is left to the caller via Network().Nodes().
+// resolution. It then waits until every node sees every other and every connection
+// has filled its TCP pool, re-dialing any missing pair until the mesh settles or
+// the deadline passes (a real cluster retries dials that the TCP backlog dropped
+// under a connect storm). Duplicate detection is left to the caller via
+// Network().Nodes().
 func (s *Stage) ConnectMesh(nodes ...*Node) {
 	s.t.Helper()
 	var wg sync.WaitGroup
@@ -363,7 +364,7 @@ func (s *Stage) ConnectMesh(nodes ...*Node) {
 			return
 		}
 		if time.Now().After(deadline) {
-			s.t.Fatalf("stage: mesh of %d nodes did not settle: %d missing connections", len(nodes), missing)
+			s.t.Fatalf("stage: mesh of %d nodes did not settle: %d pairs missing", len(nodes), missing)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
