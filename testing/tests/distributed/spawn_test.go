@@ -53,11 +53,11 @@ func (s *rspawner) HandleCall(from gen.PID, ref gen.Ref, request any) (any, erro
 // and duplicate registered names are rejected.
 func TestDistRemoteSpawn(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1", stage.NodeOptions{
+	n1 := s.StartNode("n1", stage.NodeOptions{
 		Env:      map[gen.Env]any{"K": "V"},
 		Security: gen.SecurityOptions{ExposeEnvRemoteSpawn: true},
 	})
-	n2 := s.Node("n2")
+	n2 := s.StartNode("n2")
 	n2.EnableSpawn("tst", factorySpawnable)
 	remote := s.Connect(n1, n2)
 
@@ -115,8 +115,8 @@ func TestDistRemoteSpawn(t *testing.T) {
 // must not re-open spawning to all.
 func TestDistRemoteSpawnAllowList(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	remote := s.Connect(n1, n2)
 
 	other := gen.Atom("other@localhost")

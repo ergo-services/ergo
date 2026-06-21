@@ -24,7 +24,7 @@ func TestLocalNode(t *testing.T) {
 	env := map[gen.Env]any{gen.Env("A"): 1, gen.Env("B"): 1.23, gen.Env("C"): "d"}
 
 	s := stage.New(t)
-	n := s.Node("t0", stage.NodeOptions{Env: env})
+	n := s.StartNode("t0", stage.NodeOptions{Env: env})
 	nd := n.Native()
 
 	check.True(t, nd.IsAlive())

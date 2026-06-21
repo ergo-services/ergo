@@ -92,7 +92,7 @@ func (s *ofoBasicSup) basicCheck() error {
 // DisableChild disables it; starting a disabled child is ErrSupervisorChildDisabled.
 func TestLocalSupervisorOFOBasic(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	sup := n.Spawn(factoryOfoBasicSup, gen.ProcessOptions{})
 	v, err := n.Call(sup, "check")
 	check.NoError(t, err)
@@ -160,7 +160,7 @@ func TestLocalSupervisorOFOStrategy(t *testing.T) {
 
 	for _, c := range cases {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		sup := n.Spawn(factoryOfoSup, gen.ProcessOptions{}, c.strategy)
 
 		// three children auto-started
@@ -253,7 +253,7 @@ func TestLocalSupervisorOFOSignificant(t *testing.T) {
 
 	for _, c := range cases {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 		sup := n.Spawn(factoryOfoSignificantSup, gen.ProcessOptions{}, c.strategy)
 

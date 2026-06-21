@@ -47,7 +47,7 @@ func (a *timerActor) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
 // never delivered; and cancelling after the timer has already fired returns false.
 func TestLocalTimerSendAfter(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 	timer := n.Spawn(factoryTimerActor, gen.ProcessOptions{})
 

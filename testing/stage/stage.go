@@ -123,8 +123,8 @@ type Node struct {
 	rec  *check.Recorder
 }
 
-// Node starts a live node. Names are unique per stage to avoid collisions.
-func (s *Stage) Node(name string, opts ...NodeOptions) *Node {
+// StartNode starts a live node. Names are unique per stage to avoid collisions.
+func (s *Stage) StartNode(name string, opts ...NodeOptions) *Node {
 	s.t.Helper()
 	var o NodeOptions
 	if len(opts) > 0 {

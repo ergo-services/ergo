@@ -24,7 +24,7 @@ func cronJobNames(jobs []gen.CronJobInfo) map[gen.Atom]gen.CronJobInfo {
 // (ErrUnknown afterwards).
 func TestLocalCronManagement(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	cron := n.Native().Cron()
 
 	action := gen.CreateCronActionMessage(gen.Atom("target"), gen.MessagePriorityNormal)
@@ -74,7 +74,7 @@ func TestLocalCronManagement(t *testing.T) {
 // exactly 00:30, 01:30, 02:30. JobSchedule on an unknown job is ErrUnknown.
 func TestLocalCronSchedule(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	cron := n.Native().Cron()
 
 	action := gen.CreateCronActionMessage(gen.Atom("target"), gen.MessagePriorityNormal)

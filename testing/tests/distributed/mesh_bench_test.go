@@ -53,7 +53,7 @@ func benchOne(t *testing.T, n, pool int) (float64, uint64, int) {
 	s := stage.New(t)
 	nodes := make([]*stage.Node, n)
 	for i := range nodes {
-		nodes[i] = s.Node(fmt.Sprintf("b%03d", i), stage.NodeOptions{PoolSize: pool})
+		nodes[i] = s.StartNode(fmt.Sprintf("b%03d", i), stage.NodeOptions{PoolSize: pool})
 	}
 
 	start := time.Now()
@@ -87,10 +87,12 @@ func benchOne(t *testing.T, n, pool int) (float64, uint64, int) {
 					continue
 				}
 				// TCP-link-count check: a connection is settled only when it holds
-				// exactly `pool` links (the size requested via NodeOptions.PoolSize).
-				// Checking against the requested `pool` (not info.PoolSize) catches
-				// undershoot, overshoot, AND a pool size that failed to propagate.
-				if info := r.Info(); info.PoolSize != pool || info.PoolLen != pool {
+				// exactly its configured pool size (PoolLen == PoolSize), catching
+				// undershoot and overshoot. When an explicit pool was requested
+				// (pool > 0) also verify it propagated (PoolSize == pool); pool <= 0
+				// means "use the framework default" (handshake substitutes it to 3), so
+				// there is no requested size to check against.
+				if info := r.Info(); info.PoolLen != info.PoolSize || (pool > 0 && info.PoolSize != pool) {
 					unsettled++
 				}
 			}

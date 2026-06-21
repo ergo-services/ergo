@@ -60,7 +60,7 @@ sub.ShouldSend().To("scheduler").Message(JobQueued{ID: "42"}).Once().Assert()
 
 ```go
 s := stage.New(t)
-n := s.Node("n")
+n := s.StartNode("n")
 worker := n.Spawn(factoryWorker, gen.ProcessOptions{})
 
 n.Send(worker, Job{ID: "42"})

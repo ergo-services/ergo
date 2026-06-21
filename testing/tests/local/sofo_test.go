@@ -134,7 +134,7 @@ func (s *sofoSup) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 // ErrSupervisorChildDisabled for the error paths.
 func TestLocalSupervisorSOFOBasic(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	sup := n.Spawn(factorySofoBasicSup, gen.ProcessOptions{})
 	v, err := n.Call(sup, "check")
 	check.NoError(t, err)
@@ -161,7 +161,7 @@ func TestLocalSupervisorSOFOStrategy(t *testing.T) {
 
 	for _, c := range cases {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		sup := n.Spawn(factorySofoSup, gen.ProcessOptions{}, c.strategy)
 
 		// start five children
@@ -208,7 +208,7 @@ func TestLocalSupervisorSOFOStrategy(t *testing.T) {
 // TestLocalSupervisorSOFOExit: an exit signal sent to the supervisor terminates it.
 func TestLocalSupervisorSOFOExit(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 	sup := n.Spawn(factorySofoSup, gen.ProcessOptions{}, act.SupervisorStrategyPermanent)
 

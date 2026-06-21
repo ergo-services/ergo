@@ -17,10 +17,6 @@ const (
 	defaultPoolSize int = 3
 )
 
-var (
-	DefaultPoolSize int = 1
-)
-
 type MessageHello struct {
 	Salt       string
 	Digest     string

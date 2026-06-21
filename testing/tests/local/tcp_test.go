@@ -251,7 +251,7 @@ func frameOf(payload string) []byte {
 // split across writes, and two frames coalesced into one write.
 func TestLocalTCPFraming(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 
 	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 	owner := n.Spawn(factoryTcpFrameOwner, gen.ProcessOptions{}, collector)
@@ -296,7 +296,7 @@ func TestLocalTCPFraming(t *testing.T) {
 // reply the client reads back over the socket.
 func TestLocalTCPServer(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 
 	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 	h1 := n.SpawnRegister("handler1", factoryTcpReporter, gen.ProcessOptions{}, collector)
@@ -355,7 +355,7 @@ func TestLocalTCPServer(t *testing.T) {
 // observes the matching connect, the incoming data, and the disconnect.
 func TestLocalTCPClient(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 
 	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 	owner := n.Spawn(factoryTcpOwner, gen.ProcessOptions{}, collector)

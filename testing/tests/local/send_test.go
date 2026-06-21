@@ -40,7 +40,7 @@ func (s *sender) HandleMessage(from gen.PID, message any) error {
 // target's mailbox. Sending to an unregistered name is rejected.
 func TestLocalSend(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	from := n.Spawn(factorySender, gen.ProcessOptions{})
 
 	t.Run("PID", func(t *testing.T) {

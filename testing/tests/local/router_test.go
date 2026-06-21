@@ -60,7 +60,7 @@ func (r *testRouter) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
 func newRouter(t *testing.T) (*stage.Node, gen.PID, gen.PID, []gen.PID) {
 	t.Helper()
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 	mk := n.Mark()
 	router := n.Spawn(factoryTestRouter, gen.ProcessOptions{}, collector)

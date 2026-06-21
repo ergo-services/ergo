@@ -70,7 +70,7 @@ func (tr *trapper) HandleMessage(from gen.PID, message any) error { return nil }
 // its parent terminates it regardless of the flag.
 func TestLocalTrapExit(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	host := n.Spawn(factoryExiter, gen.ProcessOptions{})
 	alien := n.Spawn(factoryExiter, gen.ProcessOptions{})
 	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})

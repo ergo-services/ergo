@@ -37,8 +37,8 @@ func containsAtom(list []gen.Atom, a gen.Atom) bool {
 // ErrApplicationUnknown (info).
 func TestDistRemoteApp(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 
 	appname, err := n2.Native().ApplicationLoad(createRemApp())
 	check.NoError(t, err)

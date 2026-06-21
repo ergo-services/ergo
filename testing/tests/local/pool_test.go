@@ -129,7 +129,7 @@ func sameSet(a, b []gen.PID) bool {
 // Spawn records.
 func TestLocalPool(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	nn := n.Native()
 
 	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})

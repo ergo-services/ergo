@@ -60,8 +60,8 @@ func (p *callPongDefer) HandleCall(from gen.PID, ref gen.Ref, request any) (any,
 // target reports ErrProcessUnknown.
 func TestDistCall(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	t.Run("PID", func(t *testing.T) {

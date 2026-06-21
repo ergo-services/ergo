@@ -61,7 +61,7 @@ func (m *inspectMeta) HandleInspect(from gen.PID, item ...string) map[string]str
 // process is rejected with the matching error.
 func TestLocalNodeInspect(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	nd := n.Native()
 
 	sup := n.Spawn(factoryInspectSup, gen.ProcessOptions{})
@@ -94,7 +94,7 @@ func TestLocalNodeInspect(t *testing.T) {
 // an unknown or remote meta is rejected.
 func TestLocalNodeInspectMeta(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	nd := n.Native()
 
 	owner := n.Spawn(factoryMetaActor, gen.ProcessOptions{})

@@ -14,8 +14,8 @@ import (
 // connect, the other adopts it via accept), so each node ends with exactly one peer.
 func TestDistSimultaneousConnect(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 
 	s.ConnectMesh(n1, n2)
 
@@ -34,8 +34,8 @@ func TestDistSimultaneousConnect(t *testing.T) {
 // peer the connection still establishes, and each side reports the other's flags.
 func TestDistSimultaneousConnectNoFlag(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2", stage.NodeOptions{
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2", stage.NodeOptions{
 		NetworkFlags: gen.NetworkFlags{
 			Enable:                       true,
 			EnableRemoteSpawn:            true,
@@ -67,7 +67,7 @@ func TestDistSimultaneousConnectCluster(t *testing.T) {
 	s := stage.New(t)
 	nodes := make([]*stage.Node, N)
 	for i := range nodes {
-		nodes[i] = s.Node(fmt.Sprintf("c%03d", i))
+		nodes[i] = s.StartNode(fmt.Sprintf("c%03d", i))
 	}
 
 	s.ConnectMesh(nodes...)

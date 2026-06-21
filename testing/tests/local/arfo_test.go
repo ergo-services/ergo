@@ -80,7 +80,7 @@ func arfoChildPID(t *testing.T, n *stage.Node, sup gen.PID, name gen.Atom) gen.P
 func TestLocalSupervisorARFOEnable(t *testing.T) {
 	for _, typ := range []act.SupervisorType{act.SupervisorTypeAllForOne, act.SupervisorTypeRestForOne} {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		sup := n.Spawn(factoryArfoSup, gen.ProcessOptions{}, typ, act.SupervisorStrategyPermanent)
 
 		n.ShouldSend().From(sup).Message(childStarted{Name: "c0"}).AtLeast(1).Within(time.Second).Must()
@@ -117,7 +117,7 @@ func isStart(r check.Send) bool { _, ok := r.Message.(childStarted); return ok }
 func runArfo(t *testing.T, supType act.SupervisorType, strategy act.SupervisorStrategy, idx int, reason error, stopCount, startCount int, survivors []int) {
 	t.Helper()
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	sup := n.Spawn(factoryArfoSup, gen.ProcessOptions{}, supType, strategy)
 
 	n.ShouldSend().From(sup).Message(childStarted{Name: "c0"}).Once().Within(time.Second).Must()
@@ -262,7 +262,7 @@ func (s *arfoBasicSup) basicCheck() error {
 func TestLocalSupervisorARFOBasic(t *testing.T) {
 	for _, typ := range []act.SupervisorType{act.SupervisorTypeAllForOne, act.SupervisorTypeRestForOne} {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		sup := n.Spawn(factoryArfoBasicSup, gen.ProcessOptions{}, typ)
 		v, err := n.Call(sup, "check")
 		check.NoError(t, err)
@@ -325,7 +325,7 @@ func TestLocalSupervisorARFOSignificant(t *testing.T) {
 	for _, typ := range []act.SupervisorType{act.SupervisorTypeAllForOne, act.SupervisorTypeRestForOne} {
 		for _, c := range cases {
 			s := stage.New(t)
-			n := s.Node("n")
+			n := s.StartNode("n")
 			w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 			sup := n.Spawn(factoryArfoSignificantSup, gen.ProcessOptions{}, typ, c.strategy)
 

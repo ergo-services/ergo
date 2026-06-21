@@ -108,7 +108,7 @@ func TestLocalMeta(t *testing.T) {
 	// Basic: spawn, call, send-forward, inspect, child meta, SendExitMeta reason
 	t.Run("Basic", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 		host := n.Spawn(factoryMetaHost, gen.ProcessOptions{}, false)
 		watcher := n.Spawn(factoryWatcher, gen.ProcessOptions{})
@@ -153,7 +153,7 @@ func TestLocalMeta(t *testing.T) {
 	// Link: a process linked to a meta receives MessageExitAlias on its termination
 	t.Run("Link", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		host := n.Spawn(factoryMetaHost, gen.ProcessOptions{}, true) // trap so the link-death is a message
 
 		aliasAny, err := n.Call(host, spawnMetaCmd{})
@@ -174,7 +174,7 @@ func TestLocalMeta(t *testing.T) {
 	// Monitor: a process monitoring a meta receives MessageDownAlias on its termination
 	t.Run("Monitor", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		host := n.Spawn(factoryMetaHost, gen.ProcessOptions{}, false)
 
 		aliasAny, err := n.Call(host, spawnMetaCmd{})
@@ -195,7 +195,7 @@ func TestLocalMeta(t *testing.T) {
 	// ParentDeath: a meta terminates with its parent's reason when the parent dies
 	t.Run("ParentDeath", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		host := n.Spawn(factoryMetaHost, gen.ProcessOptions{}, false) // non-trap: SendExit terminates it
 		watcher := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 

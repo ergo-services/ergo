@@ -69,7 +69,7 @@ func (c *consumer) HandleEvent(message gen.MessageEvent) error { return nil }
 // timestamp; unsubscribing the last consumer notifies the producer (MessageEventStop).
 func TestLocalEvent(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 
 	prod := n.Spawn(factoryProducer, gen.ProcessOptions{})
 	evAny, err := n.Call(prod, evtRegister{})

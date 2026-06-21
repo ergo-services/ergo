@@ -13,8 +13,8 @@ import (
 // matching the peer's acceptor. Resolving an unknown node is ErrNoRoute.
 func TestDistConnect(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1", stage.NodeOptions{MaxMessageSize: 567})
-	n2 := s.Node("n2", stage.NodeOptions{MaxMessageSize: 765})
+	n1 := s.StartNode("n1", stage.NodeOptions{MaxMessageSize: 567})
+	n2 := s.StartNode("n2", stage.NodeOptions{MaxMessageSize: 765})
 
 	// an unknown node does not resolve
 	_, err := n1.Native().Network().GetNode("unknown@node")

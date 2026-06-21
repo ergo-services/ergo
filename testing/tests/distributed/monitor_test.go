@@ -38,8 +38,8 @@ func runMonitorDeath(t *testing.T, s *stage.Stage, n1, n2 *stage.Node, addr stri
 // (ErrNoConnection) and MonitorNode yields MessageDownNode.
 func TestDistMonitor(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	addrs := []string{"pid", "processid", "alias", "event"}

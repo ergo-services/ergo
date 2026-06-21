@@ -258,7 +258,7 @@ func TestLocalProcess(t *testing.T) {
 	}
 
 	s := stage.New(t)
-	n := s.Node("n", stage.NodeOptions{Env: nenv})
+	n := s.StartNode("n", stage.NodeOptions{Env: nenv})
 	p := n.SpawnRegister("a", factoryT1Proc, gen.ProcessOptions{}, penv)
 
 	get := func(req string) any {

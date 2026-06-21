@@ -100,7 +100,7 @@ func (a *appMode) Terminate(reason error) {
 // starts once the dependency is loaded.
 func TestLocalApplicationBasic(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n", stage.NodeOptions{
+	n := s.StartNode("n", stage.NodeOptions{
 		Applications: []gen.ApplicationBehavior{createAppBasic()},
 	})
 	nn := n.Native()
@@ -181,7 +181,7 @@ func TestLocalApplicationMode(t *testing.T) {
 
 	t.Run("Temporary", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		nn := n.Native()
 		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 
@@ -205,7 +205,7 @@ func TestLocalApplicationMode(t *testing.T) {
 
 	t.Run("Transient", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		nn := n.Native()
 		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 
@@ -235,7 +235,7 @@ func TestLocalApplicationMode(t *testing.T) {
 
 	t.Run("Permanent", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		nn := n.Native()
 		collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 
