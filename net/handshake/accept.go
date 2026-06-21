@@ -14,8 +14,8 @@ import (
 // pool-join TCPs are guaranteed to arrive after registration.
 func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.HandshakeOptions, state gen.HandshakeResult) (gen.HandshakeResult, error) {
 	opts, ok := state.Custom.(ConnectionOptions)
-	if ok == false || opts.awaitingConfirm == false {
-		// short Join path, or a stack without the negotiate/confirm split: nothing to do
+	if ok == false || opts.awaitingAccept == false {
+		// short Join path, or a stack without the negotiate/accept split: nothing to do
 		return state, nil
 	}
 
@@ -38,7 +38,7 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 	opts.pendingAccept = MessageAccept{}
 	opts.pendingIntroduce = MessageIntroduce{}
 	opts.pendingTail = nil
-	opts.awaitingConfirm = false
+	opts.awaitingAccept = false
 	state.Custom = opts
 	return state, nil
 }

@@ -136,9 +136,9 @@ type connection struct {
 	// re-establish the primary; if the pool stays empty past it the connection
 	// terminates. poolClosed guards the single close of done. All accessed under
 	// pool_mutex.
-	done          chan struct{}
-	poolClosed    bool
-	established   bool
+	done           chan struct{}
+	poolClosed     bool
+	established    bool
 	emptyPoolTimer *time.Timer
 	emptyPoolGrace time.Duration
 
@@ -1731,11 +1731,11 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 	}
 
 	c.pool_mutex.Lock()
-	// the canonical end is the single writer and caps the pool at pool_size; the accept
-	// end mirrors whatever the canonical dials and must not reject independently (a
-	// transient size disagreement under churn would otherwise strand a slot, its TCP
-	// closed here while the canonical still holds it). dial != nil identifies the writer:
-	// connect/handleAccepted pass a redial only for the canonical primary.
+	// the dialer that fills the pool is the single writer and caps it at pool_size; the
+	// accept end mirrors whatever the dialer dials and must not reject independently (a
+	// transient size disagreement under churn would otherwise strand a slot, its TCP closed
+	// here while the dialer still holds it). dial != nil marks a writer join: the filling
+	// primary (connect) and every pool-join (fillPool) carry a redial, the accept end nil.
 	if dial != nil && len(c.pool) >= c.pool_size {
 		c.pool_mutex.Unlock()
 		return fmt.Errorf("pool size limit")

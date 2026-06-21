@@ -116,10 +116,11 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 		options.Cookie,
 	)
 
-	// Build the final accept (msg4) and our introduce (msg5) but do not send them
-	// yet. The node registers the connection by ConnectionID first, then calls
-	// Confirm to send these and read the peer's final accept. This makes the
-	// connection visible to pool-join TCPs before they can arrive.
+	// Build the final accept and our introduce but do not send them yet: the node
+	// registers the connection by ConnectionID first, then calls Accept to send these and
+	// read the peer final accept. Registering before the introduce is sent means the peer
+	// pool-join TCPs (it dials them only after reading our introduce) always find the
+	// connection instead of racing registration under a connect storm.
 	accept := MessageAccept{ID: connID, PoolSize: h.poolsize}
 	accept.PoolDSN = append(accept.PoolDSN, conn.LocalAddr().String())
 
@@ -161,7 +162,7 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 		pendingAccept:    accept,
 		pendingIntroduce: intro2,
 		pendingTail:      tail,
-		awaitingConfirm:  true,
+		awaitingAccept:   true,
 	}
 
 	return result, nil

@@ -74,11 +74,11 @@ type ConnectionOptions struct {
 	FragmentTimeout         int
 	MaxFragmentAssemblies   int
 
-	// acceptor handshake continuation between Accept and Confirm; opaque to proto
+	// acceptor handshake continuation between Negotiate and Accept; opaque to proto
 	pendingAccept    MessageAccept
 	pendingIntroduce MessageIntroduce
 	pendingTail      []byte
-	awaitingConfirm  bool
+	awaitingAccept   bool
 }
 
 func init() {

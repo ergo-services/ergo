@@ -1077,10 +1077,12 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	// handshake above ran concurrently.
 	localIsCanonical := n.node.name < result.Peer
 
-	// the non-canonical outgoing primary stays passive (dial==nil, no self-redial): under
-	// a simultaneous connect it is the losing direction and gets superseded. The pool is
-	// filled by the dialer, which gets the real redial via serve; a non-canonical dialer
-	// fills only after the acceptor's go-ahead (protoMessageExtend), never a superseded one.
+	// the non-canonical outgoing primary stays passive (dial==nil, no self-redial): under a
+	// simultaneous connect it is the losing direction and the canonical end closes its TCP;
+	// were it joined with a redial it would reconnect as a pool-join and attach to the
+	// canonical connection as a TCP the writer does not track (pool overshoot, churn that
+	// never settles). The pool is still filled by the dialer (real redial passed to serve);
+	// a non-canonical dialer fills only after the acceptor go-ahead, never a superseded one.
 	primaryDial := redial
 	if localIsCanonical == false {
 		primaryDial = nil

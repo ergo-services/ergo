@@ -167,9 +167,9 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 
 func (e *enp) Serve(c gen.Connection, redial gen.NetworkDial) error {
 	conn := c.(*connection)
-	// the dialer reached the peer's listener, so it is the pool filler (redial != nil);
-	// the accept side (redial == nil) stays passive. A connection too small to pool also
-	// stays passive.
+	// the dialer reached the peer's listener, so it is the pool filler (redial != nil); the
+	// accept side (redial == nil) stays passive, as does a connection too small to pool
+	// (pool_size < 2) or one with no pool DSN to dial.
 	if redial == nil || conn.pool_size < 2 || len(conn.pool_dsn) == 0 {
 		conn.wait()
 		return nil
