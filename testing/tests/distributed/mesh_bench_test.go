@@ -34,21 +34,22 @@ func TestMeshBench(t *testing.T) {
 		Pools = []int{p}
 	}
 
-	fmt.Printf("%-6s %-6s %-12s %-10s\n", "N", "pool", "form(ms)", "reconnects")
+	fmt.Printf("%-6s %-6s %-12s %-12s %-10s\n", "N", "pool", "form(ms)", "links", "reconnects")
 	for _, n := range Ns {
 		for _, pool := range Pools {
 			t.Run(fmt.Sprintf("N%d_pool%d", n, pool), func(t *testing.T) {
-				ms, reconn := benchOne(t, n, pool)
-				fmt.Printf("%-6d %-6d %-12.1f %-10d\n", n, pool, ms, reconn)
+				ms, reconn, links := benchOne(t, n, pool)
+				fmt.Printf("%-6d %-6d %-12.1f %-12d %-10d\n", n, pool, ms, links, reconn)
 			})
 		}
 	}
 }
 
 // benchOne forms a full mesh of n nodes with the given pool size and returns the
-// formation time (ms, from first dial to every ordered pair having a filled pool)
-// and the total reconnection count across all connections.
-func benchOne(t *testing.T, n, pool int) (float64, uint64) {
+// formation time (ms, from first dial to every ordered pair holding exactly `pool`
+// TCP links), the total reconnection count, and the total TCP-link count across all
+// connections (expect n*(n-1)*pool when fully formed, counting each link from both ends).
+func benchOne(t *testing.T, n, pool int) (float64, uint64, int) {
 	s := stage.New(t)
 	nodes := make([]*stage.Node, n)
 	for i := range nodes {
@@ -85,7 +86,11 @@ func benchOne(t *testing.T, n, pool int) (float64, uint64) {
 					nodes[i].Native().Network().GetNode(nodes[j].Name())
 					continue
 				}
-				if info := r.Info(); info.PoolLen != info.PoolSize {
+				// TCP-link-count check: a connection is settled only when it holds
+				// exactly `pool` links (the size requested via NodeOptions.PoolSize).
+				// Checking against the requested `pool` (not info.PoolSize) catches
+				// undershoot, overshoot, AND a pool size that failed to propagate.
+				if info := r.Info(); info.PoolSize != pool || info.PoolLen != pool {
 					unsettled++
 				}
 			}
@@ -101,15 +106,18 @@ func benchOne(t *testing.T, n, pool int) (float64, uint64) {
 	formMS := float64(time.Since(start).Microseconds()) / 1000.0
 
 	var reconn uint64
+	var links int
 	for i := range nodes {
 		for j := range nodes {
 			if i == j {
 				continue
 			}
 			if r, err := nodes[i].Native().Network().Node(nodes[j].Name()); err == nil {
-				reconn += r.Info().Reconnections
+				info := r.Info()
+				reconn += info.Reconnections
+				links += info.PoolLen
 			}
 		}
 	}
-	return formMS, reconn
+	return formMS, reconn, links
 }

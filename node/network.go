@@ -1075,14 +1075,14 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	// (initiated by the smaller-named node). Both ends compute the same survivor, so no
 	// cross-kill. The merge decision is serialized (mergeMu) like OTP's net_kernel; the
 	// handshake above ran concurrently.
-	iAmCanonical := n.node.name < result.Peer
+	localIsCanonical := n.node.name < result.Peer
 
-	// only the canonical end is the pool writer: it re-dials and fills. The
-	// non-canonical outgoing (a provisional that registered before the canonical
-	// arrived) must stay passive — re-dialing from it would push extra TCPs into the
-	// peer's pool that the canonical writer does not track. dial==nil makes it passive.
+	// only the canonical end is the pool writer: it redials and fills. The non-canonical
+	// outgoing (a provisional that registered before the canonical arrived) must stay
+	// passive: redialing from it would push extra TCPs into the peer's pool that the
+	// canonical writer does not track. dial==nil makes it passive.
 	primaryDial := redial
-	if iAmCanonical == false {
+	if localIsCanonical == false {
 		primaryDial = nil
 	}
 
@@ -1090,7 +1090,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	owner, loaded := n.connectionsByID.LoadOrStore(result.ConnectionID, pconn)
 	if loaded {
 		oc := owner.(gen.Connection)
-		if iAmCanonical == false {
+		if localIsCanonical == false {
 			// our outgoing is the losing direction: drop ours, adopt the owner
 			n.mergeMu.Unlock()
 			pconn.Terminate(nil)
@@ -1098,7 +1098,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 			return oc, nil
 		}
 		// our outgoing is the canonical winner but a provisional (losing direction)
-		// registered first: take over — replace it, then drop it
+		// registered first: take over, replace it, then drop it
 		n.connectionsByID.Store(result.ConnectionID, pconn)
 		n.registerConnection(result.Peer, pconn)
 		if jerr := pconn.Join(conn, result.ConnectionID, primaryDial, result.Tail); jerr != nil {
@@ -1633,20 +1633,22 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 		return
 	}
 
-	// single primary: keep one connection per ConnectionID. An incoming TCP is dropped
-	// only when a connection already exists and this is the losing (non-canonical)
-	// direction; otherwise it establishes (so a single-direction connect works whatever
-	// the initiator's name). Register by ConnectionID BEFORE sending our introduce
-	// (Accept): the peer fills its pool only after its connect completes (after it reads
-	// our introduce), so registering first guarantees its pool-join TCPs find this
-	// connection instead of racing registration, getting dropped (LOADMISS), and
-	// re-dialing. Merge decision serialized via mergeMu.
-	incomingIsCanonical := result.Peer < n.node.name
+	// single primary: keep one connection per ConnectionID. The incoming TCP is dropped
+	// only when a connection already exists and the local node is canonical (so the
+	// incoming is the reverse, losing direction); otherwise it establishes (so a
+	// single-direction connect works whatever the initiator's name). Register by
+	// ConnectionID BEFORE sending our introduce (Accept): the peer fills its pool only
+	// after its connect completes (after it reads our introduce), so registering first
+	// guarantees its pool-join TCPs find this connection instead of racing registration,
+	// being dropped when the ConnectionID lookup misses, and redialing. Merge decision
+	// serialized via mergeMu.
+	localIsCanonical := n.node.name < result.Peer
 	n.mergeMu.Lock()
 	owner, loaded := n.connectionsByID.LoadOrStore(result.ConnectionID, conn)
-	if loaded && incomingIsCanonical == false {
-		// a connection already exists and this is the losing direction: finish the
-		// peer's handshake so its connect returns promptly and adopts the owner, drop.
+	if loaded && localIsCanonical {
+		// a connection already exists and we are canonical: the incoming is the reverse,
+		// losing direction. Finish the peer's handshake so its connect returns promptly
+		// and adopts the owner, then drop it.
 		n.mergeMu.Unlock()
 		if _, err := a.handshake.Accept(n.node, c, hopts, result); err != nil {
 			if err != io.EOF {
@@ -1659,7 +1661,8 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 		return
 	}
 	if loaded {
-		// canonical winner, a provisional registered first: take over its slot
+		// we are not canonical: the incoming is the canonical winner, but a provisional
+		// registered first. Take over its slot.
 		n.connectionsByID.Store(result.ConnectionID, conn)
 	}
 	n.mergeMu.Unlock()

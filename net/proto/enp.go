@@ -95,11 +95,11 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		}
 	}
 
-	// liveness grace: how long an empty pool is tolerated before the connection is
-	// finished — the keepalive timeout when enabled, else a handshake-based fallback.
-	conn.livenessGrace = conn.softwareKeepAliveTimeout
-	if conn.livenessGrace == 0 {
-		conn.livenessGrace = 3 * gen.DefaultHandshakeTimeout
+	// empty-pool grace: how long an empty pool is tolerated before the connection is
+	// terminated. The keepalive timeout when enabled, else a handshake-based fallback.
+	conn.emptyPoolGrace = conn.softwareKeepAliveTimeout
+	if conn.emptyPoolGrace == 0 {
+		conn.emptyPoolGrace = 3 * gen.DefaultHandshakeTimeout
 	}
 
 	if result.NodeFlags.EnableClockSkew == true &&
@@ -167,12 +167,12 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 
 func (e *enp) Serve(c gen.Connection, redial gen.NetworkDial) error {
 	conn := c.(*connection)
-	// only the canonical node (smaller name) fills the pool — single writer. Its
-	// survivor is the connect-side (has redial); the peer's survivor is the accept-side
-	// (redial==nil) and stays passive, accepting the joins. Two fillers would
-	// cross-contaminate the shared pool.
-	canonical := conn.core.Name() < conn.peer
-	if redial == nil || canonical == false || conn.pool_size < 2 || len(conn.pool_dsn) == 0 {
+	// only the canonical node (the smaller name) fills the pool: it is the single
+	// writer. Its surviving connection is the connect side (has redial); the peer's is
+	// the accept side (redial==nil) and stays passive, accepting the joins. Two writers
+	// would cross-contaminate the shared pool.
+	localIsCanonical := conn.core.Name() < conn.peer
+	if redial == nil || localIsCanonical == false || conn.pool_size < 2 || len(conn.pool_dsn) == 0 {
 		conn.wait()
 		return nil
 	}

@@ -129,18 +129,18 @@ type connection struct {
 	order      uint32
 	terminated atomic.Bool
 
-	// done is closed when the connection is finished, unblocking wait() — replaces a
-	// sync.WaitGroup whose Add (in Join) raced its Wait. The connection lives as long
-	// as its primary TCP: a transient empty pool does not tear it down. Instead an
-	// empty pool (post-established) arms liveness, a grace window for the owning end to
-	// re-establish the primary; if the pool stays empty past it the connection is
-	// finished. poolClosed guards the single close of done. All accessed under
+	// done is closed when the connection terminates, unblocking wait(). It replaces a
+	// sync.WaitGroup whose Add (in Join) raced its Wait. The connection lives as long as
+	// its primary TCP: a transient empty pool does not terminate it. Instead an empty
+	// pool (post-established) arms emptyPoolTimer, a grace window for the canonical end to
+	// re-establish the primary; if the pool stays empty past it the connection
+	// terminates. poolClosed guards the single close of done. All accessed under
 	// pool_mutex.
 	done          chan struct{}
 	poolClosed    bool
 	established   bool
-	liveness      *time.Timer
-	livenessGrace time.Duration
+	emptyPoolTimer *time.Timer
+	emptyPoolGrace time.Duration
 }
 
 type fragmentAssembly struct {
@@ -152,7 +152,7 @@ type fragmentAssembly struct {
 }
 
 // poolConn wraps net.Conn so a pool_item's connection can be swapped atomically on
-// re-dial and read without a lock by the sender and Terminate.
+// redial and read without a lock by the sender and Terminate.
 type poolConn struct{ net.Conn }
 
 func (pi *pool_item) closeConn() {
@@ -1722,10 +1722,11 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 	}
 
 	c.pool_mutex.Lock()
-	// the canonical end (dial != nil) is the single writer and caps the pool at
-	// pool_size. The accept end (dial == nil) mirrors whatever the canonical dials and
-	// must not reject independently: a transient size disagreement under churn would
-	// otherwise strand a slot (its TCP closed here while the canonical still holds it).
+	// the canonical end is the single writer and caps the pool at pool_size; the accept
+	// end mirrors whatever the canonical dials and must not reject independently (a
+	// transient size disagreement under churn would otherwise strand a slot, its TCP
+	// closed here while the canonical still holds it). dial != nil identifies the writer:
+	// connect/handleAccepted pass a redial only for the canonical primary.
 	if dial != nil && len(c.pool) >= c.pool_size {
 		c.pool_mutex.Unlock()
 		return fmt.Errorf("pool size limit")
@@ -1741,7 +1742,11 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 		pi.fl = lib.NewFlusher(conn)
 	}
 	c.pool = append(c.pool, pi)
-	c.cancelLiveness() // a TCP joined: cancel any pending empty-pool teardown
+	// a TCP joined: cancel any pending empty-pool termination
+	if c.emptyPoolTimer != nil {
+		c.emptyPoolTimer.Stop()
+		c.emptyPoolTimer = nil
+	}
 	c.pool_mutex.Unlock()
 
 	go func() {
@@ -1749,19 +1754,19 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			defer c.log.Trace("connection %s left the pool", conn.RemoteAddr().String())
 		}
 
-	re: // reconnected
+	re: // redialed
 		if lib.Verbose() {
 			c.log.Trace("joined new connection %s to the pool", conn.RemoteAddr().String())
 		}
 
 		c.serve(pi, tail)
 
-		// reconnect this slot until it rejoins, the connection terminates, or the peer
-		// stays unreachable for the whole liveness window. When this TCP died the peer
-		// freed the matching slot, so a transient "pool full" reject clears shortly —
+		// redial this slot until it rejoins the pool, the connection terminates, or the
+		// peer stays unreachable for the whole empty-pool grace. When this TCP died the
+		// peer freed the matching slot, so a transient "pool full" reject clears shortly:
 		// retry until then. If the peer is gone for good, give up so the (eventually
-		// empty) pool finishes the connection instead of re-dialing a dead peer forever.
-		deadline := time.Now().Add(c.livenessGrace)
+		// empty) pool terminates the connection instead of redialing a dead peer forever.
+		deadline := time.Now().Add(c.emptyPoolGrace)
 		for dial != nil && c.terminated.Load() == false && time.Now().Before(deadline) {
 			pool_dsn := []string{}
 			pool_dsn = append(pool_dsn, c.pool_dsn...)
@@ -1772,16 +1777,16 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 				if c.terminated.Load() {
 					break
 				}
-				c.log.Trace("re-dialing %s", dsn)
+				c.log.Trace("redialing %s", dsn)
 				nc, t, err := dial(dsn, id)
 				if err != nil {
 					continue
 				}
-				// install the reconnected TCP under pool_mutex with a terminated
-				// re-check: Terminate also closes pool conns under pool_mutex, so a
-				// re-dial that completed after Terminate already passed this item would
-				// otherwise install a live TCP the connection no longer tracks (the peer
-				// would keep it forever — pool overshoot). If terminated, drop it.
+				// install the redialed TCP under pool_mutex with a terminated re-check:
+				// Terminate also closes pool conns under pool_mutex, so a redial that
+				// completed after Terminate already passed this item would otherwise
+				// install a live TCP the connection no longer tracks (the peer would
+				// keep it forever, a pool overshoot). If terminated, drop it.
 				c.pool_mutex.Lock()
 				if c.terminated.Load() {
 					c.pool_mutex.Unlock()
@@ -1813,9 +1818,9 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			time.Sleep(50 * time.Millisecond) // peer slot not free yet, back off and retry
 		}
 
-		// this TCP is gone: remove it from the pool. An empty pool does not finish the
-		// connection — the primary may be re-established by the owning end. If already
-		// terminated, unblock wait(); otherwise arm the liveness grace window.
+		// this TCP is gone: remove it from the pool. An empty pool does not terminate the
+		// connection, the primary may be re-established by the canonical end. If already
+		// terminated, unblock wait(); otherwise arm the empty-pool grace.
 		c.pool_mutex.Lock()
 		for i, item := range c.pool {
 			if item != pi {
@@ -1829,7 +1834,7 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			if c.terminated.Load() {
 				c.closeDone()
 			} else if c.established {
-				c.armLiveness()
+				c.armEmptyPoolTimer()
 			}
 		}
 		c.pool_mutex.Unlock()
@@ -1857,7 +1862,10 @@ func (c *connection) Terminate(reason error) {
 
 	c.pool_mutex.Lock()
 	defer c.pool_mutex.Unlock()
-	c.cancelLiveness()
+	if c.emptyPoolTimer != nil {
+		c.emptyPoolTimer.Stop()
+		c.emptyPoolTimer = nil
+	}
 	for _, pi := range c.pool {
 		if t := pi.timer.Load(); t != nil {
 			t.Stop()
@@ -3654,16 +3662,16 @@ func (c *connection) sendAny(msg any, order uint8, orderPeer uint8, compression 
 }
 
 func (c *connection) wait() {
-	// serve started: mark established. An already-empty pool arms the liveness grace
-	// (the owning end may still be re-establishing the primary) rather than tearing
-	// the connection down immediately.
+	// serve started: mark established. An already-empty pool arms the empty-pool grace
+	// (the canonical end may still be re-establishing the primary) rather than
+	// terminating the connection immediately.
 	c.pool_mutex.Lock()
 	c.established = true
 	if len(c.pool) == 0 {
 		if c.terminated.Load() {
 			c.closeDone()
 		} else {
-			c.armLiveness()
+			c.armEmptyPoolTimer()
 		}
 	}
 	c.pool_mutex.Unlock()
@@ -3678,14 +3686,14 @@ func (c *connection) closeDone() {
 	}
 }
 
-// armLiveness starts the grace window for an empty pool: if no TCP rejoins within
-// livenessGrace the primary is gone for good and the connection is finished. Caller
-// must hold pool_mutex.
-func (c *connection) armLiveness() {
-	if c.liveness != nil {
+// armEmptyPoolTimer starts the grace window for an empty pool: if no TCP rejoins the pool
+// within emptyPoolGrace the primary is gone for good and the connection terminates.
+// Caller must hold pool_mutex.
+func (c *connection) armEmptyPoolTimer() {
+	if c.emptyPoolTimer != nil {
 		return
 	}
-	c.liveness = time.AfterFunc(c.livenessGrace, func() {
+	c.emptyPoolTimer = time.AfterFunc(c.emptyPoolGrace, func() {
 		c.pool_mutex.Lock()
 		if len(c.pool) == 0 && c.terminated.Load() == false {
 			c.terminated.Store(true)
@@ -3693,15 +3701,6 @@ func (c *connection) armLiveness() {
 		}
 		c.pool_mutex.Unlock()
 	})
-}
-
-// cancelLiveness stops a pending liveness teardown (a TCP rejoined). Caller must
-// hold pool_mutex.
-func (c *connection) cancelLiveness() {
-	if c.liveness != nil {
-		c.liveness.Stop()
-		c.liveness = nil
-	}
 }
 
 func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compression, tracing gen.Tracing) error {

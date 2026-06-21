@@ -59,10 +59,10 @@ func TestDistSimultaneousConnectNoFlag(t *testing.T) {
 }
 
 // TestDistSimultaneousConnectCluster: every node dials every other at once and the
-// cluster settles into a clean full mesh — one connection per peer (no duplicates,
+// cluster settles into a clean full mesh: one connection per peer (no duplicates,
 // no leaks), with every counter-dial resolving to a single bidirectional connection.
 func TestDistSimultaneousConnectCluster(t *testing.T) {
-	const N = 30
+	const N = 50
 
 	s := stage.New(t)
 	nodes := make([]*stage.Node, N)
