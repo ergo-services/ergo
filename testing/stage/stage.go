@@ -109,6 +109,11 @@ type NodeOptions struct {
 	// framework default.
 	PoolSize int
 
+	// Mode sets the network mode (pass-through to gen.NodeOptions.Network.Mode). Use
+	// gen.NetworkModeHidden to model a node behind NAT: it dials out but runs no acceptor,
+	// so peers cannot dial it back. Zero is NetworkModeEnabled.
+	Mode gen.NetworkMode
+
 	// Security pass-through (e.g. ExposeEnvRemoteSpawn for remote-spawn env inheritance).
 	Security gen.SecurityOptions
 }
@@ -141,6 +146,7 @@ func (s *Stage) StartNode(name string, opts ...NodeOptions) *Node {
 	no.Network.MaxMessageSize = o.MaxMessageSize
 	no.Network.FragmentSize = o.FragmentSize
 	no.Network.Flags = o.NetworkFlags
+	no.Network.Mode = o.Mode
 	if o.PoolSize > 0 {
 		no.Network.Handshake = handshake.Create(handshake.Options{PoolSize: o.PoolSize})
 	}

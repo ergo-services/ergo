@@ -50,6 +50,8 @@ const (
 	protoMessageK byte = 208 // keepalive
 	protoMessageS byte = 209 // skew measurement
 
+	protoMessageExtend byte = 99 // pool-fill go-ahead (acceptor to dialer)
+
 	// reserved space at the beginning of every message buffer
 	// for wrapping headers (tracing, proxy, etc.) without copying
 	protoWrapReserve int = 128

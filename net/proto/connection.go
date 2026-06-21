@@ -141,6 +141,15 @@ type connection struct {
 	established   bool
 	emptyPoolTimer *time.Timer
 	emptyPoolGrace time.Duration
+
+	// pool fill: the dialer reached the peer's listener, so it is the filler. redial
+	// dials pool-joins (set by Serve). A canonical-direction dialer fills at once; a
+	// non-canonical one waits for the acceptor's protoMessageExtend (extendRequested) so
+	// it never fills a connection a simultaneous connect would supersede. filling guards
+	// the single fill run. redial/extendRequested are accessed under pool_mutex.
+	redial          gen.NetworkDial
+	extendRequested bool
+	filling         atomic.Bool
 }
 
 type fragmentAssembly struct {
@@ -1843,6 +1852,53 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 	return nil
 }
 
+// Extend tells the peer (the dialer that reached our listener) to fill its pool. The
+// node calls it on the canonical acceptor when no competing canonical-direction connect
+// is in flight, so the non-canonical dialer fills only the surviving connection.
+func (c *connection) Extend() {
+	c.pool_mutex.RLock()
+	var fl lib.Flusher
+	if len(c.pool) > 0 {
+		fl = c.pool[0].fl
+	}
+	c.pool_mutex.RUnlock()
+	if fl == nil {
+		return
+	}
+	fl.Write([]byte{protoMagic, protoVersion, 0, 0, 0, 8, 0, protoMessageExtend})
+}
+
+// startFill runs the pool fill once. The canonical dialer calls it from Serve; the
+// non-canonical dialer calls it on receiving protoMessageExtend.
+func (c *connection) startFill() {
+	if c.filling.CompareAndSwap(false, true) {
+		go c.fillPool()
+	}
+}
+
+// fillPool dials pool-joins to the peer's listener until the pool reaches pool_size,
+// retrying failed dials under a connect storm. Joined TCPs self-redial on drop (redial
+// passed to Join), so this drives only the initial fill.
+func (c *connection) fillPool() {
+	redial := c.redial
+	for i := 0; ; i++ {
+		c.pool_mutex.RLock()
+		filled := len(c.pool) >= c.pool_size
+		c.pool_mutex.RUnlock()
+		if filled || c.terminated.Load() {
+			break
+		}
+		nc, tail, err := redial(c.pool_dsn[i%len(c.pool_dsn)], c.id)
+		if err != nil {
+			time.Sleep(50 * time.Millisecond) // I/O retry backoff
+			continue
+		}
+		if err := c.Join(nc, c.id, redial, tail); err != nil {
+			nc.Close()
+		}
+	}
+}
+
 func (c *connection) Terminate(reason error) {
 	c.terminated.Store(true)
 
@@ -1974,6 +2030,21 @@ func (c *connection) serve(pi *pool_item, tail []byte) {
 			}
 			tsRecv := time.Now().UnixNano()
 			c.handleSkew(pi, buf, tsRecv)
+			lib.ReleaseBuffer(buf)
+			buf = buftail
+			continue
+		}
+
+		// pool-fill go-ahead: the acceptor confirmed this (dialer) connection is the
+		// survivor. start filling. Header-only, handled inline (not queued).
+		if buf.B[7] == protoMessageExtend {
+			c.pool_mutex.Lock()
+			c.extendRequested = true
+			ready := c.redial != nil
+			c.pool_mutex.Unlock()
+			if ready {
+				c.startFill()
+			}
 			lib.ReleaseBuffer(buf)
 			buf = buftail
 			continue

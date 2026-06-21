@@ -167,34 +167,24 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 
 func (e *enp) Serve(c gen.Connection, redial gen.NetworkDial) error {
 	conn := c.(*connection)
-	// only the canonical node (the smaller name) fills the pool: it is the single
-	// writer. Its surviving connection is the connect side (has redial); the peer's is
-	// the accept side (redial==nil) and stays passive, accepting the joins. Two writers
-	// would cross-contaminate the shared pool.
-	localIsCanonical := conn.core.Name() < conn.peer
-	if redial == nil || localIsCanonical == false || conn.pool_size < 2 || len(conn.pool_dsn) == 0 {
+	// the dialer reached the peer's listener, so it is the pool filler (redial != nil);
+	// the accept side (redial == nil) stays passive. A connection too small to pool also
+	// stays passive.
+	if redial == nil || conn.pool_size < 2 || len(conn.pool_dsn) == 0 {
 		conn.wait()
 		return nil
 	}
 
-	// fill the pool to pool_size, retrying dials that fail under a connect storm so
-	// every slot is eventually filled. Joined TCPs self-redial on drop (dial passed to
-	// Join), so this only drives the initial fill.
-	for i := 0; ; i++ {
-		conn.pool_mutex.RLock()
-		filled := len(conn.pool) >= conn.pool_size
-		conn.pool_mutex.RUnlock()
-		if filled || conn.terminated.Load() {
-			break
-		}
-		nc, tail, err := redial(conn.pool_dsn[i%len(conn.pool_dsn)], conn.id)
-		if err != nil {
-			time.Sleep(50 * time.Millisecond) // I/O retry backoff
-			continue
-		}
-		if err := conn.Join(nc, conn.id, redial, tail); err != nil {
-			nc.Close()
-		}
+	// a canonical-direction dialer always survives the merge, so it fills now. A
+	// non-canonical dialer may be a storm loser, so it fills only when the acceptor
+	// confirms it is the survivor via protoMessageExtend (handled in serve()); until then
+	// it stays passive so it never fills a connection a simultaneous connect supersedes.
+	conn.pool_mutex.Lock()
+	conn.redial = redial
+	fillNow := conn.core.Name() < conn.peer || conn.extendRequested
+	conn.pool_mutex.Unlock()
+	if fillNow {
+		conn.startFill()
 	}
 
 	conn.wait()

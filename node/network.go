@@ -1077,10 +1077,10 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	// handshake above ran concurrently.
 	localIsCanonical := n.node.name < result.Peer
 
-	// only the canonical end is the pool writer: it redials and fills. The non-canonical
-	// outgoing (a provisional that registered before the canonical arrived) must stay
-	// passive: redialing from it would push extra TCPs into the peer's pool that the
-	// canonical writer does not track. dial==nil makes it passive.
+	// the non-canonical outgoing primary stays passive (dial==nil, no self-redial): under
+	// a simultaneous connect it is the losing direction and gets superseded. The pool is
+	// filled by the dialer, which gets the real redial via serve; a non-canonical dialer
+	// fills only after the acceptor's go-ahead (protoMessageExtend), never a superseded one.
 	primaryDial := redial
 	if localIsCanonical == false {
 		primaryDial = nil
@@ -1109,7 +1109,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 			return nil, jerr
 		}
 		n.mergeMu.Unlock()
-		go n.serve(proto, pconn, primaryDial, result.ConnectionID)
+		go n.serve(proto, pconn, redial, result.ConnectionID)
 		oc.Terminate(nil) // drop the provisional loser
 		return pconn, nil
 	}
@@ -1123,7 +1123,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return nil, jerr
 	}
 	n.mergeMu.Unlock()
-	go n.serve(proto, pconn, primaryDial, result.ConnectionID)
+	go n.serve(proto, pconn, redial, result.ConnectionID)
 	return pconn, nil
 }
 
@@ -1707,6 +1707,18 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 		owner.(gen.Connection).Terminate(nil)
 	}
 	go n.serve(a.proto, conn, nil, result.ConnectionID)
+
+	// the dialer reached our listener and is the pool filler. When we are canonical the
+	// dialer is non-canonical and waits for our go-ahead before filling. Send it only when
+	// we are not ourselves dialing the peer: a concurrent canonical-direction connect would
+	// supersede this one, and the dialer must not fill a connection that is about to die.
+	if localIsCanonical {
+		if _, dialing := n.pending.Load(result.Peer); dialing == false {
+			if ext, ok := conn.(interface{ Extend() }); ok {
+				ext.Extend()
+			}
+		}
+	}
 }
 
 // registerConnection sets the routing index by peer name. Dedup is handled by

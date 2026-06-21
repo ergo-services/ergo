@@ -157,6 +157,12 @@ var _ gen.Registrar = (*memRegistrar)(nil)
 // gen.Registrar
 
 func (r *memRegistrar) Register(node gen.NodeRegistrar, routes gen.RegisterRoutes) (gen.StaticRoutes, error) {
+	if len(routes.Routes) == 0 {
+		// hidden mode (no acceptor): do not register the node, so peers cannot resolve
+		// and dial it back. It still resolves others via the shared store. Mirrors the
+		// embedded registrar client.
+		return gen.StaticRoutes{}, nil
+	}
 	if err := r.store.put(node.Name(), routes.Routes); err != nil {
 		return gen.StaticRoutes{}, err
 	}

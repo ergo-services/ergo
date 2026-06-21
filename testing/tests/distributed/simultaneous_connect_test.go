@@ -3,6 +3,7 @@ package distributed
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
@@ -56,6 +57,41 @@ func TestDistSimultaneousConnectNoFlag(t *testing.T) {
 	// n1 keeps the framework default (flag on); n2 explicitly disabled it
 	check.Equal(t, false, r1.Info().NetworkFlags.EnableSimultaneousConnect)
 	check.Equal(t, true, r2.Info().NetworkFlags.EnableSimultaneousConnect)
+}
+
+// TestDistConnectBehindNAT models a node behind NAT with gen.NetworkModeHidden: it runs no
+// acceptor, so the public peer genuinely cannot dial it back. The hidden node has the
+// larger (non-canonical) name and dials the public, smaller (canonical) one, which becomes
+// the acceptor. Unable to reach the hidden node, the canonical acceptor sends the go-ahead
+// (protoMessageExtend) and the non-canonical hidden dialer fills the pool. Without it the
+// pool would stick at the single primary.
+func TestDistConnectBehindNAT(t *testing.T) {
+	s := stage.New(t)
+	// the connection's pool size is the acceptor's. The public node is always the acceptor
+	// here (the hidden node runs no listener), so its 5 wins and the hidden dialer's 10 is
+	// ignored: distinct sizes prove which end dictates.
+	public := s.StartNode("aaa", stage.NodeOptions{PoolSize: 5})
+	hidden := s.StartNode("zzz", stage.NodeOptions{PoolSize: 10, Mode: gen.NetworkModeHidden})
+
+	// the hidden (NAT) node dials the public canonical one, which cannot dial back
+	r := s.Connect(hidden, public)
+	rp, err := public.Native().Network().Node(hidden.Name())
+	check.NoError(t, err)
+
+	// negotiated pool size is the acceptor's (public 5), not the hidden dialer's 10
+	check.Equal(t, 5, r.Info().PoolSize)
+	check.Equal(t, 5, rp.Info().PoolSize)
+
+	// both ends must settle at exactly that size in TCP links: the hidden dialer fills, the
+	// public acceptor mirrors. The settle loop also rejects overshoot (exits only at 5).
+	deadline := time.Now().Add(5 * time.Second)
+	for r.Info().PoolLen != 5 || rp.Info().PoolLen != 5 {
+		if time.Now().After(deadline) {
+			t.Fatalf("pool did not fill to 5 TCP links: hidden dialer=%d public acceptor=%d",
+				r.Info().PoolLen, rp.Info().PoolLen)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // TestDistSimultaneousConnectCluster: every node dials every other at once and the
