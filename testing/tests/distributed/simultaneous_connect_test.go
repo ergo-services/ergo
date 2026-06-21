@@ -78,8 +78,11 @@ func TestDistSimultaneousConnectCluster(t *testing.T) {
 			if i == j {
 				continue
 			}
-			_, err := nodes[i].Native().Network().Node(nodes[j].Name())
+			r, err := nodes[i].Native().Network().Node(nodes[j].Name())
 			check.NoError(t, err)
+			// each peer connection filled its TCP pool to the configured size
+			info := r.Info()
+			check.Equal(t, info.PoolSize, info.PoolLen)
 		}
 	}
 }

@@ -128,7 +128,19 @@ type connection struct {
 
 	order      uint32
 	terminated atomic.Bool
-	wg         sync.WaitGroup
+
+	// done is closed when the connection is finished, unblocking wait() — replaces a
+	// sync.WaitGroup whose Add (in Join) raced its Wait. The connection lives as long
+	// as its primary TCP: a transient empty pool does not tear it down. Instead an
+	// empty pool (post-established) arms liveness, a grace window for the owning end to
+	// re-establish the primary; if the pool stays empty past it the connection is
+	// finished. poolClosed guards the single close of done. All accessed under
+	// pool_mutex.
+	done          chan struct{}
+	poolClosed    bool
+	established   bool
+	liveness      *time.Timer
+	livenessGrace time.Duration
 }
 
 type fragmentAssembly struct {
@@ -139,8 +151,18 @@ type fragmentAssembly struct {
 	deadline       time.Time
 }
 
+// poolConn wraps net.Conn so a pool_item's connection can be swapped atomically on
+// re-dial and read without a lock by the sender and Terminate.
+type poolConn struct{ net.Conn }
+
+func (pi *pool_item) closeConn() {
+	if pc := pi.connection.Load(); pc != nil {
+		pc.Close()
+	}
+}
+
 type pool_item struct {
-	connection net.Conn
+	connection atomic.Pointer[poolConn]
 	fl         lib.Flusher
 	timer      atomic.Pointer[time.Timer]
 	handling   atomic.Bool
@@ -175,6 +197,9 @@ func (c *connection) Version() gen.Version {
 }
 
 func (c *connection) Info() gen.RemoteNodeInfo {
+	c.pool_mutex.RLock()
+	poolLen := len(c.pool)
+	c.pool_mutex.RUnlock()
 	info := gen.RemoteNodeInfo{
 		Node:             c.peer,
 		Uptime:           time.Now().Unix() - c.peer_creation,
@@ -187,6 +212,7 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 		NetworkFlags: c.peer_flags,
 
 		PoolSize: c.pool_size,
+		PoolLen:  poolLen,
 		PoolDSN:  c.pool_dsn,
 
 		MaxMessageSize: c.peer_maxmessagesize,
@@ -1696,23 +1722,28 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 	}
 
 	c.pool_mutex.Lock()
-	if len(c.pool) >= c.pool_size {
+	// the canonical end (dial != nil) is the single writer and caps the pool at
+	// pool_size. The accept end (dial == nil) mirrors whatever the canonical dials and
+	// must not reject independently: a transient size disagreement under churn would
+	// otherwise strand a slot (its TCP closed here while the canonical still holds it).
+	if dial != nil && len(c.pool) >= c.pool_size {
 		c.pool_mutex.Unlock()
 		return fmt.Errorf("pool size limit")
 	}
 	// clear handshake write deadline
 	conn.SetWriteDeadline(time.Time{})
 
-	pi := &pool_item{connection: conn}
+	pi := &pool_item{}
+	pi.connection.Store(&poolConn{conn})
 	if c.softwareKeepAlive {
 		pi.fl = lib.NewFlusherWithKeepAlive(conn, c.softwareKeepAliveMessage, c.softwareKeepAlivePeriod)
 	} else {
 		pi.fl = lib.NewFlusher(conn)
 	}
 	c.pool = append(c.pool, pi)
+	c.cancelLiveness() // a TCP joined: cancel any pending empty-pool teardown
 	c.pool_mutex.Unlock()
 
-	c.wg.Add(1)
 	go func() {
 		if lib.Verbose() {
 			defer c.log.Trace("connection %s left the pool", conn.RemoteAddr().String())
@@ -1725,7 +1756,13 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 
 		c.serve(pi, tail)
 
-		if dial != nil {
+		// reconnect this slot until it rejoins, the connection terminates, or the peer
+		// stays unreachable for the whole liveness window. When this TCP died the peer
+		// freed the matching slot, so a transient "pool full" reject clears shortly —
+		// retry until then. If the peer is gone for good, give up so the (eventually
+		// empty) pool finishes the connection instead of re-dialing a dead peer forever.
+		deadline := time.Now().Add(c.livenessGrace)
+		for dial != nil && c.terminated.Load() == false && time.Now().Before(deadline) {
 			pool_dsn := []string{}
 			pool_dsn = append(pool_dsn, c.pool_dsn...)
 			rand.Shuffle(len(pool_dsn), func(i, j int) {
@@ -1733,20 +1770,31 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			})
 			for _, dsn := range pool_dsn {
 				if c.terminated.Load() {
-					c.wg.Done()
-					return
+					break
 				}
 				c.log.Trace("re-dialing %s", dsn)
 				nc, t, err := dial(dsn, id)
 				if err != nil {
 					continue
 				}
-				pi.connection = nc
+				// install the reconnected TCP under pool_mutex with a terminated
+				// re-check: Terminate also closes pool conns under pool_mutex, so a
+				// re-dial that completed after Terminate already passed this item would
+				// otherwise install a live TCP the connection no longer tracks (the peer
+				// would keep it forever — pool overshoot). If terminated, drop it.
+				c.pool_mutex.Lock()
+				if c.terminated.Load() {
+					c.pool_mutex.Unlock()
+					nc.Close()
+					break
+				}
+				pi.connection.Store(&poolConn{nc})
 				nc.SetWriteDeadline(time.Time{})
 				if old := pi.timer.Load(); old != nil {
 					old.Stop()
 				}
 				pi.fl.Reset(nc)
+				c.pool_mutex.Unlock()
 				tail = t
 				atomic.AddUint64(&c.reconnections, 1)
 
@@ -1762,13 +1810,12 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 
 				goto re
 			}
-		}
-		if c.terminated.Load() {
-			c.wg.Done()
-			return
+			time.Sleep(50 * time.Millisecond) // peer slot not free yet, back off and retry
 		}
 
-		// remove it from the pool
+		// this TCP is gone: remove it from the pool. An empty pool does not finish the
+		// connection — the primary may be re-established by the owning end. If already
+		// terminated, unblock wait(); otherwise arm the liveness grace window.
 		c.pool_mutex.Lock()
 		for i, item := range c.pool {
 			if item != pi {
@@ -1776,15 +1823,16 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			}
 			c.pool[i] = c.pool[0]
 			c.pool = c.pool[1:]
+			break
 		}
 		if len(c.pool) == 0 {
-			c.pool_mutex.Unlock()
-			c.wg.Done()
-			return
+			if c.terminated.Load() {
+				c.closeDone()
+			} else if c.established {
+				c.armLiveness()
+			}
 		}
 		c.pool_mutex.Unlock()
-
-		c.wg.Done()
 	}()
 
 	return nil
@@ -1809,11 +1857,19 @@ func (c *connection) Terminate(reason error) {
 
 	c.pool_mutex.Lock()
 	defer c.pool_mutex.Unlock()
+	c.cancelLiveness()
 	for _, pi := range c.pool {
 		if t := pi.timer.Load(); t != nil {
 			t.Stop()
 		}
-		pi.connection.Close()
+		if pc := pi.connection.Load(); pc != nil {
+			pc.Close()
+		}
+	}
+	// already-empty pool has no goroutine to close done; do it here. A non-empty pool
+	// drains via the closed TCPs and its last goroutine closes done (terminated set).
+	if len(c.pool) == 0 {
+		c.closeDone()
 	}
 
 	// cleanup fragment state
@@ -1834,7 +1890,7 @@ func (c *connection) serve(pi *pool_item, tail []byte) {
 		}()
 	}
 
-	conn := pi.connection
+	conn := pi.connection.Load()
 
 	// start skew measurement now that serve() is running
 	if c.clockSkew {
@@ -3598,7 +3654,54 @@ func (c *connection) sendAny(msg any, order uint8, orderPeer uint8, compression 
 }
 
 func (c *connection) wait() {
-	c.wg.Wait()
+	// serve started: mark established. An already-empty pool arms the liveness grace
+	// (the owning end may still be re-establishing the primary) rather than tearing
+	// the connection down immediately.
+	c.pool_mutex.Lock()
+	c.established = true
+	if len(c.pool) == 0 {
+		if c.terminated.Load() {
+			c.closeDone()
+		} else {
+			c.armLiveness()
+		}
+	}
+	c.pool_mutex.Unlock()
+	<-c.done
+}
+
+// closeDone closes done exactly once. Caller must hold pool_mutex.
+func (c *connection) closeDone() {
+	if c.poolClosed == false {
+		c.poolClosed = true
+		close(c.done)
+	}
+}
+
+// armLiveness starts the grace window for an empty pool: if no TCP rejoins within
+// livenessGrace the primary is gone for good and the connection is finished. Caller
+// must hold pool_mutex.
+func (c *connection) armLiveness() {
+	if c.liveness != nil {
+		return
+	}
+	c.liveness = time.AfterFunc(c.livenessGrace, func() {
+		c.pool_mutex.Lock()
+		if len(c.pool) == 0 && c.terminated.Load() == false {
+			c.terminated.Store(true)
+			c.closeDone()
+		}
+		c.pool_mutex.Unlock()
+	})
+}
+
+// cancelLiveness stops a pending liveness teardown (a TCP rejoined). Caller must
+// hold pool_mutex.
+func (c *connection) cancelLiveness() {
+	if c.liveness != nil {
+		c.liveness.Stop()
+		c.liveness = nil
+	}
 }
 
 func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compression, tracing gen.Tracing) error {
@@ -3700,7 +3803,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	_, err := pi.fl.Write(buf.B[msgStart:])
 	lib.ReleaseBuffer(buf)
 	if err != nil {
-		pi.connection.Close()
+		pi.closeConn()
 		return err
 	}
 
@@ -3781,7 +3884,7 @@ func (c *connection) sendFragmented(buf *lib.Buffer, msgStart int, order uint8) 
 
 		_, err := pi.fl.Write(buf.B[hdr : hdr+16+chunkSize])
 		if err != nil {
-			pi.connection.Close()
+			pi.closeConn()
 			lib.ReleaseBuffer(buf)
 			return err
 		}

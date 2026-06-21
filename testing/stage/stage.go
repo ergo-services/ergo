@@ -22,6 +22,7 @@ import (
 
 	"ergo.services/ergo/app/system"
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/net/handshake"
 	"ergo.services/ergo/node"
 	"ergo.services/ergo/testing/check"
 )
@@ -104,6 +105,9 @@ type NodeOptions struct {
 	MaxMessageSize int
 	FragmentSize   int
 	NetworkFlags   gen.NetworkFlags
+	// PoolSize sets the number of TCP connections per peer connection. Zero keeps the
+	// framework default.
+	PoolSize int
 
 	// Security pass-through (e.g. ExposeEnvRemoteSpawn for remote-spawn env inheritance).
 	Security gen.SecurityOptions
@@ -137,6 +141,9 @@ func (s *Stage) Node(name string, opts ...NodeOptions) *Node {
 	no.Network.MaxMessageSize = o.MaxMessageSize
 	no.Network.FragmentSize = o.FragmentSize
 	no.Network.Flags = o.NetworkFlags
+	if o.PoolSize > 0 {
+		no.Network.Handshake = handshake.Create(handshake.Options{PoolSize: o.PoolSize})
+	}
 	no.Security = o.Security
 	no.Env = o.Env
 	if o.EnableSystemApp {
@@ -348,23 +355,29 @@ func (s *Stage) ConnectMesh(nodes ...*Node) {
 
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		missing := 0
+		unsettled := 0
 		for i := range nodes {
 			for j := range nodes {
 				if i == j {
 					continue
 				}
-				if _, err := nodes[i].node.Network().Node(nodes[j].node.Name()); err != nil {
-					missing++
+				r, err := nodes[i].node.Network().Node(nodes[j].node.Name())
+				if err != nil {
+					unsettled++
 					nodes[i].node.Network().GetNode(nodes[j].node.Name())
+					continue
+				}
+				// settled only once the TCP pool has filled to its target
+				if info := r.Info(); info.PoolLen != info.PoolSize {
+					unsettled++
 				}
 			}
 		}
-		if missing == 0 {
+		if unsettled == 0 {
 			return
 		}
 		if time.Now().After(deadline) {
-			s.t.Fatalf("stage: mesh of %d nodes did not settle: %d pairs missing", len(nodes), missing)
+			s.t.Fatalf("stage: mesh of %d nodes did not settle: %d pairs missing or pool not filled", len(nodes), unsettled)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

@@ -68,6 +68,9 @@ type network struct {
 	connections     sync.Map // gen.Atom (peer name) => gen.Connection (routing index)
 	connectionsByID sync.Map // string (ConnectionID) => gen.Connection (authoritative dedup + pool-join attach)
 	pending         sync.Map // gen.Atom (peer name) => *pendingEntry
+	// mergeMu serializes the connection-merge decision (register/take-over/drop), like
+	// OTP's net_kernel: handshakes run concurrently, the decision is one at a time.
+	mergeMu sync.Mutex
 
 	connectionsEstablished atomic.Uint64
 	connectionsLost        atomic.Uint64
@@ -1068,26 +1071,59 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return c, tail, nil
 	}
 
+	// single primary: the connection for connID is the canonical-direction primary
+	// (initiated by the smaller-named node). Both ends compute the same survivor, so no
+	// cross-kill. The merge decision is serialized (mergeMu) like OTP's net_kernel; the
+	// handshake above ran concurrently.
+	iAmCanonical := n.node.name < result.Peer
+
+	// only the canonical end is the pool writer: it re-dials and fills. The
+	// non-canonical outgoing (a provisional that registered before the canonical
+	// arrived) must stay passive — re-dialing from it would push extra TCPs into the
+	// peer's pool that the canonical writer does not track. dial==nil makes it passive.
+	primaryDial := redial
+	if iAmCanonical == false {
+		primaryDial = nil
+	}
+
+	n.mergeMu.Lock()
 	owner, loaded := n.connectionsByID.LoadOrStore(result.ConnectionID, pconn)
 	if loaded {
-		// connection with this ID already exists (e.g. simultaneous connect): fold
-		// our TCP into the owner's pool and drop our duplicate.
-		pconn.Terminate(nil)
 		oc := owner.(gen.Connection)
-		if jerr := oc.Join(conn, result.ConnectionID, redial, result.Tail); jerr != nil {
+		if iAmCanonical == false {
+			// our outgoing is the losing direction: drop ours, adopt the owner
+			n.mergeMu.Unlock()
+			pconn.Terminate(nil)
 			conn.Close()
+			return oc, nil
 		}
-		return oc, nil
+		// our outgoing is the canonical winner but a provisional (losing direction)
+		// registered first: take over — replace it, then drop it
+		n.connectionsByID.Store(result.ConnectionID, pconn)
+		n.registerConnection(result.Peer, pconn)
+		if jerr := pconn.Join(conn, result.ConnectionID, primaryDial, result.Tail); jerr != nil {
+			n.connectionsByID.CompareAndDelete(result.ConnectionID, pconn)
+			n.mergeMu.Unlock()
+			pconn.Terminate(nil)
+			conn.Close()
+			return nil, jerr
+		}
+		n.mergeMu.Unlock()
+		go n.serve(proto, pconn, primaryDial, result.ConnectionID)
+		oc.Terminate(nil) // drop the provisional loser
+		return pconn, nil
 	}
 
 	n.registerConnection(result.Peer, pconn)
-	if jerr := pconn.Join(conn, result.ConnectionID, redial, result.Tail); jerr != nil {
-		n.connectionsByID.Delete(result.ConnectionID)
+	if jerr := pconn.Join(conn, result.ConnectionID, primaryDial, result.Tail); jerr != nil {
+		n.connectionsByID.CompareAndDelete(result.ConnectionID, pconn)
+		n.mergeMu.Unlock()
 		pconn.Terminate(nil)
 		conn.Close()
 		return nil, jerr
 	}
-	go n.serve(proto, pconn, redial, result.ConnectionID)
+	n.mergeMu.Unlock()
+	go n.serve(proto, pconn, primaryDial, result.ConnectionID)
 	return pconn, nil
 }
 
@@ -1597,40 +1633,75 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 		return
 	}
 
-	// register by ConnectionID BEFORE Accept sends our accept/introduce: any
-	// pool-join is guaranteed to arrive after this registration (happens-before).
+	// single primary: keep one connection per ConnectionID. An incoming TCP is dropped
+	// only when a connection already exists and this is the losing (non-canonical)
+	// direction; otherwise it establishes (so a single-direction connect works whatever
+	// the initiator's name). Register by ConnectionID BEFORE sending our introduce
+	// (Accept): the peer fills its pool only after its connect completes (after it reads
+	// our introduce), so registering first guarantees its pool-join TCPs find this
+	// connection instead of racing registration, getting dropped (LOADMISS), and
+	// re-dialing. Merge decision serialized via mergeMu.
+	incomingIsCanonical := result.Peer < n.node.name
+	n.mergeMu.Lock()
 	owner, loaded := n.connectionsByID.LoadOrStore(result.ConnectionID, conn)
+	if loaded && incomingIsCanonical == false {
+		// a connection already exists and this is the losing direction: finish the
+		// peer's handshake so its connect returns promptly and adopts the owner, drop.
+		n.mergeMu.Unlock()
+		if _, err := a.handshake.Accept(n.node, c, hopts, result); err != nil {
+			if err != io.EOF {
+				n.node.Log().Warning("unable to finish handshake with %s: %s", result.Peer, err)
+			}
+			a.handshakeErrors.Add(1)
+		}
+		conn.Terminate(nil)
+		c.Close()
+		return
+	}
+	if loaded {
+		// canonical winner, a provisional registered first: take over its slot
+		n.connectionsByID.Store(result.ConnectionID, conn)
+	}
+	n.mergeMu.Unlock()
 
+	// on failure restore the registry: put the provisional back (take-over) or remove
+	// our entry (fresh establish).
 	result, err = a.handshake.Accept(n.node, c, hopts, result)
 	if err != nil {
-		if loaded == false {
-			n.connectionsByID.Delete(result.ConnectionID)
-		}
 		if err != io.EOF {
 			n.node.Log().Warning("unable to finish handshake with %s: %s", result.Peer, err)
 		}
 		a.handshakeErrors.Add(1)
-		conn.Terminate(nil)
-		c.Close()
-		return
-	}
-
-	if loaded {
-		// connection with this ID already exists (simultaneous connect or a
-		// redundant primary): fold our TCP into the owner's pool
-		conn.Terminate(nil)
-		if jerr := owner.(gen.Connection).Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
-			c.Close()
+		n.mergeMu.Lock()
+		if loaded {
+			n.connectionsByID.CompareAndSwap(result.ConnectionID, conn, owner)
+		} else {
+			n.connectionsByID.CompareAndDelete(result.ConnectionID, conn)
 		}
-		return
-	}
-
-	n.registerConnection(result.Peer, conn)
-	if jerr := conn.Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
-		n.connectionsByID.Delete(result.ConnectionID)
+		n.mergeMu.Unlock()
 		conn.Terminate(nil)
 		c.Close()
 		return
+	}
+	if jerr := conn.Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
+		n.mergeMu.Lock()
+		if loaded {
+			n.connectionsByID.CompareAndSwap(result.ConnectionID, conn, owner)
+		} else {
+			n.connectionsByID.CompareAndDelete(result.ConnectionID, conn)
+		}
+		n.mergeMu.Unlock()
+		conn.Terminate(nil)
+		c.Close()
+		return
+	}
+
+	// primary attached: announce by name, then drop any provisional we took over.
+	n.mergeMu.Lock()
+	n.registerConnection(result.Peer, conn)
+	n.mergeMu.Unlock()
+	if loaded {
+		owner.(gen.Connection).Terminate(nil)
 	}
 	go n.serve(a.proto, conn, nil, result.ConnectionID)
 }
@@ -1646,8 +1717,10 @@ func (n *network) registerConnection(name gen.Atom, conn gen.Connection) {
 }
 
 func (n *network) unregisterConnection(name gen.Atom, conn gen.Connection, connID string, reason error) {
-	n.connectionsByID.Delete(connID)
-	n.connections.CompareAndDelete(name, conn) // keep a newer incarnation's routing entry
+	n.mergeMu.Lock()
+	n.connectionsByID.CompareAndDelete(connID, conn) // keep a winner that took over this connID
+	n.connections.CompareAndDelete(name, conn)       // keep a newer incarnation's routing entry
+	n.mergeMu.Unlock()
 	n.connectionsLost.Add(1)
 	if reason != nil {
 		n.node.log.Info("connection with %s (%s) terminated with reason: %s", name, name.CRC32(), reason)

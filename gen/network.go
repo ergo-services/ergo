@@ -608,6 +608,10 @@ type RemoteNodeInfo struct {
 	// Multiple connections used for load balancing and ordering.
 	PoolSize int
 
+	// PoolLen is the current number of TCP connections in the pool.
+	// Reaches PoolSize once the pool has fully filled.
+	PoolLen int
+
 	// PoolDSN lists the connection strings (host:port) for each pooled connection.
 	PoolDSN []string
 

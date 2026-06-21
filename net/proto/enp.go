@@ -78,6 +78,7 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		softwareKeepAlive: result.NodeFlags.EnableSoftwareKeepAlive > 0 &&
 			result.PeerFlags.EnableSoftwareKeepAlive > 0,
 	}
+	conn.done = make(chan struct{})
 
 	if conn.softwareKeepAlive {
 		myPeriod := time.Duration(result.NodeFlags.EnableSoftwareKeepAlive) * time.Second
@@ -92,6 +93,13 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		conn.softwareKeepAliveMessage = []byte{
 			protoMagic, protoVersion, 0, 0, 0, 8, 0, protoMessageK,
 		}
+	}
+
+	// liveness grace: how long an empty pool is tolerated before the connection is
+	// finished — the keepalive timeout when enabled, else a handshake-based fallback.
+	conn.livenessGrace = conn.softwareKeepAliveTimeout
+	if conn.livenessGrace == 0 {
+		conn.livenessGrace = 3 * gen.DefaultHandshakeTimeout
 	}
 
 	if result.NodeFlags.EnableClockSkew == true &&
@@ -159,49 +167,37 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 
 func (e *enp) Serve(c gen.Connection, redial gen.NetworkDial) error {
 	conn := c.(*connection)
-	if redial == nil {
-		// accepted connection. no dialer.
+	// only the canonical node (smaller name) fills the pool — single writer. Its
+	// survivor is the connect-side (has redial); the peer's survivor is the accept-side
+	// (redial==nil) and stays passive, accepting the joins. Two fillers would
+	// cross-contaminate the shared pool.
+	canonical := conn.core.Name() < conn.peer
+	if redial == nil || canonical == false || conn.pool_size < 2 || len(conn.pool_dsn) == 0 {
 		conn.wait()
 		return nil
 	}
 
-	if conn.pool_size < 2 {
-		// just one TCP connection in the pool
-		conn.wait()
-		return nil
-	}
-
-	if len(conn.pool_dsn) == 0 {
-		conn.log.Warning("pool size is %d, but DSN list is empty", conn.pool_size)
-		conn.wait()
-		return nil
-	}
-
-	for i := 1; i < conn.pool_size; i++ {
-
-		// TODO
-		// we should try the next dsn on dialing failure
-
-		n := i % len(conn.pool_dsn)
-		dsn := conn.pool_dsn[n]
-		if lib.Verbose() {
-			conn.log.Trace("dialing %s (pool: %d of %d)", dsn, i+1, conn.pool_size)
+	// fill the pool to pool_size, retrying dials that fail under a connect storm so
+	// every slot is eventually filled. Joined TCPs self-redial on drop (dial passed to
+	// Join), so this only drives the initial fill.
+	for i := 0; ; i++ {
+		conn.pool_mutex.RLock()
+		filled := len(conn.pool) >= conn.pool_size
+		conn.pool_mutex.RUnlock()
+		if filled || conn.terminated.Load() {
+			break
 		}
-		nc, tail, err := redial(dsn, conn.id)
+		nc, tail, err := redial(conn.pool_dsn[i%len(conn.pool_dsn)], conn.id)
 		if err != nil {
-			if lib.Verbose() {
-				conn.log.Trace("dialing %s failed: %s", dsn, err)
-			}
+			time.Sleep(50 * time.Millisecond) // I/O retry backoff
 			continue
 		}
-
 		if err := conn.Join(nc, conn.id, redial, tail); err != nil {
-			conn.log.Error("unable to join %s: %s", nc.RemoteAddr().String(), err)
+			nc.Close()
 		}
 	}
 
 	conn.wait()
-
 	return nil
 }
 
