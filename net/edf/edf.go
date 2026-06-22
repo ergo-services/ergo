@@ -15,6 +15,9 @@ type Options struct {
 	MaxDepth    int       // max encoding depth for pointers (default 100)
 	// WrappedErrorsSupported: peer supports *gen.Error wrapped wire format.
 	WrappedErrorsSupported bool
+	// SchemaEvolution: length-prefix encoded structs so a peer with a different
+	// field count tolerates the difference (extra skipped, missing zero-valued).
+	SchemaEvolution bool
 }
 
 const (

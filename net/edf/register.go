@@ -421,10 +421,20 @@ func registerType(tov reflect.Type) error {
 
 		// encoder closure
 		fenc := func(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
+			// schema evolution: prefix the body with its length so a peer with a
+			// different field count tolerates the difference. Backfilled by offset
+			// (encoding the body may reallocate b, invalidating an Extend slice).
+			evolve := state.options.SchemaEvolution
+			lenOffset := 0
+			if evolve {
+				lenOffset = b.Len()
+				b.Extend(4)
+			}
 			if state.child == nil {
 				state.child = &stateEncode{options: state.options}
 			}
 			state = state.child
+			bodyStart := b.Len()
 			for i := 0; i < nf; i++ {
 				if encs[i] == nil {
 					continue
@@ -434,33 +444,62 @@ func registerType(tov reflect.Type) error {
 					return err
 				}
 			}
+			if evolve {
+				if int64(b.Len()-bodyStart) > int64(math.MaxUint32-1) {
+					return ErrStructTooLong
+				}
+				binary.BigEndian.PutUint32(b.B[lenOffset:], uint32(b.Len()-bodyStart))
+			}
 			return nil
 		}
 
 		// decoder closure
 		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
 			var err error
-			if state.child == nil {
-				state.child = &stateDecode{options: state.options}
-			}
 
 			if value == nil {
 				v := reflect.Indirect(reflect.New(state.decoder.Type))
 				value = &v
 			}
 
+			// schema evolution: the body is length-prefixed. Decode fields within the
+			// body only - a peer with fewer fields leaves the rest zero-valued, a peer
+			// with more has its extra trailing fields skipped (rest resumes after body).
+			body, rest := packet, []byte(nil)
+			evolve := state.options.SchemaEvolution
+			if evolve {
+				if len(packet) < 4 {
+					return nil, nil, errDecodeEOD
+				}
+				l := binary.BigEndian.Uint32(packet)
+				if uint64(len(packet)) < uint64(l)+4 {
+					return nil, nil, errDecodeEOD
+				}
+				body = packet[4 : 4+l]
+				rest = packet[4+l:]
+			}
+
+			if state.child == nil {
+				state.child = &stateDecode{options: state.options}
+			}
 			state = state.child
 			for i := 0; i < nf; i++ {
 				if decs[i] == nil {
 					continue
 				}
+				if evolve && len(body) == 0 {
+					break
+				}
 				field := value.Field(i)
-				_, packet, err = decs[i].Decode(&field, packet, state)
+				_, body, err = decs[i].Decode(&field, body, state)
 				if err != nil {
 					return nil, nil, err
 				}
 			}
-			return value, packet, nil
+			if evolve {
+				return value, rest, nil
+			}
+			return value, body, nil
 		}
 		addRegCache(tov)
 		enc := regEncoder(name, fenc)

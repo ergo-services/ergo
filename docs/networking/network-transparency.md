@@ -184,7 +184,9 @@ type OrderV1 struct { ID int64 }                    // #github.com/myapp/orders/
 type OrderV2 struct { ID int64; Priority int }      // #github.com/myapp/orders/OrderV2
 ```
 
-Your actors handle both versions, routing logic based on the type received. This approach is essential for canary deployments where old and new versions coexist - each node declares what it understands, and the application code manages compatibility. Protocol-level backward compatibility would hide versioning from your code, making canary rollouts harder to control.
+Your actors handle both versions, routing logic based on the type received. Each node declares what it understands, and the application code manages compatibility - explicit and visible. This strict-by-default behavior suits contracts where every change should be a deliberate decision.
+
+When your domain favors deployment velocity instead, the `EnableSchemaEvolution` network flag opts into protocol-level tolerance for appended fields: enabled on both nodes, adding a field to the end of a struct keeps the same type, and a node that has not learned the field skips it. It is a per-connection capability, off by default. Which model fits is a business decision - see [Message Versioning](../advanced/message-versioning.md).
 
 ### Type Constraints
 
@@ -199,6 +201,8 @@ EDF imposes size limits on certain types. These limits balance memory safety wit
 **Binary** (`[]byte`) - Maximum 4,294,967,295 bytes (2^32-1, ~4GB). This is the largest single value EDF can encode. Messages containing multi-gigabyte binaries work but are inefficient. Consider chunking large data into multiple messages or using meta processes for streaming.
 
 **Collections** (map, array, slice) - Maximum 2^32 elements. A map can have up to 4 billion entries. A slice can have 4 billion elements. These limits are unlikely to be hit in practice - a slice of 4 billion int64 values would consume 32GB of memory.
+
+**Evolvable structs** - With the `EnableSchemaEvolution` network flag active on a connection, a single encoded struct is bounded at just under 4GB. Without the flag there is no separate per-struct size cap. See [Message Versioning](../advanced/message-versioning.md#schema-evolution).
 
 These limits are enforced during encoding. If you attempt to encode a 70,000 byte string, the encoder returns an error. The message isn't sent. On the receiving side, if a malicious sender tries to send an oversized value, the decoder rejects it and closes the connection.
 
