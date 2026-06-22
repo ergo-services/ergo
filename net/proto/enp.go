@@ -1,3 +1,31 @@
+// Package proto implements ENP, the default Ergo network protocol: EDF message encoding,
+// the wire framing, and the multi-TCP connection to a remote node.
+//
+// # Connection model
+//
+// A peer connection is one logical link to a remote node carried over a pool of TCP
+// connections:
+//
+//   - primary: the first TCP, brought up by the full handshake; the pool's first member.
+//   - pool, pool_size: the primary plus extra TCPs, filled to pool_size (the acceptor's
+//     configured size, advertised in the handshake). Several TCPs give parallel delivery.
+//   - ConnectionID: a direction-independent id from the handshake; both directions of a
+//     pair compute the same one, so it identifies the connection regardless of who dialed.
+//
+// # Establishment and the connect storm
+//
+// Two nodes may dial each other at the same instant (a connect storm, normal while a full
+// mesh forms): both directions finish the handshake, then a merge keyed on ConnectionID
+// keeps one connection per pair. The merge is decided by the node (node/network.go); this
+// package carries it out and fills the pool.
+//
+//   - canonical: the node with the smaller name in a pair. The canonical direction (the
+//     dial from the smaller name) is the merge survivor, and the canonical end is the
+//     default pool filler.
+//   - fill, go-ahead: the dialer fills the pool, having reached the acceptor listener. A
+//     canonical dialer fills at once; a non-canonical dialer fills only after the acceptor
+//     sends it a go-ahead (protoMessageExtend), so it never fills a connection that a
+//     simultaneous connect is about to supersede.
 package proto
 
 import (

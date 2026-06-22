@@ -129,13 +129,11 @@ type connection struct {
 	order      uint32
 	terminated atomic.Bool
 
-	// done is closed when the connection terminates, unblocking wait(). It replaces a
-	// sync.WaitGroup whose Add (in Join) raced its Wait. The connection lives as long as
-	// its primary TCP: a transient empty pool does not terminate it. Instead an empty
+	// done is closed when the connection terminates, unblocking wait(). The connection lives
+	// as long as its primary TCP: a transient empty pool does not terminate it; an empty
 	// pool (post-established) arms emptyPoolTimer, a grace window for the canonical end to
-	// re-establish the primary; if the pool stays empty past it the connection
-	// terminates. poolClosed guards the single close of done. All accessed under
-	// pool_mutex.
+	// re-establish the primary, and the connection terminates only if the pool stays empty
+	// past it. poolClosed guards the single close of done. All accessed under pool_mutex.
 	done           chan struct{}
 	poolClosed     bool
 	established    bool
