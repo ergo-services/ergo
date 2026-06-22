@@ -114,7 +114,7 @@ func udpReadReply(t *testing.T, conn net.Conn) string {
 // replies "noproc"). Each reply is read back over the socket.
 func TestLocalUDP(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 
 	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
 	handler := n.SpawnRegister("handler", factoryUdpHandler, gen.ProcessOptions{}, collector)

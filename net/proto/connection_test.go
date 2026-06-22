@@ -38,7 +38,8 @@ func newTestConn(t *testing.T, peerFlags gen.NetworkFlags) *testConn {
 		decodeOptions: edf.Options{Cache: new(sync.Map)},
 		requests:      make(map[gen.Ref]chan MessageResult),
 	}
-	pi := &pool_item{connection: srv, fl: lib.NewFlusher(srv)}
+	pi := &pool_item{fl: lib.NewFlusher(srv)}
+	pi.connection.Store(&poolConn{srv})
 	c.pool = append(c.pool, pi)
 	t.Cleanup(func() {
 		c.terminated.Store(true)

@@ -20,6 +20,16 @@ func (n *hsNode) Name() gen.Atom       { return n.name }
 func (n *hsNode) Creation() int64      { return n.creation }
 func (n *hsNode) Version() gen.Version { return gen.Version{Name: "test", Release: "1"} }
 
+// acceptFull drives the two-step acceptor handshake (Negotiate then Accept) as
+// the node does, so tests can match it against a single Start on the dialer.
+func acceptFull(hs gen.NetworkHandshake, node gen.NodeHandshake, conn net.Conn, opts gen.HandshakeOptions) (gen.HandshakeResult, error) {
+	r, err := hs.Negotiate(node, conn, opts)
+	if err != nil {
+		return r, err
+	}
+	return hs.Accept(node, conn, opts, r)
+}
+
 // the dialer (Start) and acceptor (Accept) negotiate over a pipe and each end up
 // with the other's identity, flags and message-size limit, agreeing on one id.
 func TestHandshakeRoundTrip(t *testing.T) {
@@ -38,7 +48,7 @@ func TestHandshakeRoundTrip(t *testing.T) {
 	}
 	ch := make(chan res, 1)
 	go func() {
-		r, err := hs.Accept(acceptor, ac, acceptorOpts)
+		r, err := acceptFull(hs, acceptor, ac, acceptorOpts)
 		ch <- res{r, err}
 	}()
 
@@ -77,7 +87,7 @@ func TestHandshakeCookieMismatch(t *testing.T) {
 
 	ch := make(chan error, 1)
 	go func() {
-		_, err := hs.Accept(&hsNode{name: "acceptor@localhost", creation: 2}, ac, gen.HandshakeOptions{Cookie: "wrong"})
+		_, err := acceptFull(hs, &hsNode{name: "acceptor@localhost", creation: 2}, ac, gen.HandshakeOptions{Cookie: "wrong"})
 		ac.Close()
 		ch <- err
 	}()
@@ -101,7 +111,7 @@ func TestJoinRoundTrip(t *testing.T) {
 	}
 	ch := make(chan res, 1)
 	go func() {
-		r, err := hs.Accept(&hsNode{name: "acceptor@localhost", creation: 2}, ac, opts)
+		r, err := acceptFull(hs, &hsNode{name: "acceptor@localhost", creation: 2}, ac, opts)
 		ch <- res{r, err}
 	}()
 

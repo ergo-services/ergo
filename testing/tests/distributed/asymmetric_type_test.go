@@ -24,8 +24,8 @@ func TestDistSendAsymmetricType(t *testing.T) {
 	t.Skip("TODO: enable when EDF type registration is per-node/per-connection (currently global)")
 
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 
 	// register the type on the sender only (requires per-node registration)
 	check.NoError(t, n1.Native().Network().RegisterType(senderOnlyValue{}))

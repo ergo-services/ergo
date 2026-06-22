@@ -103,8 +103,8 @@ func registerWire(nodes ...*stage.Node) {
 // observation plus an active request via the node API.
 func TestStageTwoNodes(t *testing.T) {
 	s := stage.New(t)
-	a := s.Node("a")
-	b := s.Node("b")
+	a := s.StartNode("a")
+	b := s.StartNode("b")
 	s.Connect(a, b)
 	registerWire(a, b)
 
@@ -134,7 +134,7 @@ func TestStageTwoNodes(t *testing.T) {
 // target-manager bridge (Down delivery, which bypasses gen.Core).
 func TestStageMonitorDown(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 
 	target := n.Spawn(factoryPonger, gen.ProcessOptions{})
 	w := n.Spawn(factoryWatcher, gen.ProcessOptions{}, target)
@@ -157,7 +157,7 @@ func TestStageMonitorDown(t *testing.T) {
 // while the cumulative view sees both.
 func TestStageSince(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	ponger := n.Spawn(factoryPonger, gen.ProcessOptions{})
 
 	m1 := n.Mark()
@@ -177,7 +177,7 @@ func TestStageSince(t *testing.T) {
 // Send record in stage exactly as in unit (same ShouldSend().Priority() assertion).
 func TestStageSendPriority(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	target := n.Spawn(factoryPonger, gen.ProcessOptions{})
 	sender := n.Spawn(factoryPinger, gen.ProcessOptions{})
 
@@ -191,8 +191,8 @@ func TestStageSendPriority(t *testing.T) {
 // supervised, name-registered processes are observed) end to end.
 func TestStageTwoApps(t *testing.T) {
 	s := stage.New(t)
-	a := s.Node("a", stage.NodeOptions{Applications: []gen.ApplicationBehavior{createApp1()}})
-	b := s.Node("b", stage.NodeOptions{Applications: []gen.ApplicationBehavior{createApp2()}})
+	a := s.StartNode("a", stage.NodeOptions{Applications: []gen.ApplicationBehavior{createApp1()}})
+	b := s.StartNode("b", stage.NodeOptions{Applications: []gen.ApplicationBehavior{createApp2()}})
 	s.Connect(a, b)
 	registerWire(a, b)
 
@@ -236,7 +236,7 @@ func (s *regSub) Init(args ...any) error {
 // a subscriber receives ApplicationStarted when an application route is registered.
 func TestStageRegistrarFull(t *testing.T) {
 	s := stage.New(t, stage.StageOptions{RegistrarFull: true})
-	n := s.Node("n")
+	n := s.StartNode("n")
 	sub := n.Spawn(factoryRegSub, gen.ProcessOptions{})
 	mk := n.Mark()
 

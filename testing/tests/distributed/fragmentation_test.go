@@ -55,8 +55,8 @@ func (s *fragSender) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
 // is delivered without fragmentation.
 func TestDistFragmentation(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1", stage.NodeOptions{FragmentSize: 4096})
-	n2 := s.Node("n2", stage.NodeOptions{FragmentSize: 4096})
+	n1 := s.StartNode("n1", stage.NodeOptions{FragmentSize: 4096})
+	n2 := s.StartNode("n2", stage.NodeOptions{FragmentSize: 4096})
 	s.Connect(n1, n2)
 
 	pong := n2.Spawn(factoryFragPong, gen.ProcessOptions{})
@@ -134,8 +134,8 @@ func TestDistFragmentationLoad(t *testing.T) {
 
 	run := func(t *testing.T, size func(idx int) int, noOrder func(idx int) bool) {
 		s := stage.New(t)
-		n1 := s.Node("n1", stage.NodeOptions{FragmentSize: 4096})
-		n2 := s.Node("n2", stage.NodeOptions{FragmentSize: 4096})
+		n1 := s.StartNode("n1", stage.NodeOptions{FragmentSize: 4096})
+		n2 := s.StartNode("n2", stage.NodeOptions{FragmentSize: 4096})
 		s.Connect(n1, n2)
 
 		recv := n2.Spawn(factoryFragPong, gen.ProcessOptions{})

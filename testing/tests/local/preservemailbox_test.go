@@ -50,7 +50,7 @@ func TestLocalPreserveMailbox(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := stage.New(t)
-			n := s.Node("n")
+			n := s.StartNode("n")
 
 			tgt := n.Spawn(factoryPMActor, gen.ProcessOptions{PreserveMailbox: true})
 			linker := n.Spawn(factoryLinkerC, gen.ProcessOptions{}, true) // trap: observes the exit as a message

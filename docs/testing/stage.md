@@ -16,14 +16,14 @@ Every stage test has the same skeleton: create a stage, start a node on it, put 
 
 ```go
 s := stage.New(t)
-n := s.Node("n")
+n := s.StartNode("n")
 ponger := n.Spawn(factoryPonger, gen.ProcessOptions{}) // a process that accepts messages
 
 n.Send(ponger, ping{Seq: 1})
 n.ShouldDeliver().To(ponger).Message(ping{Seq: 1}).Once().Within(time.Second).Assert()
 ```
 
-`stage.New` returns a `Stage` - the owner of every node the test starts - and registers cleanup with the test, so the nodes are stopped automatically when it ends; you never tear them down by hand. `s.Node` starts one live node and returns a handle to it.
+`stage.New` returns a `Stage` - the owner of every node the test starts - and registers cleanup with the test, so the nodes are stopped automatically when it ends; you never tear them down by hand. `s.StartNode` starts one live node and returns a handle to it.
 
 That handle, a `*stage.Node`, is worth a close look, because you work through it for the whole test. It is a thin wrapper around a real `gen.Node`, not the node itself. It surfaces the operations a test reaches for most - `Spawn`, `SpawnRegister`, `Send`, `Call`, `SendExit`, `Kill` - and it carries the assertion grammar from [check](check.md), which is why you write `n.ShouldDeliver(...)` straight on it. For anything the wrapper does not cover - any other method of the underlying node - `n.Native()` returns the real `gen.Node` with its full API. You will need it the moment a second node appears.
 
@@ -42,7 +42,7 @@ Each node keeps its own journal of both. So one interaction that crosses the net
 
 ```go
 s := stage.New(t)
-a, b := s.Node("a"), s.Node("b")
+a, b := s.StartNode("a"), s.StartNode("b")
 
 // a value that crosses the wire must be registered for transport, on both nodes;
 // that registration lives on the node's Network, reached through Native()
@@ -125,7 +125,7 @@ remote := s.Connect(a, b) // dials now, waits for both sides, returns a's view o
 A node will not let a stranger start processes on it: remote operations are denied by default. The target opens the door in two steps - it allows the specific factory with `EnableSpawn` and enables remote spawn in its network flags - and only then does a spawn issued across the connection succeed. It is recorded as remote egress on the node that initiated it:
 
 ```go
-b := s.Node("b", stage.NodeOptions{NetworkFlags: gen.NetworkFlags{Enable: true, EnableRemoteSpawn: true}})
+b := s.StartNode("b", stage.NodeOptions{NetworkFlags: gen.NetworkFlags{Enable: true, EnableRemoteSpawn: true}})
 b.EnableSpawn("worker", factoryWorker)
 
 remote := s.Connect(a, b)
@@ -144,7 +144,7 @@ Some applications do more than route between nodes - they discover *applications
 
 ```go
 s := stage.New(t, stage.StageOptions{RegistrarFull: true})
-n := s.Node("n")
+n := s.StartNode("n")
 sub := n.Spawn(factoryRegSub, gen.ProcessOptions{}) // subscribes to the registrar event in its Init
 mk := n.Mark()
 
@@ -164,13 +164,13 @@ To test against a real backend, set `StageOptions.Registrar` to a factory - etcd
 `stage.NodeOptions` carries what a real node needs: `Applications` to load, `Env`, a `Cookie`, the network knobs (`MaxMessageSize`, `FragmentSize`, `NetworkFlags`), and `Security`. Loading an application is how you test framework-spawned, supervised, name-registered processes end to end - the very processes a bare `Spawn` cannot give you:
 
 ```go
-a := s.Node("a", stage.NodeOptions{Applications: []gen.ApplicationBehavior{createApp1()}})
+a := s.StartNode("a", stage.NodeOptions{Applications: []gen.ApplicationBehavior{createApp1()}})
 service1, err := a.ProcessPID("service1") // the application registered this process by name
 ```
 
 By default a node starts bare, with no system processes, so a test can assert exact process and application counts; add the system services with `NodeOptions{EnableSystemApp: true}` when one is needed.
 
-For more than two nodes, `s.ConnectMesh(nodes...)` connects every pair at once - exercising the simultaneous-connect collision handling a real cluster meets under a connect storm - and waits until every node sees every other before returning. `n.Kill` force-terminates a process, and, as the first test noted, the stage stops every node it started on cleanup, so a test never leaks a running node.
+For more than two nodes, `s.ConnectMesh(nodes...)` connects every pair at once - exercising the simultaneous-connect collision handling a real cluster meets under a connect storm - and waits until every node sees every other with its TCP connection pool fully filled before returning. `n.Kill` force-terminates a process, and, as the first test noted, the stage stops every node it started on cleanup, so a test never leaks a running node.
 
 ## Choosing Between Unit and Stage
 

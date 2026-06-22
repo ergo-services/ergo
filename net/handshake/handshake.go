@@ -1,3 +1,27 @@
+// Package handshake implements EHS, the Ergo handshake: mutual challenge-response
+// authentication, capability and cache exchange, and a deterministic ConnectionID.
+//
+// Primary handshake, six messages, dialer D connects to acceptor A:
+//
+//	msg1  D -> A  Hello       D salt and cookie digest
+//	msg2  A -> D  Hello       A salt and digest
+//	msg3  D -> A  Introduce   D name, creation, flags, caches
+//	msg4  A -> D  Accept      ConnectionID, pool size, pool DSN
+//	msg5  A -> D  Introduce   A name, creation, flags, caches
+//	msg6  D -> A  Accept      final ack
+//
+// The dialer runs the whole exchange in Start. The acceptor splits it: Negotiate reads
+// msg1 and msg3 and builds (but does not send) msg4 and msg5, so the node can register
+// the connection by ConnectionID first; Accept then sends msg4 and msg5 and reads msg6.
+// This register-before-introduce ordering guarantees a pool-join always finds the
+// connection (the dialer dials pool TCPs only after it reads msg5).
+//
+// Pool-join handshake, two messages, for each extra pooled TCP after the primary:
+//
+//	D -> A  Join     ConnectionID and digest
+//	A -> D  Accept   digest
+//
+// Join is the dialer side; the acceptor resolves it inside Negotiate (the Join case).
 package handshake
 
 import (

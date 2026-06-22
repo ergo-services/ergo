@@ -152,7 +152,7 @@ func runLink(t *testing.T, s *stage.Stage, n *stage.Node, host, w gen.PID, trap 
 // an unknown target fails.
 func TestLocalLink(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	host := n.Spawn(factoryHost, gen.ProcessOptions{})
 	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 

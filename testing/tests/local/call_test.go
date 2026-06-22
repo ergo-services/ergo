@@ -87,7 +87,7 @@ func callAndCheck(t *testing.T, n *stage.Node, w, svc gen.PID, to any) {
 // Calling an unknown target fails.
 func TestLocalCall(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 
 	t.Run("PID", func(t *testing.T) {

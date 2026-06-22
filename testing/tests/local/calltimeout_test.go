@@ -35,7 +35,7 @@ func (e *callEcho) HandleCall(from gen.PID, ref gen.Ref, request any) (any, erro
 // the timeout elapses.
 func TestLocalCallWithTimeout(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	silent := n.Spawn(factorySilentActor, gen.ProcessOptions{})
 	echo := n.Spawn(factoryCallEcho, gen.ProcessOptions{})
 

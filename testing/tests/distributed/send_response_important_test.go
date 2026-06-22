@@ -120,9 +120,9 @@ func (r *respFinal) HandleMessage(from gen.PID, message any) error {
 // reconstructed on the request path at the final node).
 func TestDistSendResponseImportant(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
-	n3 := s.Node("n3")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
+	n3 := s.StartNode("n3")
 	s.Connect(n1, n2)
 	s.Connect(n1, n3)
 	s.Connect(n2, n3)

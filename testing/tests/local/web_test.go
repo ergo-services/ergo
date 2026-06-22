@@ -111,7 +111,7 @@ func httpStatus(t *testing.T, method, url string, body []byte) int {
 // answers 502.
 func TestLocalWeb(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 
 	host := n.Spawn(factoryWebHost, gen.ProcessOptions{})
 	worker := n.SpawnRegister("webworker", factoryWebWorker, gen.ProcessOptions{})

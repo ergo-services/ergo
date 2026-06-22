@@ -3,6 +3,7 @@ package distributed
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
@@ -14,8 +15,8 @@ import (
 // connect, the other adopts it via accept), so each node ends with exactly one peer.
 func TestDistSimultaneousConnect(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 
 	s.ConnectMesh(n1, n2)
 
@@ -34,8 +35,8 @@ func TestDistSimultaneousConnect(t *testing.T) {
 // peer the connection still establishes, and each side reports the other's flags.
 func TestDistSimultaneousConnectNoFlag(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2", stage.NodeOptions{
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2", stage.NodeOptions{
 		NetworkFlags: gen.NetworkFlags{
 			Enable:                       true,
 			EnableRemoteSpawn:            true,
@@ -58,30 +59,66 @@ func TestDistSimultaneousConnectNoFlag(t *testing.T) {
 	check.Equal(t, true, r2.Info().NetworkFlags.EnableSimultaneousConnect)
 }
 
-// TestDistSimultaneousConnectCluster: a cluster where every node dials every other
-// at once settles into a clean full mesh, with each node holding exactly one
-// connection per peer (no duplicates, no leaked connections).
-//
-// Skipped: the connect storm exercises the TCP pool-expansion path, where the
-// handshake is decoupled from connection registration (FIXME at node/network.go
-// pool-expansion workaround). Under that flaw the pool Join races with the
-// connection's serve loop (data race between connection.Join and connection.wait),
-// and the mesh does not reliably settle under load. Enable once pool formation is
-// properly synchronized in the handshake.
-func TestDistSimultaneousConnectCluster(t *testing.T) {
-	t.Skip("gated on the handshake/pool-expansion design flaw (node/network.go pool-expansion workaround)")
+// TestDistConnectBehindNAT models a node behind NAT with gen.NetworkModeHidden: it runs no
+// acceptor, so the public peer genuinely cannot dial it back. The hidden node has the
+// larger (non-canonical) name and dials the public, smaller (canonical) one, which becomes
+// the acceptor. Unable to reach the hidden node, the canonical acceptor sends the go-ahead
+// (protoMessageExtend) and the non-canonical hidden dialer fills the pool. Without it the
+// pool would stick at the single primary.
+func TestDistConnectBehindNAT(t *testing.T) {
+	s := stage.New(t)
+	// the connection's pool size is the acceptor's. The public node is always the acceptor
+	// here (the hidden node runs no listener), so its 5 wins and the hidden dialer's 10 is
+	// ignored: distinct sizes prove which end dictates.
+	public := s.StartNode("aaa", stage.NodeOptions{PoolSize: 5})
+	hidden := s.StartNode("zzz", stage.NodeOptions{PoolSize: 10, Mode: gen.NetworkModeHidden})
 
+	// the hidden (NAT) node dials the public canonical one, which cannot dial back
+	r := s.Connect(hidden, public)
+	rp, err := public.Native().Network().Node(hidden.Name())
+	check.NoError(t, err)
+
+	// negotiated pool size is the acceptor's (public 5), not the hidden dialer's 10
+	check.Equal(t, 5, r.Info().PoolSize)
+	check.Equal(t, 5, rp.Info().PoolSize)
+
+	// both ends must settle at exactly that size in TCP links: the hidden dialer fills, the
+	// public acceptor mirrors. The settle loop also rejects overshoot (exits only at 5).
+	deadline := time.Now().Add(5 * time.Second)
+	for r.Info().PoolLen != 5 || rp.Info().PoolLen != 5 {
+		if time.Now().After(deadline) {
+			t.Fatalf("pool did not fill to 5 TCP links: hidden dialer=%d public acceptor=%d",
+				r.Info().PoolLen, rp.Info().PoolLen)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestDistSimultaneousConnectCluster: every node dials every other at once and the
+// cluster settles into a clean full mesh: one connection per peer (no duplicates,
+// no leaks), with every counter-dial resolving to a single bidirectional connection.
+func TestDistSimultaneousConnectCluster(t *testing.T) {
 	const N = 50
 
 	s := stage.New(t)
 	nodes := make([]*stage.Node, N)
 	for i := range nodes {
-		nodes[i] = s.Node(fmt.Sprintf("c%03d", i))
+		nodes[i] = s.StartNode(fmt.Sprintf("c%03d", i))
 	}
 
 	s.ConnectMesh(nodes...)
 
 	for i := range nodes {
 		check.Equal(t, N-1, len(nodes[i].Native().Network().Nodes()))
+		for j := range nodes {
+			if i == j {
+				continue
+			}
+			r, err := nodes[i].Native().Network().Node(nodes[j].Name())
+			check.NoError(t, err)
+			// each peer connection filled its TCP pool to the configured size
+			info := r.Info()
+			check.Equal(t, info.PoolSize, info.PoolLen)
+		}
 	}
 }

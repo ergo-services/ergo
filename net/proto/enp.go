@@ -1,3 +1,31 @@
+// Package proto implements ENP, the default Ergo network protocol: EDF message encoding,
+// the wire framing, and the multi-TCP connection to a remote node.
+//
+// # Connection model
+//
+// A peer connection is one logical link to a remote node carried over a pool of TCP
+// connections:
+//
+//   - primary: the first TCP, brought up by the full handshake; the pool's first member.
+//   - pool, pool_size: the primary plus extra TCPs, filled to pool_size (the acceptor's
+//     configured size, advertised in the handshake). Several TCPs give parallel delivery.
+//   - ConnectionID: a direction-independent id from the handshake; both directions of a
+//     pair compute the same one, so it identifies the connection regardless of who dialed.
+//
+// # Establishment and the connect storm
+//
+// Two nodes may dial each other at the same instant (a connect storm, normal while a full
+// mesh forms): both directions finish the handshake, then a merge keyed on ConnectionID
+// keeps one connection per pair. The merge is decided by the node (node/network.go); this
+// package carries it out and fills the pool.
+//
+//   - canonical: the node with the smaller name in a pair. The canonical direction (the
+//     dial from the smaller name) is the merge survivor, and the canonical end is the
+//     default pool filler.
+//   - fill, go-ahead: the dialer fills the pool, having reached the acceptor listener. A
+//     canonical dialer fills at once; a non-canonical dialer fills only after the acceptor
+//     sends it a go-ahead (protoMessageExtend), so it never fills a connection that a
+//     simultaneous connect is about to supersede.
 package proto
 
 import (
@@ -26,7 +54,7 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 
 	opts, ok := result.Custom.(handshake.ConnectionOptions)
 	if ok == false {
-		return nil, fmt.Errorf("HandshakeResult.Custom has unknown type")
+		return nil, fmt.Errorf("connection with %s: HandshakeResult.Custom has unexpected type %T, want handshake.ConnectionOptions", result.Peer, result.Custom)
 	}
 
 	if result.PeerCreation == 0 {
@@ -78,6 +106,7 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		softwareKeepAlive: result.NodeFlags.EnableSoftwareKeepAlive > 0 &&
 			result.PeerFlags.EnableSoftwareKeepAlive > 0,
 	}
+	conn.done = make(chan struct{})
 
 	if conn.softwareKeepAlive {
 		myPeriod := time.Duration(result.NodeFlags.EnableSoftwareKeepAlive) * time.Second
@@ -92,6 +121,13 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		conn.softwareKeepAliveMessage = []byte{
 			protoMagic, protoVersion, 0, 0, 0, 8, 0, protoMessageK,
 		}
+	}
+
+	// empty-pool grace: how long an empty pool is tolerated before the connection is
+	// terminated. The keepalive timeout when enabled, else a handshake-based fallback.
+	conn.emptyPoolGrace = conn.softwareKeepAliveTimeout
+	if conn.emptyPoolGrace == 0 {
+		conn.emptyPoolGrace = 3 * gen.DefaultHandshakeTimeout
 	}
 
 	if result.NodeFlags.EnableClockSkew == true &&
@@ -159,49 +195,27 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 
 func (e *enp) Serve(c gen.Connection, redial gen.NetworkDial) error {
 	conn := c.(*connection)
-	if redial == nil {
-		// accepted connection. no dialer.
+	// the dialer reached the peer's listener, so it is the pool filler (redial != nil); the
+	// accept side (redial == nil) stays passive, as does a connection too small to pool
+	// (pool_size < 2) or one with no pool DSN to dial.
+	if redial == nil || conn.pool_size < 2 || len(conn.pool_dsn) == 0 {
 		conn.wait()
 		return nil
 	}
 
-	if conn.pool_size < 2 {
-		// just one TCP connection in the pool
-		conn.wait()
-		return nil
-	}
-
-	if len(conn.pool_dsn) == 0 {
-		conn.log.Warning("pool size is %d, but DSN list is empty", conn.pool_size)
-		conn.wait()
-		return nil
-	}
-
-	for i := 1; i < conn.pool_size; i++ {
-
-		// TODO
-		// we should try the next dsn on dialing failure
-
-		n := i % len(conn.pool_dsn)
-		dsn := conn.pool_dsn[n]
-		if lib.Verbose() {
-			conn.log.Trace("dialing %s (pool: %d of %d)", dsn, i+1, conn.pool_size)
-		}
-		nc, tail, err := redial(dsn, conn.id)
-		if err != nil {
-			if lib.Verbose() {
-				conn.log.Trace("dialing %s failed: %s", dsn, err)
-			}
-			continue
-		}
-
-		if err := conn.Join(nc, conn.id, redial, tail); err != nil {
-			conn.log.Error("unable to join %s: %s", nc.RemoteAddr().String(), err)
-		}
+	// a canonical-direction dialer always survives the merge, so it fills now. A
+	// non-canonical dialer may be a storm loser, so it fills only when the acceptor
+	// confirms it is the survivor via protoMessageExtend (handled in serve()); until then
+	// it stays passive so it never fills a connection a simultaneous connect supersedes.
+	conn.pool_mutex.Lock()
+	conn.redial = redial
+	fillNow := conn.core.Name() < conn.peer || conn.extendRequested
+	conn.pool_mutex.Unlock()
+	if fillNow {
+		conn.startFill()
 	}
 
 	conn.wait()
-
 	return nil
 }
 

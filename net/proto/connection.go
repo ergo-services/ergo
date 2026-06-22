@@ -128,7 +128,26 @@ type connection struct {
 
 	order      uint32
 	terminated atomic.Bool
-	wg         sync.WaitGroup
+
+	// done is closed when the connection terminates, unblocking wait(). The connection lives
+	// as long as its primary TCP: a transient empty pool does not terminate it; an empty
+	// pool (post-established) arms emptyPoolTimer, a grace window for the canonical end to
+	// re-establish the primary, and the connection terminates only if the pool stays empty
+	// past it. poolClosed guards the single close of done. All accessed under pool_mutex.
+	done           chan struct{}
+	poolClosed     bool
+	established    bool
+	emptyPoolTimer *time.Timer
+	emptyPoolGrace time.Duration
+
+	// pool fill: the dialer reached the peer's listener, so it is the filler. redial
+	// dials pool-joins (set by Serve). A canonical-direction dialer fills at once; a
+	// non-canonical one waits for the acceptor's protoMessageExtend (extendRequested) so
+	// it never fills a connection a simultaneous connect would supersede. filling guards
+	// against more than one concurrent fill run. redial/extendRequested under pool_mutex.
+	redial          gen.NetworkDial
+	extendRequested bool
+	filling         atomic.Bool
 }
 
 type fragmentAssembly struct {
@@ -139,8 +158,18 @@ type fragmentAssembly struct {
 	deadline       time.Time
 }
 
+// poolConn wraps net.Conn so a pool_item's connection can be swapped atomically on
+// redial and read without a lock by the sender and Terminate.
+type poolConn struct{ net.Conn }
+
+func (pi *pool_item) closeConn() {
+	if pc := pi.connection.Load(); pc != nil {
+		pc.Close()
+	}
+}
+
 type pool_item struct {
-	connection net.Conn
+	connection atomic.Pointer[poolConn]
 	fl         lib.Flusher
 	timer      atomic.Pointer[time.Timer]
 	handling   atomic.Bool
@@ -175,6 +204,9 @@ func (c *connection) Version() gen.Version {
 }
 
 func (c *connection) Info() gen.RemoteNodeInfo {
+	c.pool_mutex.RLock()
+	poolLen := len(c.pool)
+	c.pool_mutex.RUnlock()
 	info := gen.RemoteNodeInfo{
 		Node:             c.peer,
 		Uptime:           time.Now().Unix() - c.peer_creation,
@@ -187,6 +219,7 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 		NetworkFlags: c.peer_flags,
 
 		PoolSize: c.pool_size,
+		PoolLen:  poolLen,
 		PoolDSN:  c.pool_dsn,
 
 		MaxMessageSize: c.peer_maxmessagesize,
@@ -583,7 +616,7 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 
 	bname := []byte(toName)
 	if len(bname) > 255 {
-		return fmt.Errorf("process name too long")
+		return fmt.Errorf("process name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -712,7 +745,7 @@ func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message
 
 	bname := []byte(eventName)
 	if len(bname) > 255 {
-		return fmt.Errorf("event name too long")
+		return fmt.Errorf("event name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -937,7 +970,7 @@ func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) 
 
 	bname := []byte(targetName)
 	if len(bname) > 255 {
-		return fmt.Errorf("target process name too long")
+		return fmt.Errorf("target process name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -1011,7 +1044,7 @@ func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
 
 	bname := []byte(eventName)
 	if len(bname) > 255 {
-		return fmt.Errorf("terminated event name too long")
+		return fmt.Errorf("terminated event name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -1109,7 +1142,7 @@ func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.M
 
 	bname := []byte(toName)
 	if len(bname) > 255 {
-		return fmt.Errorf("process name too long")
+		return fmt.Errorf("process name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -1688,44 +1721,61 @@ func (c *connection) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra)
 
 func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail []byte) error {
 	if id != c.id {
-		return fmt.Errorf("connection id mismatch")
+		return fmt.Errorf("join: connection id mismatch with %s: got %q, have %q", c.peer, id, c.id)
 	}
 
 	if c.terminated.Load() {
-		return fmt.Errorf("connection terminated")
+		return fmt.Errorf("join: connection with %s is terminated", c.peer)
 	}
 
 	c.pool_mutex.Lock()
-	if len(c.pool) >= c.pool_size {
+	// the dialer that fills the pool is the single writer and caps it at pool_size; the
+	// accept end mirrors whatever the dialer dials and must not reject independently (a
+	// transient size disagreement under churn would otherwise strand a slot, its TCP closed
+	// here while the dialer still holds it). dial != nil marks a writer join: the filling
+	// primary (connect) and every pool-join (fillPool) carry a redial, the accept end nil.
+	if dial != nil && len(c.pool) >= c.pool_size {
+		have := len(c.pool)
 		c.pool_mutex.Unlock()
-		return fmt.Errorf("pool size limit")
+		return fmt.Errorf("join: pool for %s is full (%d/%d)", c.peer, have, c.pool_size)
 	}
 	// clear handshake write deadline
 	conn.SetWriteDeadline(time.Time{})
 
-	pi := &pool_item{connection: conn}
+	pi := &pool_item{}
+	pi.connection.Store(&poolConn{conn})
 	if c.softwareKeepAlive {
 		pi.fl = lib.NewFlusherWithKeepAlive(conn, c.softwareKeepAliveMessage, c.softwareKeepAlivePeriod)
 	} else {
 		pi.fl = lib.NewFlusher(conn)
 	}
 	c.pool = append(c.pool, pi)
+	// a TCP joined: cancel any pending empty-pool termination
+	if c.emptyPoolTimer != nil {
+		c.emptyPoolTimer.Stop()
+		c.emptyPoolTimer = nil
+	}
 	c.pool_mutex.Unlock()
 
-	c.wg.Add(1)
 	go func() {
 		if lib.Verbose() {
 			defer c.log.Trace("connection %s left the pool", conn.RemoteAddr().String())
 		}
 
-	re: // reconnected
+	re: // redialed
 		if lib.Verbose() {
 			c.log.Trace("joined new connection %s to the pool", conn.RemoteAddr().String())
 		}
 
 		c.serve(pi, tail)
 
-		if dial != nil {
+		// redial this slot until it rejoins the pool, the connection terminates, or the
+		// peer stays unreachable for the whole empty-pool grace. When this TCP died the
+		// peer freed the matching slot, so a transient "pool full" reject clears shortly:
+		// retry until then. If the peer is gone for good, give up so the (eventually
+		// empty) pool terminates the connection instead of redialing a dead peer forever.
+		deadline := time.Now().Add(c.emptyPoolGrace)
+		for dial != nil && c.terminated.Load() == false && time.Now().Before(deadline) {
 			pool_dsn := []string{}
 			pool_dsn = append(pool_dsn, c.pool_dsn...)
 			rand.Shuffle(len(pool_dsn), func(i, j int) {
@@ -1733,20 +1783,31 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			})
 			for _, dsn := range pool_dsn {
 				if c.terminated.Load() {
-					c.wg.Done()
-					return
+					break
 				}
-				c.log.Trace("re-dialing %s", dsn)
+				c.log.Trace("redialing %s", dsn)
 				nc, t, err := dial(dsn, id)
 				if err != nil {
 					continue
 				}
-				pi.connection = nc
+				// install the redialed TCP under pool_mutex with a terminated re-check:
+				// Terminate also closes pool conns under pool_mutex, so a redial that
+				// completed after Terminate already passed this item would otherwise
+				// install a live TCP the connection no longer tracks (the peer would
+				// keep it forever, a pool overshoot). If terminated, drop it.
+				c.pool_mutex.Lock()
+				if c.terminated.Load() {
+					c.pool_mutex.Unlock()
+					nc.Close()
+					break
+				}
+				pi.connection.Store(&poolConn{nc})
 				nc.SetWriteDeadline(time.Time{})
 				if old := pi.timer.Load(); old != nil {
 					old.Stop()
 				}
 				pi.fl.Reset(nc)
+				c.pool_mutex.Unlock()
 				tail = t
 				atomic.AddUint64(&c.reconnections, 1)
 
@@ -1762,13 +1823,12 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 
 				goto re
 			}
-		}
-		if c.terminated.Load() {
-			c.wg.Done()
-			return
+			time.Sleep(50 * time.Millisecond) // peer slot not free yet, back off and retry
 		}
 
-		// remove it from the pool
+		// this TCP is gone: remove it from the pool. An empty pool does not terminate the
+		// connection, the primary may be re-established by the canonical end. If already
+		// terminated, unblock wait(); otherwise arm the empty-pool grace.
 		c.pool_mutex.Lock()
 		for i, item := range c.pool {
 			if item != pi {
@@ -1776,18 +1836,80 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			}
 			c.pool[i] = c.pool[0]
 			c.pool = c.pool[1:]
+			break
 		}
-		if len(c.pool) == 0 {
-			c.pool_mutex.Unlock()
-			c.wg.Done()
-			return
+		switch {
+		case len(c.pool) > 0:
+			// dropped below pool_size: only the filler re-dials (reader members never self-redial)
+			if c.terminated.Load() == false && c.redial != nil && len(c.pool) < c.pool_size {
+				c.startFill()
+			}
+		case c.terminated.Load():
+			c.closeDone()
+		case c.established:
+			c.armEmptyPoolTimer()
 		}
 		c.pool_mutex.Unlock()
-
-		c.wg.Done()
 	}()
 
 	return nil
+}
+
+// Extend tells the peer (the dialer that reached our listener) to fill its pool. The
+// node calls it on the canonical acceptor when no competing canonical-direction connect
+// is in flight, so the non-canonical dialer fills only the surviving connection.
+func (c *connection) Extend() {
+	c.pool_mutex.RLock()
+	var fl lib.Flusher
+	if len(c.pool) > 0 {
+		fl = c.pool[0].fl
+	}
+	c.pool_mutex.RUnlock()
+	if fl == nil {
+		return
+	}
+	fl.Write([]byte{protoMagic, protoVersion, 0, 0, 0, 8, 0, protoMessageExtend})
+}
+
+// startFill starts the pool fill if it is not already running. The canonical dialer calls
+// it from Serve, the non-canonical dialer on receiving protoMessageExtend, and the member
+// removal path whenever a drop leaves the pool short.
+func (c *connection) startFill() {
+	if c.filling.CompareAndSwap(false, true) {
+		go c.fillPool()
+	}
+}
+
+// fillPool dials pool-joins to the peer's listener until the pool reaches pool_size, then
+// exits. A member drop that leaves the pool short re-arms it (startFill), so the filler
+// keeps the pool topped up: members joined from the peer's fill are readers that never
+// self-redial, so once they drop only the filler can replace them.
+func (c *connection) fillPool() {
+	redial := c.redial
+	for i := 0; ; i++ {
+		if c.terminated.Load() {
+			c.filling.Store(false)
+			break
+		}
+		c.pool_mutex.Lock()
+		if len(c.pool) >= c.pool_size {
+			// done filling. Clear the flag under pool_mutex so a member drop that lowers the
+			// pool below pool_size (handled under the same lock) re-arms startFill: this
+			// leaves no window where the pool is short with no filler running.
+			c.filling.Store(false)
+			c.pool_mutex.Unlock()
+			break
+		}
+		c.pool_mutex.Unlock()
+		nc, tail, err := redial(c.pool_dsn[i%len(c.pool_dsn)], c.id)
+		if err != nil {
+			time.Sleep(50 * time.Millisecond) // I/O retry backoff
+			continue
+		}
+		if err := c.Join(nc, c.id, redial, tail); err != nil {
+			nc.Close()
+		}
+	}
 }
 
 func (c *connection) Terminate(reason error) {
@@ -1809,11 +1931,22 @@ func (c *connection) Terminate(reason error) {
 
 	c.pool_mutex.Lock()
 	defer c.pool_mutex.Unlock()
+	if c.emptyPoolTimer != nil {
+		c.emptyPoolTimer.Stop()
+		c.emptyPoolTimer = nil
+	}
 	for _, pi := range c.pool {
 		if t := pi.timer.Load(); t != nil {
 			t.Stop()
 		}
-		pi.connection.Close()
+		if pc := pi.connection.Load(); pc != nil {
+			pc.Close()
+		}
+	}
+	// already-empty pool has no goroutine to close done; do it here. A non-empty pool
+	// drains via the closed TCPs and its last goroutine closes done (terminated set).
+	if len(c.pool) == 0 {
+		c.closeDone()
 	}
 
 	// cleanup fragment state
@@ -1834,7 +1967,7 @@ func (c *connection) serve(pi *pool_item, tail []byte) {
 		}()
 	}
 
-	conn := pi.connection
+	conn := pi.connection.Load()
 
 	// start skew measurement now that serve() is running
 	if c.clockSkew {
@@ -1910,6 +2043,21 @@ func (c *connection) serve(pi *pool_item, tail []byte) {
 			}
 			tsRecv := time.Now().UnixNano()
 			c.handleSkew(pi, buf, tsRecv)
+			lib.ReleaseBuffer(buf)
+			buf = buftail
+			continue
+		}
+
+		// pool-fill go-ahead: the acceptor confirmed this (dialer) connection is the
+		// survivor. start filling. Header-only, handled inline (not queued).
+		if buf.B[7] == protoMessageExtend {
+			c.pool_mutex.Lock()
+			c.extendRequested = true
+			ready := c.redial != nil
+			c.pool_mutex.Unlock()
+			if ready {
+				c.startFill()
+			}
 			lib.ReleaseBuffer(buf)
 			buf = buftail
 			continue
@@ -3598,7 +3746,45 @@ func (c *connection) sendAny(msg any, order uint8, orderPeer uint8, compression 
 }
 
 func (c *connection) wait() {
-	c.wg.Wait()
+	// serve started: mark established. An already-empty pool arms the empty-pool grace
+	// (the canonical end may still be re-establishing the primary) rather than
+	// terminating the connection immediately.
+	c.pool_mutex.Lock()
+	c.established = true
+	if len(c.pool) == 0 {
+		if c.terminated.Load() {
+			c.closeDone()
+		} else {
+			c.armEmptyPoolTimer()
+		}
+	}
+	c.pool_mutex.Unlock()
+	<-c.done
+}
+
+// closeDone closes done exactly once. Caller must hold pool_mutex.
+func (c *connection) closeDone() {
+	if c.poolClosed == false {
+		c.poolClosed = true
+		close(c.done)
+	}
+}
+
+// armEmptyPoolTimer starts the grace window for an empty pool: if no TCP rejoins the pool
+// within emptyPoolGrace the primary is gone for good and the connection terminates.
+// Caller must hold pool_mutex.
+func (c *connection) armEmptyPoolTimer() {
+	if c.emptyPoolTimer != nil {
+		return
+	}
+	c.emptyPoolTimer = time.AfterFunc(c.emptyPoolGrace, func() {
+		c.pool_mutex.Lock()
+		if len(c.pool) == 0 && c.terminated.Load() == false {
+			c.terminated.Store(true)
+			c.closeDone()
+		}
+		c.pool_mutex.Unlock()
+	})
 }
 
 func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compression, tracing gen.Tracing) error {
@@ -3700,7 +3886,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	_, err := pi.fl.Write(buf.B[msgStart:])
 	lib.ReleaseBuffer(buf)
 	if err != nil {
-		pi.connection.Close()
+		pi.closeConn()
 		return err
 	}
 
@@ -3781,7 +3967,7 @@ func (c *connection) sendFragmented(buf *lib.Buffer, msgStart int, order uint8) 
 
 		_, err := pi.fl.Write(buf.B[hdr : hdr+16+chunkSize])
 		if err != nil {
-			pi.connection.Close()
+			pi.closeConn()
 			lib.ReleaseBuffer(buf)
 			return err
 		}

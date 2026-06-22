@@ -100,7 +100,7 @@ func killUntilExceed(t *testing.T, n *stage.Node, sup gen.PID, name gen.Atom) (i
 // gen.ErrExceeded. (The old t010/t011 left this as //TODO TestRestartIntensity.)
 func TestLocalSupervisorRestartIntensityTerminate(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 	sup := n.Spawn(factoryIntensitySup, gen.ProcessOptions{}, false)
 
@@ -116,7 +116,7 @@ func TestLocalSupervisorRestartIntensityTerminate(t *testing.T) {
 // the supervisor (and its other child) alive; the child can be re-enabled.
 func TestLocalSupervisorRestartIntensityDisable(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	w := n.Spawn(factoryWatcher, gen.ProcessOptions{})
 	sup := n.Spawn(factoryIntensitySup, gen.ProcessOptions{}, true)
 

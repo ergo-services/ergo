@@ -98,7 +98,7 @@ func runMonitor(t *testing.T, s *stage.Stage, n *stage.Node, reason error, bPID 
 // target's identity and the termination reason. Monitoring an unknown target fails.
 func TestLocalMonitor(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 
 	custom := errors.New("custom")
 	reasons := []error{gen.TerminateReasonKill, custom, gen.TerminateReasonShutdown, gen.TerminateReasonPanic}

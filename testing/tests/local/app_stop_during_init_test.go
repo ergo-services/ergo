@@ -51,7 +51,7 @@ func waitState(nn gen.Node, name gen.Atom, want gen.ApplicationState, d time.Dur
 func TestLocalApplicationStopDuringInit(t *testing.T) {
 	for _, force := range []bool{false, true} {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		nn := n.Native()
 
 		name, err := nn.ApplicationLoad(&slowInitApp{sleep: 300 * time.Millisecond})

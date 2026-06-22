@@ -22,6 +22,7 @@ import (
 
 	"ergo.services/ergo/app/system"
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/net/handshake"
 	"ergo.services/ergo/node"
 	"ergo.services/ergo/testing/check"
 )
@@ -104,6 +105,14 @@ type NodeOptions struct {
 	MaxMessageSize int
 	FragmentSize   int
 	NetworkFlags   gen.NetworkFlags
+	// PoolSize sets the number of TCP connections per peer connection. Zero keeps the
+	// framework default.
+	PoolSize int
+
+	// Mode sets the network mode (pass-through to gen.NodeOptions.Network.Mode). Use
+	// gen.NetworkModeHidden to model a node behind NAT: it dials out but runs no acceptor,
+	// so peers cannot dial it back. Zero is NetworkModeEnabled.
+	Mode gen.NetworkMode
 
 	// Security pass-through (e.g. ExposeEnvRemoteSpawn for remote-spawn env inheritance).
 	Security gen.SecurityOptions
@@ -119,8 +128,8 @@ type Node struct {
 	rec  *check.Recorder
 }
 
-// Node starts a live node. Names are unique per stage to avoid collisions.
-func (s *Stage) Node(name string, opts ...NodeOptions) *Node {
+// StartNode starts a live node. Names are unique per stage to avoid collisions.
+func (s *Stage) StartNode(name string, opts ...NodeOptions) *Node {
 	s.t.Helper()
 	var o NodeOptions
 	if len(opts) > 0 {
@@ -137,6 +146,10 @@ func (s *Stage) Node(name string, opts ...NodeOptions) *Node {
 	no.Network.MaxMessageSize = o.MaxMessageSize
 	no.Network.FragmentSize = o.FragmentSize
 	no.Network.Flags = o.NetworkFlags
+	no.Network.Mode = o.Mode
+	if o.PoolSize > 0 {
+		no.Network.Handshake = handshake.Create(handshake.Options{PoolSize: o.PoolSize})
+	}
 	no.Security = o.Security
 	no.Env = o.Env
 	if o.EnableSystemApp {
@@ -324,10 +337,11 @@ func (s *Stage) Connect(a, b *Node) gen.RemoteNode {
 
 // ConnectMesh dials every ordered pair of nodes concurrently, so each link is
 // attempted from both sides at once and exercises simultaneous-connect collision
-// resolution. It then waits until every node sees every other, re-dialing any
-// missing pair until the mesh settles or the deadline passes (a real cluster
-// retries dials that the TCP backlog dropped under a connect storm). Duplicate
-// detection is left to the caller via Network().Nodes().
+// resolution. It then waits until every node sees every other and every connection
+// has filled its TCP pool, re-dialing any missing pair until the mesh settles or
+// the deadline passes (a real cluster retries dials that the TCP backlog dropped
+// under a connect storm). Duplicate detection is left to the caller via
+// Network().Nodes().
 func (s *Stage) ConnectMesh(nodes ...*Node) {
 	s.t.Helper()
 	var wg sync.WaitGroup
@@ -347,23 +361,29 @@ func (s *Stage) ConnectMesh(nodes ...*Node) {
 
 	deadline := time.Now().Add(20 * time.Second)
 	for {
-		missing := 0
+		unsettled := 0
 		for i := range nodes {
 			for j := range nodes {
 				if i == j {
 					continue
 				}
-				if _, err := nodes[i].node.Network().Node(nodes[j].node.Name()); err != nil {
-					missing++
+				r, err := nodes[i].node.Network().Node(nodes[j].node.Name())
+				if err != nil {
+					unsettled++
 					nodes[i].node.Network().GetNode(nodes[j].node.Name())
+					continue
+				}
+				// settled only once the TCP pool has filled to its target
+				if info := r.Info(); info.PoolLen != info.PoolSize {
+					unsettled++
 				}
 			}
 		}
-		if missing == 0 {
+		if unsettled == 0 {
 			return
 		}
 		if time.Now().After(deadline) {
-			s.t.Fatalf("stage: mesh of %d nodes did not settle: %d missing connections", len(nodes), missing)
+			s.t.Fatalf("stage: mesh of %d nodes did not settle: %d pairs missing or pool not filled", len(nodes), unsettled)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

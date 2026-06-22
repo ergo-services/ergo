@@ -47,7 +47,7 @@ func (a *aliasActor) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
 // ErrProcessUnknown) while the process's other alias keeps working.
 func TestLocalAliasRouting(t *testing.T) {
 	s := stage.New(t)
-	n := s.Node("n")
+	n := s.StartNode("n")
 	nn := n.Native()
 	target := n.Spawn(factoryAliasActor, gen.ProcessOptions{})
 

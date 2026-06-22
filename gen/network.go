@@ -604,9 +604,13 @@ type RemoteNodeInfo struct {
 	// Indicates what features are supported (remote spawn, fragmentation, etc.).
 	NetworkFlags NetworkFlags
 
-	// PoolSize is the number of TCP connections in the connection pool.
+	// PoolSize is the configured target number of TCP connections in the pool.
 	// Multiple connections used for load balancing and ordering.
 	PoolSize int
+
+	// PoolLen is the current number of TCP connections in the pool.
+	// Reaches PoolSize once the pool has fully filled.
+	PoolLen int
 
 	// PoolDSN lists the connection strings (host:port) for each pooled connection.
 	PoolDSN []string
@@ -775,8 +779,14 @@ type NetworkHandshake interface {
 	Start(NodeHandshake, net.Conn, HandshakeOptions) (HandshakeResult, error)
 	// Join is invoking within the NetworkDial to shortcut the handshake process
 	Join(NodeHandshake, net.Conn, string, HandshakeOptions) ([]byte, error)
-	// Accept accepts handshake process initiated by another side of this connection.
-	Accept(NodeHandshake, net.Conn, HandshakeOptions) (HandshakeResult, error)
+	// Negotiate is the acceptor step 1: reads the greeting and the peer introduce,
+	// computes the ConnectionID and the proto-ready Custom; does not send the accept
+	// yet. A pool-join is resolved entirely here.
+	Negotiate(NodeHandshake, net.Conn, HandshakeOptions) (HandshakeResult, error)
+	// Accept is the acceptor step 2: sends our introduce and accept, reads the peer
+	// final accept, fills Tail. The node calls it after registering the connection
+	// by ConnectionID.
+	Accept(NodeHandshake, net.Conn, HandshakeOptions, HandshakeResult) (HandshakeResult, error)
 	// Reject sends a rejection message to the connecting side and is used
 	// when the acceptor is too busy to handle a new handshake.
 	Reject(net.Conn, string) error

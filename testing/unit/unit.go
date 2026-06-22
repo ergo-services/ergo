@@ -60,7 +60,7 @@ type MockNode struct {
 	t testing.TB
 }
 
-// Node creates a mock node. Mirrors stage's s.Node(name, NodeOptions): spawn the
+// Node creates a mock node. Mirrors stage's s.StartNode(name, NodeOptions): spawn the
 // process under test on the returned node with Spawn / SpawnRegister. Env is taken
 // from options.Env; the rest of gen.NodeOptions is accepted for parity with a real
 // node but unused by the mock.

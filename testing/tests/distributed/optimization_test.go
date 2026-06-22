@@ -81,8 +81,8 @@ func shouldWireSub(n *stage.Node, kind string, target any) {
 // link and monitor across all addressing modes.
 func TestDistOptFanOut(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	for _, kind := range []string{"link", "monitor"} {
@@ -113,8 +113,8 @@ func TestDistOptFanOut(t *testing.T) {
 // local subscriber leaves; earlier unsubscribes are local-only.
 func TestDistOptWireUnsubOnLast(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	for _, kind := range []string{"link", "monitor"} {
@@ -151,8 +151,8 @@ func TestDistOptWireUnsubOnLast(t *testing.T) {
 // receive the death notification and the departed ones receive nothing.
 func TestDistOptPartialThenDeath(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	for _, kind := range []string{"link", "monitor"} {
@@ -180,8 +180,8 @@ func TestDistOptPartialThenDeath(t *testing.T) {
 // with ErrTargetExist (the local registration already holds it).
 func TestDistOptDuplicate(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	target, _ := newRTarget(t, n2, "pid")
@@ -200,8 +200,8 @@ func TestDistOptDuplicate(t *testing.T) {
 // target; the two subscriptions are independent on the wire and both fire on death.
 func TestDistOptMixed(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	target, pid := newRTarget(t, n2, "pid")
@@ -230,9 +230,9 @@ func TestDistOptMixed(t *testing.T) {
 // subscription to the target's node (dedup is per node), and all fire on death.
 func TestDistOptCrossNode(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
-	n3 := s.Node("n3")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
+	n3 := s.StartNode("n3")
 	s.Connect(n1, n2)
 	s.Connect(n3, n2)
 
@@ -260,8 +260,8 @@ func TestDistOptCrossNode(t *testing.T) {
 // snapshot on subscribe and the live event on publish.
 func TestDistOptEventDelivery(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	prod := n2.Spawn(factoryEventProducer, gen.ProcessOptions{}, false)
@@ -292,8 +292,8 @@ func TestDistOptEventDelivery(t *testing.T) {
 // with TestDistOptFanOut link/event, where a non-buffered event deduplicates to one).
 func TestDistOptBufferedEventNoDedup(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	prod := n2.Spawn(factoryEventProducer, gen.ProcessOptions{}, false)
@@ -316,8 +316,8 @@ func TestDistOptBufferedEventNoDedup(t *testing.T) {
 // whichever death removes the last local subscriber.
 func TestDistOptSubscriberTermination(t *testing.T) {
 	s := stage.New(t)
-	n1 := s.Node("n1")
-	n2 := s.Node("n2")
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
 	s.Connect(n1, n2)
 
 	target, _ := newRTarget(t, n2, "pid")
@@ -393,7 +393,7 @@ func TestDistOptNotify(t *testing.T) {
 	// local: producer and both subscribers on one node
 	t.Run("Local", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		prod := n.Spawn(factoryEventProducer, gen.ProcessOptions{}, true)
 		evAny, err := n.Call(prod, "create")
 		check.NoError(t, err)
@@ -419,8 +419,8 @@ func TestDistOptNotify(t *testing.T) {
 	// remote: producer on n2, subscribers on n1
 	t.Run("Remote", func(t *testing.T) {
 		s := stage.New(t)
-		n1 := s.Node("n1")
-		n2 := s.Node("n2")
+		n1 := s.StartNode("n1")
+		n2 := s.StartNode("n2")
 		s.Connect(n1, n2)
 		prod := n2.Spawn(factoryEventProducer, gen.ProcessOptions{}, true)
 		evAny, err := n2.Call(prod, "create")
@@ -447,9 +447,9 @@ func TestDistOptNotify(t *testing.T) {
 	// multi-node: producer on n1, one subscriber each on n2 and n3
 	t.Run("MultiNode", func(t *testing.T) {
 		s := stage.New(t)
-		n1 := s.Node("n1")
-		n2 := s.Node("n2")
-		n3 := s.Node("n3")
+		n1 := s.StartNode("n1")
+		n2 := s.StartNode("n2")
+		n3 := s.StartNode("n3")
 		s.Connect(n2, n1)
 		s.Connect(n3, n1)
 		prod := n1.Spawn(factoryEventProducer, gen.ProcessOptions{}, true)
@@ -477,7 +477,7 @@ func TestDistOptNotify(t *testing.T) {
 	// link and monitor consumers mixed on one node
 	t.Run("LinkMonitorMix", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		prod := n.Spawn(factoryEventProducer, gen.ProcessOptions{}, true)
 		evAny, err := n.Call(prod, "create")
 		check.NoError(t, err)
@@ -503,8 +503,8 @@ func TestDistOptNotify(t *testing.T) {
 	// mixed: producer on n1 with one local subscriber and one remote on n2
 	t.Run("Mixed", func(t *testing.T) {
 		s := stage.New(t)
-		n1 := s.Node("n1")
-		n2 := s.Node("n2")
+		n1 := s.StartNode("n1")
+		n2 := s.StartNode("n2")
 		s.Connect(n2, n1)
 		prod := n1.Spawn(factoryEventProducer, gen.ProcessOptions{}, true)
 		evAny, err := n1.Call(prod, "create")
@@ -531,7 +531,7 @@ func TestDistOptNotify(t *testing.T) {
 	// notify disabled: producer is never told
 	t.Run("NoNotify", func(t *testing.T) {
 		s := stage.New(t)
-		n := s.Node("n")
+		n := s.StartNode("n")
 		prod := n.Spawn(factoryEventProducer, gen.ProcessOptions{}, false)
 		evAny, err := n.Call(prod, "create")
 		check.NoError(t, err)

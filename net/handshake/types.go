@@ -17,10 +17,6 @@ const (
 	defaultPoolSize int = 3
 )
 
-var (
-	DefaultPoolSize int = 1
-)
-
 type MessageHello struct {
 	Salt       string
 	Digest     string
@@ -77,6 +73,12 @@ type ConnectionOptions struct {
 	FragmentSize            int
 	FragmentTimeout         int
 	MaxFragmentAssemblies   int
+
+	// acceptor handshake continuation between Negotiate and Accept; opaque to proto
+	pendingAccept    MessageAccept
+	pendingIntroduce MessageIntroduce
+	pendingTail      []byte
+	awaitingAccept   bool
 }
 
 func init() {
