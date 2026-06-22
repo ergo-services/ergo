@@ -54,7 +54,7 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 
 	opts, ok := result.Custom.(handshake.ConnectionOptions)
 	if ok == false {
-		return nil, fmt.Errorf("HandshakeResult.Custom has unknown type")
+		return nil, fmt.Errorf("connection with %s: HandshakeResult.Custom has unexpected type %T, want handshake.ConnectionOptions", result.Peer, result.Custom)
 	}
 
 	if result.PeerCreation == 0 {

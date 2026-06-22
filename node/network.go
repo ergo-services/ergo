@@ -1701,8 +1701,16 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 		return
 	}
 
-	// primary attached: announce by name, then drop any provisional we took over.
+	// primary attached: announce by name only while we still own this ConnectionID. A
+	// canonical-direction connect can take the slot over during the Accept round-trip above;
+	// if it did, this direction lost the merge, so drop it rather than route the peer name to
+	// (and serve) a superseded connection that no pool-join will ever fill.
 	n.mergeMu.Lock()
+	if cur, ok := n.connectionsByID.Load(result.ConnectionID); ok == false || cur != conn {
+		n.mergeMu.Unlock()
+		conn.Terminate(nil)
+		return
+	}
 	n.registerConnection(result.Peer, conn)
 	n.mergeMu.Unlock()
 	if loaded {

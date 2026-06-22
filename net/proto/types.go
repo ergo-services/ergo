@@ -12,6 +12,8 @@ const (
 	protoMagic   byte = 78
 	protoVersion byte = 1
 
+	protoMessageExtend byte = 99 // pool-fill go-ahead (acceptor to dialer)
+
 	// for messages sent with Send* methods
 	protoMessagePID        byte = 101
 	protoMessageName       byte = 102
@@ -49,8 +51,6 @@ const (
 
 	protoMessageK byte = 208 // keepalive
 	protoMessageS byte = 209 // skew measurement
-
-	protoMessageExtend byte = 99 // pool-fill go-ahead (acceptor to dialer)
 
 	// reserved space at the beginning of every message buffer
 	// for wrapping headers (tracing, proxy, etc.) without copying

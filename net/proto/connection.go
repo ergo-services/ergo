@@ -616,7 +616,7 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 
 	bname := []byte(toName)
 	if len(bname) > 255 {
-		return fmt.Errorf("process name too long")
+		return fmt.Errorf("process name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -745,7 +745,7 @@ func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message
 
 	bname := []byte(eventName)
 	if len(bname) > 255 {
-		return fmt.Errorf("event name too long")
+		return fmt.Errorf("event name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -970,7 +970,7 @@ func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) 
 
 	bname := []byte(targetName)
 	if len(bname) > 255 {
-		return fmt.Errorf("target process name too long")
+		return fmt.Errorf("target process name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -1044,7 +1044,7 @@ func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
 
 	bname := []byte(eventName)
 	if len(bname) > 255 {
-		return fmt.Errorf("terminated event name too long")
+		return fmt.Errorf("terminated event name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -1142,7 +1142,7 @@ func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.M
 
 	bname := []byte(toName)
 	if len(bname) > 255 {
-		return fmt.Errorf("process name too long")
+		return fmt.Errorf("process name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -1721,11 +1721,11 @@ func (c *connection) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra)
 
 func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail []byte) error {
 	if id != c.id {
-		return fmt.Errorf("connection id mismatch")
+		return fmt.Errorf("join: connection id mismatch with %s: got %q, have %q", c.peer, id, c.id)
 	}
 
 	if c.terminated.Load() {
-		return fmt.Errorf("connection terminated")
+		return fmt.Errorf("join: connection with %s is terminated", c.peer)
 	}
 
 	c.pool_mutex.Lock()
@@ -1735,8 +1735,9 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 	// here while the dialer still holds it). dial != nil marks a writer join: the filling
 	// primary (connect) and every pool-join (fillPool) carry a redial, the accept end nil.
 	if dial != nil && len(c.pool) >= c.pool_size {
+		have := len(c.pool)
 		c.pool_mutex.Unlock()
-		return fmt.Errorf("pool size limit")
+		return fmt.Errorf("join: pool for %s is full (%d/%d)", c.peer, have, c.pool_size)
 	}
 	// clear handshake write deadline
 	conn.SetWriteDeadline(time.Time{})
