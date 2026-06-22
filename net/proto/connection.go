@@ -144,7 +144,7 @@ type connection struct {
 	// dials pool-joins (set by Serve). A canonical-direction dialer fills at once; a
 	// non-canonical one waits for the acceptor's protoMessageExtend (extendRequested) so
 	// it never fills a connection a simultaneous connect would supersede. filling guards
-	// the single fill run. redial/extendRequested are accessed under pool_mutex.
+	// against more than one concurrent fill run. redial/extendRequested under pool_mutex.
 	redial          gen.NetworkDial
 	extendRequested bool
 	filling         atomic.Bool
@@ -1838,12 +1838,16 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			c.pool = c.pool[1:]
 			break
 		}
-		if len(c.pool) == 0 {
-			if c.terminated.Load() {
-				c.closeDone()
-			} else if c.established {
-				c.armEmptyPoolTimer()
+		switch {
+		case len(c.pool) > 0:
+			// dropped below pool_size: only the filler re-dials (reader members never self-redial)
+			if c.terminated.Load() == false && c.redial != nil && len(c.pool) < c.pool_size {
+				c.startFill()
 			}
+		case c.terminated.Load():
+			c.closeDone()
+		case c.established:
+			c.armEmptyPoolTimer()
 		}
 		c.pool_mutex.Unlock()
 	}()
@@ -1867,26 +1871,36 @@ func (c *connection) Extend() {
 	fl.Write([]byte{protoMagic, protoVersion, 0, 0, 0, 8, 0, protoMessageExtend})
 }
 
-// startFill runs the pool fill once. The canonical dialer calls it from Serve; the
-// non-canonical dialer calls it on receiving protoMessageExtend.
+// startFill starts the pool fill if it is not already running. The canonical dialer calls
+// it from Serve, the non-canonical dialer on receiving protoMessageExtend, and the member
+// removal path whenever a drop leaves the pool short.
 func (c *connection) startFill() {
 	if c.filling.CompareAndSwap(false, true) {
 		go c.fillPool()
 	}
 }
 
-// fillPool dials pool-joins to the peer's listener until the pool reaches pool_size,
-// retrying failed dials under a connect storm. Joined TCPs self-redial on drop (redial
-// passed to Join), so this drives only the initial fill.
+// fillPool dials pool-joins to the peer's listener until the pool reaches pool_size, then
+// exits. A member drop that leaves the pool short re-arms it (startFill), so the filler
+// keeps the pool topped up: members joined from the peer's fill are readers that never
+// self-redial, so once they drop only the filler can replace them.
 func (c *connection) fillPool() {
 	redial := c.redial
 	for i := 0; ; i++ {
-		c.pool_mutex.RLock()
-		filled := len(c.pool) >= c.pool_size
-		c.pool_mutex.RUnlock()
-		if filled || c.terminated.Load() {
+		if c.terminated.Load() {
+			c.filling.Store(false)
 			break
 		}
+		c.pool_mutex.Lock()
+		if len(c.pool) >= c.pool_size {
+			// done filling. Clear the flag under pool_mutex so a member drop that lowers the
+			// pool below pool_size (handled under the same lock) re-arms startFill: this
+			// leaves no window where the pool is short with no filler running.
+			c.filling.Store(false)
+			c.pool_mutex.Unlock()
+			break
+		}
+		c.pool_mutex.Unlock()
 		nc, tail, err := redial(c.pool_dsn[i%len(c.pool_dsn)], c.id)
 		if err != nil {
 			time.Sleep(50 * time.Millisecond) // I/O retry backoff
