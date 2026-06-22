@@ -1232,6 +1232,9 @@ func (n *network) start(options gen.NetworkOptions) error {
 	n.fragmentTimeout = options.FragmentTimeout
 	n.maxFragmentAssemblies = options.MaxFragmentAssemblies
 
+	// register our own name so PIDs/refs that carry it encode as a compact atom-cache id
+	n.RegisterAtom(n.node.name)
+
 	if options.Mode == gen.NetworkModeHidden {
 		static, err := n.registrar.Register(n.node, gen.RegisterRoutes{})
 		if err != nil {

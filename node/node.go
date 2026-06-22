@@ -17,7 +17,6 @@ import (
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 	"ergo.services/ergo/lib/osdep"
-	"ergo.services/ergo/net/edf"
 	"ergo.services/ergo/node/tm"
 )
 
@@ -314,7 +313,6 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 		}
 	}
 
-	edf.RegisterAtom(name)
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
 
 	// enable SIGTERM
