@@ -170,7 +170,7 @@ service1, err := a.ProcessPID("service1") // the application registered this pro
 
 By default a node starts bare, with no system processes, so a test can assert exact process and application counts; add the system services with `NodeOptions{EnableSystemApp: true}` when one is needed.
 
-For more than two nodes, `s.ConnectMesh(nodes...)` connects every pair at once - exercising the simultaneous-connect collision handling a real cluster meets under a connect storm - and waits until every node sees every other before returning. `n.Kill` force-terminates a process, and, as the first test noted, the stage stops every node it started on cleanup, so a test never leaks a running node.
+For more than two nodes, `s.ConnectMesh(nodes...)` connects every pair at once - exercising the simultaneous-connect collision handling a real cluster meets under a connect storm - and waits until every node sees every other with its TCP connection pool fully filled before returning. `n.Kill` force-terminates a process, and, as the first test noted, the stage stops every node it started on cleanup, so a test never leaks a running node.
 
 ## Choosing Between Unit and Stage
 
