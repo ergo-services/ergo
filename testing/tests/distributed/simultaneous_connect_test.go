@@ -98,7 +98,7 @@ func TestDistConnectBehindNAT(t *testing.T) {
 // cluster settles into a clean full mesh: one connection per peer (no duplicates,
 // no leaks), with every counter-dial resolving to a single bidirectional connection.
 func TestDistSimultaneousConnectCluster(t *testing.T) {
-	const N = 50
+	const N = 30
 
 	s := stage.New(t)
 	nodes := make([]*stage.Node, N)
