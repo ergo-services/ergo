@@ -395,7 +395,7 @@ For message isolation patterns within a single codebase, see [Project Structure]
 
 ## Compatibility Rules
 
-By default EDF enforces strict type identity: change a struct's field count, order, or types and it is a new, incompatible type. Schema evolution (opt-in, covered below) relaxes this for the trailing fields - you may add to or remove from the end.
+By default EDF enforces strict type identity: change a struct's field count, order, or types and it is a new, incompatible type. Schema evolution (off by default, covered below) relaxes this for the trailing fields - you may add to or remove from the end.
 
 | Change | Strict (default) | With schema evolution |
 |--------|------------------|-----------------------|

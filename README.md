@@ -208,36 +208,18 @@ After install, invoke the skills as `/ergo:framework` or `/ergo:devops`. Agents 
 
 Fully detailed changelog see in the [ChangeLog](CHANGELOG.md) file.
 
-#### [v3.3.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.330) 2026-xx-xx [tag version v1.999.330] ####
+#### [v3.3.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.330) 2026-09-04 [tag version v1.999.330] ####
 
-* Added **pointer type support** in EDF - `*int`, `*string`, `[]*T`, `map[K]*V`, pointer struct fields. Nil state preserved. Nested pointers (`**T`) not supported. Max encoding depth limit (100) prevents stack overflow on deeply nested structures. See [Network Transparency](https://docs.ergo.services/networking/network-transparency) documentation
+Release highlights (full list in [CHANGELOG.md](CHANGELOG.md)):
 
-* Added **per-type encode/decode statistics** (build with `-tags=typestats`). Tracks count of root-level operations and decompressed wire-byte volume per registered EDF type. Available via `Network().RegisteredTypes()` and the Observer Types panel. Helps identify heavy message types and decide where to enable compression. Overhead approximately 2-3% on encode/decode throughput
-* Fixed logger to preserve Behavior name when process registers name
-
-* Added **process lifecycle counters** to `NodeInfo` - `ProcessesSpawned`, `ProcessesSpawnFailed`, `ProcessesTerminated` for cumulative statistics
-
-* Added **mailbox latency measurement** (build with `-tags=latency`). `QueueMPSC.Latency()` returns the age of the oldest message in the queue (nanoseconds), -1 if disabled. `ProcessMailbox.Latency()` returns the max across all four queues. Added `MailboxLatency` field to `ProcessShortInfo` and `MailboxQueues` latency fields to `ProcessInfo`. Added `Node.ProcessRangeShortInfo` for efficient iteration over all processes. See [actor/metrics](https://github.com/ergo-services/actor-metrics) for Prometheus integration with histogram, top-N, and Grafana dashboard
-
-* Added **per-event metrics** - `EventInfo` now includes `MessagesPublished`, `MessagesLocalSent`, `MessagesRemoteSent` counters. Added `Node.EventInfo` and `Node.EventRangeInfo` for querying event statistics. Added `EventsPublished`, `EventsReceived`, `EventsLocalSent`, `EventsRemoteSent` to `NodeInfo`. `EventsPublished` counts only local producer publishes, `EventsReceived` counts events arriving from remote nodes
-
-* Added **process init time measurement** - `InitTime` field in `ProcessShortInfo` and `ProcessInfo` records the time spent in `ProcessInit` callback (nanoseconds). Enables detection of slow process initialization
-
-* Fixed **message counters for meta processes** - meta process traffic now propagates to parent process counters (`messagesIn`/`messagesOut`), making `ProcessRangeShortInfo` aggregates balanced. Meta process own counters preserved for meta-level observability
-
-* Fixed **self-send message counter** - `messagesOut` now incremented for self-sends (process sending to itself), consistent with other send paths
-
-* Fixed **simultaneous connect dead loop** - two nodes dialing each other at the same time no longer cause infinite retry loops. Deterministic connection IDs and Erlang-style collision detection (`EnableSimultaneousConnect` flag) ensure exactly one connection per pair. Fixed related connection leaks
-
-* Fixed **silent data loss on connection pool write failure** - a transient write error could permanently break a pool item's write path without detection, causing all subsequent messages to be silently dropped while the connection appeared healthy
-
-* Added **software keepalive** for inter-node connections - application-level heartbeat that detects silent failures invisible to TCP keepalive. Enabled by default (15s period, 3 misses, 45s timeout). See [Network Stack](https://docs.ergo.services/networking/network-stack#software-keepalive) documentation
-
-* Added **handshake deadline** (5s) to prevent hung handshakes from blocking connection goroutines indefinitely
-
-* Added **message fragmentation** for large messages. Messages exceeding the fragment size (default 65000 bytes) are automatically split and reassembled. With `KeepNetworkOrder` disabled, fragments use all TCP connections for maximum throughput. See [Network Stack](https://docs.ergo.services/networking/network-stack#message-fragmentation) documentation
-
-* Fixed **important delivery use-after-release** - reference ID read from buffer after pool release, causing corrupted ACK responses
+* **Distributed tracing** that follows messages across nodes, with sampling and clock-skew correction; export spans to OTLP backends with the new Pulse application
+* **Testing framework** with four layers - `unit`, `stage`, `mock`, and `check` - sharing one fluent assertion grammar for in-process, multi-node, and mock-based tests
+* **EDF schema evolution** - off by default; enable it on both nodes to append new fields to registered structs without breaking peers that have not upgraded
+* **EDF pointer support** and per-type encode/decode statistics (`-tags=typestats`)
+* **Open events** - let any local process publish to an event without holding the producer token
+* **Network hardening** - software keepalive, message fragmentation, and a handshake deadline, plus fixes for simultaneous-connect loops, silent data loss on pool write failure, and important-delivery corruption
+* **Deeper telemetry** - mailbox latency (`-tags=latency`), process / event / lifecycle counters, and per-process init, running, and state time plus wakeups
+* **Extra library** - a new MCP diagnostics application, a renewed Observer cluster inspector, the Pulse tracing exporter and Radar health+metrics sidecar, a Health probe actor, a much-expanded Metrics actor with Grafana dashboard, a Sentry logger, and a reworked `ergo` generator that separates generated from hand-written code
 
 ### Development and debugging ###
 
