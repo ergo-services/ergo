@@ -205,6 +205,25 @@ func (m *meta) send(to any, message any) error {
 			return err
 		}
 	case gen.Alias:
+		if t == m.id {
+			// self-send to own alias: skip the node-level alias lookup
+			// (mirrors the gen.PID self-send fast path above)
+			qm := gen.TakeMailboxMessage()
+			qm.From = m.p.pid
+			qm.Type = gen.MailboxMessageTypeRegular
+			qm.Target = to
+			qm.Message = message
+
+			if ok := m.main.Push(qm); ok == false {
+				return gen.ErrMetaMailboxFull
+			}
+			atomic.AddUint64(&m.messagesIn, 1)
+			m.handle()
+
+			atomic.AddUint64(&m.messagesOut, 1)
+			return nil
+		}
+
 		if err := m.p.core.RouteSendAlias(m.p.pid, t, options, message); err != nil {
 			return err
 		}
