@@ -64,6 +64,8 @@ type Supervisor struct {
 	handleChild bool
 	children    map[gen.PID]gen.Atom
 	state       supState
+
+	spanStart int64 // handler-entry time for the Processed span interval
 }
 
 // ProcessKind reports this process as built on act.Supervisor.
@@ -474,6 +476,7 @@ func (s *Supervisor) ProcessRun() (rr error) {
 			messageHasTracing := message.Tracing.ID != [2]uint64{}
 			if messageHasTracing {
 				s.SetPropagatingTrace(message.Tracing)
+				s.spanStart = time.Now().UnixNano()
 			}
 
 			var reason error
@@ -508,6 +511,7 @@ func (s *Supervisor) ProcessRun() (rr error) {
 			messageHasTracing := message.Tracing.ID != [2]uint64{}
 			if messageHasTracing {
 				s.SetPropagatingTrace(message.Tracing)
+				s.spanStart = time.Now().UnixNano()
 			}
 
 			result, reason := s.behavior.HandleCall(message.From, message.Ref, message.Message)
@@ -950,19 +954,21 @@ func (s *Supervisor) sendSpanProcessed(message *gen.MailboxMessage, kind gen.Tra
 		msgType = reflect.TypeOf(message.Message).String()
 	}
 	s.SendTracingSpan(gen.TracingSpan{
-		TraceID:    message.Tracing.ID,
-		SpanID:     message.Tracing.SpanID,
-		Point:      gen.TracingPointProcessed,
-		Kind:       kind,
-		Timestamp:  time.Now().UnixNano(),
-		Node:       s.Node().Name(),
-		From:       message.From,
-		To:         s.PID(),
-		Ref:        message.Ref,
-		Behavior:   s.BehaviorName(),
-		Message:    msgType,
-		Error:      errStr,
-		Attributes: s.TracingAttributes(),
+		TraceID:      message.Tracing.ID,
+		SpanID:       message.Tracing.SpanID,
+		Point:        gen.TracingPointProcessed,
+		Kind:         kind,
+		Timestamp:    s.spanStart,
+		EndTimestamp: time.Now().UnixNano(),
+		Node:         s.Node().Name(),
+		From:         message.From,
+		To:           s.PID(),
+		Ref:          message.Ref,
+		Behavior:     s.BehaviorName(),
+		Message:      msgType,
+		Error:        errStr,
+		Attributes:   s.TracingAttributes(),
 	})
+	s.CloseTracingSpans()
 	s.ClearTracingSpanAttributes()
 }

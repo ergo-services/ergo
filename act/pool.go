@@ -55,6 +55,8 @@ type Pool struct {
 
 	options PoolOptions
 	pool    lib.QueueMPSC
+
+	spanStart int64 // handler-entry time for the Processed span interval
 }
 
 // ProcessKind reports this process as built on act.Pool.
@@ -224,6 +226,7 @@ func (p *Pool) ProcessRun() (rr error) {
 			messageHasTracing := message.Tracing.ID != [2]uint64{}
 			if messageHasTracing {
 				p.SetPropagatingTrace(message.Tracing)
+				p.spanStart = time.Now().UnixNano()
 			}
 
 			if reason := p.behavior.HandleMessage(message.From, message.Message); reason != nil {
@@ -240,6 +243,7 @@ func (p *Pool) ProcessRun() (rr error) {
 			messageHasTracing := message.Tracing.ID != [2]uint64{}
 			if messageHasTracing {
 				p.SetPropagatingTrace(message.Tracing)
+				p.spanStart = time.Now().UnixNano()
 			}
 
 			var reason error
@@ -341,19 +345,21 @@ func (p *Pool) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKi
 		msgType = reflect.TypeOf(message.Message).String()
 	}
 	p.SendTracingSpan(gen.TracingSpan{
-		TraceID:    message.Tracing.ID,
-		SpanID:     message.Tracing.SpanID,
-		Point:      gen.TracingPointProcessed,
-		Kind:       kind,
-		Timestamp:  time.Now().UnixNano(),
-		Node:       p.Node().Name(),
-		From:       message.From,
-		To:         p.PID(),
-		Ref:        message.Ref,
-		Message:    msgType,
-		Error:      errStr,
-		Attributes: p.TracingAttributes(),
+		TraceID:      message.Tracing.ID,
+		SpanID:       message.Tracing.SpanID,
+		Point:        gen.TracingPointProcessed,
+		Kind:         kind,
+		Timestamp:    p.spanStart,
+		EndTimestamp: time.Now().UnixNano(),
+		Node:         p.Node().Name(),
+		From:         message.From,
+		To:           p.PID(),
+		Ref:          message.Ref,
+		Message:      msgType,
+		Error:        errStr,
+		Attributes:   p.TracingAttributes(),
 	})
+	p.CloseTracingSpans()
 	p.ClearTracingSpanAttributes()
 }
 

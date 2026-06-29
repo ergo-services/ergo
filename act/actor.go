@@ -65,6 +65,8 @@ type Actor struct {
 
 	trap  bool // trap exit
 	split bool // split handle callback
+
+	spanStart int64 // handler-entry time for the Processed span interval
 }
 
 // ProcessKind reports this process as built on act.Actor.
@@ -199,6 +201,7 @@ func (a *Actor) ProcessRun() (rr error) {
 			if messageHasTracing {
 				savedTracing = a.PropagatingTrace()
 				a.SetPropagatingTrace(message.Tracing)
+				a.spanStart = time.Now().UnixNano()
 			}
 
 			var reason error
@@ -237,6 +240,7 @@ func (a *Actor) ProcessRun() (rr error) {
 			if messageHasTracing {
 				savedTracing = a.PropagatingTrace()
 				a.SetPropagatingTrace(message.Tracing)
+				a.spanStart = time.Now().UnixNano()
 			}
 
 			var reason error
@@ -420,19 +424,21 @@ func (a *Actor) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingK
 		msgType = reflect.TypeOf(message.Message).String()
 	}
 	a.SendTracingSpan(gen.TracingSpan{
-		TraceID:    message.Tracing.ID,
-		SpanID:     message.Tracing.SpanID,
-		Point:      gen.TracingPointProcessed,
-		Kind:       kind,
-		Timestamp:  time.Now().UnixNano(),
-		Node:       a.Node().Name(),
-		From:       message.From,
-		To:         a.PID(),
-		Ref:        message.Ref,
-		Behavior:   a.BehaviorName(),
-		Message:    msgType,
-		Error:      errStr,
-		Attributes: a.TracingAttributes(),
+		TraceID:      message.Tracing.ID,
+		SpanID:       message.Tracing.SpanID,
+		Point:        gen.TracingPointProcessed,
+		Kind:         kind,
+		Timestamp:    a.spanStart,
+		EndTimestamp: time.Now().UnixNano(),
+		Node:         a.Node().Name(),
+		From:         message.From,
+		To:           a.PID(),
+		Ref:          message.Ref,
+		Behavior:     a.BehaviorName(),
+		Message:      msgType,
+		Error:        errStr,
+		Attributes:   a.TracingAttributes(),
 	})
+	a.CloseTracingSpans()
 	a.ClearTracingSpanAttributes()
 }

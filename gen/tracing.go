@@ -28,10 +28,12 @@ const (
 type TracingSpan struct {
 	TraceID      [2]uint64
 	SpanID       uint64
-	ParentSpanID uint64 // SpanID from propagating trace context (0 = root)
+	ParentSpanID uint64       // SpanID from propagating trace context (0 = root)
+	ParentPoint  TracingPoint // point of the parent observation (business spans only)
 	Point        TracingPoint
 	Kind         TracingKind
 	Timestamp    int64 // wall clock unix nanoseconds
+	EndTimestamp int64 // interval end (business spans); 0 = point observation
 	Node         Atom
 	From         PID
 	To           any // PID, ProcessID, or Alias
@@ -53,9 +55,11 @@ func (ts TracingSpan) MarshalJSON() ([]byte, error) {
 		TraceID      string             `json:"TraceID"`
 		SpanID       string             `json:"SpanID"`
 		ParentSpanID string             `json:"ParentSpanID,omitempty"`
+		ParentPoint  TracingPoint       `json:"ParentPoint,omitempty"`
 		Point        TracingPoint       `json:"Point"`
 		Kind         TracingKind        `json:"Kind"`
 		Timestamp    int64              `json:"Timestamp"`
+		EndTimestamp int64              `json:"EndTimestamp,omitempty"`
 		Node         Atom               `json:"Node"`
 		From         PID                `json:"From"`
 		To           any                `json:"To"`
@@ -66,19 +70,21 @@ func (ts TracingSpan) MarshalJSON() ([]byte, error) {
 		Attributes   []TracingAttribute `json:"Attributes,omitempty"`
 	}
 	a := alias{
-		TraceID:    fmt.Sprintf("%016x%016x", ts.TraceID[0], ts.TraceID[1]),
-		SpanID:     fmt.Sprintf("%016x", ts.SpanID),
-		Point:      ts.Point,
-		Kind:       ts.Kind,
-		Timestamp:  ts.Timestamp,
-		Node:       ts.Node,
-		From:       ts.From,
-		To:         ts.To,
-		Ref:        ts.Ref,
-		Behavior:   ts.Behavior,
-		Message:    ts.Message,
-		Error:      ts.Error,
-		Attributes: ts.Attributes,
+		TraceID:      fmt.Sprintf("%016x%016x", ts.TraceID[0], ts.TraceID[1]),
+		SpanID:       fmt.Sprintf("%016x", ts.SpanID),
+		ParentPoint:  ts.ParentPoint,
+		Point:        ts.Point,
+		Kind:         ts.Kind,
+		Timestamp:    ts.Timestamp,
+		EndTimestamp: ts.EndTimestamp,
+		Node:         ts.Node,
+		From:         ts.From,
+		To:           ts.To,
+		Ref:          ts.Ref,
+		Behavior:     ts.Behavior,
+		Message:      ts.Message,
+		Error:        ts.Error,
+		Attributes:   ts.Attributes,
 	}
 	if ts.ParentSpanID != 0 {
 		a.ParentSpanID = fmt.Sprintf("%016x", ts.ParentSpanID)
@@ -93,6 +99,7 @@ const (
 	TracingPointSent      TracingPoint = 1
 	TracingPointDelivered TracingPoint = 2
 	TracingPointProcessed TracingPoint = 3
+	TracingPointSpan      TracingPoint = 4 // business span opened with StartTracingSpan
 )
 
 func (tp TracingPoint) String() string {
@@ -103,6 +110,8 @@ func (tp TracingPoint) String() string {
 		return "delivered"
 	case TracingPointProcessed:
 		return "processed"
+	case TracingPointSpan:
+		return "span"
 	}
 	return fmt.Sprintf("point#%d", int(tp))
 }
@@ -135,6 +144,9 @@ func (tk TracingKind) String() string {
 	case TracingKindTerminate:
 		return "terminate"
 	}
+	if tk == 0 {
+		return "" // business span - no message kind
+	}
 	return fmt.Sprintf("kind#%d", int(tk))
 }
 
@@ -153,6 +165,28 @@ type TracingBehavior interface {
 	HandleSpan(TracingSpan)
 	Terminate()
 }
+
+// TracingSpanScope is an open business span started with Process.StartTracingSpan.
+// Close it with End or EndError (defer it). All methods are no-ops if the scope
+// was created without an active trace.
+type TracingSpanScope interface {
+	// SetAttribute attaches a key/value to the span. The "ergo." prefix is reserved.
+	SetAttribute(key, value string)
+	// End closes the span successfully.
+	End()
+	// EndError closes the span with an error.
+	EndError(err error)
+}
+
+type tracingSpanScopeNoop struct{}
+
+func (tracingSpanScopeNoop) SetAttribute(key, value string) {}
+func (tracingSpanScopeNoop) End()                           {}
+func (tracingSpanScopeNoop) EndError(err error)             {}
+
+// TracingSpanScopeNoop is a TracingSpanScope that does nothing. Returned by
+// StartTracingSpan when no trace is active.
+var TracingSpanScopeNoop TracingSpanScope = tracingSpanScopeNoop{}
 
 // TracingExporter defines a named exporter with its flags.
 type TracingExporter struct {

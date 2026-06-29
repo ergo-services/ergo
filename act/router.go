@@ -154,6 +154,8 @@ type Router struct {
 	discarded uint64
 	failed    uint64
 	restarts  uint64
+
+	spanStart int64 // handler-entry time for the Processed span interval
 }
 
 // ProcessKind reports this process as built on act.Router.
@@ -524,6 +526,7 @@ func (r *Router) ProcessRun() (rr error) {
 			messageHasTracing := message.Tracing.ID != [2]uint64{}
 			if messageHasTracing {
 				r.SetPropagatingTrace(message.Tracing)
+				r.spanStart = time.Now().UnixNano()
 			}
 
 			if fromMain {
@@ -569,6 +572,7 @@ func (r *Router) ProcessRun() (rr error) {
 			messageHasTracing := message.Tracing.ID != [2]uint64{}
 			if messageHasTracing {
 				r.SetPropagatingTrace(message.Tracing)
+				r.spanStart = time.Now().UnixNano()
 			}
 
 			if fromMain {
@@ -827,20 +831,22 @@ func (r *Router) sendSpanProcessed(message *gen.MailboxMessage, kind gen.Tracing
 		msgType = reflect.TypeOf(message.Message).String()
 	}
 	r.SendTracingSpan(gen.TracingSpan{
-		TraceID:    message.Tracing.ID,
-		SpanID:     message.Tracing.SpanID,
-		Point:      gen.TracingPointProcessed,
-		Kind:       kind,
-		Timestamp:  time.Now().UnixNano(),
-		Node:       r.Node().Name(),
-		From:       message.From,
-		To:         r.PID(),
-		Ref:        message.Ref,
-		Behavior:   r.BehaviorName(),
-		Message:    msgType,
-		Error:      errStr,
-		Attributes: r.TracingAttributes(),
+		TraceID:      message.Tracing.ID,
+		SpanID:       message.Tracing.SpanID,
+		Point:        gen.TracingPointProcessed,
+		Kind:         kind,
+		Timestamp:    r.spanStart,
+		EndTimestamp: time.Now().UnixNano(),
+		Node:         r.Node().Name(),
+		From:         message.From,
+		To:           r.PID(),
+		Ref:          message.Ref,
+		Behavior:     r.BehaviorName(),
+		Message:      msgType,
+		Error:        errStr,
+		Attributes:   r.TracingAttributes(),
 	})
+	r.CloseTracingSpans()
 	r.ClearTracingSpanAttributes()
 }
 

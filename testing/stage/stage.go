@@ -180,6 +180,13 @@ func (s *Stage) StartNode(name string, opts ...NodeOptions) *Node {
 		s.t.Fatalf("stage: start node %s: %s", nodeName, err)
 	}
 
+	// record business spans the node emits, so ShouldSpan() works against the
+	// live tracing pipeline. Inert until a process installs a sampler.
+	if err := gn.TracingExporterAdd("stage-spans", &spanRecorder{rec: r},
+		gen.TracingFlagSend|gen.TracingFlagReceive|gen.TracingFlagProcs); err != nil {
+		s.t.Fatalf("stage: add tracing exporter on %s: %s", nodeName, err)
+	}
+
 	n := &Node{Asserter: check.NewAsserter(s.t, r), s: s, t: s.t, node: gn, rec: r}
 	s.mu.Lock()
 	s.nodes = append(s.nodes, n)
@@ -388,6 +395,33 @@ func (s *Stage) ConnectMesh(nodes ...*Node) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+// spanRecorder records business spans (Point=Span) the node emits as check.Span,
+// so the shared ShouldSpan() grammar works against the live tracing pipeline. It
+// ignores point observations (Sent/Delivered/Processed/Spawn/Terminate) - those are
+// recorded on the routing surface as check.Send/Delivered/etc.
+type spanRecorder struct {
+	rec *check.Recorder
+}
+
+func (s *spanRecorder) HandleSpan(span gen.TracingSpan) {
+	if span.Point != gen.TracingPointSpan {
+		return
+	}
+	s.rec.Put(check.Span{
+		From:         span.From,
+		Name:         span.Message,
+		TraceID:      span.TraceID,
+		SpanID:       span.SpanID,
+		ParentSpanID: span.ParentSpanID,
+		Timestamp:    span.Timestamp,
+		EndTimestamp: span.EndTimestamp,
+		Attributes:   span.Attributes,
+		Error:        span.Error,
+	})
+}
+
+func (s *spanRecorder) Terminate() {}
 
 // recordCore: ingress on the routing surface (gen.Core)
 // Two kinds of happening cross this surface: a message delivered into a local

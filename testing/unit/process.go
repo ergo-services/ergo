@@ -1,10 +1,12 @@
 package unit
 
 import (
+	"strings"
 	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
+	"ergo.services/ergo/testing/check"
 )
 
 // mockProcess is the mocked gen.Process handed to the behavior under test. Its
@@ -912,6 +914,61 @@ func (p *mockProcess) SendTracingSpan(span gen.TracingSpan) {
 		p.ov.sendTracingSpan(span)
 		return
 	}
+}
+
+func (p *mockProcess) StartTracingSpan(name string) gen.TracingSpanScope {
+	return &unitSpanScope{p: p, name: name}
+}
+
+func (p *mockProcess) CloseTracingSpans() {}
+
+// unitSpanScope records a business span as a check.Span when closed, so a test can
+// assert the actor's tracing instrumentation via subject.ShouldSpan().Named(...).
+// Unlike the live runtime it does not depend on a sampler: the actor's intent to
+// open and close a span is always observed, like every other egress. The span is
+// recorded on explicit End/EndError (the unit harness has no handler loop to
+// auto-close a forgotten span; that path is covered by the live harness).
+type unitSpanScope struct {
+	p     *mockProcess
+	name  string
+	attrs []gen.TracingAttribute
+	ended bool
+}
+
+func (s *unitSpanScope) SetAttribute(key, value string) {
+	if strings.HasPrefix(key, "ergo.") {
+		return
+	}
+	for i := range s.attrs {
+		if s.attrs[i].Key == key {
+			s.attrs[i].Value = value
+			return
+		}
+	}
+	s.attrs = append(s.attrs, gen.TracingAttribute{Key: key, Value: value})
+}
+
+func (s *unitSpanScope) End() { s.record("") }
+
+func (s *unitSpanScope) EndError(err error) {
+	if err == nil {
+		s.record("")
+		return
+	}
+	s.record(err.Error())
+}
+
+func (s *unitSpanScope) record(errStr string) {
+	if s.ended {
+		return
+	}
+	s.ended = true
+	s.p.node.rec.Put(check.Span{
+		From:       s.p.pid,
+		Name:       s.name,
+		Attributes: s.attrs,
+		Error:      errStr,
+	})
 }
 
 // forward

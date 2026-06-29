@@ -53,6 +53,16 @@ sequenceDiagram
 
 Process B never opted into tracing. Neither did C or D. The trace reached them because the message carried it. This is the key property: you configure tracing on entry-point processes, and the trace propagates through the entire downstream chain automatically.
 
+### Two Layers of a Trace
+
+A complete trace has two layers, and it helps to keep them distinct.
+
+The first layer is the **message flow**: which messages travelled between which processes, and how long each hop took. The framework records this layer on its own. You enable tracing at an entry point, and every observation along the chain appears with no further code. This is the skeleton of the trace, and most of this page is about it.
+
+The second layer is the **business operations**: what each handler actually did while holding a message. Validating an order, reserving stock, creating an invoice. The framework cannot know these, they belong to your domain. You mark them with business spans, and they appear as named intervals nested inside the message flow.
+
+The first layer tells you a message named `ProcessOrder` was handled in 50ms. The second tells you what those 50ms actually did. The first layer is mechanical and free; the second is where a trace starts telling the story of your system. This page builds the first layer first, then adds the second in [Tracing Business Logic](#tracing-business-logic).
+
 ### The Lifecycle of a Trace
 
 A trace goes through three phases:
@@ -125,6 +135,8 @@ All message kinds that go through the framework's routing:
 
 Response has no Processed because the response delivery completes the Call. There's no separate handler on the caller side. Spawn has no Delivered because it's not a mailbox delivery. Terminate has only Processed because it's an internal lifecycle event, not a message between two processes.
 
+These are the observations the framework records on its own. On top of them you can record your own business operations as spans inside a handler, covered in [Tracing Business Logic](#tracing-business-logic).
+
 ### What Doesn't Get Traced
 
 Exit signals (`SendExit`) do not carry trace context. These are control-plane operations outside of message chains.
@@ -154,6 +166,8 @@ gen.TracingSamplerRateLimit(100) // at most 100 new traces per second
 ```
 
 The sampler is only consulted when there is no active trace. If a process is already handling a traced message, every outgoing message inherits the trace regardless of the sampler. This means you can set a sampler on a single entry-point process and the trace will follow the entire message chain automatically.
+
+The sampler governs trace **creation**, and it does so for both outgoing messages and business spans (see [Tracing Business Logic](#tracing-business-logic)). A process with no sampler never starts a trace, but it still participates in every trace that reaches it.
 
 `TracingSamplerRatio(0.1)` traces approximately 10% of messages. `TracingSamplerRateLimit(100)` allows at most 100 new traces per second. During traffic spikes the effective sampling rate drops, during quiet periods more messages are traced.
 
@@ -466,7 +480,7 @@ node.SetTracingAttribute("cluster", "payments-eu")
 
 Same mechanics as process attributes: set, overwrite, or remove at any time.
 
-### One-Shot Span Attributes
+### One-Shot Attributes
 
 Set during message handling, scoped to a single handler invocation:
 
@@ -507,6 +521,166 @@ This makes attributes a powerful debugging tool. Set `order_id` on the entry-poi
 
 The `ergo.` prefix is reserved for framework-generated attributes (`ergo.node`, `ergo.from`, `ergo.behavior`). Attempts to set attributes with this prefix are silently ignored.
 
+## Tracing Business Logic
+
+Everything up to this point traces the message flow: the framework records each Sent, Delivered, and Processed automatically. That tells you which messages moved and how long each hop took. It does not tell you what a handler did with its time.
+
+Consider an order processor whose `HandleMessage` takes 50ms. The message-flow trace shows one Processed observation, 50ms after Delivered. Inside those 50ms the handler validated the order, reserved stock, and created an invoice, but the trace says nothing about that. To someone reading the waterfall the handler is an opaque 50ms block.
+
+Business spans open that block. A business span is a named interval you start and end yourself, around a unit of work that matters to your domain. It appears in the trace as a child of the handler that opened it, with its own name and its own start and end time. This is the second layer of a trace: the message flow is the skeleton the framework records for free, and business spans are the operations you add to make the trace describe your system rather than its plumbing.
+
+### Opening a Span
+
+You open a span with `StartTracingSpan` and close it when the work is done. The idiomatic form pairs it with `defer`:
+
+```go
+func (p *processor) HandleMessage(from gen.PID, message any) error {
+    order := message.(ProcessOrder)
+
+    span := p.StartTracingSpan("validate-order")
+    err := p.validate(order)
+    span.End()
+    if err != nil {
+        return err
+    }
+    // ... continue processing
+    return nil
+}
+```
+
+`StartTracingSpan` returns a scope; `End` closes it and records the interval. In the waterfall, `validate-order` appears nested under this handler's Processed observation, sized to how long validation took. The opaque block now has structure.
+
+### Naming Spans
+
+A span name should describe a business operation, not a mechanism. `validate-order`, `reserve-inventory`, `create-invoice` tell a reader what the system was doing. `loop-iteration`, `step-2`, `call-helper` do not. The name is what appears in the waterfall and what people search for, so spend it on domain meaning.
+
+### Spans Contain Their Sends
+
+This is what makes business spans more than timers. Any message a handler sends while a span is open becomes a child of that span: the outgoing Sent observation, and the entire downstream chain it triggers, nest underneath.
+
+```go
+func (p *processor) HandleMessage(from gen.PID, message any) error {
+    order := message.(ProcessOrder)
+
+    reserve := p.StartTracingSpan("reserve-inventory")
+    p.Send(warehousePID, ReserveStock{OrderID: order.ID})
+    reserve.End()
+
+    invoice := p.StartTracingSpan("create-invoice")
+    _, err := p.Call(billingPID, CreateInvoice{OrderID: order.ID})
+    invoice.End()
+    if err != nil {
+        return err
+    }
+    return nil
+}
+```
+
+The trace now reads: this handler ran `reserve-inventory`, which sent `ReserveStock` to the warehouse; then `create-invoice`, which called billing and waited for the response. Each operation and the messages it causes are grouped together. Without spans the two sends would sit side by side under the handler, with no indication of which operation each belongs to.
+
+### Nesting
+
+Spans nest. An operation made of smaller steps opens child spans:
+
+```go
+func (p *processor) HandleMessage(from gen.PID, message any) error {
+    order := message.(ProcessOrder)
+
+    fulfill := p.StartTracingSpan("fulfill-order")
+
+    reserve := p.StartTracingSpan("reserve-inventory")
+    p.Send(warehousePID, ReserveStock{OrderID: order.ID})
+    reserve.End()
+
+    invoice := p.StartTracingSpan("create-invoice")
+    p.Call(billingPID, CreateInvoice{OrderID: order.ID})
+    invoice.End()
+
+    fulfill.End()
+    return nil
+}
+```
+
+`reserve-inventory` and `create-invoice` become children of `fulfill-order`, and their messages sit beneath them:
+
+```
+ProcessOrder (Processed, 50ms)
+└─ fulfill-order
+   ├─ reserve-inventory
+   │  └─ ReserveStock  (Sent → Delivered → Processed at warehouse)
+   └─ create-invoice
+      └─ CreateInvoice  (Sent → Delivered → Processed at billing)
+```
+
+Close spans in the reverse order you opened them; the `defer` idiom does this naturally.
+
+### Recording Errors
+
+When an operation fails, close its span with `EndError`:
+
+```go
+invoice := p.StartTracingSpan("create-invoice")
+_, err := p.Call(billingPID, CreateInvoice{OrderID: order.ID})
+if err != nil {
+    invoice.EndError(err)
+    return err
+}
+invoice.End()
+```
+
+The span is marked with the error and stands out in the waterfall, pinpointing which operation failed inside an otherwise healthy-looking handler.
+
+### Span Attributes
+
+Attach context to a span the way you attach one-shot attributes to an observation:
+
+```go
+invoice := p.StartTracingSpan("create-invoice")
+invoice.SetAttribute("order.id", order.ID)
+invoice.SetAttribute("amount", fmt.Sprintf("%.2f", order.Total))
+// ...
+invoice.End()
+```
+
+The attributes are recorded on the span and are searchable like any other. The `ergo.` prefix is reserved and silently ignored here too.
+
+Keep the two attribute calls straight: `SetTracingSpanAttribute` (from the [One-Shot Attributes](#one-shot-attributes) section) attaches to the handler's own observations, while `span.SetAttribute` attaches to the business span you opened. Similar names, different targets.
+
+### Annotate, or Initiate?
+
+A business span behaves differently depending on whether the handler is already part of a trace, and the same sampler that controls message tracing controls this.
+
+**When the handler is already in a trace** (it is processing a message that carried one), the span attaches to that trace as a child. This is **passive annotation**: you are adding detail to a trace started elsewhere. It works whether or not the process has a sampler. A downstream processor that never sets a sampler still produces rich business spans, as long as the request that reached it was traced upstream. This is the common case: instrument handlers everywhere, and the spans light up inside whatever traces flow through.
+
+**When there is no active trace**, the span consults the process's sampler. With a sampler that samples, the span starts a new trace and becomes its root: the process is acting as an **initiator**. With no sampler, the span is a no-op. An instrumented process never forces tracing into existence on its own.
+
+So the decision "do I start traces?" lives in one place, the sampler, and applies uniformly to outgoing messages and to business spans. You instrument freely; whether a span lights up depends on whether its work is part of a sampled trace.
+
+### Initiating From a Periodic Worker
+
+The worker from [Delayed Messages](#delayed-messages) does periodic work on a self-tick. The tick arrives untraced, so its handler is not part of any trace. With a sampler set, a span at the top of the handler starts a fresh trace for that cycle, and everything the cycle does nests under it:
+
+```go
+func (w *worker) HandleMessage(from gen.PID, message any) error {
+    switch message.(type) {
+    case messageTick:
+        cycle := w.StartTracingSpan("work-cycle")
+        w.Send(targetPID, DoWork{})
+        cycle.End()
+        w.SendAfter(w.PID(), messageTick{}, 3*time.Second)
+    }
+    return nil
+}
+```
+
+Each tick now produces one coherent trace rooted at `work-cycle`, instead of a loose collection of independently sampled sends. The next tick, scheduled with `SendAfter`, still starts fresh, so the cycles never chain into one endless trace.
+
+### Closing Spans
+
+Close every span you open. The `defer span.End()` form is the safest, the same discipline as `defer mu.Unlock()` or `defer rows.Close()`. A span left open when the handler returns is still recorded, but marked as unended, so a forgotten close shows up as a visible mistake rather than vanishing.
+
+Spans are scoped to the handler that opens them. In a self-started handler (one with no inherited trace), sequential top-level spans each begin their own trace; to keep a sequence in a single trace, wrap it in an outer span and let the inner ones nest. In a handler that inherited a trace, sequential spans are simply siblings under that trace.
+
 ## Delayed Messages
 
 `SendAfter` does not carry trace context. This is a deliberate design choice: a delayed message is a future action, not a continuation of the current processing chain.
@@ -531,6 +705,8 @@ func (w *worker) HandleMessage(from gen.PID, message any) error {
 ```
 
 Each tick arrives as an untraced message. The sampler on the worker decides independently for each `Send(targetPID, DoWork{})` whether to create a trace. The `SendAfter` at the end schedules the next tick without trace context, breaking the chain and ensuring the next tick starts fresh.
+
+To make each tick a single coherent trace rather than a set of independently sampled sends, wrap the cycle's work in a business span. See [Initiating From a Periodic Worker](#initiating-from-a-periodic-worker).
 
 If `SendAfter` inherited the trace, the first tick that happened to be traced would create an infinite trace: tick carries trace, handler sends traced tick, next handler sends traced tick, forever. A process running for days would accumulate millions of observations in a single trace. Decoupling `SendAfter` from the trace context prevents this.
 
@@ -603,6 +779,8 @@ flags := gen.TracingFlagSend | gen.TracingFlagReceive | gen.TracingFlagProcs
 // only message delivery observations
 flags := gen.TracingFlagReceive
 ```
+
+Business spans are delivered with `gen.TracingFlagReceive`, alongside Delivered and Processed. An exporter that wants to see business operations must request that flag.
 
 ### Two Kinds of Exporters
 
@@ -755,6 +933,8 @@ You can do this through the Observer UI without any code changes: open the proce
 ## Understanding Trace Trees
 
 As traces propagate through message chains, they form trees. Understanding the tree structure helps when reading traces in Tempo or Observer.
+
+Business spans add a second dimension to these trees. Message observations are points in time (Sent, Delivered, Processed); a business span is an interval, drawn as a bar spanning its duration, with the messages it sent nested inside it. A handler's Processed observation, the spans opened during that handler, and the messages those spans sent form one subtree.
 
 ### Linear Chain
 

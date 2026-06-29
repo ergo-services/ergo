@@ -74,6 +74,35 @@ func (a *SendAssert) KeepNetworkOrder(keep bool) *SendAssert {
 	return a
 }
 
+// SpanAssert asserts over business spans a process opened and closed (egress).
+type SpanAssert struct{ *Assertion[Span] }
+
+// ShouldSpan starts a business-span assertion.
+func (a *Asserter) ShouldSpan() *SpanAssert { return &SpanAssert{For[Span](a.t, a.rec)} }
+func (a *SpanAssert) From(p gen.PID) *SpanAssert {
+	a.Where(func(r Span) bool { return r.From == p })
+	return a
+}
+func (a *SpanAssert) Named(name string) *SpanAssert {
+	a.Where(func(r Span) bool { return r.Name == name })
+	return a
+}
+func (a *SpanAssert) Error(msg string) *SpanAssert {
+	a.Where(func(r Span) bool { return r.Error == msg })
+	return a
+}
+func (a *SpanAssert) WithAttribute(key, value string) *SpanAssert {
+	a.Where(func(r Span) bool {
+		for _, at := range r.Attributes {
+			if at.Key == key && at.Value == value {
+				return true
+			}
+		}
+		return false
+	})
+	return a
+}
+
 // SpawnAssert asserts over child processes spawned on a node (egress).
 type SpawnAssert struct{ *Assertion[Spawn] }
 

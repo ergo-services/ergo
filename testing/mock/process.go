@@ -1223,6 +1223,12 @@ func (p *Process) SendTracingSpan(span gen.TracingSpan) {
 	}
 }
 
+func (p *Process) StartTracingSpan(name string) gen.TracingSpanScope {
+	return gen.TracingSpanScopeNoop
+}
+
+func (p *Process) CloseTracingSpans() {}
+
 func (p *Process) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.MessagePriority) error {
 	var err error
 	if p.ov.forward != nil {

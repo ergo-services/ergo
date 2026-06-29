@@ -2547,6 +2547,9 @@ func (n *node) sendTracingSpan(span gen.TracingSpan) {
 }
 
 func matchTracingFlags(flags gen.TracingFlags, span gen.TracingSpan) bool {
+	if span.Point == gen.TracingPointSpan {
+		return flags&gen.TracingFlagReceive != 0
+	}
 	switch span.Kind {
 	case gen.TracingKindSend, gen.TracingKindRequest, gen.TracingKindResponse:
 		if span.Point == gen.TracingPointSent {

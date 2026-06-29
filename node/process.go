@@ -58,6 +58,7 @@ type process struct {
 	tracingSampler   atomic.Pointer[gen.TracingSampler]
 	tracingAttrs     atomic.Pointer[[]gen.TracingAttribute] // permanent, COW; pointer always non-nil
 	tracingSpanAttrs []gen.TracingAttribute                 // one-shot, nil after handler
+	tracingSpanStack []*tracingSpanScope                    // open business spans (handler goroutine only)
 
 	env sync.Map
 
@@ -2112,6 +2113,148 @@ func (p *process) applyTracingAttrs(options *gen.MessageOptions) {
 
 func (p *process) SendTracingSpan(span gen.TracingSpan) {
 	p.node.sendTracingSpan(span)
+}
+
+func (p *process) StartTracingSpan(name string) gen.TracingSpanScope {
+	saved := p.tracing
+	if p.tracing.ID == [2]uint64{} {
+		// no active trace - start one via the sampler so a business span at an
+		// initiator becomes a trace root (severed/delayed contexts land here)
+		t := p.propagatingTrace()
+		if t.ID == [2]uint64{} {
+			return gen.TracingSpanScopeNoop
+		}
+		p.tracing = t
+	}
+	parentPoint := gen.TracingPointProcessed
+	if len(p.tracingSpanStack) > 0 {
+		parentPoint = gen.TracingPointSpan
+	}
+	sc := &tracingSpanScope{
+		p:           p,
+		saved:       saved,
+		traceID:     p.tracing.ID,
+		spanID:      atomic.AddUint64(&p.node.spanID, 1),
+		parentPoint: parentPoint,
+		name:        name,
+		start:       time.Now().UnixNano(),
+	}
+	p.tracingSpanStack = append(p.tracingSpanStack, sc)
+	p.tracing.SpanID = sc.spanID
+	return sc
+}
+
+// CloseTracingSpans emits any business span left open by the handler (marked
+// ergo.span.unended) and restores the trace position. Called by behavior loops.
+func (p *process) CloseTracingSpans() {
+	n := len(p.tracingSpanStack)
+	if n == 0 {
+		return
+	}
+	end := time.Now().UnixNano()
+	restore := p.tracingSpanStack[0].saved
+	for i := n - 1; i >= 0; i-- {
+		s := p.tracingSpanStack[i]
+		s.ended = true
+		s.attrs = append(s.attrs, gen.TracingAttribute{Key: "ergo.span.unended", Value: "true"})
+		p.emitSpanScope(s, "", end)
+	}
+	p.tracingSpanStack = p.tracingSpanStack[:0]
+	p.tracing = restore
+}
+
+func (p *process) emitSpanScope(s *tracingSpanScope, errStr string, end int64) {
+	p.node.sendTracingSpan(gen.TracingSpan{
+		TraceID:      s.traceID,
+		SpanID:       s.spanID,
+		ParentSpanID: s.saved.SpanID,
+		ParentPoint:  s.parentPoint,
+		Point:        gen.TracingPointSpan,
+		Timestamp:    s.start,
+		EndTimestamp: end,
+		Node:         p.node.name,
+		From:         p.pid,
+		To:           p.pid,
+		Behavior:     p.sbehavior,
+		Message:      s.name,
+		Error:        errStr,
+		Attributes:   p.spanScopeAttrs(s),
+	})
+}
+
+func (p *process) spanScopeAttrs(s *tracingSpanScope) []gen.TracingAttribute {
+	perm := *p.tracingAttrs.Load()
+	if len(perm) == 0 {
+		return s.attrs
+	}
+	if len(s.attrs) == 0 {
+		return perm
+	}
+	merged := make([]gen.TracingAttribute, 0, len(perm)+len(s.attrs))
+	merged = append(merged, perm...)
+	return append(merged, s.attrs...)
+}
+
+func (p *process) popSpanScope(s *tracingSpanScope) {
+	n := len(p.tracingSpanStack)
+	if n == 0 {
+		return
+	}
+	if p.tracingSpanStack[n-1] == s {
+		p.tracingSpanStack = p.tracingSpanStack[:n-1]
+		p.tracing = s.saved
+		return
+	}
+	for i := range p.tracingSpanStack {
+		if p.tracingSpanStack[i] == s {
+			p.tracingSpanStack = append(p.tracingSpanStack[:i], p.tracingSpanStack[i+1:]...)
+			return
+		}
+	}
+}
+
+type tracingSpanScope struct {
+	p           *process
+	saved       gen.Tracing // p.tracing as it was before this span (restored on End)
+	traceID     [2]uint64
+	spanID      uint64
+	parentPoint gen.TracingPoint
+	name        string
+	start       int64
+	attrs       []gen.TracingAttribute
+	ended       bool
+}
+
+func (s *tracingSpanScope) SetAttribute(key, value string) {
+	if strings.HasPrefix(key, "ergo.") {
+		return
+	}
+	for i := range s.attrs {
+		if s.attrs[i].Key == key {
+			s.attrs[i].Value = value
+			return
+		}
+	}
+	s.attrs = append(s.attrs, gen.TracingAttribute{Key: key, Value: value})
+}
+
+func (s *tracingSpanScope) End() { s.end("") }
+
+func (s *tracingSpanScope) EndError(err error) {
+	if err == nil {
+		s.end("")
+		return
+	}
+	s.end(err.Error())
+}
+
+func (s *tracingSpanScope) end(errStr string) {
+	if s.ended {
+		return
+	}
+	s.ended = true
+	s.p.emitSpanScope(s, errStr, time.Now().UnixNano())
+	s.p.popSpanScope(s)
 }
 
 func (p *process) Forward(

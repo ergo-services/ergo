@@ -562,7 +562,7 @@ type RequestInspectTracing struct {
 	Flags          gen.TracingFlags
 	Limit          int
 	Kinds          uint32 // bitmask: 1=send, 2=request, 4=response, 8=spawn, 16=terminate
-	Points         uint32 // bitmask: 1=sent, 2=delivered, 4=processed
+	Points         uint32 // bitmask: 1=sent, 2=delivered, 4=processed, 8=span
 	MessagePattern string
 	MessageExclude bool
 }

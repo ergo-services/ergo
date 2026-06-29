@@ -384,6 +384,27 @@ func (r SendExitMeta) String() string {
 	return fmt.Sprintf("SendExitMeta(from=%s meta=%s reason=%v err=%v)", r.From, r.Meta, r.Reason, r.Error)
 }
 
+// Span is a business span a process opened with StartTracingSpan and then closed
+// (egress). Name is the span name; Error is set when closed with EndError.
+// TraceID/SpanID/ParentSpanID are populated by harnesses that observe the emitted
+// trace (stage); the unit harness records the span on close and leaves them zero.
+type Span struct {
+	From         gen.PID
+	Name         string
+	TraceID      [2]uint64
+	SpanID       uint64
+	ParentSpanID uint64
+	Timestamp    int64 // span open time (live harness); 0 in unit
+	EndTimestamp int64 // span close time (live harness); 0 in unit
+	Attributes   []gen.TracingAttribute
+	Error        string
+}
+
+func (Span) Kind() string { return "span" }
+func (r Span) String() string {
+	return fmt.Sprintf("Span(from=%s name=%s span=%d parent=%d err=%q)", r.From, r.Name, r.SpanID, r.ParentSpanID, r.Error)
+}
+
 // Log is a log line emitted by a process (egress). Message is preformatted.
 type Log struct {
 	From    gen.PID

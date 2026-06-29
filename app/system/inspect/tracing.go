@@ -149,15 +149,16 @@ func (it *tracing) HandleMessage(from gen.PID, message any) error {
 
 func (it *tracing) HandleSpan(span gen.TracingSpan) error {
 	// kind filter: bitmask 1=send, 2=request, 4=response, 8=spawn, 16=terminate
-	if it.kinds != 0 && it.kinds != 31 {
+	// business spans (Point=Span) have no message kind - filter them by point only
+	if span.Point != gen.TracingPointSpan && it.kinds != 0 && it.kinds != 31 {
 		kindBit := uint32(1) << (uint32(span.Kind) - 1)
 		if it.kinds&kindBit == 0 {
 			return nil
 		}
 	}
 
-	// point filter: bitmask 1=sent, 2=delivered, 4=processed
-	if it.points != 0 && it.points != 7 {
+	// point filter: bitmask 1=sent, 2=delivered, 4=processed, 8=span
+	if it.points != 0 && it.points != 15 {
 		pointBit := uint32(1) << (uint32(span.Point) - 1)
 		if it.points&pointBit == 0 {
 			return nil

@@ -62,6 +62,8 @@ type WebWorker struct {
 
 	behavior WebWorkerBehavior
 	mailbox  gen.ProcessMailbox
+
+	spanStart int64 // handler-entry time for the Processed span interval
 }
 
 // ProcessKind reports this process as built on act.WebWorker.
@@ -154,6 +156,7 @@ func (w *WebWorker) ProcessRun() (rr error) {
 			if messageHasTracing {
 				savedTracing = w.PropagatingTrace()
 				w.SetPropagatingTrace(message.Tracing)
+				w.spanStart = time.Now().UnixNano()
 			}
 
 			if r, ok := message.Message.(meta.MessageWebRequest); ok {
@@ -204,6 +207,7 @@ func (w *WebWorker) ProcessRun() (rr error) {
 			if messageHasTracing {
 				savedTracing = w.PropagatingTrace()
 				w.SetPropagatingTrace(message.Tracing)
+				w.spanStart = time.Now().UnixNano()
 			}
 
 			var reason error
@@ -347,19 +351,21 @@ func (w *WebWorker) sendSpanProcessed(message *gen.MailboxMessage, kind gen.Trac
 		return
 	}
 	w.SendTracingSpan(gen.TracingSpan{
-		TraceID:    message.Tracing.ID,
-		SpanID:     message.Tracing.SpanID,
-		Point:      gen.TracingPointProcessed,
-		Kind:       kind,
-		Timestamp:  time.Now().UnixNano(),
-		Node:       w.Node().Name(),
-		From:       message.From,
-		To:         w.PID(),
-		Ref:        message.Ref,
-		Behavior:   w.BehaviorName(),
-		Message:    msgType,
-		Error:      errStr,
-		Attributes: w.TracingAttributes(),
+		TraceID:      message.Tracing.ID,
+		SpanID:       message.Tracing.SpanID,
+		Point:        gen.TracingPointProcessed,
+		Kind:         kind,
+		Timestamp:    w.spanStart,
+		EndTimestamp: time.Now().UnixNano(),
+		Node:         w.Node().Name(),
+		From:         message.From,
+		To:           w.PID(),
+		Ref:          message.Ref,
+		Behavior:     w.BehaviorName(),
+		Message:      msgType,
+		Error:        errStr,
+		Attributes:   w.TracingAttributes(),
 	})
+	w.CloseTracingSpans()
 	w.ClearTracingSpanAttributes()
 }

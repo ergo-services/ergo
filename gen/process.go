@@ -913,12 +913,27 @@ type Process interface {
 	TracingAttributes() []TracingAttribute
 
 	// ClearTracingSpanAttributes clears one-shot attributes.
-	// Called by framework after handler returns.
+	// Used by ProcessBehavior implementations after each handler returns.
 	ClearTracingSpanAttributes()
+
+	// CloseTracingSpans closes any business span left open by the handler.
+	// Used by ProcessBehavior implementations after each handler returns.
+	CloseTracingSpans()
 
 	// SendTracingSpan delivers a tracing span to registered exporters.
 	// Used by ProcessBehavior implementations to emit Processed spans.
 	SendTracingSpan(span TracingSpan)
+
+	// StartTracingSpan opens a business span at the current trace position and
+	// returns a scope to close with End/EndError (defer it). Use only within the
+	// current handler goroutine.
+	//
+	// When the handler already runs inside a trace the span is opened as a child -
+	// passive annotation that works with or without a sampler. When there is no
+	// active trace the tracing sampler decides: with a sampler the span starts a new
+	// trace and becomes its root (initiator); without a sampler it is a no-op, so an
+	// instrumented actor never forces tracing on its own.
+	StartTracingSpan(name string) TracingSpanScope
 
 	// Forward forwards a mailbox message to another process with the specified priority.
 	// This is a low-level operation for custom message routing.
