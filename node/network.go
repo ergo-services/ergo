@@ -1747,7 +1747,7 @@ func (n *network) registerConnection(name gen.Atom, conn gen.Connection) {
 func (n *network) unregisterConnection(name gen.Atom, conn gen.Connection, connID string, reason error) {
 	n.mergeMu.Lock()
 	n.connectionsByID.CompareAndDelete(connID, conn) // keep a winner that took over this connID
-	n.connections.CompareAndDelete(name, conn)       // keep a newer incarnation's routing entry
+	routed := n.connections.CompareAndDelete(name, conn)
 	n.mergeMu.Unlock()
 	n.connectionsLost.Add(1)
 	if reason != nil {
@@ -1755,5 +1755,11 @@ func (n *network) unregisterConnection(name gen.Atom, conn gen.Connection, connI
 	} else {
 		n.node.log.Info("connection with %s (%s) terminated", name, name.CRC32())
 	}
-	n.node.RouteNodeDown(name, reason)
+	// only signal node-down if this connection still owned the routing entry. A newer
+	// incarnation or a simultaneous-connect takeover that already re-registered the name
+	// keeps its RouteNodeUp; a stale connection must not tear down the live one's
+	// monitors/links by name.
+	if routed {
+		n.node.RouteNodeDown(name, reason)
+	}
 }

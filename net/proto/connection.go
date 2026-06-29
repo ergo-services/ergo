@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
 	"net"
 	"runtime"
 	"sync"
@@ -1759,76 +1758,18 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 
 	go func() {
 		if lib.Verbose() {
-			defer c.log.Trace("connection %s left the pool", conn.RemoteAddr().String())
-		}
-
-	re: // redialed
-		if lib.Verbose() {
 			c.log.Trace("joined new connection %s to the pool", conn.RemoteAddr().String())
+			defer c.log.Trace("connection %s left the pool", conn.RemoteAddr().String())
 		}
 
 		c.serve(pi, tail)
 
-		// redial this slot until it rejoins the pool, the connection terminates, or the
-		// peer stays unreachable for the whole empty-pool grace. When this TCP died the
-		// peer freed the matching slot, so a transient "pool full" reject clears shortly:
-		// retry until then. If the peer is gone for good, give up so the (eventually
-		// empty) pool terminates the connection instead of redialing a dead peer forever.
-		deadline := time.Now().Add(c.emptyPoolGrace)
-		for dial != nil && c.terminated.Load() == false && time.Now().Before(deadline) {
-			pool_dsn := []string{}
-			pool_dsn = append(pool_dsn, c.pool_dsn...)
-			rand.Shuffle(len(pool_dsn), func(i, j int) {
-				pool_dsn[i], pool_dsn[j] = pool_dsn[j], pool_dsn[i]
-			})
-			for _, dsn := range pool_dsn {
-				if c.terminated.Load() {
-					break
-				}
-				c.log.Trace("redialing %s", dsn)
-				nc, t, err := dial(dsn, id)
-				if err != nil {
-					continue
-				}
-				// install the redialed TCP under pool_mutex with a terminated re-check:
-				// Terminate also closes pool conns under pool_mutex, so a redial that
-				// completed after Terminate already passed this item would otherwise
-				// install a live TCP the connection no longer tracks (the peer would
-				// keep it forever, a pool overshoot). If terminated, drop it.
-				c.pool_mutex.Lock()
-				if c.terminated.Load() {
-					c.pool_mutex.Unlock()
-					nc.Close()
-					break
-				}
-				pi.connection.Store(&poolConn{nc})
-				nc.SetWriteDeadline(time.Time{})
-				if old := pi.timer.Load(); old != nil {
-					old.Stop()
-				}
-				pi.fl.Reset(nc)
-				c.pool_mutex.Unlock()
-				tail = t
-				atomic.AddUint64(&c.reconnections, 1)
-
-				// reset skew state and restart measurement
-				if c.clockSkew {
-					pi.skewIdx = 0
-					pi.skewCount.Store(0)
-					pi.skewValue.Store(0)
-					pi.timer.Store(time.AfterFunc(100*time.Millisecond, func() {
-						c.skewTick(pi)
-					}))
-				}
-
-				goto re
-			}
-			time.Sleep(50 * time.Millisecond) // peer slot not free yet, back off and retry
-		}
-
-		// this TCP is gone: remove it from the pool. An empty pool does not terminate the
-		// connection, the primary may be re-established by the canonical end. If already
-		// terminated, unblock wait(); otherwise arm the empty-pool grace.
+		// this TCP died. A connection is only as alive as its live TCPs, so drop this slot
+		// immediately: send() must never select a dead slot. An empty pool means the
+		// connection is dead — terminate it so routing is released (RouteNodeDown) and the
+		// next call re-dials a fresh connection; a restarted peer is then reached under its
+		// new connID instead of being masked by a corpse left routable. A still non-empty
+		// pool below pool_size is topped up by the filler (dialer only).
 		c.pool_mutex.Lock()
 		for i, item := range c.pool {
 			if item != pi {
@@ -1839,15 +1780,11 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			break
 		}
 		switch {
-		case len(c.pool) > 0:
-			// dropped below pool_size: only the filler re-dials (reader members never self-redial)
-			if c.terminated.Load() == false && c.redial != nil && len(c.pool) < c.pool_size {
-				c.startFill()
-			}
-		case c.terminated.Load():
+		case len(c.pool) == 0:
+			c.terminated.Store(true)
 			c.closeDone()
-		case c.established:
-			c.armEmptyPoolTimer()
+		case c.terminated.Load() == false && c.redial != nil && len(c.pool) < c.pool_size:
+			c.startFill()
 		}
 		c.pool_mutex.Unlock()
 	}()
@@ -3746,17 +3683,13 @@ func (c *connection) sendAny(msg any, order uint8, orderPeer uint8, compression 
 }
 
 func (c *connection) wait() {
-	// serve started: mark established. An already-empty pool arms the empty-pool grace
-	// (the canonical end may still be re-establishing the primary) rather than
-	// terminating the connection immediately.
+	// serve started: mark established. A connection with no live TCP is dead — terminate it
+	// so routing is released and the next call re-dials, instead of lingering routable.
 	c.pool_mutex.Lock()
 	c.established = true
 	if len(c.pool) == 0 {
-		if c.terminated.Load() {
-			c.closeDone()
-		} else {
-			c.armEmptyPoolTimer()
-		}
+		c.terminated.Store(true)
+		c.closeDone()
 	}
 	c.pool_mutex.Unlock()
 	<-c.done
