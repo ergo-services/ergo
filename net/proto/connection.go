@@ -128,16 +128,12 @@ type connection struct {
 	order      uint32
 	terminated atomic.Bool
 
-	// done is closed when the connection terminates, unblocking wait(). The connection lives
-	// as long as its primary TCP: a transient empty pool does not terminate it; an empty
-	// pool (post-established) arms emptyPoolTimer, a grace window for the canonical end to
-	// re-establish the primary, and the connection terminates only if the pool stays empty
-	// past it. poolClosed guards the single close of done. All accessed under pool_mutex.
-	done           chan struct{}
-	poolClosed     bool
-	established    bool
-	emptyPoolTimer *time.Timer
-	emptyPoolGrace time.Duration
+	// done is closed when the connection terminates, unblocking wait(). A connection is only
+	// as alive as its live TCPs: an empty pool terminates it so routing is released and the
+	// next call re-dials. poolClosed guards the single close of done. All under pool_mutex.
+	done        chan struct{}
+	poolClosed  bool
+	established bool
 
 	// pool fill: the dialer reached the peer's listener, so it is the filler. redial
 	// dials pool-joins (set by Serve). A canonical-direction dialer fills at once; a
@@ -1749,11 +1745,6 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 		pi.fl = lib.NewFlusher(conn)
 	}
 	c.pool = append(c.pool, pi)
-	// a TCP joined: cancel any pending empty-pool termination
-	if c.emptyPoolTimer != nil {
-		c.emptyPoolTimer.Stop()
-		c.emptyPoolTimer = nil
-	}
 	c.pool_mutex.Unlock()
 
 	go func() {
@@ -1868,10 +1859,6 @@ func (c *connection) Terminate(reason error) {
 
 	c.pool_mutex.Lock()
 	defer c.pool_mutex.Unlock()
-	if c.emptyPoolTimer != nil {
-		c.emptyPoolTimer.Stop()
-		c.emptyPoolTimer = nil
-	}
 	for _, pi := range c.pool {
 		if t := pi.timer.Load(); t != nil {
 			t.Stop()
@@ -3701,23 +3688,6 @@ func (c *connection) closeDone() {
 		c.poolClosed = true
 		close(c.done)
 	}
-}
-
-// armEmptyPoolTimer starts the grace window for an empty pool: if no TCP rejoins the pool
-// within emptyPoolGrace the primary is gone for good and the connection terminates.
-// Caller must hold pool_mutex.
-func (c *connection) armEmptyPoolTimer() {
-	if c.emptyPoolTimer != nil {
-		return
-	}
-	c.emptyPoolTimer = time.AfterFunc(c.emptyPoolGrace, func() {
-		c.pool_mutex.Lock()
-		if len(c.pool) == 0 && c.terminated.Load() == false {
-			c.terminated.Store(true)
-			c.closeDone()
-		}
-		c.pool_mutex.Unlock()
-	})
 }
 
 func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compression, tracing gen.Tracing) error {

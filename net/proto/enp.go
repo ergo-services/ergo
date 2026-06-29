@@ -127,13 +127,6 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		}
 	}
 
-	// empty-pool grace: how long an empty pool is tolerated before the connection is
-	// terminated. The keepalive timeout when enabled, else a handshake-based fallback.
-	conn.emptyPoolGrace = conn.softwareKeepAliveTimeout
-	if conn.emptyPoolGrace == 0 {
-		conn.emptyPoolGrace = 3 * gen.DefaultHandshakeTimeout
-	}
-
 	if result.NodeFlags.EnableClockSkew == true &&
 		result.PeerFlags.EnableClockSkew == true {
 		conn.clockSkew = true
