@@ -352,6 +352,14 @@ type ResponseDoInspect struct {
 	Error error
 }
 
+type RequestDoInspectMeta struct {
+	Meta gen.Alias
+}
+type ResponseDoInspectMeta struct {
+	State map[string]string
+	Error error
+}
+
 // goroutine dump
 
 type RequestDoGoroutines struct {

@@ -129,6 +129,7 @@ func Types() []any {
 		RequestDoAppTree{}, ResponseDoAppTree{},
 		RequestDoSubtree{}, ResponseDoSubtree{},
 		RequestDoInspect{}, ResponseDoInspect{},
+		RequestDoInspectMeta{}, ResponseDoInspectMeta{},
 		RequestDoGoroutines{}, GoroutineGroup{}, ResponseDoGoroutines{},
 		RequestDoHeapProfile{}, HeapRecord{}, ResponseDoHeapProfile{},
 		RequestDoTypes{}, ResponseDoTypes{},
@@ -685,6 +686,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 	case RequestDoInspect:
 		state, err := i.Inspect(r.PID)
 		return ResponseDoInspect{State: state, Error: err}, nil
+
+	case RequestDoInspectMeta:
+		state, err := i.InspectMeta(r.Meta)
+		return ResponseDoInspectMeta{State: state, Error: err}, nil
 
 	case RequestDoGoroutines:
 		return captureGoroutines(r), nil
