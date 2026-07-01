@@ -726,68 +726,71 @@ type Process interface {
 	// Returns ErrNotAllowed in other states, ErrEventUnknown if event not found.
 	UnregisterEvent(name Atom) error
 
-	// Link creates a bidirectional link to the target.
-	// If either process terminates, the other receives an exit message and terminates too.
+	// Link creates a directed link to the target: this process receives an exit
+	// message (and terminates too, unless trapping exit) when the target terminates.
+	// The link is one-directional - it does not notify the target when this
+	// process terminates. For parent/child links use ProcessOptions.LinkParent / LinkChild.
 	// Target can be: PID, ProcessID, Alias, Event, or Atom (node name).
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Link(target any) error
 
-	// Unlink removes a bidirectional link to the target.
+	// Unlink removes a directed link to the target.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Unlink(target any) error
 
-	// LinkPID creates a bidirectional link to the process identified by PID.
-	// If either process terminates, the other receives an exit message.
+	// LinkPID creates a directed link to the process identified by PID.
+	// This process receives an exit message when the target terminates; it does
+	// not notify the target when this process terminates.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkPID(target PID) error
 
-	// UnlinkPID removes a bidirectional link to the process identified by PID.
+	// UnlinkPID removes a directed link to the process identified by PID.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkPID(target PID) error
 
-	// LinkProcessID creates a bidirectional link to the named process.
+	// LinkProcessID creates a directed link to the named process.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkProcessID(target ProcessID) error
 
-	// UnlinkProcessID removes a bidirectional link to the named process.
+	// UnlinkProcessID removes a directed link to the named process.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkProcessID(target ProcessID) error
 
-	// LinkAlias creates a bidirectional link to the process via alias.
+	// LinkAlias creates a directed link to the process via alias.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkAlias(target Alias) error
 
-	// UnlinkAlias removes a bidirectional link to the process via alias.
+	// UnlinkAlias removes a directed link to the process via alias.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkAlias(target Alias) error
 
-	// LinkEvent creates a bidirectional link to an event.
+	// LinkEvent creates a directed link to an event.
 	// This process will receive event messages and exit if the event is unregistered.
 	// Returns the last N event messages if buffering is enabled.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkEvent(target Event) ([]MessageEvent, error)
 
-	// UnlinkEvent removes a bidirectional link to an event.
+	// UnlinkEvent removes a directed link to an event.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkEvent(target Event) error
 
-	// LinkNode creates a bidirectional link to a node.
+	// LinkNode creates a directed link to a node.
 	// If the node disconnects, this process receives an exit message.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkNode(target Atom) error
 
-	// UnlinkNode removes a bidirectional link to a node.
+	// UnlinkNode removes a directed link to a node.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkNode(target Atom) error

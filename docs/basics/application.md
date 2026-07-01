@@ -326,6 +326,45 @@ Why use mapping:
 
 The map provides a service contract. External code knows the application has an "api" role and a "db" role. The actual implementations can change as long as the roles remain consistent.
 
+## Exposing a Helper API
+
+An application is invoked by code that lives outside it. If that code sends the application's processes raw messages, it has to know their registered names and construct the right message types by hand. That couples every caller to your internals: rename a process or change a message and every call site breaks.
+
+The idiomatic alternative is to give the application package a set of exported helper functions that hide those details. A helper takes the caller's process handle and sends or calls the application's local instance by its registered name (a `gen.Atom`), which stays private to the package:
+
+```go
+package orders
+
+const name gen.Atom = "orders" // registered process name, private to this package
+
+// message types are internal - callers never see or construct them
+type messagePlace struct{ Item string; Qty int }
+type statusRequest struct{ ID string }
+type statusResponse struct{ Status OrderStatus }
+
+// Place is fire-and-forget, so it wraps a Send to the local instance.
+func Place(process gen.Process, item string, qty int) error {
+    return process.Send(name, messagePlace{Item: item, Qty: qty})
+}
+
+// Status needs a reply, so it wraps a Call.
+func Status(process gen.Process, id string) (OrderStatus, error) {
+    result, err := process.Call(name, statusRequest{ID: id})
+    if err != nil {
+        return OrderStatus{}, err
+    }
+    return result.(statusResponse).Status, nil
+}
+```
+
+A caller writes `orders.Place(process, "sku-1", 3)` from inside its own callback. It never constructs a message and never learns the process name.
+
+The messaging stays private. Because callers go through the functions, message types like `messagePlace` and `statusRequest` never appear in any other package and can be unexported. A caller depends only on the helper signatures and ordinary Go types (`item string`, `qty int`), never on your message layout, so you can add a field, split a message, or rename one without changing a single call site. Exposing the message types instead would force them to be exported, since callers construct them directly, and freeze their shape into your public API. Only messages that actually cross nodes need exported fields and EDF registration; a helper talking to the local instance keeps them fully private.
+
+The helper receives the caller's handle as an argument rather than reading a package global, which would break addressing in a multi-node cluster and make the package hard to test. That handle is normally a `gen.Process`. When there is no actor context, for example a web server translating an HTTP request into a call on another node, the helper takes a `gen.Node` and addresses the target explicitly with `node.Call(gen.ProcessID{Name: name, Node: peer}, ...)`; that fuller form is the one case where the node is named.
+
+An application composed of several sub-components re-exports their helpers under one namespace, so callers depend on the application and never import or name the parts. `application/radar` is the model: `radar.RegisterService` delegates to the health actor and `radar.CounterAdd` to the metrics actor, and a caller never learns radar is assembled from separate health and metrics actors.
+
 ## The Application Pattern
 
 Applications provide structure to your actor system. Instead of scattered process creation throughout your code, applications centralize the "what runs in this service" question. The specification documents your system's structure. The mode declares your fault tolerance policy. The dependency mechanism ensures correct startup ordering.
