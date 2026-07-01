@@ -68,7 +68,7 @@ type CronJob struct {
 	Spec string
 
 	// Location specifies the timezone for schedule interpretation.
-	// If nil, uses UTC. Example: time.LoadLocation("America/New_York").
+	// If nil, uses the node's local time (time.Local). Example: time.LoadLocation("America/New_York").
 	Location *time.Location
 
 	// Action defines what to do when the job runs.
