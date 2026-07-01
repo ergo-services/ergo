@@ -38,7 +38,7 @@ type connectionOverrides struct {
 	linkAlias              func(pid gen.PID, target gen.Alias) error
 	unlinkAlias            func(pid gen.PID, target gen.Alias) error
 	linkEvent              func(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error)
-	unlinkEvent            func(pid gen.PID, targer gen.Event) error
+	unlinkEvent            func(pid gen.PID, target gen.Event) error
 	monitorPID             func(pid gen.PID, target gen.PID) error
 	demonitorPID           func(pid gen.PID, target gen.PID) error
 	monitorProcessID       func(pid gen.PID, target gen.ProcessID) error
@@ -46,7 +46,7 @@ type connectionOverrides struct {
 	monitorAlias           func(pid gen.PID, target gen.Alias) error
 	demonitorAlias         func(pid gen.PID, target gen.Alias) error
 	monitorEvent           func(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error)
-	demonitorEvent         func(pid gen.PID, targer gen.Event) error
+	demonitorEvent         func(pid gen.PID, target gen.Event) error
 	remoteSpawn            func(name gen.Atom, options gen.ProcessOptionsExtra) (gen.PID, error)
 	join                   func(c net.Conn, id string, dial gen.NetworkDial, tail []byte) error
 	terminate              func(reason error)
@@ -126,7 +126,7 @@ func (c *Connection) OnUnlinkAlias(fn func(pid gen.PID, target gen.Alias) error)
 func (c *Connection) OnLinkEvent(fn func(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error)) {
 	c.ov.linkEvent = fn
 }
-func (c *Connection) OnUnlinkEvent(fn func(pid gen.PID, targer gen.Event) error) {
+func (c *Connection) OnUnlinkEvent(fn func(pid gen.PID, target gen.Event) error) {
 	c.ov.unlinkEvent = fn
 }
 func (c *Connection) OnMonitorPID(fn func(pid gen.PID, target gen.PID) error) {
@@ -150,7 +150,7 @@ func (c *Connection) OnDemonitorAlias(fn func(pid gen.PID, target gen.Alias) err
 func (c *Connection) OnMonitorEvent(fn func(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error)) {
 	c.ov.monitorEvent = fn
 }
-func (c *Connection) OnDemonitorEvent(fn func(pid gen.PID, targer gen.Event) error) {
+func (c *Connection) OnDemonitorEvent(fn func(pid gen.PID, target gen.Event) error) {
 	c.ov.demonitorEvent = fn
 }
 func (c *Connection) OnRemoteSpawn(fn func(name gen.Atom, options gen.ProcessOptionsExtra) (gen.PID, error)) {
@@ -354,12 +354,12 @@ func (c *Connection) LinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEven
 	return events, err
 }
 
-func (c *Connection) UnlinkEvent(pid gen.PID, targer gen.Event) error {
+func (c *Connection) UnlinkEvent(pid gen.PID, target gen.Event) error {
 	var err error
 	if c.ov.unlinkEvent != nil {
-		err = c.ov.unlinkEvent(pid, targer)
+		err = c.ov.unlinkEvent(pid, target)
 	}
-	c.put(check.Unlink{From: pid, Target: targer})
+	c.put(check.Unlink{From: pid, Target: target})
 	return err
 }
 
@@ -429,12 +429,12 @@ func (c *Connection) MonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageE
 	return events, err
 }
 
-func (c *Connection) DemonitorEvent(pid gen.PID, targer gen.Event) error {
+func (c *Connection) DemonitorEvent(pid gen.PID, target gen.Event) error {
 	var err error
 	if c.ov.demonitorEvent != nil {
-		err = c.ov.demonitorEvent(pid, targer)
+		err = c.ov.demonitorEvent(pid, target)
 	}
-	c.put(check.Demonitor{From: pid, Target: targer})
+	c.put(check.Demonitor{From: pid, Target: target})
 	return err
 }
 

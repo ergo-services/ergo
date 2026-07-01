@@ -341,7 +341,7 @@ func (a *Subject) OnForward(to gen.PID) *FailStub {
 // Node-level egress stubs. The mock node has its own egress (Call, Send, Spawn,
 // ...) routing through the same stubs as the process under test, so these setters
 // promote onto MockNode: they configure the node's own egress and let any egress
-// be stubbed before the process is created, e.g. unit.Node(t).OnCall(...).Spawn(...)
+// be stubbed before the process is created, e.g. unit.StartNode(t).OnCall(...).Spawn(...)
 // or sub := n.Prepare(...); sub.OnCall(...); sub.Run(). They share storage with the
 // Subject setters above.
 

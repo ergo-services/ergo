@@ -49,7 +49,7 @@ type Subject struct {
 // node method (ProcessInfo, ProcessList, ...) and every On<Method> override setter
 // is available directly on it; its own Spawn / SpawnRegister shadow gen.Node.Spawn
 // to return the Subject under test (unit exercises exactly that one process). It is
-// returned both by unit.Node(...) (configure before spawn) and by Subject.Node()
+// returned both by unit.StartNode(...) (configure before spawn) and by Subject.Node()
 // (configure / inspect after spawn).
 //
 // Node().Network() returns a built-in stubbable mock network (configure discovery via
@@ -64,7 +64,7 @@ type MockNode struct {
 // process under test on the returned node with Spawn / SpawnRegister. Env is taken
 // from options.Env; the rest of gen.NodeOptions is accepted for parity with a real
 // node but unused by the mock.
-func Node(t testing.TB, name gen.Atom, options gen.NodeOptions) *MockNode {
+func StartNode(t testing.TB, name gen.Atom, options gen.NodeOptions) *MockNode {
 	t.Helper()
 	if name == "" {
 		name = "unit@localhost"
@@ -168,34 +168,34 @@ func (s *Subject) requireInited(op string) {
 }
 
 // Spawn creates the process under test on a default mock node and runs its
-// ProcessInit. Shortcut for Node(t).Spawn(...); use Node(t, NodeOptions{...}) when
+// ProcessInit. Shortcut for StartNode(t).Spawn(...); use StartNode(t, NodeOptions{...}) when
 // you need to inject Network/Cron, set the node name, or seed env.
 func Spawn(t testing.TB, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (*Subject, error) {
 	t.Helper()
-	return Node(t, "unit@localhost", gen.NodeOptions{}).Spawn(factory, options, args...)
+	return StartNode(t, "unit@localhost", gen.NodeOptions{}).Spawn(factory, options, args...)
 }
 
 // SpawnRegister creates the process under test with a registered name on a default
-// mock node and runs its ProcessInit. Shortcut for Node(t, ...).SpawnRegister(...).
+// mock node and runs its ProcessInit. Shortcut for StartNode(t, ...).SpawnRegister(...).
 func SpawnRegister(t testing.TB, register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (*Subject, error) {
 	t.Helper()
-	return Node(t, "unit@localhost", gen.NodeOptions{}).SpawnRegister(register, factory, options, args...)
+	return StartNode(t, "unit@localhost", gen.NodeOptions{}).SpawnRegister(register, factory, options, args...)
 }
 
 // Prepare creates the process under test on a default mock node WITHOUT running
 // ProcessInit, so the actor's Init-time outbound operations can be stubbed before
-// Run. Shortcut for Node(t).Prepare(...); use Node(t, NodeOptions{...}) when you
+// Run. Shortcut for StartNode(t).Prepare(...); use StartNode(t, NodeOptions{...}) when you
 // need to inject Network/Cron, set the node name, or seed env.
 func Prepare(t testing.TB, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) *Subject {
 	t.Helper()
-	return Node(t, "unit@localhost", gen.NodeOptions{}).Prepare(factory, options, args...)
+	return StartNode(t, "unit@localhost", gen.NodeOptions{}).Prepare(factory, options, args...)
 }
 
 // PrepareRegister creates the process under test with a registered name on a default
-// mock node without running ProcessInit. Shortcut for Node(t, ...).PrepareRegister(...).
+// mock node without running ProcessInit. Shortcut for StartNode(t, ...).PrepareRegister(...).
 func PrepareRegister(t testing.TB, register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) *Subject {
 	t.Helper()
-	return Node(t, "unit@localhost", gen.NodeOptions{}).PrepareRegister(register, factory, options, args...)
+	return StartNode(t, "unit@localhost", gen.NodeOptions{}).PrepareRegister(register, factory, options, args...)
 }
 
 // Behavior returns the process's behavior for state inspection.

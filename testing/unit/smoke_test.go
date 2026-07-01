@@ -504,7 +504,7 @@ func TestSmokeSetLevelRejectsTrace(t *testing.T) {
 
 // a test can override a node introspection method when the default does not fit.
 func TestSmokeProcessInfoOverride(t *testing.T) {
-	n := unit.Node(t, "unit@localhost", gen.NodeOptions{})
+	n := unit.StartNode(t, "unit@localhost", gen.NodeOptions{})
 	n.OnProcessInfo(func(pid gen.PID) (gen.ProcessInfo, error) {
 		return gen.ProcessInfo{Name: "overridden"}, nil
 	})

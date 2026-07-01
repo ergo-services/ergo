@@ -80,7 +80,7 @@ func TestNodeProcessStubsIsolated(t *testing.T) {
 
 // gen.Node's own Call is overridable via the node-level OnCall.
 func TestNodeOwnCallOverridable(t *testing.T) {
-	n := unit.Node(t, "unit@localhost", gen.NodeOptions{})
+	n := unit.StartNode(t, "unit@localhost", gen.NodeOptions{})
 	n.OnCall("svc").Respond("OK")
 	sub, err := n.Spawn(factoryPrNoop, gen.ProcessOptions{})
 	if err != nil {
@@ -107,7 +107,7 @@ func factoryPrArg() gen.ProcessBehavior { return &prArgActor{} }
 
 // Spawn one-liner still works after the Prepare+Run refactor and forwards args.
 func TestSpawnStillWorksAndForwardsArgs(t *testing.T) {
-	n := unit.Node(t, "unit@localhost", gen.NodeOptions{})
+	n := unit.StartNode(t, "unit@localhost", gen.NodeOptions{})
 	sub, err := n.Spawn(factoryPrArg, gen.ProcessOptions{}, "ARG2")
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
@@ -117,7 +117,7 @@ func TestSpawnStillWorksAndForwardsArgs(t *testing.T) {
 
 // After Prepare+Run the subject drives deliveries normally.
 func TestPrepareRunThenDeliver(t *testing.T) {
-	n := unit.Node(t, "unit@localhost", gen.NodeOptions{})
+	n := unit.StartNode(t, "unit@localhost", gen.NodeOptions{})
 	sub := n.Prepare(factoryPrNoop, gen.ProcessOptions{})
 	if err := sub.Run(); err != nil {
 		t.Fatalf("Run: %v", err)

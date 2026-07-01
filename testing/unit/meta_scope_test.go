@@ -43,7 +43,7 @@ func (m *msMeta) HandleInspect(from gen.PID, item ...string) map[string]string {
 // A meta's own stub, set on a prepared MetaSubject before Run, applies to the
 // meta's Init-time egress.
 func TestMetaOwnStubAppliesToInit(t *testing.T) {
-	n := unit.Node(t, "unit@localhost", gen.NodeOptions{})
+	n := unit.StartNode(t, "unit@localhost", gen.NodeOptions{})
 	sub, err := n.Spawn(factoryMsParent, gen.ProcessOptions{})
 	check.NoError(t, err)
 
@@ -56,7 +56,7 @@ func TestMetaOwnStubAppliesToInit(t *testing.T) {
 
 // A stub on the parent actor does not leak into the meta's scope.
 func TestParentStubDoesNotLeakToMeta(t *testing.T) {
-	n := unit.Node(t, "unit@localhost", gen.NodeOptions{})
+	n := unit.StartNode(t, "unit@localhost", gen.NodeOptions{})
 	sub, err := n.Spawn(factoryMsParent, gen.ProcessOptions{})
 	check.NoError(t, err)
 	sub.OnSend("x").Fail(gen.ErrProcessMailboxFull) // parent scope only
@@ -69,7 +69,7 @@ func TestParentStubDoesNotLeakToMeta(t *testing.T) {
 
 // A stub on the meta does not leak into the parent's scope.
 func TestMetaStubDoesNotLeakToParent(t *testing.T) {
-	n := unit.Node(t, "unit@localhost", gen.NodeOptions{})
+	n := unit.StartNode(t, "unit@localhost", gen.NodeOptions{})
 	sub, err := n.Spawn(factoryMsParent, gen.ProcessOptions{})
 	check.NoError(t, err)
 

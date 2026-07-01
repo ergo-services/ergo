@@ -22,7 +22,7 @@ sub.SendMessage(client, "ping")
 sub.ShouldSend().To(client).Message("pong").Once().Assert()
 ```
 
-`unit.Spawn` runs the behavior's `Init` and returns a `Subject` - the actor under test. The `Subject` carries the assertion grammar from [check](check.md), which is why `sub.ShouldSend(...)` is a method on it. The options are the real `gen.ProcessOptions` (set the log level there, for instance, with `LogLevel`), and any trailing arguments are forwarded to `Init`, exactly as `gen.Node.Spawn` forwards them. When you need more than a default node - a node name, seeded environment, an injected dependency - build it first with `unit.Node(...)` and spawn on that; it mirrors how [stage](stage.md) reads.
+`unit.Spawn` runs the behavior's `Init` and returns a `Subject` - the actor under test. The `Subject` carries the assertion grammar from [check](check.md), which is why `sub.ShouldSend(...)` is a method on it. The options are the real `gen.ProcessOptions` (set the log level there, for instance, with `LogLevel`), and any trailing arguments are forwarded to `Init`, exactly as `gen.Node.Spawn` forwards them. When you need more than a default node - a node name, seeded environment, an injected dependency - build it first with `unit.StartNode(...)` and spawn on that; it mirrors how [stage](stage.md) reads.
 
 Notice what did *not* happen after `SendMessage`: no wait. The handler ran inline, the send was recorded during that run, and the assertion read a finished result. Hold on to that - it is the whole reason unit tests are fast and never flake, and it is the one thing that changes when you move up to stage.
 
@@ -107,7 +107,7 @@ if err := sub.Run(); err != nil {
 }
 ```
 
-`Spawn` is exactly `Prepare` followed by `Run`, so reach for the split only to stub before `Init`. Until `Run` the actor is not initialized: any driver fails the test loudly rather than run against a half-built actor, and calling `Run` twice fails the same way. The node has its own egress stubs (`unit.Node(t, ...).OnCall(...)`), a separate scope from the actor's: they shape the node's own outbound calls and do not reach the process under test, just as a meta's stubs are its own.
+`Spawn` is exactly `Prepare` followed by `Run`, so reach for the split only to stub before `Init`. Until `Run` the actor is not initialized: any driver fails the test loudly rather than run against a half-built actor, and calling `Run` twice fails the same way. The node has its own egress stubs (`unit.StartNode(t, ...).OnCall(...)`), a separate scope from the actor's: they shape the node's own outbound calls and do not reach the process under test, just as a meta's stubs are its own.
 
 ### Controlling What the Actor Reads
 

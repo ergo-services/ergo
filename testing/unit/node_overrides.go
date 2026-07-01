@@ -13,7 +13,7 @@ import (
 //
 // The On<Method> setters live on *mockNode, so they promote onto MockNode: a test
 // configures them via sub.Node().On<Method>(...) (or before spawn on the node from
-// unit.Node(...)).
+// unit.StartNode(...)).
 type nodeOverrides struct {
 	name             func() gen.Atom
 	isAlive          func() bool
@@ -115,7 +115,7 @@ type nodeOverrides struct {
 }
 
 // On<Method> setters. Defined on *mockNode so they promote onto MockNode; call them
-// as sub.Node().On<Method>(...) or, before spawning, on the node from unit.Node(...).
+// as sub.Node().On<Method>(...) or, before spawning, on the node from unit.StartNode(...).
 
 func (n *mockNode) OnName(fn func() gen.Atom)                { n.ov.name = fn }
 func (n *mockNode) OnIsAlive(fn func() bool)                 { n.ov.isAlive = fn }

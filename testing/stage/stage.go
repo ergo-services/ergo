@@ -55,7 +55,7 @@ type StageOptions struct {
 
 // Stage owns a set of live nodes and tears them down on test cleanup.
 type Stage struct {
-	t            *testing.T
+	t            testing.TB
 	id           uint64
 	mu           sync.Mutex
 	nodes        []*Node
@@ -64,7 +64,7 @@ type Stage struct {
 
 // New creates a stage and registers teardown via t.Cleanup. With no options the
 // stage uses a private in-memory registrar shared by its nodes.
-func New(t *testing.T, opts ...StageOptions) *Stage {
+func New(t testing.TB, opts ...StageOptions) *Stage {
 	s := &Stage{t: t, id: stageSeq.Add(1)}
 	var o StageOptions
 	if len(opts) > 0 {
@@ -123,13 +123,13 @@ type NodeOptions struct {
 type Node struct {
 	*check.Asserter
 	s    *Stage
-	t    *testing.T
+	t    testing.TB
 	node gen.Node
 	rec  *check.Recorder
 }
 
 // StartNode starts a live node. Names are unique per stage to avoid collisions.
-func (s *Stage) StartNode(name string, opts ...NodeOptions) *Node {
+func (s *Stage) StartNode(prefix string, opts ...NodeOptions) *Node {
 	s.t.Helper()
 	var o NodeOptions
 	if len(opts) > 0 {
@@ -160,13 +160,13 @@ func (s *Stage) StartNode(name string, opts ...NodeOptions) *Node {
 
 	reg, err := s.newRegistrar()
 	if err != nil {
-		s.t.Fatalf("stage: create registrar for node %s: %s", name, err)
+		s.t.Fatalf("stage: create registrar for node %s: %s", prefix, err)
 	}
 	no.Network.Registrar = reg
 
 	// unique across parallel test processes (pid) and within a process (seq)
 	r := check.NewRecorder()
-	nodeName := gen.Atom(fmt.Sprintf("%s-stage-%d-%d@localhost", name, os.Getpid(), s.id))
+	nodeName := gen.Atom(fmt.Sprintf("%s-stage-%d-%d@localhost", prefix, os.Getpid(), s.id))
 	gn, err := node.Start(nodeName, node.NodeOptionsExtra{
 		NodeOptions:      no,
 		FrameworkVersion: frameworkVersion,
