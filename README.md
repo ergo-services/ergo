@@ -139,7 +139,7 @@ To see it in action with a fully loaded cluster, see the [observability example]
 
 8. **Cloud Native:** built-in Kubernetes health probes (liveness, readiness, startup) via the [Health](https://docs.ergo.services/extra-library/actors/health) actor, [Prometheus](https://docs.ergo.services/extra-library/actors/metrics) metrics endpoint, and [mTLS](https://docs.ergo.services/networking/mutual-tls) support for zero-trust deployments.
 
-9. **Ready-to-use Components:** core framework includes Actor, Supervisor, Pool, and WebWorker actors plus TCP, UDP, Port, WebSocket, SSE, and Web meta processes. Extra library provides [Leader](https://docs.ergo.services/extra-library/actors/leader), [Metrics](https://docs.ergo.services/extra-library/actors/metrics), and [Health](https://docs.ergo.services/extra-library/actors/health) actors, [Observer](https://docs.ergo.services/extra-library/applications/observer) and [Radar](https://docs.ergo.services/extra-library/applications/radar) applications, [Colored](https://docs.ergo.services/extra-library/loggers/colored) and [Rotate](https://docs.ergo.services/extra-library/loggers/rotate) loggers.
+9. **Ready-to-use Components:** core framework includes Actor, Supervisor, Pool, Router, and WebWorker actors plus TCP, UDP, Port, and Web meta processes. Extra library provides [Leader](https://docs.ergo.services/extra-library/actors/leader), [Metrics](https://docs.ergo.services/extra-library/actors/metrics), and [Health](https://docs.ergo.services/extra-library/actors/health) actors, [Observer](https://docs.ergo.services/extra-library/applications/observer), [Radar](https://docs.ergo.services/extra-library/applications/radar), [Pulse](https://docs.ergo.services/extra-library/applications/pulse), and [MCP](https://docs.ergo.services/extra-library/applications/mcp) applications, [WebSocket](https://docs.ergo.services/extra-library/meta-processes/websocket) and [SSE](https://docs.ergo.services/extra-library/meta-processes/sse) meta processes, and [Colored](https://docs.ergo.services/extra-library/loggers/colored), [Rotate](https://docs.ergo.services/extra-library/loggers/rotate), and [Sentry](https://docs.ergo.services/extra-library/loggers/sentry) loggers.
 
 10. **Erlang Interoperability:** native support for the [Erlang distribution protocol](https://docs.ergo.services/extra-library/network-protocols/erlang) enables heterogeneous clusters where Ergo (Go) and Erlang/Elixir nodes participate as equal peers. Send messages, spawn processes, and set up links and monitors across language boundaries without any proxies or bridges.
 
@@ -183,11 +183,11 @@ For the full command reference, see the [ergo tool documentation](https://docs.e
 
 Pre-built agents and skills for [Claude Code](https://claude.com/claude-code) turn any Claude session into an Ergo-aware collaborator. Two paired toolkits shipped in the [ergo-services/claude](https://github.com/ergo-services/claude) repository:
 
-- **framework** - designing and implementing actor systems. An architect agent (DDD bounded contexts, supervision trees, cluster topology, load analysis) plus a skill with progressive-disclosure references covering actors, supervision, messages, applications, pool, meta processes, node configuration, EDF, cluster, unit testing, and every extension library.
+- **framework** - designing and implementing actor systems. An architect agent (DDD bounded contexts, supervision trees, cluster topology, load analysis) plus a skill with progressive-disclosure references covering actors, supervision, messages, applications, pool and routing, meta processes, node configuration, EDF, cluster, tracing, logging, testing, and every extension library.
 
 - **devops** - diagnosing running clusters via the built-in [MCP application](https://docs.ergo.services/extra-library/applications/mcp). An SRE agent that runs hypothesis-driven investigations (observe, hypothesize, test, confirm) plus a skill with the full 48-tool catalog, counters reference, 10 diagnostic playbooks, active/passive sampler recipes, and build-tag awareness.
 
-Install as a Claude Code plugin (one-shot, updates managed by Claude Code):
+Install directly from the Claude Code plugin marketplace - open the plugins section (`/plugin`), search for `ergo`, and install. Or add this repository as a marketplace:
 
 ```
 /plugin marketplace add ergo-services/claude
