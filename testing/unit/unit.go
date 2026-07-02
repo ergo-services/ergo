@@ -264,7 +264,6 @@ func (s *Subject) deliverTo(from gen.PID, target any, message any, mtype gen.Mai
 		return
 	}
 	mm := gen.TakeMailboxMessage()
-	defer gen.ReleaseMailboxMessage(mm)
 	mm.From = from
 	mm.Type = mtype
 	mm.Target = target
@@ -308,7 +307,6 @@ func (s *Subject) SendMessageWithPriority(from gen.PID, message any, priority ge
 		return s
 	}
 	mm := gen.TakeMailboxMessage()
-	defer gen.ReleaseMailboxMessage(mm)
 	mm.From = from
 	mm.Type = gen.MailboxMessageTypeRegular
 	mm.Target = s.process.pid
@@ -414,7 +412,6 @@ func (s *Subject) CallWithPriority(from gen.PID, request any, priority gen.Messa
 	ref := s.node.synthRef()
 	mk := s.node.rec.Mark()
 	mm := gen.TakeMailboxMessage()
-	defer gen.ReleaseMailboxMessage(mm)
 	mm.From = from
 	mm.Type = gen.MailboxMessageTypeRequest
 	mm.Target = s.process.pid
