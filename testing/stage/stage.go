@@ -1,4 +1,4 @@
-// Package stage is the live multi-node system-test harness. It starts real
+// Package stage is the live multi-node end-to-end harness. It starts real
 // nodes, drives them through the public gen.Node API, and observes real
 // happenings by decorating each node's routing surface (gen.Core, ingress) and
 // each process's gen.Process (egress) via node.NodeOptionsExtra. Assertions use
