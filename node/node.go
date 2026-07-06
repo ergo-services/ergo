@@ -2755,16 +2755,8 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		}
 	}
 
-	if options.Register != "" {
-		if _, exist := n.names.LoadOrStore(options.Register, p); exist {
-			atomic.AddUint64(&n.processesSpawnFailed, 1)
-			return p.pid, gen.ErrTaken
-		}
-		p.name = options.Register
-		p.registered.Store(true)
-	}
-
-	// init mailbox
+	// init mailbox before publishing the name: RouteSend* finds the process by
+	// name and reads p.mailbox, so it must be ready before the LoadOrStore below
 	if options.Mailbox != nil {
 		// adopt the mailbox handed in by the supervisor (or test) instead
 		// of allocating fresh queues
@@ -2784,6 +2776,15 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 
 	p.preserveMailbox = options.PreserveMailbox
+
+	if options.Register != "" {
+		if _, exist := n.names.LoadOrStore(options.Register, p); exist {
+			atomic.AddUint64(&n.processesSpawnFailed, 1)
+			return p.pid, gen.ErrTaken
+		}
+		p.name = options.Register
+		p.registered.Store(true)
+	}
 
 	// create pid
 	pid := gen.PID{
