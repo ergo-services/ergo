@@ -2,15 +2,11 @@
 description: Boilerplate Generator for Ergo Framework Projects
 ---
 
-# ergo
+# Boilerplate Code Generation
 
-The `ergo` tool generates the initial structure and source code for Ergo Framework
-projects. Instead of writing actor definitions, supervisor specs, and application
-boilerplate by hand, you describe what you want and the tool writes it for you.
+The `ergo` tool generates the initial structure and source code for Ergo Framework projects. Instead of writing actor definitions, supervisor specs, and application boilerplate by hand, you describe what you want and the tool writes it for you.
 
-The generated code is plain Go that you own and can modify freely. The tool
-understands which parts are structural wiring (regenerated as the project grows)
-and which parts are your business logic (never touched again).
+The generated code is plain Go that you own and can modify freely. The tool understands which parts are structural wiring (regenerated as the project grows) and which parts are your business logic (never touched again).
 
 ## Installation
 
@@ -30,31 +26,27 @@ cd mynode
 go run ./cmd
 ```
 
-The node starts immediately with an application, a supervisor and an actor,
-all wired together.
+The node starts immediately with an application, a supervisor and an actor, all wired together.
 
 ## How It Works
 
-The tool maintains `ergo.yaml` in the project root. This file describes the
-supervision tree. Every `ergo add` command updates this file and regenerates
-the affected code.
+The tool maintains `ergo.yaml` in the project root. This file describes the supervision tree. Every `ergo add` command updates this file and regenerates the affected code.
 
 Each component produces two files:
 
-| File | Owned by | Regenerated | Contains |
-|------|----------|-------------|---------|
-| `name_gen.go` | tool | on every `ergo add` or `ergo generate` | factory, Init spec, Load group |
-| `name.go` | you | never | Tune, handlers, Start, Terminate |
+| File          | Owned by | Regenerated                            | Contains                         |
+| ------------- | -------- | -------------------------------------- | -------------------------------- |
+| `name_gen.go` | tool     | on every `ergo add` or `ergo generate` | factory, Init spec, Load group   |
+| `name.go`     | you      | never                                  | Tune, handlers, Start, Terminate |
 
-User-owned files provide hooks that the generated code calls. The pattern is
-consistent across all component types:
+User-owned files provide hooks that the generated code calls. The pattern is consistent across all component types:
 
-| File | Hook | Purpose |
-|------|------|---------|
-| `mysup.go` | `Tune(spec, args) (SupervisorSpec, error)` | adjust supervisor spec before start |
-| `myapp.go` | `Tune(node, spec, args) (ApplicationSpec, error)` | adjust application spec before start |
-| `messages.go` | `extraMessages() []any` | register custom EDF message types |
-| `cmd/main.go` | `extraApps() []ApplicationBehavior` | add external applications |
+| File          | Hook                                              | Purpose                              |
+| ------------- | ------------------------------------------------- | ------------------------------------ |
+| `mysup.go`    | `Tune(spec, args) (SupervisorSpec, error)`        | adjust supervisor spec before start  |
+| `myapp.go`    | `Tune(node, spec, args) (ApplicationSpec, error)` | adjust application spec before start |
+| `messages.go` | `extraMessages() []any`                           | register custom EDF message types    |
+| `cmd/main.go` | `extraApps() []ApplicationBehavior`               | add external applications            |
 
 ## Commands
 
@@ -64,17 +56,14 @@ consistent across all component types:
 ergo init <NodeName> <module>
 ```
 
-Creates a new project. The directory name is derived from the last segment of
-the module path. Generates `ergo.yaml`, all boilerplate, `go.mod`, and runs
-`go mod tidy`.
+Creates a new project. The directory name is derived from the last segment of the module path. Generates `ergo.yaml`, all boilerplate, `go.mod`, and runs `go mod tidy`.
 
 ```bash
 ergo init MyNode github.com/myorg/mynode
 ergo init Gateway github.com/acme/api-gateway
 ```
 
-The default project has one application, one supervisor and one actor, enough
-to verify everything works before adding real components.
+The default project has one application, one supervisor and one actor, enough to verify everything works before adding real components.
 
 ### ergo add actor
 
@@ -82,12 +71,9 @@ to verify everything works before adding real components.
 ergo add actor [--pool] <[Parent:]Name>
 ```
 
-Adds an actor. `Parent` is the name of an existing supervisor or application.
-Without a parent the actor is added to `node.processes` and spawned directly
-by the node at startup.
+Adds an actor. `Parent` is the name of an existing supervisor or application. Without a parent the actor is added to `node.processes` and spawned directly by the node at startup.
 
-`--pool` generates a pool actor with a companion worker type. A pool distributes
-incoming messages across a fixed set of workers and restarts them on failure.
+`--pool` generates a pool actor with a companion worker type. A pool distributes incoming messages across a fixed set of workers and restarts them on failure.
 
 ```bash
 ergo add actor MySup:MyActor
@@ -105,20 +91,20 @@ Adds a supervisor. `Parent` is an existing application or supervisor.
 
 `--type` controls which children are restarted when one fails:
 
-| Type | Behavior |
-|------|---------|
-| `one_for_one` (default) | only the failed child |
-| `all_for_one` | all children |
-| `rest_for_one` | the failed child and all children started after it |
-| `simple_one_for_one` | children spawned dynamically at runtime via `AddChild`, no static children list |
+| Type                    | Behavior                                                                        |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `one_for_one` (default) | only the failed child                                                           |
+| `all_for_one`           | all children                                                                    |
+| `rest_for_one`          | the failed child and all children started after it                              |
+| `simple_one_for_one`    | children spawned dynamically at runtime via `AddChild`, no static children list |
 
 `--strategy` controls when a child is restarted:
 
-| Strategy | Behavior |
-|----------|---------|
+| Strategy              | Behavior              |
+| --------------------- | --------------------- |
 | `transient` (default) | only on abnormal exit |
-| `permanent` | always |
-| `temporary` | never |
+| `permanent`           | always                |
+| `temporary`           | never                 |
 
 ```bash
 ergo add supervisor MyApp:WorkerSup
@@ -134,11 +120,11 @@ ergo add app [--mode <mode>] <Name>
 
 Adds an application. `--mode` declares what happens when the application stops:
 
-| Mode | Behavior |
-|------|---------|
-| `transient` (default) | node stops on abnormal exit |
-| `permanent` | node always stops when app exits |
-| `temporary` | node ignores the exit |
+| Mode                  | Behavior                         |
+| --------------------- | -------------------------------- |
+| `transient` (default) | node stops on abnormal exit      |
+| `permanent`           | node always stops when app exits |
+| `temporary`           | node ignores the exit            |
 
 ```bash
 ergo add app MyApp
@@ -152,31 +138,25 @@ ergo add app CriticalApp --mode permanent
 ergo add message --field name:type [--field name:type ...] <Name>
 ```
 
-Adds an EDF message type. Field types can be standard Go types (`string`, `int`,
-`bool`, `[]byte`) or framework types (`gen.Alias`, `gen.PID`, `gen.Ref`).
+Adds an EDF message type. Field types can be standard Go types (`string`, `int`, `bool`, `[]byte`) or framework types (`gen.Alias`, `gen.PID`, `gen.Ref`).
 
-Generated struct definitions and EDF registration go into `messages_gen.go`,
-which is always regenerated when the message list changes.
+Generated struct definitions and EDF registration go into `messages_gen.go`, which is always regenerated when the message list changes.
 
 ```bash
 ergo add message MessageConnect --field ID:gen.Alias --field Addr:string
 ergo add message MessageData --field ID:gen.Alias --field Payload:"[]byte"
 ```
 
-If a message type has fields of other custom types, add the inner type first.
-EDF requires nested types to be registered before the types that reference them:
+If a message type has fields of other custom types, add the inner type first. EDF requires nested types to be registered before the types that reference them:
 
 ```bash
 ergo add message MessageAddress --field City:string --field Street:string
 ergo add message MessageUser --field Name:string --field Address:MessageAddress
 ```
 
-Both nodes must register the same types with identical field definitions. The
-registration order between nodes does not need to match; nodes negotiate numeric
-type IDs during handshake.
+Both nodes must register the same types with identical field definitions. The registration order between nodes does not need to match; nodes negotiate numeric type IDs during handshake.
 
-For detailed coverage of EDF, type constraints, and custom marshaling, see
-[Network Transparency](../networking/network-transparency.md#edf-ergo-data-format).
+For detailed coverage of EDF, type constraints, and custom marshaling, see [Network Transparency](../networking/network-transparency.md#edf-ergo-data-format).
 
 ### ergo generate
 
@@ -184,8 +164,7 @@ For detailed coverage of EDF, type constraints, and custom marshaling, see
 ergo generate [ergo.yaml]
 ```
 
-Regenerates all `*_gen.go` files from `ergo.yaml`. Your `.go` files are never
-overwritten. Searches for `ergo.yaml` in the current directory and its parents.
+Regenerates all `*_gen.go` files from `ergo.yaml`. Your `.go` files are never overwritten. Searches for `ergo.yaml` in the current directory and its parents.
 
 ```bash
 ergo generate
@@ -217,8 +196,7 @@ mynode/
   README.md
 ```
 
-The `README.md` is regenerated on every `ergo add` or `ergo generate` and shows
-the current supervision tree.
+The `README.md` is regenerated on every `ergo add` or `ergo generate` and shows the current supervision tree.
 
 ## ergo.yaml Reference
 
@@ -266,20 +244,15 @@ node:
         - Addr: string
 ```
 
-Known loggers: `colored` ([docs](../extra-library/loggers/colored.md)),
-`rotate` ([docs](../extra-library/loggers/rotate.md)).
+Known loggers: `colored` ([docs](../extra-library/loggers/colored.md)), `rotate` ([docs](../extra-library/loggers/rotate.md)).
 
-Known applications: `observer` ([docs](../extra-library/applications/observer.md)),
-`mcp` ([docs](../extra-library/applications/mcp.md)),
-`radar` ([docs](../extra-library/applications/radar.md)).
+Known applications: `observer` ([docs](../extra-library/applications/observer.md)), `mcp` ([docs](../extra-library/applications/mcp.md)), `radar` ([docs](../extra-library/applications/radar.md)).
 
 ## Customizing Generated Code
 
 ### Supervisor
 
-`mynodesup.go` contains `Tune`, called from the generated `Init`. The generated
-`Init` builds `SupervisorSpec` from `ergo.yaml` and passes it to `Tune`. Override
-restart parameters or add dynamic children here:
+`mynodesup.go` contains `Tune`, called from the generated `Init`. The generated `Init` builds `SupervisorSpec` from `ergo.yaml` and passes it to `Tune`. Override restart parameters or add dynamic children here:
 
 ```go
 func (sup *MySup) Tune(spec act.SupervisorSpec, args ...any) (act.SupervisorSpec, error) {
@@ -289,14 +262,11 @@ func (sup *MySup) Tune(spec act.SupervisorSpec, args ...any) (act.SupervisorSpec
 }
 ```
 
-Do not replace `spec.Children` in `Tune` unless you have a specific reason.
-The children list is populated from `ergo.yaml` by the generated `Init`.
+Do not replace `spec.Children` in `Tune` unless you have a specific reason. The children list is populated from `ergo.yaml` by the generated `Init`.
 
 ### Application
 
-`mynodeapp.go` contains `Tune`, called from the generated `Load`. The `Group`
-in `Load` is populated from `ergo.yaml`. Use `Tune` to set metadata, environment
-variables or dependencies:
+`mynodeapp.go` contains `Tune`, called from the generated `Load`. The `Group` in `Load` is populated from `ergo.yaml`. Use `Tune` to set metadata, environment variables or dependencies:
 
 ```go
 func (app *MyApp) Tune(node gen.Node, spec gen.ApplicationSpec, args ...any) (gen.ApplicationSpec, error) {
@@ -313,8 +283,7 @@ func (app *MyApp) Tune(node gen.Node, spec gen.ApplicationSpec, args ...any) (ge
 
 ### Custom EDF Message Types
 
-`messages.go` contains `extraMessages()`, called from the generated `init()`.
-Add custom types that are not declared in `ergo.yaml`:
+`messages.go` contains `extraMessages()`, called from the generated `init()`. Add custom types that are not declared in `ergo.yaml`:
 
 ```go
 func extraMessages() []any {
@@ -325,14 +294,11 @@ func extraMessages() []any {
 }
 ```
 
-For types with unexported fields or special encoding needs, implement
-`edf.Marshaler`/`Unmarshaler` or `encoding.BinaryMarshaler`/`Unmarshaler`
-in a separate file. See [Network Transparency](../networking/network-transparency.md#edf-ergo-data-format).
+For types with unexported fields or special encoding needs, implement `edf.Marshaler`/`Unmarshaler` or `encoding.BinaryMarshaler`/`Unmarshaler` in a separate file. See [Network Transparency](../networking/network-transparency.md#edf-ergo-data-format).
 
 ### External Applications
 
-Some applications cannot be described in `ergo.yaml` because their constructor
-requires runtime arguments. Add them in `cmd/main.go`, which is never regenerated:
+Some applications cannot be described in `ergo.yaml` because their constructor requires runtime arguments. Add them in `cmd/main.go`, which is never regenerated:
 
 ```go
 func extraApps() []gen.ApplicationBehavior {
@@ -372,13 +338,12 @@ ergo add message MessageOrderPaid --field OrderID:string
 go run ./cmd
 ```
 
-Each `ergo add` updates `ergo.yaml`, regenerates `*_gen.go` files, and leaves
-your `.go` files untouched.
+Each `ergo add` updates `ergo.yaml`, regenerates `*_gen.go` files, and leaves your `.go` files untouched.
 
 ## What's Next
 
-- [Observer](observer.md): web UI for inspecting running nodes and processes
-- [Actors](../actors): actor types, supervision and messaging patterns
-- [Applications](../basics/application.md): application lifecycle and modes
-- [Pool](../actors/pool.md): distributing work across worker processes
-- [Network Transparency](../networking/network-transparency.md): EDF serialization and distributed messaging
+* [Observer](https://github.com/ergo-services/ergo/blob/v330/docs/tools/observer.md): web UI for inspecting running nodes and processes
+* [Actors](https://github.com/ergo-services/ergo/blob/v330/docs/actors/README.md): actor types, supervision and messaging patterns
+* [Applications](../basics/application.md): application lifecycle and modes
+* [Pool](../actors/pool.md): distributing work across worker processes
+* [Network Transparency](../networking/network-transparency.md): EDF serialization and distributed messaging

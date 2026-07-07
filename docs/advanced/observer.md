@@ -51,9 +51,10 @@ Filters narrow results by name, behavior type, application, state, or minimum ma
 Active filters appear as removable chips in the toolbar, and the scope label shows a compact summary like `first 500` or `last 100 . name:"worker"`. A separate search field adds client-side regex filtering on top of the server results for quick ad-hoc lookups without changing the scope.
 
 <details>
+
 <summary>Processes page with scope panel</summary>
 
-<figure><img src="images/observer/processes.png" alt="Processes page"><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/processes.png" alt="Processes page"><figcaption></figcaption></figure>
 
 **Mailbox.** Total messages across all four mailbox queues (Main, System, Urgent, Log). Changes color as the queue grows: yellow for moderate, red for deep backlog.
 
@@ -84,9 +85,10 @@ The config tab lets you change settings that take effect immediately. You can ra
 Three action buttons let you interact with the process. Send Message opens a dialog with a text field; the message is sent as a string value to the process. Send Exit sends an exit signal with a configurable reason. Kill forcefully terminates the process. These actions are disabled for system processes.
 
 <details>
+
 <summary>Process detail window</summary>
 
-<figure><img src="images/observer/process_info.png" alt="Process detail window"><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/process_info.png" alt="Process detail window"><figcaption></figcaption></figure>
 
 </details>
 
@@ -101,9 +103,10 @@ The Scope panel controls which events the server returns. The From control choos
 Three toggle buttons in the toolbar control how the Registered column displays timestamps: 24h/12h clock format, raw millisecond timestamps for precise correlation, and an optional date prefix. These settings are shared with the Log and Tracing pages.
 
 <details>
+
 <summary>Events page</summary>
 
-<figure><img src="images/observer/events.png" alt="Events page"><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/events.png" alt="Events page"><figcaption></figcaption></figure>
 
 **Published.** Total number of times PublishEvent was called by the producer. Each call increments this counter once regardless of how many subscribers receive the message.
 
@@ -140,9 +143,10 @@ When the node is built with `-tags=typestats`, four additional columns appear: *
 The cluster nodes section shows all nodes known through the registrar or active connections, giving you a picture of the cluster topology.
 
 <details>
+
 <summary>Network page</summary>
 
-<figure><img src="images/observer/network.png" alt="Network page"><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/network.png" alt="Network page"><figcaption></figcaption></figure>
 
 **Node.** Contains several elements: a direction arrow, the node name, a CRC32 badge, and a TLS badge. The blue arrow (up-right) means the connection was initiated by this node (outgoing). The green arrow (down-left) means the connection was accepted from the remote node (incoming). The badge shows "TLS" if the connection uses TLS or "Plain" if it does not.
 
@@ -171,9 +175,10 @@ The compression section shows how many messages were compressed and decompressed
 A "Switch observer to this node" button lets you start inspecting the remote node directly.
 
 <details>
+
 <summary>Connection detail window</summary>
 
-<figure><img src="images/observer/connection.png" alt="Connection detail window"><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/connection.png" alt="Connection detail window"><figcaption></figcaption></figure>
 
 </details>
 
@@ -190,9 +195,10 @@ The Play/Pause button stops log capture without disconnecting. When you spot som
 When the server drops messages because the ring buffer is full, a suppressed count indicator appears as a yellow alert in the toolbar. If you see this frequently, increase the limit in the scope panel.
 
 <details>
+
 <summary>Log page</summary>
 
-<figure><img src="images/observer/log.png" alt="Log page"><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/log.png" alt="Log page"><figcaption></figcaption></figure>
 
 </details>
 
@@ -215,9 +221,10 @@ The Goroutines tab captures snapshots on demand. Press the Capture button to tak
 This is how you diagnose deadlocks and blocking. Filter by state to isolate goroutines stuck in "chan receive". Search by package name to find goroutines from specific actors. A large group with a long wait time in a state that should be transient usually points directly at the problem.
 
 <details>
+
 <summary>Profiler</summary>
 
-<figure><img src="images/observer/profiler.png" alt="Profiler"><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/profiler.png" alt="Profiler"><figcaption></figcaption></figure>
 
 </details>
 
@@ -252,8 +259,9 @@ Expanded traces persist when switching to other pages and back.
 The Scope panel has toggle buttons for span kinds (SEND, CALL, RESP, SPAWN, TERM) and observation points (Sent, Delivered, Processed). Disabled items appear with strikethrough. A message pattern filter matches against message type and error text, with an exclude toggle that inverts the match. The buffer limit controls how many traces are kept. Active scope filters appear as removable pills below the toolbar with a "Clear all" link.
 
 <details>
+
 <summary>Tracing page with waterfall</summary>
 
-<figure><img src="images/observer/tracing.png" alt="Tracing page with waterfall"><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/tracing.png" alt="Tracing page with waterfall"><figcaption></figcaption></figure>
 
 </details>
