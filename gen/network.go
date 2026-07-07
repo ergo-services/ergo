@@ -22,6 +22,11 @@ type Network interface {
 	// Returns error if no registrar is configured.
 	Registrar() (Registrar, error)
 
+	// ResolveApplication resolves deployment locations for the given application.
+	// Shortcut for Registrar().Resolver().ResolveApplication(name); returns the
+	// same error as Registrar() when no registrar is available.
+	ResolveApplication(name Atom) (ApplicationRoutes, error)
+
 	// Cookie returns the authentication cookie for network connections.
 	Cookie() string
 

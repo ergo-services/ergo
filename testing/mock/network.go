@@ -151,6 +151,14 @@ func (n *Network) Registrar() (gen.Registrar, error) {
 	return n.registrar, nil
 }
 
+func (n *Network) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes, error) {
+	reg, err := n.Registrar()
+	if err != nil {
+		return nil, err
+	}
+	return reg.Resolver().ResolveApplication(name)
+}
+
 func (n *Network) Cookie() string {
 	if n.ov.cookie != nil {
 		return n.ov.cookie()

@@ -71,6 +71,9 @@ type Application interface {
 	SetTags(tags []Atom) error
 
 	Weight() int
+	// SetWeight updates the route weight. A negative weight takes the
+	// application out of resolve results (out of rotation); any non-negative
+	// weight restores it.
 	SetWeight(w int) error
 
 	// Behavior returns the application behavior implementation.

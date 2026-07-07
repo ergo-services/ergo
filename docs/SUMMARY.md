@@ -76,6 +76,7 @@
   * [MCP](extra-library/applications/mcp.md)
   * [Radar](extra-library/applications/radar.md)
   * [Pulse](extra-library/applications/pulse.md)
+  * [Grid](extra-library/applications/grid.md)
 * [Meta-Processes](extra-library/meta-processes/README.md)
   * [WebSocket](extra-library/meta-processes/websocket.md)
   * [SSE](extra-library/meta-processes/sse.md)

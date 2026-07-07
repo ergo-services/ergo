@@ -124,7 +124,13 @@ func (s *memStore) resolveApp(name gen.Atom) gen.ApplicationRoutes {
 	}
 	out := make(gen.ApplicationRoutes, 0, len(m))
 	for _, r := range m {
+		if r.Weight < 0 {
+			continue // negative weight opts the route out of resolve results
+		}
 		out = append(out, r)
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

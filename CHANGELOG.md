@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Added per-process activity fields to `ProcessShortInfo` and `ProcessInfo` - `RunningTime` (cumulative nanoseconds in the Running state), `StateTime` (nanoseconds since the process entered its current state), and `Wakeups` (cumulative count of wake-ups)
 * Added `ServerTime` to `gen.NodeInfo` - the node's current wall-clock time with timezone
 * Added `Reconnections` to `gen.RemoteNodeInfo` - total number of connection-pool item reconnections
+* Added **`Network().ResolveApplication`** - a shortcut for `Network().Registrar().Resolver().ResolveApplication(name)` that returns the same `gen.ApplicationRoutes` and reports the same error as `Registrar()` when no registrar is configured. See [Service Discovering](https://docs.ergo.services/networking/service-discovering) documentation
 * Fixed logger to preserve Behavior name when process registers name
 * Fixed **simultaneous connect dead loop** - two nodes dialing each other at the same time no longer cause infinite retry loops. Deterministic connection IDs and Erlang-style collision detection (`EnableSimultaneousConnect` flag) ensure exactly one connection per pair. Fixed related connection leaks
 * Fixed **silent data loss on connection pool write failure** - a transient write error could permanently break a pool item's write path without detection, causing all subsequent messages to be silently dropped while the connection appeared healthy

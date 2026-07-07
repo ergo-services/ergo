@@ -335,6 +335,7 @@ type ApplicationRoute struct {
 
 	// Weight is the routing weight for load balancing.
 	// Higher weight = preferred for remote operations.
+	// A negative weight excludes the route from resolve results (out of rotation).
 	Weight int
 
 	// Mode is the application starting mode (Temporary, Transient, Permanent).

@@ -61,6 +61,13 @@ func (mn *mockNetwork) Registrar() (gen.Registrar, error) {
 	}
 	return mn.reg, nil
 }
+func (mn *mockNetwork) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes, error) {
+	reg, err := mn.Registrar()
+	if err != nil {
+		return nil, err
+	}
+	return reg.Resolver().ResolveApplication(name)
+}
 func (mn *mockNetwork) Cookie() string                     { return "" }
 func (mn *mockNetwork) SetCookie(cookie string) error      { return nil }
 func (mn *mockNetwork) MaxMessageSize() int                { return 0 }

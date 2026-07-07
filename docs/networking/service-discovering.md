@@ -151,6 +151,12 @@ routes, err := resolver.ResolveApplication("workers")
 // routes contains all nodes running "workers" application
 ```
 
+When you only need the routes, `node.Network().ResolveApplication(name)` is a shortcut for the same chain. It returns the same `gen.ApplicationRoutes` and reports the same error as `Registrar()` when no registrar is configured:
+
+```go
+routes, err := node.Network().ResolveApplication("workers")
+```
+
 The response is a `gen.ApplicationRoutes` value (a slice of `gen.ApplicationRoute` with chainable filter methods). It includes the node name, application state, running mode, weight, and tags for each instance. Multiple nodes can run the same application; the resolver returns all of them.
 
 Narrow the result by tag, state, or both:
@@ -190,7 +196,22 @@ You choose which instance to use based on your load balancing strategy:
 
 **Geographic routing** - Set weights based on proximity. Same datacenter gets weight 100, same region gets 50, cross-region gets 10.
 
-The weight is metadata - the registrar doesn't enforce any particular strategy. Your application decides how to interpret weights.
+The weight is advisory metadata, so you can implement any of the strategies above from the full list. But you usually don't need to: with the central registrars, `ResolveApplication` returns the instances ordered by smooth weighted round-robin, so the instance at index `[0]` is the weighted pick for that call. Take `routes[0]` on each call and traffic is distributed by weight automatically, with no extra code.
+
+Weight controls how often an instance is picked:
+
+- **Higher weight** is chosen proportionally more often. In the list above `worker3` (200) wins roughly twice as often as `worker1` (100) and four times as often as `worker2` (50).
+- **Lower positive weight** is chosen proportionally less often, but stays in rotation.
+- **Zero or unset** counts as `1`, so a forgotten weight never drops an instance from rotation.
+- **Negative** takes the instance out of rotation entirely: the resolver drops it from the results, so callers never see it.
+
+Because weight is a dynamic field, a running instance can change its own weight, or take itself out of rotation and rejoin later, without unregistering:
+
+```go
+app := process.Application()
+app.SetWeight(-1)  // stop receiving traffic; the instance keeps running
+app.SetWeight(100) // back in rotation
+```
 
 ### Use Cases for Application Discovery
 

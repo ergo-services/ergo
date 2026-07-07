@@ -87,6 +87,14 @@ func (n *network) Registrar() (gen.Registrar, error) {
 	return n.registrar, nil
 }
 
+func (n *network) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes, error) {
+	reg, err := n.Registrar()
+	if err != nil {
+		return nil, err
+	}
+	return reg.Resolver().ResolveApplication(name)
+}
+
 func (n *network) Cookie() string {
 	return n.cookie
 }
