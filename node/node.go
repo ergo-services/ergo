@@ -2198,6 +2198,7 @@ func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) e
 			if err != gen.ErrApplicationRunning {
 				n.log.Error(
 					"unable to start %s: start dependent application %s failed: %s",
+					name,
 					dep,
 					err,
 				)
@@ -2364,6 +2365,9 @@ func (n *node) LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.L
 		return gen.ErrNodeTerminated
 	}
 	if logger == nil {
+		return gen.ErrIncorrect
+	}
+	if name == "" {
 		return gen.ErrIncorrect
 	}
 

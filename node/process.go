@@ -614,7 +614,7 @@ func (p *process) DeleteAlias(alias gen.Alias) error {
 		if a != alias {
 			continue
 		}
-		p.aliases[0] = p.aliases[i]
+		p.aliases[i] = p.aliases[0]
 		p.aliases = p.aliases[1:]
 		break
 	}

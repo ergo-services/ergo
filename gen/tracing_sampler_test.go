@@ -77,6 +77,23 @@ func TestSamplerRatioSmall(t *testing.T) {
 	}
 }
 
+// a rate that is not of the form 1/N (here 0.9) must sample about that fraction,
+// not round down to 1/1 = always.
+func TestSamplerRatioHigh(t *testing.T) {
+	s := TracingSamplerRatio(0.9)
+	count := 0
+	total := 10000
+	for i := 0; i < total; i++ {
+		if s.Sample() {
+			count++
+		}
+	}
+	ratio := float64(count) / float64(total)
+	if ratio < 0.85 || ratio > 0.95 {
+		t.Fatalf("expected ~90%% samples, got %.2f%%", ratio*100)
+	}
+}
+
 func TestSamplerRateLimit(t *testing.T) {
 	s := TracingSamplerRateLimit(10)
 	count := 0

@@ -39,20 +39,27 @@ func TracingSamplerRatio(rate float64) TracingSampler {
 	if rate <= 0 {
 		return TracingSamplerDisable
 	}
+	step := uint64(rate * (1 << 32))
+	if step == 0 {
+		step = 1
+	}
 	return &samplerRatio{
-		mod:  uint64(1.0 / rate),
+		step: step,
 		rate: rate,
 	}
 }
 
 type samplerRatio struct {
 	counter uint64
-	mod     uint64
+	step    uint64
 	rate    float64
 }
 
 func (s *samplerRatio) Sample() bool {
-	return atomic.AddUint64(&s.counter, 1)%s.mod == 0
+	// fixed-point accumulator: add the rate (scaled by 2^32) each call and
+	// sample whenever the integer part crosses, yielding ~rate of calls.
+	n := atomic.AddUint64(&s.counter, s.step)
+	return n>>32 != (n-s.step)>>32
 }
 
 func (s *samplerRatio) String() string {

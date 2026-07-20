@@ -166,5 +166,5 @@ func (cars *cronActionRemoteSpawn) Do(job Atom, node Node, atime time.Time) erro
 }
 
 func (cars *cronActionRemoteSpawn) Info() string {
-	return ""
+	return cars.info
 }
