@@ -165,3 +165,20 @@ func TestReadChunksIncompleteAtEOF(t *testing.T) {
 	}
 	wantChunks(t, got, f)
 }
+
+// a dynamic-length header declaring a length below the header size (0 in the
+// worst case) must error instead of spinning forever on the same buffer.
+func TestReadChunksRejectsUndersizedLength(t *testing.T) {
+	opts := ChunkOptions{
+		Enable:                     true,
+		HeaderSize:                 4,
+		HeaderLengthSize:           4,
+		HeaderLengthIncludesHeader: true,
+	}
+	if _, err := collect(opts, 64, []byte{0, 0, 0, 0}); err == nil {
+		t.Fatal("expected an error for a zero chunk length, got nil")
+	}
+	if _, err := collect(opts, 64, []byte{0, 0, 0, 2}); err == nil {
+		t.Fatal("expected an error for a length below header size, got nil")
+	}
+}

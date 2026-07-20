@@ -119,6 +119,12 @@ func (f *flusher) Write(b []byte) (n int, err error) {
 func (f *flusher) Stop() {
 	f.Lock()
 	defer f.Unlock()
+	if f.pending && f.err == nil {
+		if err := f.writer.Flush(); err != nil {
+			f.err = err
+		}
+		f.pending = false
+	}
 	if f.timer != nil {
 		f.timer.Stop()
 	}

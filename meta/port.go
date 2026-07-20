@@ -67,6 +67,13 @@ type portWriter struct {
 	io.Closer
 }
 
+func (w *portWriter) Close() error {
+	if f, ok := w.Writer.(lib.Flusher); ok {
+		f.Stop()
+	}
+	return w.Closer.Close()
+}
+
 type port struct {
 	gen.MetaProcess
 	cmd *exec.Cmd

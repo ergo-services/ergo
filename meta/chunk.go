@@ -129,6 +129,10 @@ func readChunks(r io.Reader, opts ChunkOptions, bufSize int, pool *sync.Pool, on
 				cl += opts.HeaderSize
 			}
 
+			if cl < opts.HeaderSize {
+				return fmt.Errorf("chunk length %d is smaller than header size %d", cl, opts.HeaderSize)
+			}
+
 			if opts.MaxLength > 0 && cl > opts.MaxLength {
 				return gen.ErrTooLarge
 			}

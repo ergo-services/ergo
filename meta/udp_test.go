@@ -71,6 +71,35 @@ func TestCreateUDPServerBadPool(t *testing.T) {
 	}
 }
 
+// a recycled pool buffer must be reset to the full size before each read, so a
+// short buffer left in the pool does not truncate later datagrams.
+func TestUDPServerBufferPoolNoTruncate(t *testing.T) {
+	pool := &sync.Pool{New: func() any { return make([]byte, 16)[:4] }} // len 4, cap 16
+	mb, err := CreateUDPServer(UDPServerOptions{Host: "127.0.0.1", Port: 0, BufferSize: 16, BufferPool: pool})
+	if err != nil {
+		t.Fatalf("CreateUDPServer: %v", err)
+	}
+	u := mb.(*udpserver)
+	mp, ch := metaSink()
+	u.Init(mp)
+	go u.Start()
+	defer u.Terminate(nil)
+
+	client, err := net.Dial("udp", u.pc.LocalAddr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+
+	if _, err := client.Write([]byte("12345678")); err != nil {
+		t.Fatal(err)
+	}
+	got := recvMsg[MessageUDP](t, ch)
+	if string(got.Data) != "12345678" {
+		t.Fatalf("datagram truncated: got %q, want 12345678", got.Data)
+	}
+}
+
 func TestUDPServerTerminateAbnormal(t *testing.T) {
 	mb, err := CreateUDPServer(UDPServerOptions{Host: "127.0.0.1", Port: 0})
 	if err != nil {

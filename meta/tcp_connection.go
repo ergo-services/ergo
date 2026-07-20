@@ -3,7 +3,6 @@ package meta
 import (
 	"crypto/tls"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"sync/atomic"
@@ -69,7 +68,7 @@ func CreateTCPConnection(options TCPConnectionOptions) (gen.MetaBehavior, error)
 type tcpconnection struct {
 	gen.MetaProcess
 	conn       net.Conn
-	connWriter io.Writer
+	connWriter lib.Flusher
 	options    TCPConnectionOptions
 	bytesIn    uint64
 	bytesOut   uint64
@@ -202,6 +201,10 @@ func (t *tcpconnection) HandleCall(from gen.PID, ref gen.Ref, request any) (any,
 
 func (t *tcpconnection) Terminate(reason error) {
 	defer t.conn.Close()
+
+	if t.connWriter != nil {
+		t.connWriter.Stop()
+	}
 
 	if reason == nil {
 		return
