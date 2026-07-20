@@ -95,3 +95,12 @@ func TestRecvMalformedPIDIsDropped(t *testing.T) {
 
 	core.ShouldDeliver().None().Assert()
 }
+
+// an unknown wire message-type byte is dropped by the receive handler.
+func TestRecvUnknownTypeIgnored(t *testing.T) {
+	rc, core := newRecvConn(t)
+	frame := make([]byte, 20)
+	frame[7] = 255 // no such message type
+	feedFrame(rc, frame)
+	core.ShouldDeliver().None().Assert()
+}

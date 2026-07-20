@@ -19,6 +19,27 @@ var (
 	errType = reflect.TypeOf((*error)(nil)).Elem()
 )
 
+// maxDecodeArrayBytes caps a fixed-size array decoded from an untrusted type
+// descriptor. Unlike a slice or map, an array is allocated whole from its type
+// before any element data is read, so this is a hard limit on the array type
+// the decoder is willing to construct.
+const maxDecodeArrayBytes = 1 << 24
+
+// preallocCount returns how many elements the decoder may eagerly allocate for
+// a slice or map holding n elements of the given size. An element occupies at
+// least one byte on the wire, so the remaining packet (avail) bounds the count:
+// a bogus length can no longer force an allocation larger than the data that
+// could actually fill it. The container grows as its elements are decoded.
+func preallocCount(n, avail int, elemSize uintptr) int {
+	if elemSize < 1 {
+		elemSize = 1
+	}
+	if limit := avail / int(elemSize); n > limit {
+		return limit
+	}
+	return n
+}
+
 type stateDecode struct {
 	child   *stateDecode
 	options Options
@@ -151,6 +172,10 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			return nil, nil, fmt.Errorf("extra data in folded type (map): %#v", f)
 		}
 
+		if decKey.Type.Comparable() == false {
+			return nil, nil, fmt.Errorf("map key type %s is not comparable", decKey.Type)
+		}
+
 		vtype := reflect.MapOf(decKey.Type, decValue.Type)
 
 		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
@@ -189,7 +214,7 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 				return nil, nil, fmt.Errorf("incorrect data length")
 			}
 
-			x := reflect.MakeMapWithSize(vtype, n)
+			x := reflect.MakeMapWithSize(vtype, preallocCount(n, len(packet), decKey.Type.Size()+decValue.Type.Size()))
 			if value == nil {
 				value = &x
 			} else {
@@ -282,12 +307,8 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 				return nil, nil, fmt.Errorf("incorrect data length")
 			}
 
-			x := reflect.MakeSlice(vtype, n, n)
-			if value == nil {
-				value = &x
-			} else {
-				value.Set(x)
-			}
+			alloc := preallocCount(n, len(packet), decItem.Type.Size())
+			x := reflect.MakeSlice(vtype, alloc, alloc)
 
 			if state.child == nil {
 				state.child = getPooledStateDecode(state.options)
@@ -295,7 +316,14 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			state = state.child
 
 			for i := 0; i < n; i++ {
-				item := value.Index(i)
+				if i == x.Len() {
+					grow := preallocCount(n-i, len(packet), decItem.Type.Size())
+					if grow < 1 {
+						grow = 1
+					}
+					x = reflect.AppendSlice(x, reflect.MakeSlice(vtype, grow, grow))
+				}
+				item := x.Index(i)
 				_, p, err := decItem.Decode(&item, packet, state)
 				if err != nil {
 					return nil, nil, err
@@ -303,6 +331,11 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 				packet = p
 			}
 
+			if value == nil {
+				value = &x
+			} else {
+				value.Set(x)
+			}
 			return value, packet, nil
 		}
 
@@ -331,6 +364,10 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 		}
 		if len(f) > 0 {
 			return nil, nil, fmt.Errorf("extra data in folded type (array): %#v", f)
+		}
+
+		if sz := int(decItem.Type.Size()); sz > 0 && n > maxDecodeArrayBytes/sz {
+			return nil, nil, fmt.Errorf("array length %d exceeds decode limit", n)
 		}
 
 		vtype := reflect.ArrayOf(n, decItem.Type)

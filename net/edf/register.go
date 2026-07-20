@@ -577,14 +577,15 @@ func registerType(tov reflect.Type) error {
 				return nil, nil, fmt.Errorf("incorrect data length %d", n)
 			}
 
-			x := reflect.MakeSlice(tov, n, n)
-			if value == nil {
-				value = &x
-			} else {
-				value.Set(x)
-			}
+			alloc := preallocCount(n, len(packet), tov.Elem().Size())
+			x := reflect.MakeSlice(tov, alloc, alloc)
 
 			if n == 0 {
+				if value == nil {
+					value = &x
+				} else {
+					value.Set(x)
+				}
 				return value, packet, nil
 			}
 
@@ -597,7 +598,14 @@ func registerType(tov reflect.Type) error {
 			state = state.child
 
 			for i := 0; i < n; i++ {
-				item := value.Index(i)
+				if i == x.Len() {
+					grow := preallocCount(n-i, len(packet), tov.Elem().Size())
+					if grow < 1 {
+						grow = 1
+					}
+					x = reflect.AppendSlice(x, reflect.MakeSlice(tov, grow, grow))
+				}
+				item := x.Index(i)
 				_, p, err := dec.Decode(&item, packet, state)
 				if err != nil {
 					return nil, nil, err
@@ -605,6 +613,11 @@ func registerType(tov reflect.Type) error {
 				packet = p
 			}
 
+			if value == nil {
+				value = &x
+			} else {
+				value.Set(x)
+			}
 			return value, packet, nil
 		}
 		addRegCache(tov)
@@ -769,7 +782,7 @@ func registerType(tov reflect.Type) error {
 				return nil, nil, fmt.Errorf("incorrect data length")
 			}
 
-			x := reflect.MakeMapWithSize(tov, n)
+			x := reflect.MakeMapWithSize(tov, preallocCount(n, len(packet), tov.Key().Size()+tov.Elem().Size()))
 			if value == nil {
 				value = &x
 			} else {

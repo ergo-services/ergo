@@ -98,3 +98,69 @@ func TestCleanupSharedFragments(t *testing.T) {
 	_, hasFresh := c.sharedFragments[2]
 	check.True(t, hasFresh)
 }
+
+// newFragConn builds a connection ready for the unordered fragment path with the
+// given concurrent-assembly cap.
+func newFragConn(maxAssemblies int) *connection {
+	c := &connection{
+		log:                   mock.NewLog(),
+		fragmentTimeout:       time.Minute,
+		maxFragmentAssemblies: maxAssemblies,
+		sharedFragments:       make(map[uint32]*fragmentAssembly),
+		sharedFragTimer:       time.AfterFunc(time.Hour, func() {}),
+	}
+	c.sharedFragTimer.Stop()
+	return c
+}
+
+// a fragment declaring more parts than maxFragmentCount is refused (ordered path).
+func TestHandleFragmentOrderedRejectsTooManyFragments(t *testing.T) {
+	c := &connection{log: mock.NewLog(), fragmentTimeout: time.Minute}
+	asm := map[uint32]*fragmentAssembly{}
+	check.Nil(t, c.handleFragmentOrdered(fragBuf(1, 0, maxFragmentCount+1, "x"), asm))
+	check.Equal(t, 0, len(asm))
+}
+
+// same cap on the unordered path.
+func TestHandleFragmentUnorderedRejectsTooManyFragments(t *testing.T) {
+	c := newFragConn(16)
+	check.Nil(t, c.handleFragmentUnordered(fragBuf(1, 0, maxFragmentCount+1, "x")))
+	check.Equal(t, 0, len(c.sharedFragments))
+}
+
+// once the concurrent-assembly cap is reached, a fragment opening a new assembly
+// is dropped while the existing one is kept.
+func TestHandleFragmentUnorderedRejectsTooManyAssemblies(t *testing.T) {
+	c := newFragConn(1)
+
+	check.Nil(t, c.handleFragmentUnordered(fragBuf(1, 0, 2, "foo"))) // opens assembly seq=1 (incomplete)
+	check.Nil(t, c.handleFragmentUnordered(fragBuf(2, 0, 2, "bar"))) // seq=2 exceeds the cap, dropped
+
+	check.Equal(t, 1, len(c.sharedFragments))
+	_, has1 := c.sharedFragments[1]
+	check.True(t, has1)
+	_, has2 := c.sharedFragments[2]
+	check.False(t, has2)
+}
+
+// a fragment whose total-count disagrees with the open assembly drops the assembly.
+func TestHandleFragmentOrderedRejectsTotalMismatch(t *testing.T) {
+	c := &connection{log: mock.NewLog(), fragmentTimeout: time.Minute}
+	asm := map[uint32]*fragmentAssembly{}
+
+	check.Nil(t, c.handleFragmentOrdered(fragBuf(1, 0, 3, "foo"), asm))
+	check.Nil(t, c.handleFragmentOrdered(fragBuf(1, 1, 4, "bar"), asm)) // total 4 != 3
+
+	_, exists := asm[1]
+	check.False(t, exists)
+}
+
+// an assembly whose accumulated bytes exceed the receiver limit is rejected, and
+// later fragments for that sequence are ignored.
+func TestHandleFragmentUnorderedRejectsOversize(t *testing.T) {
+	c := newFragConn(16)
+	c.node_maxmessagesize = 4
+
+	check.Nil(t, c.handleFragmentUnordered(fragBuf(1, 0, 2, "toolong"))) // 7 bytes > 4, rejected
+	check.Nil(t, c.handleFragmentUnordered(fragBuf(1, 1, 2, "x")))       // assembly already rejected
+}
