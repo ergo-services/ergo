@@ -11,10 +11,13 @@ import (
 )
 
 // timerActor arms a SendAfter timer on command and keeps its CancelFunc so the
-// test can cancel it and observe the returned bool.
+// test can cancel it and observe the returned bool. It also arms a SendEvery
+// periodic self-send and counts the ticks it receives.
 type timerActor struct {
 	act.Actor
-	cancel gen.CancelFunc
+	cancel      gen.CancelFunc
+	everyCancel gen.CancelFunc
+	ticks       int
 }
 
 func factoryTimerActor() gen.ProcessBehavior { return &timerActor{} }
@@ -23,6 +26,22 @@ type armReq struct {
 	To    gen.PID
 	Msg   any
 	After time.Duration
+}
+
+type armEveryReq struct {
+	Msg    any
+	Period time.Duration
+}
+
+type ticksReq struct{}
+
+type cancelEveryReq struct{}
+
+func (a *timerActor) HandleMessage(from gen.PID, message any) error {
+	if message == "everytick" {
+		a.ticks++
+	}
+	return nil
 }
 
 func (a *timerActor) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
@@ -34,6 +53,17 @@ func (a *timerActor) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
 		}
 		a.cancel = c
 		return "ok", nil
+	case armEveryReq:
+		c, err := a.SendEvery(a.PID(), r.Msg, r.Period)
+		if err != nil {
+			return err, nil
+		}
+		a.everyCancel = c
+		return "ok", nil
+	case ticksReq:
+		return a.ticks, nil
+	case cancelEveryReq:
+		return a.everyCancel(), nil
 	case string:
 		if r == "cancel" {
 			return a.cancel(), nil
@@ -79,4 +109,38 @@ func TestLocalTimerSendAfter(t *testing.T) {
 	late, err := n.Call(timer, "cancel")
 	check.NoError(t, err)
 	check.Equal(t, false, late)
+}
+
+// TestLocalTimerSendEvery: SendEvery delivers the message periodically through
+// the router, so ticks reach the owner even while it is parked (idle) between
+// messages; and its CancelFunc stops the ticker so no further ticks arrive.
+func TestLocalTimerSendEvery(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+	timer := n.Spawn(factoryTimerActor, gen.ProcessOptions{})
+
+	// arm a periodic self-send; the owner parks after the Call returns and is
+	// woken again by each tick that arrives through the router
+	_, err := n.Call(timer, armEveryReq{Msg: "everytick", Period: 20 * time.Millisecond})
+	check.NoError(t, err)
+
+	// the periodic send fires repeatedly and reaches the parked owner
+	n.ShouldDeliver().To(timer).Message("everytick").AtLeast(3).Within(2 * time.Second).Must()
+
+	// cancel stops the ticker
+	_, err = n.Call(timer, cancelEveryReq{})
+	check.NoError(t, err)
+
+	// let any single in-flight tick settle, then take a baseline count. The Call
+	// is processed in the actor goroutine after every already-queued tick, so the
+	// returned count includes all ticks delivered so far.
+	time.Sleep(60 * time.Millisecond)
+	baseline, err := n.Call(timer, ticksReq{})
+	check.NoError(t, err)
+
+	// over the next window (many periods) no new ticks may arrive
+	time.Sleep(200 * time.Millisecond)
+	after, err := n.Call(timer, ticksReq{})
+	check.NoError(t, err)
+	check.Equal(t, baseline, after)
 }

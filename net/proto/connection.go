@@ -1757,7 +1757,7 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 
 		// this TCP died. A connection is only as alive as its live TCPs, so drop this slot
 		// immediately: send() must never select a dead slot. An empty pool means the
-		// connection is dead — terminate it so routing is released (RouteNodeDown) and the
+		// connection is dead - terminate it so routing is released (RouteNodeDown) and the
 		// next call re-dials a fresh connection; a restarted peer is then reached under its
 		// new connID instead of being masked by a corpse left routable. A still non-empty
 		// pool below pool_size is topped up by the filler (dialer only).
@@ -3674,7 +3674,7 @@ func (c *connection) sendAny(msg any, order uint8, orderPeer uint8, compression 
 }
 
 func (c *connection) wait() {
-	// serve started: mark established. A connection with no live TCP is dead — terminate it
+	// serve started: mark established. A connection with no live TCP is dead - terminate it
 	// so routing is released and the next call re-dials, instead of lingering routable.
 	c.pool_mutex.Lock()
 	c.established = true

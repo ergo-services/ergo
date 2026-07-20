@@ -471,3 +471,17 @@ func (SendAfter) Kind() string { return "scheduled_send" }
 func (r SendAfter) String() string {
 	return fmt.Sprintf("SendAfter(from=%s to=%v after=%s msg=%#v err=%v)", r.From, r.To, r.After, r.Message, r.Error)
 }
+
+type SendEvery struct {
+	From    gen.PID
+	To      any
+	Message any
+	Period  time.Duration
+	Options gen.MessageOptions
+	Error   error
+}
+
+func (SendEvery) Kind() string { return "periodic_send" }
+func (r SendEvery) String() string {
+	return fmt.Sprintf("SendEvery(from=%s to=%v period=%s msg=%#v err=%v)", r.From, r.To, r.Period, r.Message, r.Error)
+}

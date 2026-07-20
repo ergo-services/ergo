@@ -515,6 +515,8 @@ func (s *Scheduler) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
+Re-arming with `SendAfter` on every tick is the manual way to build a periodic timer. `SendEvery(s.PID(), RunScheduledTasks{}, 10*time.Second)` does the same with one reused timer (no per-tick allocation). Keep the returned `CancelFunc` and call it when the node loses leadership: a `SendEvery` ticker fires until it is cancelled or its process stops, so there is no per-tick `IsLeader()` guard to fall back on - you stop it explicitly instead.
+
 **Distributed locks**: Leader grants exclusive access.
 
 ```go

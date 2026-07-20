@@ -979,6 +979,12 @@ type SendAfterAssert struct{ *Assertion[SendAfter] }
 func (a *Asserter) ShouldSendAfter() *SendAfterAssert {
 	return &SendAfterAssert{For[SendAfter](a.t, a.rec)}
 }
+
+type SendEveryAssert struct{ *Assertion[SendEvery] }
+
+func (a *Asserter) ShouldSendEvery() *SendEveryAssert {
+	return &SendEveryAssert{For[SendEvery](a.t, a.rec)}
+}
 func (x *SendAfterAssert) From(p gen.PID) *SendAfterAssert {
 	x.Where(func(r SendAfter) bool { return r.From == p })
 	return x

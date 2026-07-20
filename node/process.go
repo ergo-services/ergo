@@ -819,6 +819,13 @@ func (p *process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
+	// snapshot options at schedule time (fixed for this delayed send)
+	options := gen.MessageOptions{
+		Priority:         gen.MessagePriority(p.priority.Load()),
+		Compression:      p.compression,
+		KeepNetworkOrder: p.keeporder.Load(),
+		// ImportantDelivery: ignore on sending with delay
+	}
 	return time.AfterFunc(after, func() {
 		var err error
 		if lib.Verbose() {
@@ -826,12 +833,6 @@ func (p *process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 		}
 		// we can't use p.Send(...) because it checks the process state
 		// and returns gen.ErrNotAllowed, so use p.core.Route* methods for that
-		options := gen.MessageOptions{
-			Priority:         gen.MessagePriority(p.priority.Load()),
-			Compression:      p.compression,
-			KeepNetworkOrder: p.keeporder.Load(),
-			// ImportantDelivery: ignore on sending with delay
-		}
 		switch t := to.(type) {
 		case gen.Atom:
 			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
@@ -858,6 +859,12 @@ func (p *process) SendWithPriorityAfter(
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
+	options := gen.MessageOptions{
+		Priority:         priority,
+		Compression:      p.compression,
+		KeepNetworkOrder: p.keeporder.Load(),
+		// ImportantDelivery: ignore on sending with delay
+	}
 	return time.AfterFunc(after, func() {
 		var err error
 		if lib.Verbose() {
@@ -865,12 +872,6 @@ func (p *process) SendWithPriorityAfter(
 		}
 		// we can't use p.Send(...) because it checks the process state
 		// and returns gen.ErrNotAllowed, so use p.core.Route* methods for that
-		options := gen.MessageOptions{
-			Priority:         priority,
-			Compression:      p.compression,
-			KeepNetworkOrder: p.keeporder.Load(),
-			// ImportantDelivery: ignore on sending with delay
-		}
 		switch t := to.(type) {
 		case gen.Atom:
 			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
@@ -886,6 +887,101 @@ func (p *process) SendWithPriorityAfter(
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
 	}).Stop, nil
+}
+
+func (p *process) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+	if p.isStateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
+	// snapshot options once; every tick reuses the same priority/order/compression
+	options := gen.MessageOptions{
+		Priority:         gen.MessagePriority(p.priority.Load()),
+		Compression:      p.compression,
+		KeepNetworkOrder: p.keeporder.Load(),
+	}
+	var stopped atomic.Bool
+	var t *time.Timer
+	// arm far out first, then Reset, so the callback can't read t before it is set
+	t = time.AfterFunc(time.Hour, func() {
+		if stopped.Load() || p.isAlive() == false {
+			t.Stop()
+			return
+		}
+		var err error
+		if lib.Verbose() {
+			p.log.Trace("SendEvery %s to %s", period, to)
+		}
+		switch v := to.(type) {
+		case gen.Atom:
+			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: v, Node: p.node.name}, options, message)
+		case gen.PID:
+			err = p.core.RouteSendPID(p.pid, v, options, message)
+		case gen.ProcessID:
+			err = p.core.RouteSendProcessID(p.pid, v, options, message)
+		case gen.Alias:
+			err = p.core.RouteSendAlias(p.pid, v, options, message)
+		}
+		if err == nil {
+			atomic.AddUint64(&p.messagesOut, 1)
+		}
+		if stopped.Load() == false {
+			t.Reset(period)
+		}
+	})
+	t.Reset(period)
+	return func() bool {
+		stopped.Store(true)
+		return t.Stop()
+	}, nil
+}
+
+func (p *process) SendWithPriorityEvery(
+	to any,
+	message any,
+	priority gen.MessagePriority,
+	period time.Duration,
+) (gen.CancelFunc, error) {
+	if p.isStateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
+	options := gen.MessageOptions{
+		Priority:         priority,
+		Compression:      p.compression,
+		KeepNetworkOrder: p.keeporder.Load(),
+	}
+	var stopped atomic.Bool
+	var t *time.Timer
+	t = time.AfterFunc(time.Hour, func() {
+		if stopped.Load() || p.isAlive() == false {
+			t.Stop()
+			return
+		}
+		var err error
+		if lib.Verbose() {
+			p.log.Trace("SendWithPriorityEvery %s to %s with priority %s", period, to, priority)
+		}
+		switch v := to.(type) {
+		case gen.Atom:
+			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: v, Node: p.node.name}, options, message)
+		case gen.PID:
+			err = p.core.RouteSendPID(p.pid, v, options, message)
+		case gen.ProcessID:
+			err = p.core.RouteSendProcessID(p.pid, v, options, message)
+		case gen.Alias:
+			err = p.core.RouteSendAlias(p.pid, v, options, message)
+		}
+		if err == nil {
+			atomic.AddUint64(&p.messagesOut, 1)
+		}
+		if stopped.Load() == false {
+			t.Reset(period)
+		}
+	})
+	t.Reset(period)
+	return func() bool {
+		stopped.Store(true)
+		return t.Stop()
+	}, nil
 }
 
 func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {

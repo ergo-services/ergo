@@ -73,6 +73,8 @@ type processOverrides struct {
 	sendImportant              func(to any, message any) error
 	sendAfter                  func(to any, message any, after time.Duration) (gen.CancelFunc, error)
 	sendWithPriorityAfter      func(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error)
+	sendEvery                  func(to any, message any, period time.Duration) (gen.CancelFunc, error)
+	sendWithPriorityEvery      func(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error)
 	sendEvent                  func(name gen.Atom, token gen.Ref, message any) error
 	sendExit                   func(to gen.PID, reason error) error
 	sendExitAfter              func(to gen.PID, reason error, after time.Duration) (gen.CancelFunc, error)
@@ -250,6 +252,12 @@ func (p *Process) OnSendAfter(fn func(to any, message any, after time.Duration) 
 }
 func (p *Process) OnSendWithPriorityAfter(fn func(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error)) {
 	p.ov.sendWithPriorityAfter = fn
+}
+func (p *Process) OnSendEvery(fn func(to any, message any, period time.Duration) (gen.CancelFunc, error)) {
+	p.ov.sendEvery = fn
+}
+func (p *Process) OnSendWithPriorityEvery(fn func(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error)) {
+	p.ov.sendWithPriorityEvery = fn
 }
 func (p *Process) OnSendEvent(fn func(name gen.Atom, token gen.Ref, message any) error) {
 	p.ov.sendEvent = fn
@@ -727,6 +735,22 @@ func (p *Process) SendWithPriorityAfter(to any, message any, priority gen.Messag
 		cancel, err = p.ov.sendWithPriorityAfter(to, message, priority, after)
 	}
 	p.put(check.SendAfter{From: p.pid, To: to, Message: message, After: after, Options: gen.MessageOptions{Priority: priority}, Error: err})
+	return cancel, err
+}
+func (p *Process) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+	cancel, err := gen.CancelFunc(func() bool { return true }), error(nil)
+	if p.ov.sendEvery != nil {
+		cancel, err = p.ov.sendEvery(to, message, period)
+	}
+	p.put(check.SendEvery{From: p.pid, To: to, Message: message, Period: period, Error: err})
+	return cancel, err
+}
+func (p *Process) SendWithPriorityEvery(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error) {
+	cancel, err := gen.CancelFunc(func() bool { return true }), error(nil)
+	if p.ov.sendWithPriorityEvery != nil {
+		cancel, err = p.ov.sendWithPriorityEvery(to, message, priority, period)
+	}
+	p.put(check.SendEvery{From: p.pid, To: to, Message: message, Period: period, Options: gen.MessageOptions{Priority: priority}, Error: err})
 	return cancel, err
 }
 

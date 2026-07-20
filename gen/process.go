@@ -537,6 +537,19 @@ type Process interface {
 	// Returns ErrNotAllowed in other states (creates background timer task).
 	SendWithPriorityAfter(to any, message any, priority MessagePriority, after time.Duration) (CancelFunc, error)
 
+	// SendEvery starts a periodic timer. On each period it sends the message to
+	// the target, until the returned cancel function is called (or the send fails,
+	// e.g. the target terminated). Reuses a single timer, so it does not allocate
+	// per period.
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states (creates background timer task).
+	SendEvery(to any, message any, period time.Duration) (CancelFunc, error)
+
+	// SendWithPriorityEvery is SendEvery with the specified priority.
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states (creates background timer task).
+	SendWithPriorityEvery(to any, message any, priority MessagePriority, period time.Duration) (CancelFunc, error)
+
 	// SendEvent sends an event message to all subscribers (processes that linked or monitored this event).
 	// The event must be registered first using RegisterEvent.
 	// Available in: Init, Running states.

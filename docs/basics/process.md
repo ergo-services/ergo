@@ -82,6 +82,14 @@ The `ProcessTerminate` callback runs during shutdown. Use it for cleanup: close 
 
 `act.Actor` handles the `ProcessRun` loop for you, calling your `HandleMessage` and `HandleCall` methods as messages arrive. This separation between the low-level interface (`gen.ProcessBehavior`) and the high-level abstraction (`act.Actor`) keeps the framework flexible while making common cases simple.
 
+## Timed and Periodic Messages
+
+Sometimes a process needs to act later, or on a schedule, rather than in response to an incoming message. The wrong way is to start a `time.Timer` or `time.Ticker` inside a callback: it fires on its own goroutine, outside the mailbox, and touching process state from there breaks the single-threaded guarantee.
+
+Instead, let the process message itself. `SendAfter` delivers a message to a target once after a delay; `SendEvery` delivers it repeatedly on a fixed period, reusing a single timer so it does not allocate on each tick. Both return a cancel function, and both route the message through the mailbox - it is handled in `HandleMessage` like any other, on the process's own goroutine and in order. The delivery options (priority, compression, network order) are captured when you schedule, not re-read on each fire.
+
+A `SendEvery` ticker lives as long as its owner: it stops when the process terminates or when you call its cancel function. A failed tick - the target is busy or already gone - does not stop it; transient failures are retried on the next period, and if you need to know that the target died, monitor it rather than infer it from a gap in ticks.
+
 ## Environment Variables
 
 Processes inherit environment variables when they spawn. At that moment, variables are copied from multiple sources and merged with a priority order: node variables (lowest priority), then application, then leader, then parent, then variables specified in `gen.ProcessOptions` (highest priority). If the same variable exists in multiple sources, the higher priority value wins.

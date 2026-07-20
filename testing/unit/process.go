@@ -545,6 +545,22 @@ func (p *mockProcess) SendWithPriorityAfter(to any, message any, priority gen.Me
 	opts.Priority = priority
 	return p.node.schedule(p.pid, to, message, after, opts), nil
 }
+
+func (p *mockProcess) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
+	return p.node.schedule(p.pid, to, message, period, p.msgOptions()), nil
+}
+
+func (p *mockProcess) SendWithPriorityEvery(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error) {
+	if p.stateIR() == false {
+		return nil, gen.ErrNotAllowed
+	}
+	opts := p.msgOptions()
+	opts.Priority = priority
+	return p.node.schedule(p.pid, to, message, period, opts), nil
+}
 func (p *mockProcess) SendExitAfter(to gen.PID, reason error, after time.Duration) (gen.CancelFunc, error) {
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
