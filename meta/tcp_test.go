@@ -1,6 +1,7 @@
 package meta
 
 import (
+	"crypto/tls"
 	"io"
 	"net"
 	"sync"
@@ -8,6 +9,7 @@ import (
 	"time"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 	"ergo.services/ergo/testing/mock"
 )
 
@@ -95,6 +97,63 @@ func TestTCPConnectionRoundTrip(t *testing.T) {
 	recvMsg[MessageTCPDisconnect](t, ch)
 	if err := <-done; err != nil {
 		t.Fatalf("Start: %v", err)
+	}
+	c.Terminate(nil)
+}
+
+func TestTCPConnectionTLSRoundTrip(t *testing.T) {
+	cert, err := lib.GenerateSelfSignedCert("ergo-test", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{Certificates: []tls.Certificate{cert}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	addr := ln.Addr().(*net.TCPAddr)
+
+	type accepted struct {
+		conn net.Conn
+		err  error
+	}
+	acceptCh := make(chan accepted, 1)
+	go func() {
+		conn, err := ln.Accept()
+		if err == nil {
+			// drive the server handshake so the client's tls.Dial completes
+			err = conn.(*tls.Conn).Handshake()
+		}
+		acceptCh <- accepted{conn, err}
+	}()
+
+	mb, err := CreateTCPConnection(TCPConnectionOptions{
+		Host:               "127.0.0.1",
+		Port:               uint16(addr.Port),
+		CertManager:        gen.CreateCertManager(cert),
+		InsecureSkipVerify: true,
+	})
+	if err != nil {
+		t.Fatalf("CreateTCPConnection: %v", err)
+	}
+
+	a := <-acceptCh
+	if a.err != nil {
+		t.Fatalf("server accept/handshake: %v", a.err)
+	}
+	server := a.conn
+	t.Cleanup(func() { server.Close() })
+
+	c := mb.(*tcpconnection)
+	mp, _ := metaSink()
+	c.Init(mp)
+
+	if err := c.HandleMessage(gen.PID{}, MessageTCP{Data: []byte("pong")}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readN(t, server, 4); string(got) != "pong" {
+		t.Fatalf("outbound = %q, want pong", got)
 	}
 	c.Terminate(nil)
 }

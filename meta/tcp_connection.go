@@ -27,25 +27,26 @@ func CreateTCPConnection(options TCPConnectionOptions) (gen.MetaBehavior, error)
 		options: options,
 	}
 
+	var conn net.Conn
 	if options.CertManager != nil {
 		config := &tls.Config{
 			GetCertificate:     options.CertManager.GetCertificateFunc(),
 			InsecureSkipVerify: options.InsecureSkipVerify,
 		}
-		conn, err := tls.Dial("tcp", hp, config)
+		tlsConn, err := tls.Dial("tcp", hp, config)
 		if err != nil {
 			return nil, err
 		}
-		c.conn = conn
-		return c, nil
-	}
-
-	dialer := net.Dialer{
-		KeepAlive: options.Advanced.KeepAlivePeriod,
-	}
-	conn, err := dialer.Dial("tcp", hp)
-	if err != nil {
-		return nil, err
+		conn = tlsConn
+	} else {
+		dialer := net.Dialer{
+			KeepAlive: options.Advanced.KeepAlivePeriod,
+		}
+		tcpConn, err := dialer.Dial("tcp", hp)
+		if err != nil {
+			return nil, err
+		}
+		conn = tcpConn
 	}
 	c.conn = conn
 

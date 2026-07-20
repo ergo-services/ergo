@@ -73,6 +73,7 @@ func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	compression.Enable = m.compression
 
 	options := gen.MessageOptions{
+		Ref:              ref,
 		Priority:         gen.MessagePriority(m.priority.Load()),
 		Compression:      compression,
 		KeepNetworkOrder: m.p.keeporder.Load(),
@@ -99,7 +100,7 @@ func (m *meta) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 		Compression:      compression,
 		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
-	if rerr := m.p.core.RouteSendResponse(m.p.pid, to, options, err); rerr != nil {
+	if rerr := m.p.core.RouteSendResponseError(m.p.pid, to, options, err); rerr != nil {
 		return rerr
 	}
 	atomic.AddUint64(&m.messagesOut, 1)
