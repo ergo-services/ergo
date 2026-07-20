@@ -3116,6 +3116,10 @@ func (c *connection) read(conn net.Conn, buf *lib.Buffer) (*lib.Buffer, error) {
 
 		l := int(binary.BigEndian.Uint32(buf.B[2:6]))
 
+		if l < 8 {
+			return nil, fmt.Errorf("received malformed message (len: %d, must be >= 8)", l)
+		}
+
 		if c.node_maxmessagesize > 0 && l > c.node_maxmessagesize {
 			return nil, fmt.Errorf("received too long message (len: %d, limit: %d)", l, c.node_maxmessagesize)
 		}
