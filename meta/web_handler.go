@@ -102,8 +102,13 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 
 	ctx, cancel := context.WithTimeout(context.Background(), w.options.RequestTimeout)
 
+	// The worker runs on another goroutine and may outlive the request deadline.
+	// It writes through rw, which forwards to the real writer only while ctx is
+	// alive; once the deadline passes its writes are dropped so a late worker
+	// cannot corrupt a response the handler already gave up on.
+	rw := &webResponseWriter{ResponseWriter: writer, ctx: ctx}
 	message := MessageWebRequest{
-		Response: writer,
+		Response: rw,
 		Request:  request,
 		Done:     cancel,
 	}
@@ -122,9 +127,46 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 		return
 	case context.DeadlineExceeded:
 		w.Log().Error("handling HTTP-request timed out")
-		http.Error(writer, "Gateway timeout", http.StatusGatewayTimeout)
+		// only send 504 if the worker has not already started the response
+		if rw.committed.Load() == false {
+			http.Error(writer, "Gateway timeout", http.StatusGatewayTimeout)
+		}
 	default:
 		cancel()
 		w.Log().Error("got context error: %s", err)
+	}
+}
+
+// webResponseWriter forwards to the real writer only while the request context
+// is alive. After the deadline the worker may still be running on its own
+// goroutine; dropping its writes here keeps it from corrupting the response.
+type webResponseWriter struct {
+	http.ResponseWriter
+	ctx       context.Context
+	committed atomic.Bool
+}
+
+func (w *webResponseWriter) WriteHeader(status int) {
+	if w.ctx.Err() != nil {
+		return
+	}
+	w.committed.Store(true)
+	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *webResponseWriter) Write(b []byte) (int, error) {
+	if err := w.ctx.Err(); err != nil {
+		return 0, err
+	}
+	w.committed.Store(true)
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *webResponseWriter) Flush() {
+	if w.ctx.Err() != nil {
+		return
+	}
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
 	}
 }

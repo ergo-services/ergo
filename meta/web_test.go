@@ -1,6 +1,7 @@
 package meta
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -106,6 +107,33 @@ func TestWebHandlerTimeout(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("code = %d, want 504", rec.Code)
+	}
+}
+
+// a write from a worker that runs past the deadline must not reach the real
+// writer once the request context is done.
+func TestWebResponseWriterDropsAfterDeadline(t *testing.T) {
+	rec := httptest.NewRecorder()
+	ctx, cancel := context.WithCancel(context.Background())
+	rw := &webResponseWriter{ResponseWriter: rec, ctx: ctx}
+
+	rw.WriteHeader(http.StatusOK)
+	if _, err := rw.Write([]byte("live")); err != nil {
+		t.Fatal(err)
+	}
+
+	cancel() // request deadline passed
+
+	if n, err := rw.Write([]byte("late")); err == nil || n != 0 {
+		t.Fatalf("write after deadline must fail: n=%d err=%v", n, err)
+	}
+	rw.WriteHeader(http.StatusInternalServerError) // must be a no-op
+
+	if rec.Body.String() != "live" {
+		t.Fatalf("late write leaked into response: %q", rec.Body.String())
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("late WriteHeader changed status: %d", rec.Code)
 	}
 }
 
