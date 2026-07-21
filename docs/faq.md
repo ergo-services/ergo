@@ -172,6 +172,47 @@ Traces can be viewed directly in Observer as waterfall diagrams or exported to O
 
 Run the [Observer](extra-library/applications/observer.md) web UI for live visibility into processes, applications, network connections, events, logs, tracing waterfalls, and heap profiles. For AI-driven investigation, use the [MCP application](extra-library/applications/mcp.md) to expose the running system to Claude Code, Cursor, or any MCP-compatible client. For continuous metrics, the [Radar](extra-library/applications/radar.md) application provides a Prometheus endpoint with a ready-to-use Grafana dashboard.
 
+### What can Observer do?
+
+Observer is a live dashboard for a running Ergo system. You add it with one line of code and open `http://localhost:9911` in a browser. It shows you, updating every second, what your program is actually doing inside, and it lets you act on it without stopping it or adding any code.
+
+An Ergo program is built from many small processes that each do one job and talk to each other by sending messages. Observer lets you:
+
+- **See the whole node at a glance**: how much memory and CPU it uses, how many processes are running, how busy they are.
+- **Find the part that is misbehaving**: sort and filter the process list to spot the one that is overloaded, stuck, or using the most time, even among tens of thousands of them, or color an application's process tree so the hot branch stands out.
+- **Look inside a single process**: its message rates, what it is connected to, and any internal state it chooses to report.
+- **Watch things happen in real time**: a filterable live log stream, the actual messages a producer is publishing as they go out, and a single request traced step by step as it travels from process to process and across machines.
+- **Track down memory leaks and freezes**: live memory and goroutine views, including flame graphs, with no special build and no restart.
+
+And it is not just for looking. From the same screen you can change a process's log level, send it a message, restart or stop it, start and stop parts of the application, and switch tracing on, all on the live system.
+
+One Observer covers the whole cluster. Every Ergo node exposes itself to Observer automatically, so you run it on one node and move between any of them from the sidebar, reaching each through service discovery or by address.
+
+See [Observer Application](extra-library/applications/observer.md) to add it to your node, and [Inspecting With Observer](advanced/observer.md) for a guided tour.
+
+## Testing
+
+### How do I test actors?
+
+Ergo ships a dedicated testing harness. An actor is not a function you can call and inspect, so the harness observes it the way the rest of the system does: through what it does. Every outward action (a message sent, a process spawned, a log line written, an exit signal, a timer scheduled) is captured as a record. You drive the actor with inputs and assert on the records it produced, testing behavior rather than reaching into private state.
+
+The harness has four layers that share one fluent assertion grammar:
+
+| Package | Use it for |
+|---------|------------|
+| `unit` | One actor in-process against a mock node. Synchronous, deterministic, fast. Where most actor logic is tested. |
+| `stage` | Real nodes running real actors over the real network, including multi-node clusters. For the scheduler, supervision, restarts, links and monitors across nodes, remote spawn, and disconnects. |
+| `mock` | Standalone fakes of the `gen.*` interfaces to inject into ordinary non-actor code (helpers, resolvers, constructors). |
+| `check` | The shared record types and `Should...` grammar the other layers expose. |
+
+```go
+sub, _ := unit.Spawn(t, factoryWorker, gen.ProcessOptions{})
+sub.SendMessage(client, StartJob{ID: "42"})
+sub.ShouldSend().To("scheduler").Message(JobQueued{ID: "42"}).Once().Assert()
+```
+
+See [Testing Overview](testing/overview.md).
+
 ## Integration
 
 ### Can Ergo nodes talk to Erlang/Elixir nodes?
