@@ -7,7 +7,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -19,7 +18,7 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 	var salt string
 	result.HandshakeVersion = h.Version()
 
-	v, tail, err := h.readMessage(conn, time.Second, nil)
+	v, tail, err := h.readMessage(conn, nil)
 	if err != nil {
 		return result, err
 	}
@@ -90,7 +89,7 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 	}
 
 	// wait for the introduce message
-	v, tail, err = h.readMessage(conn, time.Second, nil)
+	v, tail, err = h.readMessage(conn, nil)
 	if err != nil {
 		return result, err
 	}

@@ -3,6 +3,7 @@ package node
 import (
 	"net"
 	"sync/atomic"
+	"time"
 
 	"ergo.services/ergo/gen"
 )
@@ -26,9 +27,10 @@ type acceptor struct {
 
 	atom_mapping map[gen.Atom]gen.Atom
 
-	handshaking     atomic.Int32  // current number of in-flight handshakes
-	maxHandshakes   int32         // 0 = unlimited
-	handshakeErrors atomic.Uint64 // cumulative handshake failures
+	handshaking       atomic.Int32  // current number of in-flight handshakes
+	maxHandshakes     int32         // 0 = unlimited
+	handshakeErrors   atomic.Uint64 // cumulative handshake failures
+	handshake_timeout time.Duration
 
 	software_keepalive_misses int
 }

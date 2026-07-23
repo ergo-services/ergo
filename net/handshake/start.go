@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
-	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -32,7 +31,7 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 		return result, err
 	}
 
-	v, tail, err := h.readMessage(conn, time.Second, nil)
+	v, tail, err := h.readMessage(conn, nil)
 	if err != nil {
 		return result, err
 	}
@@ -84,7 +83,7 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 	}
 
 	// waiting for Accept message
-	v, tail, err = h.readMessage(conn, time.Second, tail)
+	v, tail, err = h.readMessage(conn, tail)
 	if err != nil {
 		return result, err
 	}
@@ -100,7 +99,7 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 	}
 
 	// waiting for Intro message
-	v, tail, err = h.readMessage(conn, time.Second, tail)
+	v, tail, err = h.readMessage(conn, tail)
 	if err != nil {
 		return result, err
 	}

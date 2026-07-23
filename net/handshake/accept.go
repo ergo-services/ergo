@@ -3,7 +3,6 @@ package handshake
 import (
 	"fmt"
 	"net"
-	"time"
 
 	"ergo.services/ergo/gen"
 )
@@ -26,7 +25,7 @@ func (h *handshake) Accept(node gen.NodeHandshake, conn net.Conn, options gen.Ha
 		return state, err
 	}
 
-	v, tail, err := h.readMessage(conn, time.Second, opts.pendingTail)
+	v, tail, err := h.readMessage(conn, opts.pendingTail)
 	if err != nil {
 		return state, err
 	}

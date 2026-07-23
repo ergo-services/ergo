@@ -54,6 +54,7 @@ type network struct {
 
 	cookie                  string
 	maxmessagesize          int
+	handshakeTimeoutDefault time.Duration
 	softwareKeepAliveMisses int
 	fragmentSize            int
 	fragmentTimeout         int
@@ -145,6 +146,16 @@ func (n *network) Node(name gen.Atom) (gen.RemoteNode, error) {
 		return nil, err
 	}
 	return c.Node(), nil
+}
+
+func (n *network) handshakeTimeout(v time.Duration) time.Duration {
+	if v > 0 {
+		return v
+	}
+	if n.handshakeTimeoutDefault > 0 {
+		return n.handshakeTimeoutDefault
+	}
+	return gen.DefaultHandshakeTimeout
 }
 
 func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
@@ -995,7 +1006,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	if err != nil {
 		return nil, err
 	}
-	conn.SetDeadline(time.Now().Add(gen.DefaultHandshakeTimeout))
+	conn.SetDeadline(time.Now().Add(n.handshakeTimeout(route.HandshakeTimeout)))
 
 	hopts := gen.HandshakeOptions{
 		Cookie:         route.Cookie,
@@ -1070,7 +1081,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		if err != nil {
 			return nil, nil, err
 		}
-		c.SetDeadline(time.Now().Add(gen.DefaultHandshakeTimeout))
+		c.SetDeadline(time.Now().Add(n.handshakeTimeout(route.HandshakeTimeout)))
 		tail, err := hs.Join(n.node, c, id, hopts)
 		if err != nil {
 			c.Close()
@@ -1227,6 +1238,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 	}
 	n.cookie = options.Cookie
 	n.maxmessagesize = options.MaxMessageSize
+	n.handshakeTimeoutDefault = options.HandshakeTimeout
 
 	if options.Flags.Enable == false {
 		options.Flags = gen.DefaultNetworkFlags
@@ -1451,15 +1463,16 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 	}
 
 	acceptor := &acceptor{
-		bs:               bs,
-		proto:            a.Proto,
-		handshake:        a.Handshake,
-		cert_manager:     cert_manager,
-		max_message_size: a.MaxMessageSize,
-		atom_mapping:     make(map[gen.Atom]gen.Atom),
-		route_host:       a.RouteHost,
-		route_port:       a.RoutePort,
-		maxHandshakes:    int32(a.MaxHandshakes),
+		bs:                bs,
+		proto:             a.Proto,
+		handshake:         a.Handshake,
+		cert_manager:      cert_manager,
+		max_message_size:  a.MaxMessageSize,
+		atom_mapping:      make(map[gen.Atom]gen.Atom),
+		route_host:        a.RouteHost,
+		route_port:        a.RoutePort,
+		maxHandshakes:     int32(a.MaxHandshakes),
+		handshake_timeout: a.HandshakeTimeout,
 
 		software_keepalive_misses: n.keepAliveMisses(a.SoftwareKeepAliveMisses),
 	}
@@ -1579,7 +1592,7 @@ func (n *network) accept(a *acceptor) {
 }
 
 func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOptions) {
-	c.SetDeadline(time.Now().Add(gen.DefaultHandshakeTimeout))
+	c.SetDeadline(time.Now().Add(n.handshakeTimeout(a.handshake_timeout)))
 	result, err := a.handshake.Negotiate(n.node, c, hopts)
 	if err != nil {
 		if err != io.EOF {

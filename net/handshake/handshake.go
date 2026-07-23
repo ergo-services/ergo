@@ -30,7 +30,6 @@ import (
 	"math"
 	"net"
 	"sync"
-	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -115,20 +114,12 @@ func (h *handshake) writeMessage(conn net.Conn, message any) error {
 	return nil
 }
 
-func (h *handshake) readMessage(conn net.Conn, timeout time.Duration, chunk []byte) (any, []byte, error) {
+func (h *handshake) readMessage(conn net.Conn, chunk []byte) (any, []byte, error) {
 	var b [4096]byte
-
-	if timeout == 0 {
-		conn.SetReadDeadline(time.Time{})
-	}
 
 	expect := 6
 	for {
 		if len(chunk) < expect {
-			if timeout > 0 {
-				conn.SetReadDeadline(time.Now().Add(timeout))
-			}
-
 			n, err := conn.Read(b[:])
 			if err != nil {
 				return nil, nil, err

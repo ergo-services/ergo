@@ -3,7 +3,6 @@ package handshake
 import (
 	"net"
 	"testing"
-	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
@@ -133,7 +132,7 @@ func TestReject(t *testing.T) {
 		a.Close()
 	}()
 
-	msg, _, err := h.readMessage(b, time.Second, nil)
+	msg, _, err := h.readMessage(b, nil)
 	check.NoError(t, err)
 	rej, ok := msg.(MessageReject)
 	check.True(t, ok)

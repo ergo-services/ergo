@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"time"
 )
 
 // Network interface provides distributed communication and node connectivity management.
@@ -398,6 +399,10 @@ type NetworkOptions struct {
 	// Acceptors and routes inherit this unless overridden.
 	SoftwareKeepAliveMisses int
 
+	// HandshakeTimeout is the node-wide bound on the entire handshake, used when a route
+	// or acceptor does not set its own. Zero uses DefaultHandshakeTimeout.
+	HandshakeTimeout time.Duration
+
 	// Acceptors configures listeners for incoming connections.
 	// Node can have multiple acceptors on different ports/interfaces.
 	// Empty means no acceptors (same as NetworkModeHidden).
@@ -783,6 +788,10 @@ type AcceptorOptions struct {
 	// SoftwareKeepAliveMisses sets how many consecutive keepalives from a remote node can be missed
 	// before the connection is considered dead. Zero inherits from NetworkOptions or uses default.
 	SoftwareKeepAliveMisses int
+
+	// HandshakeTimeout bounds the entire handshake for incoming connections on this acceptor.
+	// Zero inherits from NetworkOptions.HandshakeTimeout, then DefaultHandshakeTimeout.
+	HandshakeTimeout time.Duration
 }
 
 // Handshake defines handshake interface
@@ -967,6 +976,10 @@ type NetworkRoute struct {
 	// SoftwareKeepAliveMisses sets how many consecutive keepalives from a remote node can be missed
 	// before the connection is considered dead. Zero inherits from NetworkOptions or uses default.
 	SoftwareKeepAliveMisses int
+
+	// HandshakeTimeout bounds the entire handshake for this outgoing connection.
+	// Zero inherits from NetworkOptions.HandshakeTimeout, then DefaultHandshakeTimeout.
+	HandshakeTimeout time.Duration
 }
 
 type NetworkProxyRoute struct {

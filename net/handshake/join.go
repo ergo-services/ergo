@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"net"
-	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -27,7 +26,7 @@ func (h *handshake) Join(node gen.NodeHandshake, conn net.Conn, id string, optio
 		return nil, err
 	}
 
-	v, tail, err := h.readMessage(conn, time.Second, nil)
+	v, tail, err := h.readMessage(conn, nil)
 	if err != nil {
 		conn.Close()
 		return nil, err
