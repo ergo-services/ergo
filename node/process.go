@@ -815,6 +815,24 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 	return err
 }
 
+func (p *process) sendHelper(to any, options gen.MessageOptions, message any) func() error {
+	switch t := to.(type) {
+	case gen.PID:
+		return func() error { return p.core.RouteSendPID(p.pid, t, options, message) }
+	case gen.ProcessID:
+		return func() error { return p.core.RouteSendProcessID(p.pid, t, options, message) }
+	case gen.Alias:
+		return func() error { return p.core.RouteSendAlias(p.pid, t, options, message) }
+	case gen.Atom:
+		dst := gen.ProcessID{Name: t, Node: p.node.name}
+		return func() error { return p.core.RouteSendProcessID(p.pid, dst, options, message) }
+	case string:
+		dst := gen.ProcessID{Name: gen.Atom(t), Node: p.node.name}
+		return func() error { return p.core.RouteSendProcessID(p.pid, dst, options, message) }
+	}
+	return nil
+}
+
 func (p *process) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
@@ -826,25 +844,15 @@ func (p *process) SendAfter(to any, message any, after time.Duration) (gen.Cance
 		KeepNetworkOrder: p.keeporder.Load(),
 		// ImportantDelivery: ignore on sending with delay
 	}
+	send := p.sendHelper(to, options, message)
+	if send == nil {
+		return nil, gen.ErrIncorrect
+	}
 	return time.AfterFunc(after, func() {
-		var err error
 		if lib.Verbose() {
 			p.log.Trace("SendAfter %s to %s", after, to)
 		}
-		// we can't use p.Send(...) because it checks the process state
-		// and returns gen.ErrNotAllowed, so use p.core.Route* methods for that
-		switch t := to.(type) {
-		case gen.Atom:
-			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
-		case gen.PID:
-			err = p.core.RouteSendPID(p.pid, t, options, message)
-		case gen.ProcessID:
-			err = p.core.RouteSendProcessID(p.pid, t, options, message)
-		case gen.Alias:
-			err = p.core.RouteSendAlias(p.pid, t, options, message)
-		}
-
-		if err == nil {
+		if send() == nil {
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
 	}).Stop, nil
@@ -865,25 +873,15 @@ func (p *process) SendWithPriorityAfter(
 		KeepNetworkOrder: p.keeporder.Load(),
 		// ImportantDelivery: ignore on sending with delay
 	}
+	send := p.sendHelper(to, options, message)
+	if send == nil {
+		return nil, gen.ErrIncorrect
+	}
 	return time.AfterFunc(after, func() {
-		var err error
 		if lib.Verbose() {
 			p.log.Trace("SendWithPriorityAfter %s to %s with priority %s", after, to, priority)
 		}
-		// we can't use p.Send(...) because it checks the process state
-		// and returns gen.ErrNotAllowed, so use p.core.Route* methods for that
-		switch t := to.(type) {
-		case gen.Atom:
-			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
-		case gen.PID:
-			err = p.core.RouteSendPID(p.pid, t, options, message)
-		case gen.ProcessID:
-			err = p.core.RouteSendProcessID(p.pid, t, options, message)
-		case gen.Alias:
-			err = p.core.RouteSendAlias(p.pid, t, options, message)
-		}
-
-		if err == nil {
+		if send() == nil {
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
 	}).Stop, nil
@@ -893,11 +891,18 @@ func (p *process) SendEvery(to any, message any, period time.Duration) (gen.Canc
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
+	if period <= 0 {
+		return nil, gen.ErrIncorrect
+	}
 	// snapshot options once; every tick reuses the same priority/order/compression
 	options := gen.MessageOptions{
 		Priority:         gen.MessagePriority(p.priority.Load()),
 		Compression:      p.compression,
 		KeepNetworkOrder: p.keeporder.Load(),
+	}
+	send := p.sendHelper(to, options, message)
+	if send == nil {
+		return nil, gen.ErrIncorrect
 	}
 	var stopped atomic.Bool
 	var t *time.Timer
@@ -907,21 +912,10 @@ func (p *process) SendEvery(to any, message any, period time.Duration) (gen.Canc
 			t.Stop()
 			return
 		}
-		var err error
 		if lib.Verbose() {
 			p.log.Trace("SendEvery %s to %s", period, to)
 		}
-		switch v := to.(type) {
-		case gen.Atom:
-			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: v, Node: p.node.name}, options, message)
-		case gen.PID:
-			err = p.core.RouteSendPID(p.pid, v, options, message)
-		case gen.ProcessID:
-			err = p.core.RouteSendProcessID(p.pid, v, options, message)
-		case gen.Alias:
-			err = p.core.RouteSendAlias(p.pid, v, options, message)
-		}
-		if err == nil {
+		if send() == nil {
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
 		if stopped.Load() == false {
@@ -930,8 +924,8 @@ func (p *process) SendEvery(to any, message any, period time.Duration) (gen.Canc
 	})
 	t.Reset(period)
 	return func() bool {
-		stopped.Store(true)
-		return t.Stop()
+		t.Stop()
+		return stopped.Swap(true) == false
 	}, nil
 }
 
@@ -944,10 +938,17 @@ func (p *process) SendWithPriorityEvery(
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
+	if period <= 0 {
+		return nil, gen.ErrIncorrect
+	}
 	options := gen.MessageOptions{
 		Priority:         priority,
 		Compression:      p.compression,
 		KeepNetworkOrder: p.keeporder.Load(),
+	}
+	send := p.sendHelper(to, options, message)
+	if send == nil {
+		return nil, gen.ErrIncorrect
 	}
 	var stopped atomic.Bool
 	var t *time.Timer
@@ -956,21 +957,10 @@ func (p *process) SendWithPriorityEvery(
 			t.Stop()
 			return
 		}
-		var err error
 		if lib.Verbose() {
 			p.log.Trace("SendWithPriorityEvery %s to %s with priority %s", period, to, priority)
 		}
-		switch v := to.(type) {
-		case gen.Atom:
-			err = p.core.RouteSendProcessID(p.pid, gen.ProcessID{Name: v, Node: p.node.name}, options, message)
-		case gen.PID:
-			err = p.core.RouteSendPID(p.pid, v, options, message)
-		case gen.ProcessID:
-			err = p.core.RouteSendProcessID(p.pid, v, options, message)
-		case gen.Alias:
-			err = p.core.RouteSendAlias(p.pid, v, options, message)
-		}
-		if err == nil {
+		if send() == nil {
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
 		if stopped.Load() == false {
@@ -979,8 +969,8 @@ func (p *process) SendWithPriorityEvery(
 	})
 	t.Reset(period)
 	return func() bool {
-		stopped.Store(true)
-		return t.Stop()
+		t.Stop()
+		return stopped.Swap(true) == false
 	}, nil
 }
 

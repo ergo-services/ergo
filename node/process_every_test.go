@@ -104,6 +104,7 @@ func TestProcessTimedSendRouting(t *testing.T) {
 		{"processid", gen.ProcessID{Name: "dest", Node: "n@localhost"}, kindProcessID},
 		{"alias", gen.Alias{Node: "n@localhost"}, kindAlias},
 		{"atom", gen.Atom("dest"), kindProcessID},
+		{"string", "dest", kindProcessID},
 	}
 
 	senders := []struct {
@@ -233,6 +234,101 @@ func TestProcessTimedSendNotAllowed(t *testing.T) {
 			p.state = int32(gen.ProcessStateTerminated)
 			if _, err := c.call(p); err != gen.ErrNotAllowed {
 				t.Fatalf("expected ErrNotAllowed, got %v", err)
+			}
+		})
+	}
+}
+
+// A target that is not PID/ProcessID/Alias/Atom/string is rejected at schedule
+// time with gen.ErrIncorrect and no timer is armed.
+func TestProcessTimedSendUnsupportedTarget(t *testing.T) {
+	calls := []struct {
+		name string
+		call func(p *process) (gen.CancelFunc, error)
+	}{
+		{"SendAfter", func(p *process) (gen.CancelFunc, error) {
+			return p.SendAfter(123, "m", time.Millisecond)
+		}},
+		{"SendWithPriorityAfter", func(p *process) (gen.CancelFunc, error) {
+			return p.SendWithPriorityAfter(123, "m", gen.MessagePriorityHigh, time.Millisecond)
+		}},
+		{"SendEvery", func(p *process) (gen.CancelFunc, error) {
+			return p.SendEvery(123, "m", time.Millisecond)
+		}},
+		{"SendWithPriorityEvery", func(p *process) (gen.CancelFunc, error) {
+			return p.SendWithPriorityEvery(123, "m", gen.MessagePriorityHigh, time.Millisecond)
+		}},
+	}
+	for _, c := range calls {
+		t.Run(c.name, func(t *testing.T) {
+			p := newEveryProcess(mock.NewCore())
+			cancel, err := c.call(p)
+			if err != gen.ErrIncorrect {
+				t.Fatalf("expected ErrIncorrect, got %v", err)
+			}
+			if cancel != nil {
+				t.Fatal("expected nil CancelFunc for unsupported target")
+			}
+		})
+	}
+}
+
+// SendEvery/SendWithPriorityEvery reject a non-positive period at schedule time
+// with gen.ErrIncorrect instead of hot-looping.
+func TestProcessSendEveryNonPositivePeriod(t *testing.T) {
+	calls := []struct {
+		name string
+		call func(p *process, period time.Duration) (gen.CancelFunc, error)
+	}{
+		{"SendEvery", func(p *process, period time.Duration) (gen.CancelFunc, error) {
+			return p.SendEvery(p.pid, "m", period)
+		}},
+		{"SendWithPriorityEvery", func(p *process, period time.Duration) (gen.CancelFunc, error) {
+			return p.SendWithPriorityEvery(p.pid, "m", gen.MessagePriorityHigh, period)
+		}},
+	}
+	for _, c := range calls {
+		for _, period := range []time.Duration{0, -time.Second} {
+			t.Run(c.name, func(t *testing.T) {
+				p := newEveryProcess(mock.NewCore())
+				cancel, err := c.call(p, period)
+				if err != gen.ErrIncorrect {
+					t.Fatalf("period %v: expected ErrIncorrect, got %v", period, err)
+				}
+				if cancel != nil {
+					t.Fatal("expected nil CancelFunc for non-positive period")
+				}
+			})
+		}
+	}
+}
+
+// The SendEvery/SendWithPriorityEvery CancelFunc returns true on the first
+// effective cancel and false on any subsequent call.
+func TestProcessSendEveryCancelReturns(t *testing.T) {
+	calls := []struct {
+		name string
+		arm  func(p *process) (gen.CancelFunc, error)
+	}{
+		{"SendEvery", func(p *process) (gen.CancelFunc, error) {
+			return p.SendEvery(p.pid, "m", time.Hour)
+		}},
+		{"SendWithPriorityEvery", func(p *process) (gen.CancelFunc, error) {
+			return p.SendWithPriorityEvery(p.pid, "m", gen.MessagePriorityHigh, time.Hour)
+		}},
+	}
+	for _, c := range calls {
+		t.Run(c.name, func(t *testing.T) {
+			p := newEveryProcess(mock.NewCore())
+			cancel, err := c.arm(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cancel() == false {
+				t.Fatal("first cancel should return true")
+			}
+			if cancel() == true {
+				t.Fatal("second cancel should return false")
 			}
 		})
 	}
