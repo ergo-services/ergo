@@ -57,6 +57,13 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		return nil, fmt.Errorf("connection with %s: HandshakeResult.Custom has unexpected type %T, want handshake.ConnectionOptions", result.Peer, result.Custom)
 	}
 
+	if opts.PoolSize < 1 {
+		opts.PoolSize = 1
+	}
+	if opts.PoolSize > gen.DefaultMaxConnectionPoolSize {
+		opts.PoolSize = gen.DefaultMaxConnectionPoolSize
+	}
+
 	if result.PeerCreation == 0 {
 		// seems it was Join handshake for the connection that was already terminated
 		return nil, gen.ErrNotAllowed

@@ -176,6 +176,9 @@ func (n *network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.R
 		if err != nil {
 			return nil, err
 		}
+		if len(resolved) == 0 {
+			return nil, gen.ErrNoRoute
+		}
 		route.Route.Port = resolved[0].Port
 		route.Route.TLS = resolved[0].TLS
 		if route.Route.HandshakeVersion == emptyVersion {

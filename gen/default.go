@@ -34,6 +34,7 @@ var (
 	DefaultFragmentSize            int           = 65000
 	DefaultFragmentTimeout         time.Duration = 30 * time.Second
 	DefaultMaxFragmentAssemblies   int           = 1000
+	DefaultMaxConnectionPoolSize   int           = 128
 
 	DefaultNetworkFlags = NetworkFlags{
 		Enable:                       true,

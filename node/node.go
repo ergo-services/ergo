@@ -1847,6 +1847,8 @@ func (n *node) Kill(pid gen.PID) error {
 	case int32(gen.ProcessStateTerminated):
 		atomic.StoreInt32(&p.state, int32(gen.ProcessStateTerminated))
 		return nil
+	case int32(gen.ProcessStateZombee):
+		return nil
 	}
 
 	old := atomic.SwapInt32(&p.state, int32(gen.ProcessStateTerminated))

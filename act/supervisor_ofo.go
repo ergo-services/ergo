@@ -59,7 +59,7 @@ func (s *supOFO) init(spec SupervisorSpec) (supAction, error) {
 func (s *supOFO) childAddSpec(spec SupervisorChildSpec) (supAction, error) {
 	var action supAction
 
-	if s.mode != 0 {
+	if s.mode != 0 || s.shutdown {
 		return action, ErrSupervisorStrategyActive
 	}
 
@@ -98,7 +98,7 @@ func (s *supOFO) childSpec(name gen.Atom) (supAction, error) {
 
 	// single start (if it was terminated normally before)
 
-	if s.mode != 0 {
+	if s.mode != 0 || s.shutdown {
 		return action, ErrSupervisorStrategyActive
 	}
 
@@ -370,6 +370,9 @@ func (s *supOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supAc
 
 func (s *supOFO) childEnable(name gen.Atom) (supAction, error) {
 	var action supAction
+	if s.shutdown {
+		return action, ErrSupervisorStrategyActive
+	}
 	for _, cs := range s.spec {
 		if cs.Name != name {
 			continue
@@ -396,6 +399,10 @@ func (s *supOFO) childEnable(name gen.Atom) (supAction, error) {
 func (s *supOFO) childDisable(name gen.Atom) (supAction, error) {
 	var action supAction
 	var empty gen.PID
+
+	if s.shutdown {
+		return action, ErrSupervisorStrategyActive
+	}
 
 	for _, cs := range s.spec {
 		if cs.Name != name {

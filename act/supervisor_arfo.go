@@ -248,6 +248,13 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 
 	if s.mode == 2 { // stopping (restarting)
 
+		if specI < s.restartI {
+			// terminated child is below the restart position (e.g. an
+			// out-of-order or independent exit arrived). Lower the position so
+			// it is included in the restart range.
+			s.restartI = specI
+		}
+
 		if s.keeporder == false {
 			if len(s.wait) > 0 {
 				// return action with empty list. just wait for the child processes
@@ -257,13 +264,6 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 			}
 
 		} else {
-			if specI < s.restartI {
-				// terminated child is below the restart position (e.g. an
-				// out-of-order or independent exit arrived). Lower the position so
-				// it is included in the restart range.
-				s.restartI = specI
-			}
-
 			if len(s.wait) > 0 {
 				// still waiting for other children to terminate. This child died
 				// out of order (or on its own) while we were sequentially stopping
