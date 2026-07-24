@@ -2348,6 +2348,10 @@ func (p *process) Forward(
 	message *gen.MailboxMessage,
 	priority gen.MessagePriority,
 ) error {
+	if p.State() != gen.ProcessStateRunning {
+		return gen.ErrNotAllowed
+	}
+
 	var queue lib.QueueMPSC
 
 	// local

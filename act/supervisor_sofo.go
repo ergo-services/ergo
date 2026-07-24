@@ -66,7 +66,7 @@ func (s *supSOFO) childAddSpec(spec SupervisorChildSpec) (supAction, error) {
 	var action supAction
 
 	if s.shutdown {
-		return action, fmt.Errorf("shutting down")
+		return action, ErrSupervisorStrategyActive
 	}
 
 	if err := validateChildSpec(spec); err != nil {
@@ -95,7 +95,7 @@ func (s *supSOFO) childSpec(name gen.Atom) (supAction, error) {
 	var action supAction
 
 	if s.shutdown {
-		return action, nil
+		return action, ErrSupervisorStrategyActive
 	}
 
 	spec, found := s.spec[name]
@@ -248,7 +248,7 @@ func (s *supSOFO) childEnable(name gen.Atom) (supAction, error) {
 	var action supAction
 
 	if s.shutdown {
-		return action, fmt.Errorf("shutting down")
+		return action, ErrSupervisorStrategyActive
 	}
 
 	spec, found := s.spec[name]
@@ -263,7 +263,7 @@ func (s *supSOFO) childDisable(name gen.Atom) (supAction, error) {
 	var action supAction
 
 	if s.shutdown {
-		return action, fmt.Errorf("shutting down")
+		return action, ErrSupervisorStrategyActive
 	}
 
 	spec, found := s.spec[name]

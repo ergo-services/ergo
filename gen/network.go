@@ -107,8 +107,10 @@ type Network interface {
 
 	// EnableSpawn allows remote nodes to spawn the given process on this node.
 	// Specify node names to restrict which nodes can spawn, or leave empty for any node.
+	// Calling it again for the same name grants the additional nodes (an empty list
+	// allows any node); use DisableSpawn to revoke.
 	// Remote nodes must have EnableRemoteSpawn flag enabled.
-	// Returns ErrTaken if spawn name already registered.
+	// Returns ErrTaken if the name is already registered with a different factory.
 	EnableSpawn(name Atom, factory ProcessFactory, nodes ...Atom) error
 
 	// DisableSpawn revokes remote spawn permission for the given process.
@@ -117,8 +119,9 @@ type Network interface {
 
 	// EnableApplicationStart allows remote nodes to start the given application on this node.
 	// Specify node names to restrict which nodes can start, or leave empty for any node.
+	// Calling it again for the same name grants the additional nodes (an empty list
+	// allows any node); use DisableApplicationStart to revoke.
 	// Remote nodes must have EnableRemoteApplicationStart flag enabled.
-	// Returns ErrTaken if application name already registered.
 	EnableApplicationStart(name Atom, nodes ...Atom) error
 
 	// DisableApplicationStart revokes remote application start permission.

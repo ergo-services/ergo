@@ -298,7 +298,7 @@ func (n *network) EnableSpawn(name gen.Atom, factory gen.ProcessFactory, nodes .
 	if exist {
 		enable = v.(*enableSpawn)
 		if reflect.TypeOf(enable.factory()) != reflect.TypeOf(factory()) {
-			return fmt.Errorf("%s associated with another process factory", name)
+			return gen.ErrTaken
 		}
 	}
 	enable.Lock()

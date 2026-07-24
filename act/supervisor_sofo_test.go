@@ -416,6 +416,32 @@ func TestSOFOTemporaryWithPerInstanceRestartIsNoOp(t *testing.T) {
 	}
 }
 
+// During shutdown childSpec (the StartChild path) must return an error like
+// childAddSpec, not report success while starting nothing.
+func TestSOFOChildSpecRejectedDuringShutdown(t *testing.T) {
+	sup := setupSOFO(t, SupervisorSpec{
+		Restart: SupervisorRestart{Strategy: SupervisorStrategyPermanent},
+		Children: []SupervisorChildSpec{{
+			Name:    "worker",
+			Factory: dummyFactory,
+		}},
+	})
+
+	sup.shutdown = true
+
+	action, err := sup.childSpec("worker")
+	if err != ErrSupervisorStrategyActive {
+		t.Fatalf("childSpec must return ErrSupervisorStrategyActive during shutdown, got %v", err)
+	}
+	if action.do != supActionDoNothing {
+		t.Errorf("no action expected during shutdown, got do=%d", action.do)
+	}
+
+	if _, err := sup.childAddSpec(SupervisorChildSpec{Name: "another", Factory: dummyFactory}); err != ErrSupervisorStrategyActive {
+		t.Fatalf("childAddSpec must return ErrSupervisorStrategyActive during shutdown, got %v", err)
+	}
+}
+
 //
 // inspect output exposes per-spec aggregated counter
 //

@@ -45,6 +45,30 @@ func TestWebWorkerUnitUnknownMethod(t *testing.T) {
 	check.Equal(t, http.StatusNotImplemented, rec.Code)
 }
 
+// a panicking handler must still call r.Done() (releasing the HTTP goroutine)
+// before the worker terminates on the panic.
+type wwuPanic struct{ act.WebWorker }
+
+func factoryWwuPanic() gen.ProcessBehavior { return &wwuPanic{} }
+
+func (w *wwuPanic) HandleGet(from gen.PID, writer http.ResponseWriter, request *http.Request) error {
+	panic("boom")
+}
+
+func TestWebWorkerUnitHandlerPanicCallsDone(t *testing.T) {
+	s, err := unit.Spawn(t, factoryWwuPanic, gen.ProcessOptions{})
+	check.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	done := false
+	msg := meta.MessageWebRequest{Response: rec, Request: req, Done: func() { done = true }}
+	s.SendMessage(gen.PID{}, msg)
+
+	check.True(t, done)
+	check.True(t, s.Terminated())
+}
+
 // a custom worker can answer a request itself.
 type wwuGet struct {
 	act.WebWorker

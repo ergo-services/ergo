@@ -93,6 +93,28 @@ func (w *WebWorker) ProcessInit(process gen.Process, args ...any) (rr error) {
 	return w.behavior.Init(args...)
 }
 
+func (w *WebWorker) handleWebRequest(from gen.PID, r meta.MessageWebRequest) error {
+	defer r.Done()
+	switch r.Request.Method {
+	case "GET":
+		return w.behavior.HandleGet(from, r.Response, r.Request)
+	case "POST":
+		return w.behavior.HandlePost(from, r.Response, r.Request)
+	case "PUT":
+		return w.behavior.HandlePut(from, r.Response, r.Request)
+	case "PATCH":
+		return w.behavior.HandlePatch(from, r.Response, r.Request)
+	case "DELETE":
+		return w.behavior.HandleDelete(from, r.Response, r.Request)
+	case "HEAD":
+		return w.behavior.HandleHead(from, r.Response, r.Request)
+	case "OPTIONS":
+		return w.behavior.HandleOptions(from, r.Response, r.Request)
+	}
+	http.Error(r.Response, "unknown request type: "+r.Request.Method, http.StatusNotImplemented)
+	return nil
+}
+
 func (w *WebWorker) ProcessRun() (rr error) {
 	var message *gen.MailboxMessage
 	var savedTracing gen.Tracing
@@ -160,28 +182,7 @@ func (w *WebWorker) ProcessRun() (rr error) {
 			}
 
 			if r, ok := message.Message.(meta.MessageWebRequest); ok {
-				var reason error
-				switch r.Request.Method {
-				case "GET":
-					reason = w.behavior.HandleGet(message.From, r.Response, r.Request)
-				case "POST":
-					reason = w.behavior.HandlePost(message.From, r.Response, r.Request)
-				case "PUT":
-					reason = w.behavior.HandlePut(message.From, r.Response, r.Request)
-				case "PATCH":
-					reason = w.behavior.HandlePatch(message.From, r.Response, r.Request)
-				case "DELETE":
-					reason = w.behavior.HandleDelete(message.From, r.Response, r.Request)
-				case "HEAD":
-					reason = w.behavior.HandleHead(message.From, r.Response, r.Request)
-				case "OPTIONS":
-					reason = w.behavior.HandleOptions(message.From, r.Response, r.Request)
-				default:
-					http.Error(r.Response,
-						"unknown request type: "+r.Request.Method,
-						http.StatusNotImplemented)
-				}
-				r.Done()
+				reason := w.handleWebRequest(message.From, r)
 				if reason != nil {
 					w.sendSpanProcessed(message, gen.TracingKindSend, r.Request.Method+" "+r.Request.RequestURI, reason.Error())
 					return reason
