@@ -2044,101 +2044,67 @@ func (n *node) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, erro
 		return nil, fmt.Errorf("application %s is not running", name)
 	}
 
-	members := make(map[gen.PID]bool, app.group.Len())
-	pids := make([]gen.PID, 0, app.group.Len())
-	app.group.Range(func(pid gen.PID, _ bool) bool {
-		members[pid] = true
-		pids = append(pids, pid)
-		return true
-	})
-
-	limit = app.group.Len() + limit
-
-	n.processes.Range(func(_, v any) bool {
+	nextID := atomic.LoadUint64(&n.nextID)
+	pids := []gen.PID{}
+	pid := n.corePID
+	for id := startID; id != nextID+1; id++ {
+		pid.ID = id
+		v, found := n.processes.Load(pid)
+		if found == false {
+			continue
+		}
 		p := v.(*process)
 		if appName(p.application) != name {
-			return true // continue
-		}
-		if _, exist := members[p.pid]; exist {
-			return true // continue
+			continue
 		}
 		pids = append(pids, p.pid)
-
-		if len(pids) >= limit {
-			return false // stop
+		if limit > 0 && len(pids) >= limit {
+			break
 		}
-
-		return true
-	})
+	}
 
 	return pids, nil
 }
 
-func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error) {
+func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, int, error) {
 	if limit < 0 {
-		return nil, gen.ErrIncorrect
+		return nil, 0, gen.ErrIncorrect
 	}
 
 	if n.isRunning() == false {
-		return nil, gen.ErrNodeTerminated
+		return nil, 0, gen.ErrNodeTerminated
 	}
 
 	v, exist := n.applications.Load(name)
 	if exist == false {
-		return nil, gen.ErrApplicationUnknown
+		return nil, 0, gen.ErrApplicationUnknown
 	}
 	app := v.(*application)
 	if app.isRunning() == false {
-		return nil, fmt.Errorf("application %s is not running", name)
+		return nil, 0, fmt.Errorf("application %s is not running", name)
 	}
 
-	members := make(map[gen.PID]bool, app.group.Len())
-	psi := make([]gen.ProcessShortInfo, 0, app.group.Len())
+	if limit == 0 {
+		limit = 100
+	}
 
-	app.group.Range(func(pid gen.PID, _ bool) bool {
-		v, exist := n.processes.Load(pid)
-		if exist == false {
-			return true // continue
+	nextID := atomic.LoadUint64(&n.nextID)
+	psi := []gen.ProcessShortInfo{}
+	omitted := 0
+	pid := n.corePID
+	for id := startID; id != nextID+1; id++ {
+		pid.ID = id
+		v, found := n.processes.Load(pid)
+		if found == false {
+			continue
 		}
-		p, _ := v.(*process)
-		messagesMailbox := p.mailbox.Main.Len() +
-			p.mailbox.System.Len() +
-			p.mailbox.Urgent.Len() +
-			p.mailbox.Log.Len()
-
-		info := gen.ProcessShortInfo{
-			PID:             p.pid,
-			Name:            p.name,
-			Application:     appName(p.application),
-			Behavior:        p.sbehavior,
-			Kind:            p.kind,
-			MessagesIn:      atomic.LoadUint64(&p.messagesIn),
-			MessagesOut:     atomic.LoadUint64(&p.messagesOut),
-			MessagesMailbox: uint64(messagesMailbox),
-			MailboxLatency:  p.mailbox.Latency(),
-			RunningTime:     atomic.LoadUint64(&p.runningTime),
-			InitTime:        atomic.LoadUint64(&p.initTime),
-			Wakeups:         atomic.LoadUint64(&p.wakeups),
-			Uptime:          p.Uptime(),
-			State:           p.State(),
-			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
-			Parent:          p.parent,
-			Leader:          p.leader,
-			LogLevel:        p.log.Level(),
-		}
-		psi = append(psi, info)
-		members[p.pid] = true
-		return true
-	})
-
-	limit = app.group.Len() + limit
-	n.processes.Range(func(_, v any) bool {
 		p := v.(*process)
 		if appName(p.application) != name {
-			return true // continue
+			continue
 		}
-		if _, exist := members[p.pid]; exist {
-			return true // continue
+		if len(psi) >= limit {
+			omitted++
+			continue
 		}
 
 		messagesMailbox := p.mailbox.Main.Len() +
@@ -2167,13 +2133,9 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			LogLevel:        p.log.Level(),
 		}
 		psi = append(psi, info)
-		if len(psi) >= limit {
-			return false // stop
-		}
-		return true
-	})
+	}
 
-	return psi, nil
+	return psi, omitted, nil
 }
 
 func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {

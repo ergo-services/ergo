@@ -49,7 +49,7 @@ type nodeOverrides struct {
 	applicationLoad                 func(app gen.ApplicationBehavior, args ...any) (gen.Atom, error)
 	applicationInfo                 func(name gen.Atom) (gen.ApplicationInfo, error)
 	applicationProcessList          func(name gen.Atom, limit int) ([]gen.PID, error)
-	applicationProcessListShortInfo func(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error)
+	applicationProcessListShortInfo func(name gen.Atom, limit int) ([]gen.ProcessShortInfo, int, error)
 	applicationUnload               func(name gen.Atom) error
 	applicationStart                func(name gen.Atom, options gen.ApplicationOptions) error
 	applicationStartTemporary       func(name gen.Atom, options gen.ApplicationOptions) error
@@ -217,7 +217,7 @@ func (n *Node) OnApplicationProcessList(fn func(name gen.Atom, limit int) ([]gen
 	n.ov.applicationProcessList = fn
 }
 
-func (n *Node) OnApplicationProcessListShortInfo(fn func(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error)) {
+func (n *Node) OnApplicationProcessListShortInfo(fn func(name gen.Atom, limit int) ([]gen.ProcessShortInfo, int, error)) {
 	n.ov.applicationProcessListShortInfo = fn
 }
 
@@ -637,11 +637,11 @@ func (n *Node) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, erro
 	return nil, nil
 }
 
-func (n *Node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error) {
+func (n *Node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, int, error) {
 	if n.ov.applicationProcessListShortInfo != nil {
 		return n.ov.applicationProcessListShortInfo(name, limit)
 	}
-	return nil, nil
+	return nil, 0, nil
 }
 
 func (n *Node) ApplicationUnload(name gen.Atom) error {

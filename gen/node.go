@@ -103,6 +103,7 @@ type Node interface {
 
 	// ProcessListShortInfo returns a list of processes with essential information.
 	// The start and limit parameters filter by process ID range.
+	// A limit of 0 applies the default of 100; a negative limit returns ErrIncorrect.
 	// More efficient than ProcessList + ProcessInfo for each.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
@@ -148,18 +149,23 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states, ErrApplicationUnknown if not found.
 	ApplicationInfo(name Atom) (ApplicationInfo, error)
 
-	// ApplicationProcessList returns all processes belonging to the application.
-	// Includes all processes started by the application and its children (recursive).
+	// ApplicationProcessList returns PIDs of the application's processes, including
+	// those spawned by its members (recursive), in ascending id order.
+	// A limit of 0 returns all of them; a positive limit caps the result; a
+	// negative limit returns ErrIncorrect.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationProcessList(name Atom, limit int) ([]PID, error)
 
 	// ApplicationProcessListShortInfo returns process list with essential information.
-	// Includes all processes from application and its children.
+	// Includes all processes from application and its children, in ascending id order.
+	// A limit of 0 applies the default of 100; a negative limit returns ErrIncorrect.
+	// The second return value is the number of matching processes omitted because
+	// the limit was reached (0 means the whole list was returned).
 	// More efficient than ApplicationProcessList + ProcessInfo for each.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
-	ApplicationProcessListShortInfo(name Atom, limit int) ([]ProcessShortInfo, error)
+	ApplicationProcessListShortInfo(name Atom, limit int) ([]ProcessShortInfo, int, error)
 
 	// ApplicationUnload unloads an application from the node.
 	// Application must be stopped before unloading.

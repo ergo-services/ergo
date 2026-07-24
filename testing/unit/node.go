@@ -646,12 +646,12 @@ func (n *mockNode) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, 
 	n.unsupported("ApplicationProcessList")
 	return nil, nil
 }
-func (n *mockNode) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error) {
+func (n *mockNode) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, int, error) {
 	if n.ov.applicationProcessListShortInfo != nil {
 		return n.ov.applicationProcessListShortInfo(name, limit)
 	}
 	n.unsupported("ApplicationProcessListShortInfo")
-	return nil, nil
+	return nil, 0, nil
 }
 func (n *mockNode) ApplicationUnload(name gen.Atom) error {
 	if n.ov.applicationUnload != nil {

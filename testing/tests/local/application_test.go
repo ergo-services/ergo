@@ -164,6 +164,106 @@ func TestLocalApplicationBasic(t *testing.T) {
 	check.Equal(t, 2, len(nn.ApplicationsRunning()))
 }
 
+// TestLocalApplicationProcessListShortInfo: the process list is returned in
+// ascending id order (parent before child), and the second return value is the
+// number of application processes omitted when the result hits the limit (0 when
+// the whole tree fits). Regression for the app-tree truncation count.
+func TestLocalApplicationProcessListShortInfo(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n", stage.NodeOptions{
+		Applications: []gen.ApplicationBehavior{createAppBasic()},
+	})
+	nn := n.Native()
+
+	// start with the single named member, then grow the app: each "spawn" adds
+	// one process under test_app with a strictly higher id.
+	list, err := nn.ProcessList()
+	check.NoError(t, err)
+	check.Equal(t, 1, len(list))
+	root := list[0]
+	const extra = 4
+	for i := 0; i < extra; i++ {
+		if _, err := n.Call(root, "spawn"); err != nil {
+			t.Fatalf("spawn %d: %s", i, err)
+		}
+	}
+	total := 1 + extra
+
+	// whole tree fits: every process, ascending id order, nothing omitted
+	all, omitted, err := nn.ApplicationProcessListShortInfo("test_app", total)
+	check.NoError(t, err)
+	check.Equal(t, total, len(all))
+	check.Equal(t, 0, omitted)
+	for i, p := range all {
+		check.Equal(t, gen.Atom("test_app"), p.Application)
+		if i > 0 && all[i-1].PID.ID >= p.PID.ID {
+			t.Fatalf("not ascending id order at %d: %d >= %d", i, all[i-1].PID.ID, p.PID.ID)
+		}
+	}
+
+	// limit below total: exactly limit shown (the lowest ids), remainder omitted
+	const limit = 2
+	shown, omitted2, err := nn.ApplicationProcessListShortInfo("test_app", limit)
+	check.NoError(t, err)
+	check.Equal(t, limit, len(shown))
+	check.Equal(t, total-limit, omitted2)
+	for i := 0; i < limit; i++ {
+		check.Equal(t, all[i].PID, shown[i].PID)
+	}
+
+	// unknown application
+	_, _, err = nn.ApplicationProcessListShortInfo("no_such_app", 10)
+	check.ErrorIs(t, err, gen.ErrApplicationUnknown)
+}
+
+// TestLocalApplicationProcessList: the PID list is returned in ascending id order;
+// a limit of 0 returns every process, a positive limit caps to the lowest ids, a
+// negative limit is ErrIncorrect.
+func TestLocalApplicationProcessList(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n", stage.NodeOptions{
+		Applications: []gen.ApplicationBehavior{createAppBasic()},
+	})
+	nn := n.Native()
+
+	list, err := nn.ProcessList()
+	check.NoError(t, err)
+	check.Equal(t, 1, len(list))
+	root := list[0]
+	const extra = 4
+	for i := 0; i < extra; i++ {
+		if _, err := n.Call(root, "spawn"); err != nil {
+			t.Fatalf("spawn %d: %s", i, err)
+		}
+	}
+	total := 1 + extra
+
+	// limit 0 returns all, ascending id order
+	all, err := nn.ApplicationProcessList("test_app", 0)
+	check.NoError(t, err)
+	check.Equal(t, total, len(all))
+	for i := 1; i < len(all); i++ {
+		if all[i-1].ID >= all[i].ID {
+			t.Fatalf("not ascending id order at %d: %d >= %d", i, all[i-1].ID, all[i].ID)
+		}
+	}
+
+	// positive limit caps to the lowest ids
+	capped, err := nn.ApplicationProcessList("test_app", 2)
+	check.NoError(t, err)
+	check.Equal(t, 2, len(capped))
+	check.Equal(t, all[0], capped[0])
+	check.Equal(t, all[1], capped[1])
+
+	// negative limit
+	_, err = nn.ApplicationProcessList("test_app", -1)
+	check.ErrorIs(t, err, gen.ErrIncorrect)
+
+	// unknown application
+	_, err = nn.ApplicationProcessList("no_such_app", 0)
+	check.ErrorIs(t, err, gen.ErrApplicationUnknown)
+}
+
 // TestLocalApplicationMode: an application's mode governs the reason it terminates
 // with when its group members die.
 //   - Temporary: members dying never auto-stops; the app ends (always Normal) only
