@@ -1097,16 +1097,10 @@ func (n *node) NetworkStop() error {
 }
 
 func (n *node) Network() gen.Network {
-	if n.isRunning() == false {
-		return nil
-	}
 	return n.network
 }
 
 func (n *node) Cron() gen.Cron {
-	if n.isRunning() == false {
-		return nil
-	}
 	return n.cron
 }
 

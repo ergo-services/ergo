@@ -64,6 +64,11 @@ func (m *meta) handle() {
 
 	go func() {
 		var message *gen.MailboxMessage
+		defer func() {
+			if message != nil {
+				gen.ReleaseMailboxMessage(message)
+			}
+		}()
 
 		if lib.Recover() {
 			defer func() {

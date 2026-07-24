@@ -44,6 +44,10 @@ func (m *meta) SendPriority() gen.MessagePriority {
 }
 
 func (m *meta) SetSendPriority(priority gen.MessagePriority) error {
+	state := atomic.LoadInt32(&m.state)
+	if gen.MetaState(state) != gen.MetaStateRunning {
+		return gen.ErrNotAllowed
+	}
 	m.priority.Store(int32(priority))
 	return nil
 }

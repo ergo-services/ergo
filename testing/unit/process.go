@@ -982,6 +982,7 @@ func (s *unitSpanScope) record(errStr string) {
 	s.p.node.rec.Put(check.Span{
 		From:       s.p.pid,
 		Name:       s.name,
+		Point:      gen.TracingPointSpan,
 		Attributes: s.attrs,
 		Error:      errStr,
 	})

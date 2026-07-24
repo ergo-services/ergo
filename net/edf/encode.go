@@ -469,6 +469,7 @@ func encodeAny(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	}
 
 	if state.child != nil {
+		putPooledStateEncode(state.child)
 		state.child = nil
 	}
 	enc, err := getEncoder(value.Elem().Type(), state)

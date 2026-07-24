@@ -47,7 +47,7 @@ func (it *tracing) Init(args ...any) error {
 	}
 	it.kinds = args[2].(uint32)
 	it.points = args[3].(uint32)
-	it.messagePattern = args[4].(string)
+	it.messagePattern = strings.ToLower(args[4].(string))
 	it.messageExclude = args[5].(bool)
 	it.ring = make([]gen.TracingSpan, it.limit)
 	it.Log().Debug("tracing inspector started (limit: %d)", it.limit)
@@ -166,8 +166,8 @@ func (it *tracing) HandleSpan(span gen.TracingSpan) error {
 	}
 
 	if it.messagePattern != "" {
-		match := strings.Contains(span.Message, it.messagePattern) ||
-			strings.Contains(span.Error, it.messagePattern)
+		match := strings.Contains(strings.ToLower(span.Message), it.messagePattern) ||
+			strings.Contains(strings.ToLower(span.Error), it.messagePattern)
 		if it.messageExclude == true && match == true {
 			return nil
 		}

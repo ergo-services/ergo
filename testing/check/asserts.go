@@ -83,6 +83,14 @@ func (a *SpanAssert) From(p gen.PID) *SpanAssert {
 	a.Where(func(r Span) bool { return r.From == p })
 	return a
 }
+func (a *SpanAssert) Point(p gen.TracingPoint) *SpanAssert {
+	a.Where(func(r Span) bool { return r.Point == p })
+	return a
+}
+func (a *SpanAssert) OnNode(node gen.Atom) *SpanAssert {
+	a.Where(func(r Span) bool { return r.Node == node })
+	return a
+}
 func (a *SpanAssert) Named(name string) *SpanAssert {
 	a.Where(func(r Span) bool { return r.Name == name })
 	return a

@@ -202,3 +202,39 @@ func TestBusinessSpans(t *testing.T) {
 		n.ShouldSpan().Named("root").From(off).Since(mk).None().Assert()
 	})
 }
+
+// TestMessageSpanLifecycle: a locally-delivered traced message emits Sent,
+// Delivered and Processed points that all share the one transit SpanID (and
+// TraceID). Single-node counterpart of the cross-node preservation test in
+// tests/distributed.
+func TestMessageSpanLifecycle(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+	rcv := n.Spawn(factoryBizTracerOff, gen.ProcessOptions{})   // no sampler; ignores "ping"
+	snd := n.Spawn(factorySamplingSender, gen.ProcessOptions{}) // its send starts a trace
+	const wait = 2 * time.Second
+
+	mk := n.Mark()
+	n.Send(snd, sendCmd{To: rcv, Msg: "ping"})
+
+	sent, ok1 := n.ShouldSpan().Point(gen.TracingPointSent).From(snd).Since(mk).Within(wait).Capture()
+	delivered, ok2 := n.ShouldSpan().Point(gen.TracingPointDelivered).From(snd).Since(mk).Within(wait).Capture()
+	processed, ok3 := n.ShouldSpan().Point(gen.TracingPointProcessed).From(snd).Since(mk).Within(wait).Capture()
+	if ok1 == false || ok2 == false || ok3 == false {
+		t.Fatalf("missing lifecycle spans: sent=%t delivered=%t processed=%t", ok1, ok2, ok3)
+	}
+
+	if sent.SpanID == 0 {
+		t.Fatal("Sent span has a zero SpanID")
+	}
+	if sent.SpanID != delivered.SpanID || sent.SpanID != processed.SpanID {
+		t.Fatalf("lifecycle points must share one SpanID: sent=%d delivered=%d processed=%d",
+			sent.SpanID, delivered.SpanID, processed.SpanID)
+	}
+	if sent.TraceID != delivered.TraceID || sent.TraceID != processed.TraceID {
+		t.Error("lifecycle points must share the trace id")
+	}
+	if sent.ParentSpanID != 0 {
+		t.Errorf("a sampler-initiated send must root the transit span, parent=%d", sent.ParentSpanID)
+	}
+}

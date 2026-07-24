@@ -398,19 +398,22 @@ func (s *Stage) ConnectMesh(nodes ...*Node) {
 
 // spanRecorder records business spans (Point=Span) the node emits as check.Span,
 // so the shared ShouldSpan() grammar works against the live tracing pipeline. It
-// ignores point observations (Sent/Delivered/Processed/Spawn/Terminate) - those are
-// recorded on the routing surface as check.Send/Delivered/etc.
+// records every point (Sent/Delivered/Processed and business Span); the message
+// lifecycle points are also recorded on the routing surface as check.Send/Delivered,
+// but only the span carries the tracing identity (TraceID/SpanID), so ShouldSpan is
+// where cross-node span correlation is asserted.
 type spanRecorder struct {
 	rec *check.Recorder
 }
 
 func (s *spanRecorder) HandleSpan(span gen.TracingSpan) {
-	if span.Point != gen.TracingPointSpan {
-		return
-	}
 	s.rec.Put(check.Span{
 		From:         span.From,
+		To:           span.To,
 		Name:         span.Message,
+		Node:         span.Node,
+		Point:        span.Point,
+		TraceKind:    span.Kind,
 		TraceID:      span.TraceID,
 		SpanID:       span.SpanID,
 		ParentSpanID: span.ParentSpanID,

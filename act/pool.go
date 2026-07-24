@@ -417,4 +417,5 @@ func (p *Pool) forward(message *gen.MailboxMessage) {
 	}
 	p.Log().Error("no available worker process. ignored message from %s", message.From)
 	p.unhandled++
+	gen.ReleaseMailboxMessage(message)
 }

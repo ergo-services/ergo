@@ -66,3 +66,24 @@ func TestMetaSendResponseErrorUsesErrorRoute(t *testing.T) {
 	check.Equal(t, ref, gotRef)
 	check.ErrorIs(t, gotErr, gen.ErrProcessUnknown)
 }
+
+// SetSendPriority is Running-only per its godoc: it stores the priority while
+// running and returns ErrNotAllowed once terminated (leaving it unchanged).
+func TestMetaSetSendPriorityRunningOnly(t *testing.T) {
+	m := newTestMeta(mock.NewCore())
+
+	if err := m.SetSendPriority(gen.MessagePriorityHigh); err != nil {
+		t.Fatalf("running: %v", err)
+	}
+	if got := gen.MessagePriority(m.priority.Load()); got != gen.MessagePriorityHigh {
+		t.Fatalf("priority = %v, want High", got)
+	}
+
+	m.state = int32(gen.MetaStateTerminated)
+	if err := m.SetSendPriority(gen.MessagePriorityMax); err != gen.ErrNotAllowed {
+		t.Fatalf("terminated: expected ErrNotAllowed, got %v", err)
+	}
+	if got := gen.MessagePriority(m.priority.Load()); got != gen.MessagePriorityHigh {
+		t.Fatalf("priority mutated in terminated state: got %v", got)
+	}
+}

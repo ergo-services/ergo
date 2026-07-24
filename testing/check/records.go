@@ -390,7 +390,11 @@ func (r SendExitMeta) String() string {
 // trace (stage); the unit harness records the span on close and leaves them zero.
 type Span struct {
 	From         gen.PID
-	Name         string
+	To           any              // message target (message-lifecycle points); nil for business spans
+	Name         string           // operation (business span) or message type name (lifecycle points)
+	Node         gen.Atom         // node that emitted the span (stage); zero in unit
+	Point        gen.TracingPoint // Sent/Delivered/Processed/Span
+	TraceKind    gen.TracingKind  // Send/Call/Response/Spawn/Terminate; zero for business spans
 	TraceID      [2]uint64
 	SpanID       uint64
 	ParentSpanID uint64
@@ -402,7 +406,7 @@ type Span struct {
 
 func (Span) Kind() string { return "span" }
 func (r Span) String() string {
-	return fmt.Sprintf("Span(from=%s name=%s span=%d parent=%d err=%q)", r.From, r.Name, r.SpanID, r.ParentSpanID, r.Error)
+	return fmt.Sprintf("Span(from=%s point=%v node=%s name=%s span=%d parent=%d err=%q)", r.From, r.Point, r.Node, r.Name, r.SpanID, r.ParentSpanID, r.Error)
 }
 
 // Log is a log line emitted by a process (egress). Message is preformatted.
