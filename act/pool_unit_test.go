@@ -77,6 +77,10 @@ func TestPoolUnitInitSpawnsWorkers(t *testing.T) {
 func TestPoolUnitInitDefaultSize(t *testing.T) {
 	s, _ := unit.Spawn(t, factoryPlu, gen.ProcessOptions{}, poolOpts(0))
 	s.ShouldSpawn().AtLeast(1).Assert() // default size workers spawned
+	// the default must land in the stored options, not just a local copy
+	m, err := s.Inspect(gen.PID{})
+	check.NoError(t, err)
+	check.Equal(t, "3", m["pool_size"])
 }
 
 func TestPoolUnitInitPanic(t *testing.T) {
@@ -184,6 +188,24 @@ func TestPoolUnitForwardAllFullUnhandled(t *testing.T) {
 	s.SendMessage(gen.PID{}, "m")
 	m, err := s.Inspect(gen.PID{})
 	check.NoError(t, err)
+	check.Equal(t, "1", m["messages_unhandled"])
+}
+
+// a respawn that succeeds but whose forward then fails must not be counted as
+// forwarded; the message falls through to unhandled (previously the error was
+// ignored and forwarded++ ran anyway).
+func TestPoolUnitForwardRespawnForwardFails(t *testing.T) {
+	s, pids := spawnPool(t, 1)
+	s.OnForward(pids[0]).Fail(gen.ErrProcessTerminated) // first worker dead -> respawn
+	respawned := gen.PID{Node: "n@localhost", ID: 9999, Creation: 1}
+	s.OnSpawn(factoryRouteWorker).Return(respawned)        // respawn yields a known pid
+	s.OnForward(respawned).Fail(gen.ErrProcessMailboxFull) // forward to the fresh worker fails
+
+	s.SendMessage(gen.PID{}, "m")
+
+	m, err := s.Inspect(gen.PID{})
+	check.NoError(t, err)
+	check.Equal(t, "0", m["messages_forwarded"])
 	check.Equal(t, "1", m["messages_unhandled"])
 }
 

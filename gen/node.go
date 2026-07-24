@@ -83,7 +83,7 @@ type Node interface {
 	// UnregisterName removes the name association.
 	// Returns the PID that was associated with this name.
 	// Available in: Running state only.
-	// Returns ErrNodeTerminated in other states, ErrProcessUnknown if name not found.
+	// Returns ErrNodeTerminated in other states, ErrNameUnknown if name not found.
 	UnregisterName(name Atom) (PID, error)
 
 	// MetaInfo returns detailed information about the given meta process.

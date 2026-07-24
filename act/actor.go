@@ -76,8 +76,8 @@ func (a *Actor) ProcessKind() gen.ProcessKind {
 
 // SetTrapExit enables/disables the trap on exit requests sent by SendExit(...).
 // Enabled trap makes the actor ignore such requests transforming them into
-// regular messages (gen.MessageExitPID) except for the request from the parent
-// process with the reason gen.TerminateReasonShutdown.
+// regular messages (gen.MessageExitPID) except for a request from the parent
+// process, which always terminates the actor regardless of reason.
 // With disabled trap, actor gracefully terminates by invoking Terminate callback
 // with the given reason
 func (a *Actor) SetTrapExit(trap bool) {

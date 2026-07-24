@@ -542,7 +542,9 @@ func (a *application) info() gen.ApplicationInfo {
 	info.Description = a.spec.Description
 	info.Version = a.spec.Version
 	info.Depends = a.spec.Depends
-	info.Uptime = time.Now().Unix() - started
+	if started > 0 {
+		info.Uptime = time.Now().Unix() - started
+	}
 	info.Group = []gen.PID{}
 	a.group.Range(func(pid gen.PID, _ bool) bool {
 		info.Group = append(info.Group, pid)

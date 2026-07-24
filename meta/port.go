@@ -399,7 +399,7 @@ func (p *port) readStderr(to any) {
 		message := MessagePortError{
 			ID:    id,
 			Tag:   p.options.Tag,
-			Error: fmt.Errorf(txt),
+			Error: fmt.Errorf("%s", txt),
 		}
 		atomic.AddUint64(&p.bytesIn, uint64(len(txt)))
 		if err := p.Send(to, message); err != nil {

@@ -684,6 +684,9 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 	// one-shot inspect
 
 	case RequestDoInspect:
+		if r.PID == i.PID() {
+			return ResponseDoInspect{State: i.HandleInspect(i.PID())}, nil
+		}
 		state, err := i.Inspect(r.PID)
 		return ResponseDoInspect{State: state, Error: err}, nil
 

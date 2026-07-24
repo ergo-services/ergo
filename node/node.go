@@ -2351,6 +2351,7 @@ func (n *node) LoggerAddPID(pid gen.PID, name string, filter ...gen.LogLevel) er
 	logger := createProcessLogger(p.mailbox.Log, p.run)
 	if err := n.LoggerAdd(name, logger, filter...); err == nil {
 		p.loggername = name
+		p.loggerlevel = p.log.Level()
 		p.log.SetLevel(gen.LogLevelDisabled)
 	} else {
 		return err
@@ -2403,14 +2404,14 @@ func (n *node) LoggerDeletePID(pid gen.PID) {
 
 	p := value.(*process)
 	if p.loggername != "" {
-		n.LoggerDelete(p.loggername)
+		name := p.loggername
+		n.LoggerDelete(name)
 		p.loggername = ""
-		// TODO we should restore previous log level
-		p.log.SetLevel(gen.LogLevelInfo)
+		p.log.SetLevel(p.loggerlevel)
 		n.log.Trace(
 			"node.LoggerDeletePID removed process logger %s with name %q",
 			pid,
-			p.loggername,
+			name,
 		)
 	}
 }

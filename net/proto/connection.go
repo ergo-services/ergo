@@ -445,6 +445,9 @@ func (c *connection) applicationStart(name gen.Atom, mode gen.ApplicationMode, o
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, 0, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)

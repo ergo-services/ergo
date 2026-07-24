@@ -142,6 +142,30 @@ func TestPortHandleMessageReturnsWriteError(t *testing.T) {
 	}
 }
 
+// A stderr line must not be treated as a printf format string: a line with %
+// verbs is carried into MessagePortError.Error verbatim.
+func TestPortReadStderrErrorTextIsLiteral(t *testing.T) {
+	mp := mock.NewMeta()
+	var got error
+	mp.OnSend(func(to any, message any) error {
+		if m, ok := message.(MessagePortError); ok {
+			got = m.Error
+		}
+		return nil
+	})
+
+	line := "fatal: %s not found (100% cpu)"
+	p := &port{MetaProcess: mp, errout: io.NopCloser(strings.NewReader(line + "\n"))}
+	p.readStderr(gen.PID{})
+
+	if got == nil {
+		t.Fatal("expected a MessagePortError to be sent")
+	}
+	if got.Error() != line {
+		t.Fatalf("stderr text mangled as a format string: got %q, want %q", got.Error(), line)
+	}
+}
+
 // errWriteCloser fails every write, exercising the port write-error path.
 type errWriteCloser struct{ err error }
 

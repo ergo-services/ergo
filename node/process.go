@@ -72,7 +72,8 @@ type process struct {
 	log *log
 
 	// if act as a logger
-	loggername string
+	loggername  string
+	loggerlevel gen.LogLevel
 
 	// if act as a tracing exporter
 	tracingExporterName atomic.Pointer[string] // mutable from node-level setters

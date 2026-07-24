@@ -131,10 +131,10 @@ func (p *Pool) ProcessInit(process gen.Process, args ...any) (rr error) {
 	if err != nil {
 		return err
 	}
-	p.options = options
 	if options.PoolSize < 1 {
 		options.PoolSize = defaultPoolSize
 	}
+	p.options = options
 
 	p.pool = lib.NewQueueLimitMPSC(options.PoolSize*100, false)
 	wopt := gen.ProcessOptions{
@@ -401,10 +401,14 @@ func (p *Pool) forward(message *gen.MailboxMessage) {
 				p.Log().Error("unable to spawn new worker process: %s", err)
 				continue
 			}
-			p.Forward(pid, message, gen.MessagePriorityNormal)
-			p.pool.Push(pid)
-			p.forwarded++
 			p.restarts++
+			err = p.Forward(pid, message, gen.MessagePriorityNormal)
+			p.pool.Push(pid)
+			if err != nil {
+				p.Log().Error("unable to forward to the respawned worker %s: %s", pid, err)
+				continue
+			}
+			p.forwarded++
 			return
 		}
 

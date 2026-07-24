@@ -40,7 +40,7 @@ func (ic *connection) Init(args ...any) error {
 	ic.Log().Info("registered event %s", inspectNetwork)
 	ic.event = evname
 	ic.token = token
-	ic.SendAfter(ic.PID(), shutdown{}, inspectNetworkIdlePeriod)
+	ic.SendAfter(ic.PID(), shutdown{}, inspectConnectionIdlePeriod)
 
 	return nil
 }
@@ -76,7 +76,7 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 		if ev.Disconnected {
 			return gen.TerminateReasonNormal
 		}
-		ic.SendAfter(ic.PID(), generate{id: ic.loopID}, inspectNetworkPeriod)
+		ic.SendAfter(ic.PID(), generate{id: ic.loopID}, inspectConnectionPeriod)
 
 	case requestInspect:
 		response := ResponseInspectConnection{
@@ -113,7 +113,7 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 		ic.Log().Debug("no subscribers. stop generating")
 		if ic.generating {
 			ic.generating = false
-			ic.SendAfter(ic.PID(), shutdown{}, inspectNetworkIdlePeriod)
+			ic.SendAfter(ic.PID(), shutdown{}, inspectConnectionIdlePeriod)
 		}
 
 	default:
