@@ -1,6 +1,8 @@
 package gen
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -134,4 +136,42 @@ func TestSamplerRateLimitZero(t *testing.T) {
 	if s != TracingSamplerDisable {
 		t.Fatal("RateLimit(0) should return TracingSamplerDisable")
 	}
+}
+
+// TestSamplerRateLimitConcurrent: a concurrent burst that lands within a single
+// second must yield exactly perSecond samples - never more. Regression for the
+// refill/decrement race where a blind refill could refund concurrent takes and
+// let more than perSecond traces through in one second.
+func TestSamplerRateLimitConcurrent(t *testing.T) {
+	const perSecond = 100
+	for attempt := 0; attempt < 5; attempt++ {
+		s := TracingSamplerRateLimit(perSecond)
+		// align to just after a second boundary so the burst stays in one second
+		for time.Now().Nanosecond() > 100_000_000 {
+			time.Sleep(time.Millisecond)
+		}
+		startSec := time.Now().Unix()
+		var count int64
+		var wg sync.WaitGroup
+		for g := 0; g < 16; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < 2000; i++ {
+					if s.Sample() {
+						atomic.AddInt64(&count, 1)
+					}
+				}
+			}()
+		}
+		wg.Wait()
+		if time.Now().Unix() != startSec {
+			continue // the burst crossed a second boundary; retry
+		}
+		if count != perSecond {
+			t.Fatalf("concurrent burst in one second: got %d samples, want %d", count, perSecond)
+		}
+		return
+	}
+	t.Fatal("could not complete the burst within a single second after 5 attempts")
 }

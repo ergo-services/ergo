@@ -71,30 +71,38 @@ func TracingSamplerRateLimit(perSecond int) TracingSampler {
 	if perSecond <= 0 {
 		return TracingSamplerDisable
 	}
+	now := uint32(time.Now().Unix())
 	return &samplerRateLimit{
-		tokens:    int64(perSecond),
+		state:     int64(now)<<32 | int64(uint32(perSecond)),
 		max:       int64(perSecond),
-		lastTick:  time.Now().Unix(),
 		perSecond: perSecond,
 	}
 }
 
+// state packs the current second (high 32 bits) with the tokens left in it (low
+// 32 bits); Sample advances both in one CAS, so at most perSecond traces start per second.
 type samplerRateLimit struct {
-	tokens    int64
+	state     int64
 	max       int64
-	lastTick  int64
 	perSecond int
 }
 
 func (s *samplerRateLimit) Sample() bool {
-	now := time.Now().Unix()
-	last := atomic.LoadInt64(&s.lastTick)
-	if now > last {
-		if atomic.CompareAndSwapInt64(&s.lastTick, last, now) {
-			atomic.StoreInt64(&s.tokens, s.max)
+	now := uint32(time.Now().Unix())
+	for {
+		old := atomic.LoadInt64(&s.state)
+		tokens := s.max
+		if uint32(old>>32) == now {
+			tokens = int64(uint32(old))
+		}
+		if tokens <= 0 {
+			return false
+		}
+		newState := int64(now)<<32 | int64(uint32(tokens-1))
+		if atomic.CompareAndSwapInt64(&s.state, old, newState) {
+			return true
 		}
 	}
-	return atomic.AddInt64(&s.tokens, -1) >= 0
 }
 
 func (s *samplerRateLimit) String() string {

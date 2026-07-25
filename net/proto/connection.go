@@ -551,12 +551,6 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 		return gen.ErrProcessIncarnation
 	}
 
-	if options.ImportantDelivery {
-		if c.peer_flags.EnableImportantDelivery == false {
-			return gen.ErrUnsupported
-		}
-	}
-
 	order := uint8(from.ID%255 + 1)
 	orderPeer := uint8(to.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
@@ -569,14 +563,17 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 8)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
 	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
 	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
@@ -638,14 +635,17 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 	}
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
 	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
 	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
@@ -695,14 +695,17 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 24)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
 	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
 	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
@@ -767,14 +770,17 @@ func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message
 	}
 
 	if err := edf.Encode(message.Message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
 	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
 	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
@@ -809,6 +815,7 @@ func (c *connection) SendExit(from gen.PID, to gen.PID, reason error) error {
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
@@ -844,14 +851,17 @@ func (c *connection) SendResponse(from gen.PID, to gen.PID, options gen.MessageO
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 24)
 
 	if err := edf.Encode(response, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
 	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
 	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
@@ -908,6 +918,7 @@ func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.Mes
 	default:
 		buf.B[h+49] = 255
 		if e := edf.Encode(err, buf, c.encodeOptions); e != nil {
+			lib.ReleaseBuffer(buf)
 			return e
 		}
 	}
@@ -942,6 +953,7 @@ func (c *connection) SendTerminatePID(target gen.PID, reason error) error {
 	buf.Allocate(protoWrapReserve + 8 + 1 + 8)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
@@ -988,6 +1000,7 @@ func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) 
 	}
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
@@ -1014,6 +1027,7 @@ func (c *connection) SendTerminateAlias(target gen.Alias, reason error) error {
 	buf.Allocate(h + 8 + 1 + 24)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
@@ -1060,6 +1074,7 @@ func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
 	}
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
@@ -1098,9 +1113,11 @@ func (c *connection) CallPID(from gen.PID, to gen.PID, options gen.MessageOption
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 24 + 8)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
@@ -1163,10 +1180,12 @@ func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.M
 	}
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
 	if buf.Len()-h > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
@@ -1219,10 +1238,12 @@ func (c *connection) CallAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	buf.Allocate(h + 8 + 8 + 1 + 24 + 24)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
 	if buf.Len()-h > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
@@ -3665,6 +3686,7 @@ func (c *connection) sendAny(msg any, order uint8, orderPeer uint8, compression 
 		return err
 	}
 	if buf.Len()-h > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 	buf.B[h+0] = protoMagic
@@ -3704,6 +3726,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	msgStart := protoWrapReserve
 
 	if c.peer_maxmessagesize > 0 && buf.Len()-msgStart > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
@@ -3723,17 +3746,20 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 		case gen.CompressionTypeZLIB:
 			zbuf, err = lib.CompressZLIB(buf, preallocate)
 			if err != nil {
+				lib.ReleaseBuffer(buf)
 				return fmt.Errorf("unable to compress packet (zlib): %s", err)
 			}
 		case gen.CompressionTypeLZW:
 			zbuf, err = lib.CompressLZW(buf, preallocate)
 			if err != nil {
+				lib.ReleaseBuffer(buf)
 				return fmt.Errorf("unable to compress packet (lzw): %s", err)
 			}
 		default:
 			compression.Type = gen.CompressionTypeGZIP
 			zbuf, err = lib.CompressGZIP(buf, preallocate, int(compression.Level))
 			if err != nil {
+				lib.ReleaseBuffer(buf)
 				return fmt.Errorf("unable to compress packet (gzip): %s", err)
 			}
 
@@ -3780,6 +3806,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	l := len(c.pool)
 	if l == 0 {
 		c.pool_mutex.RUnlock()
+		lib.ReleaseBuffer(buf)
 		return gen.ErrNoConnection
 	}
 	if order == 0 {
