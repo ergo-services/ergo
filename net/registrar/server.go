@@ -33,7 +33,8 @@ func tryStartServer(port uint16, log gen.Log) *server {
 		// might be already taken. dont care
 		return nil
 	}
-	addressRes := fmt.Sprintf(":%d", port)
+	// UDP must match the TCP port the OS actually assigned (relevant when port is 0)
+	addressRes := fmt.Sprintf(":%d", lReg.Addr().(*net.TCPAddr).Port)
 	lRes, err := net.ListenPacket("udp", addressRes)
 	if err != nil {
 		// might be already taken. dont care
@@ -110,7 +111,7 @@ func (s *server) serveResolve() {
 			continue
 		}
 
-		v, _, err := edf.Decode(buf[4:], edf.Options{})
+		v, _, err := edf.Decode(buf[4:4+int(l)], edf.Options{})
 		if err != nil {
 			s.log.Error("(registrar) unable to decode message from %s: %s", addr, err)
 			continue
@@ -197,7 +198,7 @@ func (s *server) serveConn(conn net.Conn) {
 		return
 	}
 
-	v, _, err := edf.Decode(buf[4:], edf.Options{})
+	v, _, err := edf.Decode(buf[4:4+int(l)], edf.Options{})
 	if err != nil {
 		s.log.Error("(registrar) unable to decode message from %s: %s", conn.RemoteAddr(), err)
 		conn.Close()

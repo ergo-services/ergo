@@ -28,28 +28,18 @@ func (n *testNode) Stop()                                                      {
 func (n *testNode) StopWithTimeout(time.Duration)                              {}
 func (n *testNode) StopForce()                                                 {}
 
-func freePort(t *testing.T) uint16 {
-	t.Helper()
-	l, err := net.Listen("tcp", "localhost:0")
-	if err != nil {
-		t.Fatalf("reserve free port: %s", err)
-	}
-	defer l.Close()
-	return uint16(l.Addr().(*net.TCPAddr).Port)
-}
-
 // startOwner starts a registrar that owns the embedded server and has node1
 // registered locally. Returns the server port and the owner registrar.
 func startOwner(t *testing.T) (uint16, gen.Registrar) {
 	t.Helper()
-	port := freePort(t)
-	owner := Create(Options{Port: port})
+	owner := Create(Options{}).(*client)
+	owner.options.Port = 0
 	node := &testNode{name: "node1@localhost", log: mock.NewLog()}
 	if _, err := owner.Register(node, gen.RegisterRoutes{Routes: []gen.Route{{Host: "localhost", Port: 7001}}}); err != nil {
 		t.Fatalf("owner register: %s", err)
 	}
 	t.Cleanup(owner.Terminate)
-	return port, owner
+	return uint16(owner.server.lReg.Addr().(*net.TCPAddr).Port), owner
 }
 
 func TestRegistrarOwnerResolvesLocally(t *testing.T) {

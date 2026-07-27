@@ -1,6 +1,8 @@
 package node
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"ergo.services/ergo/gen"
@@ -17,6 +19,41 @@ func TestLoggerAddRejectsEmptyName(t *testing.T) {
 	n := &node{creation: 1}
 	err := n.LoggerAdd("", stubLogger{})
 	check.ErrorIs(t, err, gen.ErrIncorrect)
+}
+
+// Concurrent LoggerAdd of the same name must register exactly one logger: the
+// existence check and the store are serialized, so a second racing Add sees
+// ErrTaken instead of silently replacing (and leaking) the first.
+func TestLoggerAddConcurrentSameName(t *testing.T) {
+	n := &node{creation: 1, loggers: make(map[gen.LogLevel]*sync.Map)}
+	for _, lvl := range []gen.LogLevel{
+		gen.LogLevelSystem, gen.LogLevelTrace, gen.LogLevelDebug, gen.LogLevelInfo,
+		gen.LogLevelWarning, gen.LogLevelError, gen.LogLevelPanic,
+	} {
+		n.loggers[lvl] = &sync.Map{}
+	}
+	n.log = createLog(gen.LogLevelInfo, func(gen.MessageLog, string) {})
+
+	const goroutines = 50
+	var success int64
+	var start, done sync.WaitGroup
+	start.Add(1)
+	for i := 0; i < goroutines; i++ {
+		done.Add(1)
+		go func() {
+			defer done.Done()
+			start.Wait() // fire all at once to maximize the race window
+			if err := n.LoggerAdd("dup", stubLogger{}); err == nil {
+				atomic.AddInt64(&success, 1)
+			}
+		}()
+	}
+	start.Done()
+	done.Wait()
+
+	if success != 1 {
+		t.Fatalf("concurrent LoggerAdd of the same name: %d succeeded, want exactly 1", success)
+	}
 }
 
 // LoggerDeletePID restores the process's prior log level (captured at

@@ -130,7 +130,7 @@ func (c *client) Resolve(name gen.Atom) ([]gen.Route, error) {
 		c.node.Log().Error("malformed data in the registrar resolve reply (too long)")
 		return nil, gen.ErrMalformed
 	}
-	v, _, err := edf.Decode(dbuf[4:], edf.Options{})
+	v, _, err := edf.Decode(dbuf[4:4+l], edf.Options{})
 	if err != nil {
 		c.node.Log().Error("unable to decode resolve reply message from the registrar:", err)
 		return nil, err
@@ -357,7 +357,7 @@ func (c *client) tryRegister() (net.Conn, error) {
 		conn.Close()
 		return nil, gen.ErrMalformed
 	}
-	v, _, err := edf.Decode(dbuf[4:], edf.Options{})
+	v, _, err := edf.Decode(dbuf[4:4+l], edf.Options{})
 	if err != nil {
 		c.node.Log().Error("unable to decode reply message from the registrar:", err)
 		conn.Close()

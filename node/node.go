@@ -98,8 +98,9 @@ type node struct {
 
 	cron *cron
 
-	loggers map[gen.LogLevel]*sync.Map // level -> name -> gen.LoggerBehavior
-	log     *log
+	loggers   map[gen.LogLevel]*sync.Map // level -> name -> gen.LoggerBehavior
+	loggersMu sync.Mutex                 // serializes LoggerAdd/LoggerDelete registration
+	log       *log
 
 	tracingExporters sync.Map // name -> tracingExporterEntry
 	tracing          gen.Tracing
@@ -2334,6 +2335,9 @@ func (n *node) LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.L
 		filter = gen.DefaultLogFilter
 	}
 
+	n.loggersMu.Lock()
+	defer n.loggersMu.Unlock()
+
 	for _, l := range n.loggers {
 		if _, exist := l.Load(name); exist {
 			return gen.ErrTaken
@@ -2375,11 +2379,13 @@ func (n *node) LoggerDeletePID(pid gen.PID) {
 func (n *node) LoggerDelete(name string) {
 	var logger gen.LoggerBehavior
 
+	n.loggersMu.Lock()
 	for _, l := range n.loggers {
 		if v, exist := l.LoadAndDelete(name); exist {
 			logger = v.(gen.LoggerBehavior)
 		}
 	}
+	n.loggersMu.Unlock()
 	// call terminate
 	if logger != nil {
 		logger.Terminate()

@@ -140,6 +140,8 @@ type Network interface {
 	// RegisterType registers a Go type with every proto that implements TypeRegistry.
 	// Strict: returns error if any TypeRegistry-capable proto fails.
 	// Returns ErrUnsupported if no proto implements TypeRegistry.
+	// The EDF proto supports up to 65535 registered types (each gets a compact
+	// wire id); registering more returns an error.
 	RegisterType(v any) error
 
 	// RegisterTypes registers multiple types as a batch. Each proto resolves

@@ -127,7 +127,9 @@ func RegisterTypeOf(v any) error {
 			packet = packet[4+int(l):]
 			return value, packet, nil
 		}
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, fenc)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: fdec}
@@ -188,7 +190,9 @@ func RegisterTypeOf(v any) error {
 			packet = packet[4+int(l):]
 			return value, packet, nil
 		}
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, fenc)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: fdec}
@@ -218,7 +222,9 @@ func registerType(tov reflect.Type) error {
 
 	switch tov.Kind() {
 	case reflect.Bool:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeBool)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeBool}
@@ -230,7 +236,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Int:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeInt)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt}
@@ -242,7 +250,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Int8:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeInt8)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt8}
@@ -254,7 +264,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Int16:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeInt16)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt16}
@@ -266,7 +278,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Int32:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeInt32)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt32}
@@ -278,7 +292,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Int64:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeInt64)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt64}
@@ -290,7 +306,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Uint:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeUint)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint}
@@ -302,7 +320,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Uint8:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeUint8)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint8}
@@ -314,7 +334,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Uint16:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeUint16)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint16}
@@ -326,7 +348,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Uint32:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeUint32)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint32}
@@ -338,7 +362,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Uint64:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeUint64)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint64}
@@ -350,7 +376,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Float32:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeFloat32)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeFloat32}
@@ -362,7 +390,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.Float64:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeFloat64)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeFloat64}
@@ -374,7 +404,9 @@ func registerType(tov reflect.Type) error {
 		return nil
 
 	case reflect.String:
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, encodeString)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeString}
@@ -501,7 +533,9 @@ func registerType(tov reflect.Type) error {
 			}
 			return value, body, nil
 		}
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, fenc)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: fdec}
@@ -620,7 +654,9 @@ func registerType(tov reflect.Type) error {
 			}
 			return value, packet, nil
 		}
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		regEnc := regEncoder(name, fenc)
 		encoders.Store(tov, regEnc)
 		regDec := &decoder{Type: tov, Decode: fdec}
@@ -689,7 +725,9 @@ func registerType(tov reflect.Type) error {
 
 			return value, packet, nil
 		}
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		regEnc := regEncoder(name, fenc)
 		encoders.Store(tov, regEnc)
 		regDec := &decoder{Type: tov, Decode: fdec}
@@ -822,7 +860,9 @@ func registerType(tov reflect.Type) error {
 
 			return value, packet, nil
 		}
-		addRegCache(tov)
+		if err := addRegCache(tov); err != nil {
+			return err
+		}
 		enc := regEncoder(name, fenc)
 		encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: fdec}
@@ -970,6 +1010,9 @@ func regEncoder(name string, enc encodeFunc) *encoder {
 var regCacheID uint32 = 4095 // 0..4095 - reserved (used as a length)
 var regCache sync.Map
 
+// addRegCache assigns a 16-bit cache id to a registered type. Returns an error
+// if the id space is exhausted (more than MaxUint16 registered types) or the
+// type is already cached.
 func addRegCache(t reflect.Type) error {
 	id := atomic.AddUint32(&regCacheID, 1)
 	if id > math.MaxUint16 {
