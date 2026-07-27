@@ -31,7 +31,7 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 		return result, err
 	}
 
-	v, tail, err := h.readMessage(conn, nil)
+	v, tail, err := h.readMessage(conn, nil, handshakeMaxControlSize)
 	if err != nil {
 		return result, err
 	}
@@ -83,7 +83,7 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 	}
 
 	// waiting for Accept message
-	v, tail, err = h.readMessage(conn, tail)
+	v, tail, err = h.readMessage(conn, tail, handshakeMaxControlSize)
 	if err != nil {
 		return result, err
 	}
@@ -98,8 +98,13 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 		return result, fmt.Errorf("malformed handshake Accept message")
 	}
 
-	// waiting for Intro message
-	v, tail, err = h.readMessage(conn, tail)
+	// waiting for Intro message: it carries the full cache exchange, so allow the
+	// configurable handshake limit instead of the small control ceiling
+	maxIntro := options.HandshakeMaxMessageSize
+	if maxIntro <= 0 {
+		maxIntro = gen.DefaultHandshakeMaxMessageSize
+	}
+	v, tail, err = h.readMessage(conn, tail, maxIntro)
 	if err != nil {
 		return result, err
 	}

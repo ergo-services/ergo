@@ -32,6 +32,8 @@ type acceptor struct {
 	handshakeErrors   atomic.Uint64 // cumulative handshake failures
 	handshake_timeout time.Duration
 
+	handshake_max_message_size int
+
 	software_keepalive_misses int
 }
 

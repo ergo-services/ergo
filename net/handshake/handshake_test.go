@@ -1,6 +1,7 @@
 package handshake
 
 import (
+	"fmt"
 	"net"
 	"testing"
 
@@ -132,9 +133,39 @@ func TestReject(t *testing.T) {
 		a.Close()
 	}()
 
-	msg, _, err := h.readMessage(b, nil)
+	msg, _, err := h.readMessage(b, nil, handshakeMaxControlSize)
 	check.NoError(t, err)
 	rej, ok := msg.(MessageReject)
 	check.True(t, ok)
 	check.Equal(t, "denied", rej.Reason)
+}
+
+// TestHandshakeIntroduceOverUint16 guards #290: an Introduce whose cache exchange exceeds
+// the old 64KB (uint16) ceiling must still round-trip, since the writer frames the length
+// as uint32. The same frame read under the small control ceiling is still rejected.
+func TestHandshakeIntroduceOverUint16(t *testing.T) {
+	h := Create(Options{}).(*handshake)
+
+	// a RegCache large enough that the encoded Introduce exceeds 64KB
+	reg := make(map[uint16]string, 3000)
+	for i := 0; i < 3000; i++ {
+		reg[uint16(i)] = fmt.Sprintf("ergo.services/ergo/net/handshake/testtype/VeryLongTypeName_%05d", i)
+	}
+	intro := MessageIntroduce{Node: "big@localhost", RegCache: reg}
+
+	// round-trips when read under the configurable Introduce ceiling
+	a, b := net.Pipe()
+	go func() { h.writeMessage(a, intro); a.Close() }()
+	msg, _, err := h.readMessage(b, nil, gen.DefaultHandshakeMaxMessageSize)
+	check.NoError(t, err)
+	got, ok := msg.(MessageIntroduce)
+	check.True(t, ok)
+	check.Equal(t, len(reg), len(got.RegCache))
+
+	// the same frame is rejected under the small control ceiling
+	c, d := net.Pipe()
+	go func() { h.writeMessage(c, intro); c.Close() }()
+	_, _, err = h.readMessage(d, nil, handshakeMaxControlSize)
+	check.Error(t, err)
+	check.ErrorContains(t, err, "too long")
 }

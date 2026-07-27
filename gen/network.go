@@ -408,6 +408,13 @@ type NetworkOptions struct {
 	// or acceptor does not set its own. Zero uses DefaultHandshakeTimeout.
 	HandshakeTimeout time.Duration
 
+	// HandshakeMaxMessageSize is the node-wide upper bound (in bytes) on a single handshake
+	// message the node will accept, used when a route or acceptor does not set its own. The
+	// Introduce message carries the type-registry cache exchange and grows with the number of
+	// registered types, so this must exceed the largest expected Introduce. Zero uses
+	// DefaultHandshakeMaxMessageSize.
+	HandshakeMaxMessageSize int
+
 	// Acceptors configures listeners for incoming connections.
 	// Node can have multiple acceptors on different ports/interfaces.
 	// Empty means no acceptors (same as NetworkModeHidden).
@@ -797,6 +804,10 @@ type AcceptorOptions struct {
 	// HandshakeTimeout bounds the entire handshake for incoming connections on this acceptor.
 	// Zero inherits from NetworkOptions.HandshakeTimeout, then DefaultHandshakeTimeout.
 	HandshakeTimeout time.Duration
+
+	// HandshakeMaxMessageSize bounds a single handshake message accepted on this acceptor.
+	// Zero inherits from NetworkOptions.HandshakeMaxMessageSize, then DefaultHandshakeMaxMessageSize.
+	HandshakeMaxMessageSize int
 }
 
 // Handshake defines handshake interface
@@ -845,6 +856,11 @@ type HandshakeOptions struct {
 	// Communicated to peer during handshake so peer knows the limit.
 	// Peer will reject sending messages exceeding this size.
 	MaxMessageSize int
+
+	// HandshakeMaxMessageSize is the upper bound (in bytes) on a single handshake message
+	// this node will accept. Already resolved by the node layer (route/acceptor override,
+	// then node-wide, then DefaultHandshakeMaxMessageSize); zero falls back to the default.
+	HandshakeMaxMessageSize int
 
 	// CheckPending returns true if this node has a pending outgoing
 	// connect to the given peer. Used for simultaneous connect detection.
@@ -985,6 +1001,10 @@ type NetworkRoute struct {
 	// HandshakeTimeout bounds the entire handshake for this outgoing connection.
 	// Zero inherits from NetworkOptions.HandshakeTimeout, then DefaultHandshakeTimeout.
 	HandshakeTimeout time.Duration
+
+	// HandshakeMaxMessageSize bounds a single handshake message accepted on this outgoing connection.
+	// Zero inherits from NetworkOptions.HandshakeMaxMessageSize, then DefaultHandshakeMaxMessageSize.
+	HandshakeMaxMessageSize int
 }
 
 type NetworkProxyRoute struct {

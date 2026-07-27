@@ -52,10 +52,11 @@ type network struct {
 	handshakes sync.Map // .Version().String() -> handshake
 	protos     sync.Map // .Version().String() -> proto
 
-	cookie                  string
-	maxmessagesize          int
-	handshakeTimeoutDefault time.Duration
-	softwareKeepAliveMisses int
+	cookie                         string
+	maxmessagesize                 int
+	handshakeTimeoutDefault        time.Duration
+	handshakeMaxMessageSizeDefault int
+	softwareKeepAliveMisses        int
 	fragmentSize            int
 	fragmentTimeout         int
 	maxFragmentAssemblies   int
@@ -156,6 +157,16 @@ func (n *network) handshakeTimeout(v time.Duration) time.Duration {
 		return n.handshakeTimeoutDefault
 	}
 	return gen.DefaultHandshakeTimeout
+}
+
+func (n *network) handshakeMaxMessageSize(v int) int {
+	if v > 0 {
+		return v
+	}
+	if n.handshakeMaxMessageSizeDefault > 0 {
+		return n.handshakeMaxMessageSizeDefault
+	}
+	return gen.DefaultHandshakeMaxMessageSize
 }
 
 func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
@@ -1012,9 +1023,10 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	conn.SetDeadline(time.Now().Add(n.handshakeTimeout(route.HandshakeTimeout)))
 
 	hopts := gen.HandshakeOptions{
-		Cookie:         route.Cookie,
-		Flags:          route.Flags,
-		MaxMessageSize: n.maxmessagesize,
+		Cookie:                  route.Cookie,
+		Flags:                   route.Flags,
+		MaxMessageSize:          n.maxmessagesize,
+		HandshakeMaxMessageSize: n.handshakeMaxMessageSize(route.HandshakeMaxMessageSize),
 		CheckPending: func(peer gen.Atom) bool {
 			_, exists := n.pending.Load(peer)
 			return exists
@@ -1242,6 +1254,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 	n.cookie = options.Cookie
 	n.maxmessagesize = options.MaxMessageSize
 	n.handshakeTimeoutDefault = options.HandshakeTimeout
+	n.handshakeMaxMessageSizeDefault = options.HandshakeMaxMessageSize
 
 	if options.Flags.Enable == false {
 		options.Flags = gen.DefaultNetworkFlags
@@ -1477,7 +1490,8 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		maxHandshakes:     int32(a.MaxHandshakes),
 		handshake_timeout: a.HandshakeTimeout,
 
-		software_keepalive_misses: n.keepAliveMisses(a.SoftwareKeepAliveMisses),
+		handshake_max_message_size: a.HandshakeMaxMessageSize,
+		software_keepalive_misses:  n.keepAliveMisses(a.SoftwareKeepAliveMisses),
 	}
 	if a.Cookie == "" {
 		acceptor.cookie = n.cookie
@@ -1552,10 +1566,11 @@ func (n *network) accept(a *acceptor) {
 	}
 
 	hopts := gen.HandshakeOptions{
-		Cookie:         cookie,
-		Flags:          a.flags,
-		MaxMessageSize: a.max_message_size,
-		CertManager:    a.cert_manager,
+		Cookie:                  cookie,
+		Flags:                   a.flags,
+		MaxMessageSize:          a.max_message_size,
+		HandshakeMaxMessageSize: n.handshakeMaxMessageSize(a.handshake_max_message_size),
+		CertManager:             a.cert_manager,
 		CheckPending: func(peer gen.Atom) bool {
 			_, exists := n.pending.Load(peer)
 			return exists

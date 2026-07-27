@@ -15,6 +15,11 @@ const (
 	handshakeVersion byte = 1
 
 	defaultPoolSize int = 3
+
+	// handshakeMaxControlSize bounds a control message read (Hello, Join, Accept, Reject).
+	// These are small and fixed-shape; the ceiling also caps pre-auth buffering on the first
+	// (unauthenticated) read. The larger Introduce read uses the configurable node limit.
+	handshakeMaxControlSize int = 64 * 1024
 )
 
 type MessageHello struct {

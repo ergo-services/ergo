@@ -26,7 +26,7 @@ func (h *handshake) Join(node gen.NodeHandshake, conn net.Conn, id string, optio
 		return nil, err
 	}
 
-	v, tail, err := h.readMessage(conn, nil)
+	v, tail, err := h.readMessage(conn, nil, handshakeMaxControlSize)
 	if err != nil {
 		conn.Close()
 		return nil, err

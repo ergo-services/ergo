@@ -18,7 +18,7 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 	var salt string
 	result.HandshakeVersion = h.Version()
 
-	v, tail, err := h.readMessage(conn, nil)
+	v, tail, err := h.readMessage(conn, nil, handshakeMaxControlSize)
 	if err != nil {
 		return result, err
 	}
@@ -88,8 +88,13 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 		return result, fmt.Errorf("malformed handshake Hello/Join message")
 	}
 
-	// wait for the introduce message
-	v, tail, err = h.readMessage(conn, nil)
+	// wait for the introduce message: it carries the full cache exchange, so allow the
+	// configurable handshake limit instead of the small control ceiling
+	maxIntro := options.HandshakeMaxMessageSize
+	if maxIntro <= 0 {
+		maxIntro = gen.DefaultHandshakeMaxMessageSize
+	}
+	v, tail, err = h.readMessage(conn, nil, maxIntro)
 	if err != nil {
 		return result, err
 	}

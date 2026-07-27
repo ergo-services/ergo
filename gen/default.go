@@ -30,6 +30,7 @@ var (
 	DefaultApplicationStopTimeout  time.Duration = 15 * time.Second
 
 	DefaultHandshakeTimeout        time.Duration = 5 * time.Second
+	DefaultHandshakeMaxMessageSize int           = 256 * 1024
 	DefaultSoftwareKeepAliveMisses int           = 3
 	DefaultFragmentSize            int           = 65000
 	DefaultFragmentTimeout         time.Duration = 30 * time.Second

@@ -27,7 +27,6 @@ package handshake
 import (
 	"encoding/binary"
 	"fmt"
-	"math"
 	"net"
 	"sync"
 
@@ -114,7 +113,7 @@ func (h *handshake) writeMessage(conn net.Conn, message any) error {
 	return nil
 }
 
-func (h *handshake) readMessage(conn net.Conn, chunk []byte) (any, []byte, error) {
+func (h *handshake) readMessage(conn net.Conn, chunk []byte, maxlen int) (any, []byte, error) {
 	var b [4096]byte
 
 	expect := 6
@@ -137,7 +136,7 @@ func (h *handshake) readMessage(conn net.Conn, chunk []byte) (any, []byte, error
 		}
 
 		l := int(binary.BigEndian.Uint32(chunk[2:6]))
-		if l > math.MaxUint16 {
+		if l > maxlen {
 			return nil, nil, fmt.Errorf("too long handshake message")
 		}
 
