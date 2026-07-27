@@ -167,6 +167,8 @@ type ApplicationSpec struct {
 
 	// Env contains application-level environment variables.
 	// Inherited by all processes within the application.
+	// With the node env (merged at load) it forms the base of the effective
+	// environment reported by Application.Env()/EnvList().
 	Env map[Env]any
 
 	// Group lists the processes that belong to this application.
