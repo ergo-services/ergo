@@ -587,6 +587,23 @@ func (p *process) propagatingTrace() gen.Tracing {
 	return gen.Tracing{}
 }
 
+// messageOptions builds the base send options from process state; the caller sets Ref after.
+func (p *process) messageOptions(priority gen.MessagePriority, important, tracing bool) gen.MessageOptions {
+	options := gen.MessageOptions{
+		Priority:          priority,
+		Compression:       p.compression,
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: important,
+	}
+	if tracing {
+		options.Tracing = p.propagatingTrace()
+		if options.Tracing.ID != [2]uint64{} {
+			p.applyTracingAttrs(&options)
+		}
+	}
+	return options
+}
+
 func (p *process) CreateAlias() (gen.Alias, error) {
 	if p.isStateIR() == false {
 		return gen.Alias{}, gen.ErrNotAllowed
@@ -629,44 +646,43 @@ func (p *process) Aliases() []gen.Alias {
 }
 
 func (p *process) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	prev := p.priority.Load()
-	p.priority.Store(int32(priority))
-	err := p.Send(to, message)
-	p.priority.Store(prev)
-	return err
+	return p.sendTo(to, message, priority, p.important.Load())
 }
 
 func (p *process) Send(to any, message any) error {
-	switch t := to.(type) {
-	case gen.PID:
-		return p.SendPID(t, message)
-	case gen.ProcessID:
-		return p.SendProcessID(t, message)
-	case gen.Alias:
-		return p.SendAlias(t, message)
-	case gen.Atom:
-		return p.SendProcessID(gen.ProcessID{Name: t, Node: p.node.name}, message)
-	case string:
-		return p.SendProcessID(gen.ProcessID{Name: gen.Atom(t), Node: p.node.name}, message)
-	}
-
-	return gen.ErrUnsupported
+	return p.sendTo(to, message, gen.MessagePriority(p.priority.Load()), p.important.Load())
 }
 
 func (p *process) SendImportant(to any, message any) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
+	return p.sendTo(to, message, gen.MessagePriority(p.priority.Load()), true)
+}
 
-	prev := p.important.Load()
-	p.important.Store(true)
-	err := p.Send(to, message)
-	p.important.Store(prev)
+// sendTo dispatches an immediate send by target type with the given priority and important flag.
+func (p *process) sendTo(to any, message any, priority gen.MessagePriority, important bool) error {
+	switch t := to.(type) {
+	case gen.PID:
+		return p.sendPID(t, message, priority, important)
+	case gen.ProcessID:
+		return p.sendProcessID(t, message, priority, important)
+	case gen.Alias:
+		return p.sendAlias(t, message, priority, important)
+	case gen.Atom:
+		return p.sendProcessID(gen.ProcessID{Name: t, Node: p.node.name}, message, priority, important)
+	case string:
+		return p.sendProcessID(gen.ProcessID{Name: gen.Atom(t), Node: p.node.name}, message, priority, important)
+	}
 
-	return err
+	return gen.ErrUnsupported
 }
 
 func (p *process) SendPID(to gen.PID, message any) error {
+	return p.sendPID(to, message, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) sendPID(to gen.PID, message any, priority gen.MessagePriority, important bool) error {
 	// allow to send in Init, Running, Terminated states
 	if p.isStateIRT() == false {
 		return gen.ErrNotAllowed
@@ -675,16 +691,7 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		p.log.Trace("SendPID to %s", to)
 	}
 
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: p.important.Load(),
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
+	options := p.messageOptions(priority, important, true)
 
 	if options.ImportantDelivery {
 		ref := p.node.MakeRef()
@@ -717,6 +724,10 @@ func (p *process) SendPID(to gen.PID, message any) error {
 }
 
 func (p *process) SendProcessID(to gen.ProcessID, message any) error {
+	return p.sendProcessID(to, message, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) sendProcessID(to gen.ProcessID, message any, priority gen.MessagePriority, important bool) error {
 	if p.isStateIRT() == false {
 		return gen.ErrNotAllowed
 	}
@@ -725,16 +736,7 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 		p.log.Trace("SendProcessID to %s", to)
 	}
 
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: p.important.Load(),
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
+	options := p.messageOptions(priority, important, true)
 
 	if options.ImportantDelivery {
 		ref := p.node.MakeRef()
@@ -767,6 +769,10 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 }
 
 func (p *process) SendAlias(to gen.Alias, message any) error {
+	return p.sendAlias(to, message, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) sendAlias(to gen.Alias, message any, priority gen.MessagePriority, important bool) error {
 	if p.isStateIRT() == false {
 		return gen.ErrNotAllowed
 	}
@@ -775,16 +781,7 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 		p.log.Trace("SendAlias to %s", to)
 	}
 
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: p.important.Load(),
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
+	options := p.messageOptions(priority, important, true)
 
 	if options.ImportantDelivery {
 		ref := p.node.MakeRef()
@@ -835,28 +832,7 @@ func (p *process) sendHelper(to any, options gen.MessageOptions, message any) fu
 }
 
 func (p *process) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
-	if p.isStateIR() == false {
-		return nil, gen.ErrNotAllowed
-	}
-	// snapshot options at schedule time (fixed for this delayed send)
-	options := gen.MessageOptions{
-		Priority:         gen.MessagePriority(p.priority.Load()),
-		Compression:      p.compression,
-		KeepNetworkOrder: p.keeporder.Load(),
-		// ImportantDelivery: ignore on sending with delay
-	}
-	send := p.sendHelper(to, options, message)
-	if send == nil {
-		return nil, gen.ErrIncorrect
-	}
-	return time.AfterFunc(after, func() {
-		if lib.Verbose() {
-			p.log.Trace("SendAfter %s to %s", after, to)
-		}
-		if send() == nil {
-			atomic.AddUint64(&p.messagesOut, 1)
-		}
-	}).Stop, nil
+	return p.sendDeferred(to, message, gen.MessagePriority(p.priority.Load()), after, false)
 }
 
 func (p *process) SendWithPriorityAfter(
@@ -865,46 +841,35 @@ func (p *process) SendWithPriorityAfter(
 	priority gen.MessagePriority,
 	after time.Duration,
 ) (gen.CancelFunc, error) {
-	if p.isStateIR() == false {
-		return nil, gen.ErrNotAllowed
-	}
-	options := gen.MessageOptions{
-		Priority:         priority,
-		Compression:      p.compression,
-		KeepNetworkOrder: p.keeporder.Load(),
-		// ImportantDelivery: ignore on sending with delay
-	}
-	send := p.sendHelper(to, options, message)
-	if send == nil {
-		return nil, gen.ErrIncorrect
-	}
-	return time.AfterFunc(after, func() {
-		if lib.Verbose() {
-			p.log.Trace("SendWithPriorityAfter %s to %s with priority %s", after, to, priority)
-		}
-		if send() == nil {
-			atomic.AddUint64(&p.messagesOut, 1)
-		}
-	}).Stop, nil
+	return p.sendDeferred(to, message, priority, after, false)
 }
 
-func (p *process) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+// sendDeferred schedules a delayed send: once after d (repeat=false) or every d (repeat=true); no important/tracing.
+func (p *process) sendDeferred(to any, message any, priority gen.MessagePriority, d time.Duration, repeat bool) (gen.CancelFunc, error) {
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	if period <= 0 {
+	if repeat && d <= 0 {
 		return nil, gen.ErrIncorrect
 	}
-	// snapshot options once; every tick reuses the same priority/order/compression
-	options := gen.MessageOptions{
-		Priority:         gen.MessagePriority(p.priority.Load()),
-		Compression:      p.compression,
-		KeepNetworkOrder: p.keeporder.Load(),
-	}
+	// snapshot options once at schedule time; every tick reuses the same priority/order/compression
+	options := p.messageOptions(priority, false, false)
 	send := p.sendHelper(to, options, message)
 	if send == nil {
 		return nil, gen.ErrIncorrect
 	}
+
+	if repeat == false {
+		return time.AfterFunc(d, func() {
+			if lib.Verbose() {
+				p.log.Trace("send after %s to %s (priority %s)", d, to, priority)
+			}
+			if send() == nil {
+				atomic.AddUint64(&p.messagesOut, 1)
+			}
+		}).Stop, nil
+	}
+
 	var stopped atomic.Bool
 	var t *time.Timer
 	// arm far out first, then Reset, so the callback can't read t before it is set
@@ -914,20 +879,24 @@ func (p *process) SendEvery(to any, message any, period time.Duration) (gen.Canc
 			return
 		}
 		if lib.Verbose() {
-			p.log.Trace("SendEvery %s to %s", period, to)
+			p.log.Trace("send every %s to %s (priority %s)", d, to, priority)
 		}
 		if send() == nil {
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
 		if stopped.Load() == false {
-			t.Reset(period)
+			t.Reset(d)
 		}
 	})
-	t.Reset(period)
+	t.Reset(d)
 	return func() bool {
 		t.Stop()
 		return stopped.Swap(true) == false
 	}, nil
+}
+
+func (p *process) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+	return p.sendDeferred(to, message, gen.MessagePriority(p.priority.Load()), period, true)
 }
 
 func (p *process) SendWithPriorityEvery(
@@ -936,43 +905,7 @@ func (p *process) SendWithPriorityEvery(
 	priority gen.MessagePriority,
 	period time.Duration,
 ) (gen.CancelFunc, error) {
-	if p.isStateIR() == false {
-		return nil, gen.ErrNotAllowed
-	}
-	if period <= 0 {
-		return nil, gen.ErrIncorrect
-	}
-	options := gen.MessageOptions{
-		Priority:         priority,
-		Compression:      p.compression,
-		KeepNetworkOrder: p.keeporder.Load(),
-	}
-	send := p.sendHelper(to, options, message)
-	if send == nil {
-		return nil, gen.ErrIncorrect
-	}
-	var stopped atomic.Bool
-	var t *time.Timer
-	t = time.AfterFunc(time.Hour, func() {
-		if stopped.Load() || p.isAlive() == false {
-			t.Stop()
-			return
-		}
-		if lib.Verbose() {
-			p.log.Trace("SendWithPriorityEvery %s to %s with priority %s", period, to, priority)
-		}
-		if send() == nil {
-			atomic.AddUint64(&p.messagesOut, 1)
-		}
-		if stopped.Load() == false {
-			t.Reset(period)
-		}
-	})
-	t.Reset(period)
-	return func() bool {
-		t.Stop()
-		return stopped.Swap(true) == false
-	}, nil
+	return p.sendDeferred(to, message, priority, period, true)
 }
 
 func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
@@ -984,15 +917,7 @@ func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 		p.log.Trace("process SendEvent %s with token %s", name, token)
 	}
 
-	options := gen.MessageOptions{
-		Tracing:          p.propagatingTrace(),
-		Priority:         gen.MessagePriority(p.priority.Load()),
-		Compression:      p.compression,
-		KeepNetworkOrder: p.keeporder.Load(),
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
+	options := p.messageOptions(gen.MessagePriority(p.priority.Load()), false, true)
 
 	em := gen.MessageEvent{
 		Event:     gen.Event{Name: name, Node: p.node.name},
@@ -1166,74 +1091,35 @@ func (p *process) SendExitMetaAfter(alias gen.Alias, reason error, after time.Du
 }
 
 func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
-	if p.isStateIR() == false {
-		return gen.ErrNotAllowed
-	}
-	if lib.Verbose() {
-		p.log.Trace("SendResponse to %s with %s", to, ref)
-	}
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Ref:               ref,
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: p.important.Load(),
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
-	if err := p.core.RouteSendResponse(p.pid, to, options, message); err != nil {
-		return err
-	}
-	atomic.AddUint64(&p.messagesOut, 1)
-
-	if p.important.Load() == false {
-		return nil
-	}
-	ackRef := gen.Ref{
-		Node:     p.node.Name(),
-		Creation: p.node.Creation(),
-		ID:       options.Ref.ID,
-	}
-	_, err := p.waitResponse(ackRef, gen.DefaultRequestTimeout)
-	return err
+	return p.sendResponse(to, ref, message, p.important.Load())
 }
 
 func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) error {
+	return p.sendResponse(to, ref, message, true)
+}
+
+func (p *process) sendResponse(to gen.PID, ref gen.Ref, message any, important bool) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Verbose() {
-		p.log.Trace("SendResponseImportant to %s with %s", to, ref)
+		p.log.Trace("send response to %s with %s", to, ref)
 	}
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Ref:               ref,
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: true,
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
+	options := p.messageOptions(gen.MessagePriority(p.priority.Load()), important, true)
+	options.Ref = ref
 	if err := p.core.RouteSendResponse(p.pid, to, options, message); err != nil {
 		return err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 
-	// The caller-supplied ref may carry a remote node prefix when this
-	// SendResponseImportant is fired from a HandleCall responding to a
-	// cross-node Call (or further indirected via a wrapped ref that
-	// crossed multiple nodes). The peer's auto-ack travels back with
-	// just the IDs; protoMessageResponseError at our side reconstructs
-	// the incoming ref with c.core.Name(), i.e. our local node prefix,
-	// before delivering it to waitResponse. To make the ack match what
-	// we wait for, build a local-prefix view of the same IDs solely
-	// for the waitResponse call. The caller's ref struct stays
-	// immutable and unchanged on the wire (correlation at the peer
-	// side relies only on IDs).
+	if important == false {
+		return nil
+	}
+	// The caller-supplied ref may carry a remote node prefix when responding to a
+	// cross-node Call (or a ref wrapped across several nodes). The peer's auto-ack
+	// travels back with just the IDs; our side reconstructs the incoming ref with the
+	// local node prefix before delivering it to waitResponse. So wait on a local-prefix
+	// view of the same IDs; the caller's ref stays unchanged on the wire.
 	ackRef := gen.Ref{
 		Node:     p.node.Name(),
 		Creation: p.node.Creation(),
@@ -1244,31 +1130,31 @@ func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) er
 }
 
 func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
+	return p.sendResponseError(to, ref, err, p.important.Load())
+}
+
+func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
+	return p.sendResponseError(to, ref, err, true)
+}
+
+func (p *process) sendResponseError(to gen.PID, ref gen.Ref, e error, important bool) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
 	if lib.Verbose() {
-		p.log.Trace("SendResponseError to %s with %s", to, ref)
+		p.log.Trace("send response error to %s with %s", to, ref)
 	}
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Ref:               ref,
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: p.important.Load(),
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
-	if routeErr := p.core.RouteSendResponseError(p.pid, to, options, err); routeErr != nil {
+	options := p.messageOptions(gen.MessagePriority(p.priority.Load()), important, true)
+	options.Ref = ref
+	if routeErr := p.core.RouteSendResponseError(p.pid, to, options, e); routeErr != nil {
 		return routeErr
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 
-	if p.important.Load() == false {
+	if important == false {
 		return nil
 	}
+	// See sendResponse for the ack-ref reconstruction rationale.
 	ackRef := gen.Ref{
 		Node:     p.node.Name(),
 		Creation: p.node.Creation(),
@@ -1278,79 +1164,42 @@ func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	return ackErr
 }
 
-func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
-	if p.isStateIR() == false {
-		return gen.ErrNotAllowed
-	}
-	if lib.Verbose() {
-		p.log.Trace("SendResponseErrorImportant to %s with %s", to, ref)
-	}
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Ref:               ref,
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: true,
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
-	if err := p.core.RouteSendResponseError(p.pid, to, options, err); err != nil {
-		return err
-	}
-	atomic.AddUint64(&p.messagesOut, 1)
-
-	// See SendResponseImportant for the rationale: ack reconstruction
-	// at our side uses local prefix, so we wait on a local-prefix view
-	// of the same IDs while keeping the caller-supplied ref unchanged
-	// on the wire.
-	ackRef := gen.Ref{
-		Node:     p.node.Name(),
-		Creation: p.node.Creation(),
-		ID:       options.Ref.ID,
-	}
-	_, err = p.waitResponse(ackRef, gen.DefaultRequestTimeout)
-	return err
-}
-
 func (p *process) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
-	prev := p.priority.Load()
-	p.priority.Store(int32(priority))
-	value, err := p.CallWithTimeout(to, request, gen.DefaultRequestTimeout)
-	p.priority.Store(prev)
-	return value, err
+	return p.callTo(to, request, gen.DefaultRequestTimeout, priority, p.important.Load())
 }
 
 func (p *process) CallImportant(to any, request any) (any, error) {
-	prev := p.important.Load()
-	p.important.Store(true)
-	result, err := p.CallWithTimeout(to, request, gen.DefaultRequestTimeout)
-	p.important.Store(prev)
-
-	return result, err
+	return p.callTo(to, request, gen.DefaultRequestTimeout, gen.MessagePriority(p.priority.Load()), true)
 }
 
 func (p *process) Call(to any, request any) (any, error) {
 	return p.CallWithTimeout(to, request, gen.DefaultRequestTimeout)
 }
 func (p *process) CallWithTimeout(to any, request any, timeout int) (any, error) {
+	return p.callTo(to, request, timeout, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+// callTo dispatches a synchronous call by target type with the given priority and important flag.
+func (p *process) callTo(to any, request any, timeout int, priority gen.MessagePriority, important bool) (any, error) {
 	switch t := to.(type) {
 	case gen.Atom:
-		return p.CallProcessID(gen.ProcessID{Name: t, Node: p.node.name}, request, timeout)
+		return p.callProcessID(gen.ProcessID{Name: t, Node: p.node.name}, request, timeout, priority, important)
 	case gen.PID:
-		return p.CallPID(t, request, timeout)
+		return p.callPID(t, request, timeout, priority, important)
 	case gen.ProcessID:
-		return p.CallProcessID(t, request, timeout)
+		return p.callProcessID(t, request, timeout, priority, important)
 	case gen.Alias:
-		return p.CallAlias(t, request, timeout)
+		return p.callAlias(t, request, timeout, priority, important)
 	}
 
 	return nil, gen.ErrUnsupported
-
 }
 
 func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
+	return p.callPID(to, message, timeout, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) callPID(to gen.PID, message any, timeout int, priority gen.MessagePriority, important bool) (any, error) {
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
@@ -1368,17 +1217,8 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 		return nil, err
 	}
 
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Ref:               ref,
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: p.important.Load(),
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
+	options := p.messageOptions(priority, important, true)
+	options.Ref = ref
 
 	if lib.Verbose() {
 		p.log.Trace("CallPID to %s with %s", to, options.Ref)
@@ -1393,6 +1233,10 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 }
 
 func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any, error) {
+	return p.callProcessID(to, message, timeout, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) callProcessID(to gen.ProcessID, message any, timeout int, priority gen.MessagePriority, important bool) (any, error) {
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
@@ -1407,17 +1251,9 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 		return nil, err
 	}
 
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Ref:               ref,
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: p.important.Load(),
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
+	options := p.messageOptions(priority, important, true)
+	options.Ref = ref
+
 	if lib.Verbose() {
 		p.log.Trace("CallProcessID %s with %s", to, options.Ref)
 	}
@@ -1429,6 +1265,10 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 }
 
 func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error) {
+	return p.callAlias(to, message, timeout, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) callAlias(to gen.Alias, message any, timeout int, priority gen.MessagePriority, important bool) (any, error) {
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
@@ -1443,17 +1283,8 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 		return nil, err
 	}
 
-	options := gen.MessageOptions{
-		Tracing:           p.propagatingTrace(),
-		Ref:               ref,
-		Priority:          gen.MessagePriority(p.priority.Load()),
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder.Load(),
-		ImportantDelivery: p.important.Load(),
-	}
-	if options.Tracing.ID != [2]uint64{} {
-		p.applyTracingAttrs(&options)
-	}
+	options := p.messageOptions(priority, important, true)
+	options.Ref = ref
 
 	if lib.Verbose() {
 		p.log.Trace("CallAlias %s with %s", to, options.Ref)
