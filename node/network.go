@@ -1773,14 +1773,13 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 	}
 }
 
-// registerConnection sets the routing index by peer name. Dedup is handled by
-// connectionsByID; this just points routing at the owner (overwrites a stale
-// entry from a previous incarnation).
 func (n *network) registerConnection(name gen.Atom, conn gen.Connection) {
-	n.connections.Store(name, conn)
-	n.connectionsEstablished.Add(1)
+	_, loaded := n.connections.Swap(name, conn)
 	n.node.log.Info("new connection with %s (%s)", name, name.CRC32())
-	n.node.RouteNodeUp(name)
+	if loaded == false {
+		n.connectionsEstablished.Add(1)
+		n.node.RouteNodeUp(name)
+	}
 }
 
 func (n *network) unregisterConnection(name gen.Atom, conn gen.Connection, connID string, reason error) {
@@ -1788,17 +1787,13 @@ func (n *network) unregisterConnection(name gen.Atom, conn gen.Connection, connI
 	n.connectionsByID.CompareAndDelete(connID, conn) // keep a winner that took over this connID
 	routed := n.connections.CompareAndDelete(name, conn)
 	n.mergeMu.Unlock()
-	n.connectionsLost.Add(1)
 	if reason != nil {
 		n.node.log.Info("connection with %s (%s) terminated with reason: %s", name, name.CRC32(), reason)
 	} else {
 		n.node.log.Info("connection with %s (%s) terminated", name, name.CRC32())
 	}
-	// only signal node-down if this connection still owned the routing entry. A newer
-	// incarnation or a simultaneous-connect takeover that already re-registered the name
-	// keeps its RouteNodeUp; a stale connection must not tear down the live one's
-	// monitors/links by name.
 	if routed {
+		n.connectionsLost.Add(1)
 		n.node.RouteNodeDown(name, reason)
 	}
 }
