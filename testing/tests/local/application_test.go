@@ -355,3 +355,53 @@ func TestLocalApplicationMode(t *testing.T) {
 		}
 	})
 }
+
+// TestLocalApplicationEnvEffective: Application.Env()/EnvList() (seen here via
+// ApplicationInfo.Env) report the effective environment - node core env +
+// ApplicationSpec.Env + per-start ApplicationOptions.Env while running, and only
+// ApplicationSpec.Env while not running. The per-start layer is replaced, not
+// accumulated, across starts. Regression for #250.
+func TestLocalApplicationEnvEffective(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n", stage.NodeOptions{
+		Env:      map[gen.Env]any{"NODE": "core"},
+		Security: gen.SecurityOptions{ExposeEnvInfo: true},
+	})
+	nn := n.Native()
+
+	appName, err := nn.ApplicationLoad(createAppBasic())
+	check.NoError(t, err)
+
+	// loaded, not started: node env is merged into the spec at load, but the
+	// per-start layer is not applied yet
+	info, err := nn.ApplicationInfo(appName)
+	check.NoError(t, err)
+	check.Equal(t, "core", info.Env["NODE"]) // node env (merged at load)
+	check.Equal(t, 12345, info.Env["TEST"])  // spec env
+	_, hasOpt := info.Env["OPT"]
+	check.Equal(t, false, hasOpt)
+
+	// started: effective env now also carries the per-start env
+	check.NoError(t, nn.ApplicationStart(appName, gen.ApplicationOptions{Env: map[gen.Env]any{"OPT": "a"}}))
+	info, err = nn.ApplicationInfo(appName)
+	check.NoError(t, err)
+	check.Equal(t, "core", info.Env["NODE"])
+	check.Equal(t, 12345, info.Env["TEST"])
+	check.Equal(t, "a", info.Env["OPT"]) // per-start env (the #250 fix)
+
+	// stopped: the per-start layer is gone
+	check.NoError(t, nn.ApplicationStop(appName))
+	info, err = nn.ApplicationInfo(appName)
+	check.NoError(t, err)
+	check.Equal(t, 12345, info.Env["TEST"])
+	_, hasOpt = info.Env["OPT"]
+	check.Equal(t, false, hasOpt)
+
+	// restarted with a different per-start env: no overlap with the previous start
+	check.NoError(t, nn.ApplicationStart(appName, gen.ApplicationOptions{Env: map[gen.Env]any{"OPT2": "b"}}))
+	info, err = nn.ApplicationInfo(appName)
+	check.NoError(t, err)
+	check.Equal(t, "b", info.Env["OPT2"])
+	_, hasOpt = info.Env["OPT"]
+	check.Equal(t, false, hasOpt)
+}

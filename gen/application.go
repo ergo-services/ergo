@@ -62,7 +62,12 @@ type Application interface {
 	Node() Node
 	Log() Log
 
+	// Env returns a value from the application's effective environment. While the
+	// application is running this is the node core env, ApplicationSpec.Env, and the
+	// per-start ApplicationOptions.Env merged in that order (later layers win); while
+	// not running it is ApplicationSpec.Env.
 	Env(key Env) (any, bool)
+	// EnvList returns a copy of the application's effective environment (see Env).
 	EnvList() map[Env]any
 
 	Tags() []Atom
@@ -113,6 +118,10 @@ type ApplicationBehavior interface {
 }
 
 type ApplicationOptions struct {
+	// Env is a per-start set of environment variables merged on top of the node core
+	// env and ApplicationSpec.Env for this start. Inherited by the application's
+	// processes and reflected by Application.Env()/EnvList() while running. Each start
+	// supplies its own Env; values do not carry over between starts.
 	Env      map[Env]any
 	LogLevel LogLevel
 
@@ -269,7 +278,7 @@ type ApplicationInfo struct {
 	// Version specifies the application version.
 	Version Version
 
-	// Env contains application-level environment variables.
+	// Env is the application's effective environment (see Application.Env).
 	// Only populated if NodeOptions.Security.ExposeEnvInfo is enabled.
 	Env map[Env]any
 

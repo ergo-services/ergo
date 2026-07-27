@@ -23,6 +23,9 @@ type application struct {
 	stopped chan struct{}
 	reason  error
 
+	// effective env (CoreEnv + spec.Env + per-start Env), replaced each start; nil when not running
+	env atomic.Pointer[map[gen.Env]any]
+
 	log *log
 
 	// dynamic fields, mutex-protected. Mutators push updates to the registrar.
@@ -47,13 +50,21 @@ func (a *application) State() gen.ApplicationState {
 }
 
 func (a *application) Env(key gen.Env) (any, bool) {
-	v, ok := a.spec.Env[key]
+	env := a.spec.Env
+	if p := a.env.Load(); p != nil {
+		env = *p
+	}
+	v, ok := env[key]
 	return v, ok
 }
 
 func (a *application) EnvList() map[gen.Env]any {
-	out := make(map[gen.Env]any, len(a.spec.Env))
-	for k, v := range a.spec.Env {
+	env := a.spec.Env
+	if p := a.env.Load(); p != nil {
+		env = *p
+	}
+	out := make(map[gen.Env]any, len(env))
+	for k, v := range env {
 		out[k] = v
 	}
 	return out
@@ -252,6 +263,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 	for k, v := range options.Env {
 		appEnv[k] = v
 	}
+	a.env.Store(&appEnv)
 
 	initTimeout := pickAppTimeout(a.spec.InitTimeout, options.InitTimeout, gen.DefaultApplicationInitTimeout)
 	if err := a.runInitCallback(mode, initTimeout); err != nil {
@@ -332,6 +344,7 @@ func (a *application) spawnFailCleanup(reason error) {
 		a.started = 0
 		a.parent = ""
 		a.mu.Unlock()
+		a.env.Store(nil)
 		close(stoppedCh)
 		a.runTerminateCallback(reason)
 		if a.node.Network().Mode() == gen.NetworkModeEnabled {
@@ -493,6 +506,7 @@ func (a *application) finalizeStop() {
 	a.parent = ""
 	a.reason = nil
 	a.mu.Unlock()
+	a.env.Store(nil)
 
 	if stoppedCh != nil {
 		close(stoppedCh)
@@ -553,7 +567,11 @@ func (a *application) info() gen.ApplicationInfo {
 
 	info.Env = make(map[gen.Env]any)
 	if a.node.security.ExposeEnvInfo {
-		for k, v := range a.spec.Env {
+		env := a.spec.Env
+		if p := a.env.Load(); p != nil {
+			env = *p
+		}
+		for k, v := range env {
 			info.Env[k] = v
 		}
 	}
