@@ -124,6 +124,7 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	err := ctx.Err()
 	switch err {
 	case context.Canceled:
+		rw.commitHeader()
 		return
 	case context.DeadlineExceeded:
 		w.Log().Error("handling HTTP-request timed out")
@@ -143,8 +144,10 @@ const (
 // webResponseWriter grants the underlying writer to a single owner: the worker or the deadline 504.
 type webResponseWriter struct {
 	http.ResponseWriter
-	ctx   context.Context
-	state atomic.Int32
+	ctx             context.Context
+	state           atomic.Int32
+	header          http.Header
+	headerCommitted bool
 }
 
 // claim grants the worker the sole right to write to the underlying writer.
@@ -165,10 +168,31 @@ func (w *webResponseWriter) timeout() {
 	}
 }
 
+// Header returns the worker's private header map, applied to the underlying writer on the first write.
+func (w *webResponseWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+	return w.header
+}
+
+// commitHeader applies the worker's headers to the underlying writer once, before its first write.
+func (w *webResponseWriter) commitHeader() {
+	if w.headerCommitted {
+		return
+	}
+	w.headerCommitted = true
+	dst := w.ResponseWriter.Header()
+	for k, vv := range w.header {
+		dst[k] = vv
+	}
+}
+
 func (w *webResponseWriter) WriteHeader(status int) {
 	if w.claim() == false {
 		return
 	}
+	w.commitHeader()
 	w.ResponseWriter.WriteHeader(status)
 }
 
@@ -176,6 +200,7 @@ func (w *webResponseWriter) Write(b []byte) (int, error) {
 	if w.claim() == false {
 		return 0, w.ctx.Err()
 	}
+	w.commitHeader()
 	return w.ResponseWriter.Write(b)
 }
 
