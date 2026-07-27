@@ -57,9 +57,9 @@ type network struct {
 	handshakeTimeoutDefault        time.Duration
 	handshakeMaxMessageSizeDefault int
 	softwareKeepAliveMisses        int
-	fragmentSize            int
-	fragmentTimeout         int
-	maxFragmentAssemblies   int
+	fragmentSize                   int
+	fragmentTimeout                int
+	maxFragmentAssemblies          int
 
 	staticRoutes  *staticRoutes
 	staticProxies *staticProxies
