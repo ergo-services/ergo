@@ -1136,7 +1136,6 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		// our outgoing is the canonical winner but a provisional (losing direction)
 		// registered first: take over, replace it, then drop it
 		n.connectionsByID.Store(result.ConnectionID, pconn)
-		n.registerConnection(result.Peer, pconn)
 		if jerr := pconn.Join(conn, result.ConnectionID, primaryDial, result.Tail); jerr != nil {
 			n.connectionsByID.CompareAndDelete(result.ConnectionID, pconn)
 			n.mergeMu.Unlock()
@@ -1144,13 +1143,13 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 			conn.Close()
 			return nil, jerr
 		}
+		n.registerConnection(result.Peer, pconn)
 		n.mergeMu.Unlock()
 		go n.serve(proto, pconn, redial, result.ConnectionID)
 		oc.Terminate(nil) // drop the provisional loser
 		return pconn, nil
 	}
 
-	n.registerConnection(result.Peer, pconn)
 	if jerr := pconn.Join(conn, result.ConnectionID, primaryDial, result.Tail); jerr != nil {
 		n.connectionsByID.CompareAndDelete(result.ConnectionID, pconn)
 		n.mergeMu.Unlock()
@@ -1158,6 +1157,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		conn.Close()
 		return nil, jerr
 	}
+	n.registerConnection(result.Peer, pconn)
 	n.mergeMu.Unlock()
 	go n.serve(proto, pconn, redial, result.ConnectionID)
 	return pconn, nil
