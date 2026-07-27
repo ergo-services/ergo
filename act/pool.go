@@ -136,7 +136,7 @@ func (p *Pool) ProcessInit(process gen.Process, args ...any) (rr error) {
 	}
 	p.options = options
 
-	p.pool = lib.NewQueueLimitMPSC(options.PoolSize*100)
+	p.pool = lib.NewQueueLimitMPSC(options.PoolSize * 100)
 	wopt := gen.ProcessOptions{
 		MailboxSize: options.WorkerMailboxSize,
 		LinkParent:  true,

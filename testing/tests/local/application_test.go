@@ -415,9 +415,15 @@ func TestLocalApplicationStartModeDependencies(t *testing.T) {
 		name  string
 		start func(gen.Node, gen.Atom) error
 	}{
-		{"permanent", func(nd gen.Node, name gen.Atom) error { return nd.ApplicationStartPermanent(name, gen.ApplicationOptions{}) }},
-		{"transient", func(nd gen.Node, name gen.Atom) error { return nd.ApplicationStartTransient(name, gen.ApplicationOptions{}) }},
-		{"temporary", func(nd gen.Node, name gen.Atom) error { return nd.ApplicationStartTemporary(name, gen.ApplicationOptions{}) }},
+		{"permanent", func(nd gen.Node, name gen.Atom) error {
+			return nd.ApplicationStartPermanent(name, gen.ApplicationOptions{})
+		}},
+		{"transient", func(nd gen.Node, name gen.Atom) error {
+			return nd.ApplicationStartTransient(name, gen.ApplicationOptions{})
+		}},
+		{"temporary", func(nd gen.Node, name gen.Atom) error {
+			return nd.ApplicationStartTemporary(name, gen.ApplicationOptions{})
+		}},
 	}
 	for _, tc := range starts {
 		t.Run(tc.name, func(t *testing.T) {
