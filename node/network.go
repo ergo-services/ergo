@@ -1137,7 +1137,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		// registered first: take over, replace it, then drop it
 		n.connectionsByID.Store(result.ConnectionID, pconn)
 		if jerr := pconn.Join(conn, result.ConnectionID, primaryDial, result.Tail); jerr != nil {
-			n.connectionsByID.CompareAndDelete(result.ConnectionID, pconn)
+			n.connectionsByID.CompareAndSwap(result.ConnectionID, pconn, oc)
 			n.mergeMu.Unlock()
 			pconn.Terminate(nil)
 			conn.Close()
