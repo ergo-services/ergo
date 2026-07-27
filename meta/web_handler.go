@@ -127,43 +127,63 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 		return
 	case context.DeadlineExceeded:
 		w.Log().Error("handling HTTP-request timed out")
-		// only send 504 if the worker has not already started the response
-		if rw.committed.Load() == false {
-			http.Error(writer, "Gateway timeout", http.StatusGatewayTimeout)
-		}
+		rw.timeout()
 	default:
 		cancel()
 		w.Log().Error("got context error: %s", err)
 	}
 }
 
-// webResponseWriter forwards to the real writer only while the request context
-// is alive. After the deadline the worker may still be running on its own
-// goroutine; dropping its writes here keeps it from corrupting the response.
+const (
+	webWriterUnclaimed int32 = iota
+	webWriterWorker
+	webWriterTimeout
+)
+
+// webResponseWriter grants the underlying writer to a single owner: the worker or the deadline 504.
 type webResponseWriter struct {
 	http.ResponseWriter
-	ctx       context.Context
-	committed atomic.Bool
+	ctx   context.Context
+	state atomic.Int32
+}
+
+// claim grants the worker the sole right to write to the underlying writer.
+func (w *webResponseWriter) claim() bool {
+	if w.ctx.Err() != nil {
+		return false
+	}
+	if w.state.CompareAndSwap(webWriterUnclaimed, webWriterWorker) {
+		return true
+	}
+	return w.state.Load() == webWriterWorker
+}
+
+// timeout writes the gateway-timeout response unless the worker already owns the writer.
+func (w *webResponseWriter) timeout() {
+	if w.state.CompareAndSwap(webWriterUnclaimed, webWriterTimeout) {
+		http.Error(w.ResponseWriter, "Gateway timeout", http.StatusGatewayTimeout)
+	}
 }
 
 func (w *webResponseWriter) WriteHeader(status int) {
-	if w.ctx.Err() != nil {
+	if w.claim() == false {
 		return
 	}
-	w.committed.Store(true)
 	w.ResponseWriter.WriteHeader(status)
 }
 
 func (w *webResponseWriter) Write(b []byte) (int, error) {
-	if err := w.ctx.Err(); err != nil {
-		return 0, err
+	if w.claim() == false {
+		return 0, w.ctx.Err()
 	}
-	w.committed.Store(true)
 	return w.ResponseWriter.Write(b)
 }
 
 func (w *webResponseWriter) Flush() {
 	if w.ctx.Err() != nil {
+		return
+	}
+	if w.state.Load() != webWriterWorker {
 		return
 	}
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
