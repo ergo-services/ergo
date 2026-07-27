@@ -6,7 +6,6 @@
 package lib
 
 import (
-	"math"
 	"sync/atomic"
 	"unsafe"
 	_ "unsafe"
@@ -29,7 +28,6 @@ type queueLimitMPSCLatency struct {
 	length int64
 	oldest int64
 	limit  int64
-	flush  bool
 	lock   uint32
 }
 
@@ -47,18 +45,16 @@ func NewQueueMPSC() QueueMPSC {
 	}
 }
 
-// NewQueueLimitMPSC creates MPSC queue with limited length and latency measurement.
-// Enabling "flush" option makes this queue flush out the tail item if the limit has been reached.
-// Warning: enabled "flush" option also makes this queue unusable
-// for the concurrent environment
-func NewQueueLimitMPSC(limit int64, flush bool) QueueMPSC {
+// NewQueueLimitMPSC creates an MPSC queue bounded to the given length (with latency
+// measurement): Push returns false once the queue already holds limit items. A limit
+// below 1 returns an unbounded queue (NewQueueMPSC).
+func NewQueueLimitMPSC(limit int64) QueueMPSC {
 	if limit < 1 {
-		limit = math.MaxInt64
+		return NewQueueMPSC()
 	}
 	emptyItem := &itemMPSCLatency{}
 	return &queueLimitMPSCLatency{
 		limit: limit,
-		flush: flush,
 		head:  emptyItem,
 		tail:  emptyItem,
 	}
@@ -142,18 +138,15 @@ func (q *queueMPSCLatency) Item() ItemMPSC {
 //
 
 func (q *queueLimitMPSCLatency) Push(value any) bool {
-	if q.Len()+1 > q.limit {
-		if q.flush == false {
-			return false
-		}
-		q.Pop()
+	// reserve a slot atomically so concurrent producers cannot exceed the limit
+	if atomic.AddInt64(&q.length, 1) > q.limit {
+		atomic.AddInt64(&q.length, -1)
+		return false
 	}
-
 	i := &itemMPSCLatency{
 		value:  value,
 		pushed: nanotime(),
 	}
-	atomic.AddInt64(&q.length, 1)
 	old_head := (*itemMPSCLatency)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&old_head.next)), unsafe.Pointer(i))
 	atomic.CompareAndSwapInt64(&q.oldest, 0, i.pushed)

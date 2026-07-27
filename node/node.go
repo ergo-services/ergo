@@ -2139,21 +2139,15 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 	return psi, omitted, nil
 }
 
-func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
-	v, exist := n.applications.Load(name)
-	if exist == false {
-		return gen.ErrApplicationUnknown
-	}
-	app := v.(*application)
-
-	// check dependency on the other applications
-	for _, dep := range app.spec.Depends.Applications {
+// startDependencies starts every application this one depends on (each in its own
+// ApplicationSpec.Mode) before it starts. Shared by all ApplicationStart* entry points.
+func (n *node) startDependencies(name gen.Atom, deps []gen.Atom, options gen.ApplicationOptions) error {
+	for _, dep := range deps {
 		if err := n.ApplicationStart(dep, options); err != nil {
 			if err == gen.ErrApplicationUnknown {
 				n.log.Error("unable to start %s: unknown dependent application %s", name, dep)
 				return gen.ErrApplicationDepends
 			}
-
 			if err != gen.ErrApplicationRunning {
 				n.log.Error(
 					"unable to start %s: start dependent application %s failed: %s",
@@ -2164,6 +2158,19 @@ func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) e
 				return gen.ErrApplicationDepends
 			}
 		}
+	}
+	return nil
+}
+
+func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
+	v, exist := n.applications.Load(name)
+	if exist == false {
+		return gen.ErrApplicationUnknown
+	}
+	app := v.(*application)
+
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options); err != nil {
+		return err
 	}
 
 	opts := gen.ApplicationOptionsExtra{
@@ -2181,6 +2188,11 @@ func (n *node) ApplicationStartPermanent(name gen.Atom, options gen.ApplicationO
 		return gen.ErrApplicationUnknown
 	}
 	app := v.(*application)
+
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options); err != nil {
+		return err
+	}
+
 	opts := gen.ApplicationOptionsExtra{
 		ApplicationOptions: options,
 		CorePID:            n.corePID,
@@ -2196,6 +2208,11 @@ func (n *node) ApplicationStartTransient(name gen.Atom, options gen.ApplicationO
 		return gen.ErrApplicationUnknown
 	}
 	app := v.(*application)
+
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options); err != nil {
+		return err
+	}
+
 	opts := gen.ApplicationOptionsExtra{
 		ApplicationOptions: options,
 		CorePID:            n.corePID,
@@ -2211,6 +2228,11 @@ func (n *node) ApplicationStartTemporary(name gen.Atom, options gen.ApplicationO
 		return gen.ErrApplicationUnknown
 	}
 	app := v.(*application)
+
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options); err != nil {
+		return err
+	}
+
 	opts := gen.ApplicationOptionsExtra{
 		ApplicationOptions: options,
 		CorePID:            n.corePID,
@@ -2733,10 +2755,10 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		p.fallback = options.Fallback
 	} else if options.MailboxSize > 0 {
 		p.fallback = options.Fallback
-		p.mailbox.Main = lib.NewQueueLimitMPSC(options.MailboxSize, false)
-		p.mailbox.System = lib.NewQueueLimitMPSC(options.MailboxSize, false)
-		p.mailbox.Urgent = lib.NewQueueLimitMPSC(options.MailboxSize, false)
-		p.mailbox.Log = lib.NewQueueLimitMPSC(options.MailboxSize, false)
+		p.mailbox.Main = lib.NewQueueLimitMPSC(options.MailboxSize)
+		p.mailbox.System = lib.NewQueueLimitMPSC(options.MailboxSize)
+		p.mailbox.Urgent = lib.NewQueueLimitMPSC(options.MailboxSize)
+		p.mailbox.Log = lib.NewQueueLimitMPSC(options.MailboxSize)
 	} else {
 		p.mailbox.Main = lib.NewQueueMPSC()
 		p.mailbox.System = lib.NewQueueMPSC()

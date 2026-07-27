@@ -595,12 +595,43 @@ type NetworkProxyFlags struct {
 }
 
 func (npf NetworkProxyFlags) MarshalEDF(w io.Writer) error {
-	// TODO
+	var flags uint64
+	var buf [8]byte
+	if npf.Enable == false {
+		w.Write(buf[:])
+		return nil
+	}
+	flags = 1 // npf.Enable = true
+	if npf.EnableRemoteSpawn == true {
+		flags |= 2
+	}
+	if npf.EnableRemoteApplicationStart == true {
+		flags |= 4
+	}
+	if npf.EnableEncryption == true {
+		flags |= 8
+	}
+	if npf.EnableImportantDelivery == true {
+		flags |= 16
+	}
+	binary.BigEndian.PutUint64(buf[:], flags)
+	w.Write(buf[:])
 	return nil
 }
 
 func (npf *NetworkProxyFlags) UnmarshalEDF(buf []byte) error {
-	// TODO
+	if len(buf) < 8 {
+		return fmt.Errorf("unable to unmarshal NetworkProxyFlags")
+	}
+	flags := binary.BigEndian.Uint64(buf)
+	npf.Enable = (flags & 1) > 0
+	if npf.Enable == false {
+		return nil
+	}
+	npf.EnableRemoteSpawn = (flags & 2) > 0
+	npf.EnableRemoteApplicationStart = (flags & 4) > 0
+	npf.EnableEncryption = (flags & 8) > 0
+	npf.EnableImportantDelivery = (flags & 16) > 0
 	return nil
 }
 

@@ -250,8 +250,8 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 		m.priority.Store(int32(gen.MessagePriorityNormal))
 	}
 	if options.MailboxSize > 0 {
-		m.main = lib.NewQueueLimitMPSC(options.MailboxSize, false)
-		m.system = lib.NewQueueLimitMPSC(options.MailboxSize, false)
+		m.main = lib.NewQueueLimitMPSC(options.MailboxSize)
+		m.system = lib.NewQueueLimitMPSC(options.MailboxSize)
 	} else {
 		m.main = lib.NewQueueMPSC()
 		m.system = lib.NewQueueMPSC()

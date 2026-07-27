@@ -405,3 +405,36 @@ func TestLocalApplicationEnvEffective(t *testing.T) {
 	_, hasOpt = info.Env["OPT"]
 	check.Equal(t, false, hasOpt)
 }
+
+// TestLocalApplicationStartModeDependencies: the mode-specific start entry points
+// (Permanent/Transient/Temporary) resolve ApplicationSpec.Depends.Applications just
+// like ApplicationStart - refused with ErrApplicationDepends while a dependency is
+// unloaded, succeeding once it is loaded. Regression for #240.
+func TestLocalApplicationStartModeDependencies(t *testing.T) {
+	starts := []struct {
+		name  string
+		start func(gen.Node, gen.Atom) error
+	}{
+		{"permanent", func(nd gen.Node, name gen.Atom) error { return nd.ApplicationStartPermanent(name, gen.ApplicationOptions{}) }},
+		{"transient", func(nd gen.Node, name gen.Atom) error { return nd.ApplicationStartTransient(name, gen.ApplicationOptions{}) }},
+		{"temporary", func(nd gen.Node, name gen.Atom) error { return nd.ApplicationStartTemporary(name, gen.ApplicationOptions{}) }},
+	}
+	for _, tc := range starts {
+		t.Run(tc.name, func(t *testing.T) {
+			s := stage.New(t)
+			n := s.StartNode("n", stage.NodeOptions{})
+			nn := n.Native()
+
+			// appDep depends on test_app; starting it with the dependency unloaded is refused
+			appdep, err := nn.ApplicationLoad(createAppDep())
+			check.NoError(t, err)
+			check.ErrorIs(t, tc.start(nn, appdep), gen.ErrApplicationDepends)
+
+			// load the dependency, then the mode-specific start resolves it and succeeds
+			_, err = nn.ApplicationLoad(createAppBasic())
+			check.NoError(t, err)
+			check.NoError(t, tc.start(nn, appdep))
+			check.Equal(t, 2, len(nn.ApplicationsRunning()))
+		})
+	}
+}
