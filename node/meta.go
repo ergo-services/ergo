@@ -25,7 +25,7 @@ type meta struct {
 	messagesOut uint64
 
 	priority    atomic.Int32 // gen.MessagePriority; mutable from node-level setter
-	compression bool
+	compression atomic.Bool  // mutable via SetCompression concurrently with senders
 
 	creation int64 // used for the meta process Uptime method only
 	state    int32
@@ -74,7 +74,7 @@ func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	}
 
 	compression := m.p.compression
-	compression.Enable = m.compression
+	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{
 		Ref:              ref,
@@ -96,7 +96,7 @@ func (m *meta) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	}
 
 	compression := m.p.compression
-	compression.Enable = m.compression
+	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{
 		Ref:              ref,
@@ -142,7 +142,7 @@ func (m *meta) Log() gen.Log {
 }
 
 func (m *meta) Compression() bool {
-	return m.compression
+	return m.compression.Load()
 }
 
 func (m *meta) SetCompression(enabled bool) error {
@@ -150,13 +150,13 @@ func (m *meta) SetCompression(enabled bool) error {
 	if gen.MetaState(state) != gen.MetaStateRunning {
 		return gen.ErrNotAllowed
 	}
-	m.compression = enabled
+	m.compression.Store(enabled)
 	return nil
 }
 
 func (m *meta) send(to any, message any) error {
 	compression := m.p.compression
-	compression.Enable = m.compression
+	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{
 		Priority:         gen.MessagePriority(m.priority.Load()),

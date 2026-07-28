@@ -237,10 +237,10 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	}
 
 	m := &meta{
-		p:           p,
-		behavior:    behavior,
-		compression: options.Compression,
+		p:        p,
+		behavior: behavior,
 	}
+	m.compression.Store(options.Compression)
 	switch options.SendPriority {
 	case gen.MessagePriorityHigh:
 		m.priority.Store(int32(gen.MessagePriorityHigh))

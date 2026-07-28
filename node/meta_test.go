@@ -1,6 +1,7 @@
 package node
 
 import (
+	"sync"
 	"testing"
 
 	"ergo.services/ergo/gen"
@@ -86,4 +87,55 @@ func TestMetaSetSendPriorityRunningOnly(t *testing.T) {
 	if got := gen.MessagePriority(m.priority.Load()); got != gen.MessagePriorityHigh {
 		t.Fatalf("priority mutated in terminated state: got %v", got)
 	}
+}
+
+// SetCompression is Running-only per its godoc, and Compression reflects the stored value.
+func TestMetaSetCompressionRunningOnly(t *testing.T) {
+	m := newTestMeta(mock.NewCore())
+
+	if m.Compression() == true {
+		t.Fatal("compression should default to false")
+	}
+	if err := m.SetCompression(true); err != nil {
+		t.Fatalf("running: %v", err)
+	}
+	if m.Compression() == false {
+		t.Fatal("compression not stored")
+	}
+
+	m.state = int32(gen.MetaStateTerminated)
+	if err := m.SetCompression(false); err != gen.ErrNotAllowed {
+		t.Fatalf("terminated: expected ErrNotAllowed, got %v", err)
+	}
+	if m.Compression() == false {
+		t.Fatal("compression mutated in terminated state")
+	}
+}
+
+// SetCompression from an external goroutine must not race a concurrent sender reading it.
+// Run with -race; the field is atomic.Bool.
+func TestMetaCompressionConcurrent(t *testing.T) {
+	core := mock.NewCore()
+	core.OnRouteSendResponse(func(from, to gen.PID, opts gen.MessageOptions, message any) error {
+		return nil
+	})
+	m := newTestMeta(core)
+	ref := gen.Ref{Node: "n@localhost", Creation: 1, ID: [3]uint64{1, 0, 0}}
+	to := gen.PID{Node: "n@localhost", ID: 5, Creation: 1}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10000; i++ {
+			m.SetCompression(i%2 == 0)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 10000; i++ {
+			m.SendResponse(to, ref, "x")
+		}
+	}()
+	wg.Wait()
 }
