@@ -173,6 +173,20 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		}
 	}
 
+	// decode caches must be non-nil so a peer's MessageUpdateCache can LoadOrStore into them
+	if conn.decodeOptions.AtomCache == nil {
+		conn.decodeOptions.AtomCache = &sync.Map{}
+	}
+	if conn.decodeOptions.AtomMapping == nil {
+		conn.decodeOptions.AtomMapping = &sync.Map{}
+	}
+	if conn.decodeOptions.RegCache == nil {
+		conn.decodeOptions.RegCache = &sync.Map{}
+	}
+	if conn.decodeOptions.ErrCache == nil {
+		conn.decodeOptions.ErrCache = &sync.Map{}
+	}
+
 	// init recv queues. create 4 recv queues per connection
 	// since the decoding is more costly comparing to the encoding
 	numQueues := opts.PoolSize * 4
