@@ -2141,13 +2141,30 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 
 // startDependencies starts every application this one depends on (each in its own
 // ApplicationSpec.Mode) before it starts. Shared by all ApplicationStart* entry points.
-func (n *node) startDependencies(name gen.Atom, deps []gen.Atom, options gen.ApplicationOptions) error {
+func (n *node) startDependencies(name gen.Atom, deps []gen.Atom, options gen.ApplicationOptions, visited map[gen.Atom]bool) error {
+	visited[name] = true
+	defer delete(visited, name)
 	for _, dep := range deps {
-		if err := n.ApplicationStart(dep, options); err != nil {
-			if err == gen.ErrApplicationUnknown {
-				n.log.Error("unable to start %s: unknown dependent application %s", name, dep)
-				return gen.ErrApplicationDepends
-			}
+		if visited[dep] {
+			n.log.Error("unable to start %s: circular application dependency on %s", name, dep)
+			return gen.ErrApplicationDepends
+		}
+		v, exist := n.applications.Load(dep)
+		if exist == false {
+			n.log.Error("unable to start %s: unknown dependent application %s", name, dep)
+			return gen.ErrApplicationDepends
+		}
+		app := v.(*application)
+		if err := n.startDependencies(dep, app.spec.Depends.Applications, options, visited); err != nil {
+			return err
+		}
+		opts := gen.ApplicationOptionsExtra{
+			ApplicationOptions: options,
+			CorePID:            n.corePID,
+			CoreEnv:            n.EnvList(),
+			CoreLogLevel:       n.log.Level(),
+		}
+		if err := app.start(app.spec.Mode, opts); err != nil {
 			if err != gen.ErrApplicationRunning {
 				n.log.Error(
 					"unable to start %s: start dependent application %s failed: %s",
@@ -2169,7 +2186,7 @@ func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) e
 	}
 	app := v.(*application)
 
-	if err := n.startDependencies(name, app.spec.Depends.Applications, options); err != nil {
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options, make(map[gen.Atom]bool)); err != nil {
 		return err
 	}
 
@@ -2189,7 +2206,7 @@ func (n *node) ApplicationStartPermanent(name gen.Atom, options gen.ApplicationO
 	}
 	app := v.(*application)
 
-	if err := n.startDependencies(name, app.spec.Depends.Applications, options); err != nil {
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options, make(map[gen.Atom]bool)); err != nil {
 		return err
 	}
 
@@ -2209,7 +2226,7 @@ func (n *node) ApplicationStartTransient(name gen.Atom, options gen.ApplicationO
 	}
 	app := v.(*application)
 
-	if err := n.startDependencies(name, app.spec.Depends.Applications, options); err != nil {
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options, make(map[gen.Atom]bool)); err != nil {
 		return err
 	}
 
@@ -2229,7 +2246,7 @@ func (n *node) ApplicationStartTemporary(name gen.Atom, options gen.ApplicationO
 	}
 	app := v.(*application)
 
-	if err := n.startDependencies(name, app.spec.Depends.Applications, options); err != nil {
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options, make(map[gen.Atom]bool)); err != nil {
 		return err
 	}
 

@@ -444,3 +444,64 @@ func TestLocalApplicationStartModeDependencies(t *testing.T) {
 		})
 	}
 }
+
+// appNamed is a test application with a configurable name and dependency list, used to
+// build circular and diamond dependency graphs.
+type appNamed struct {
+	app.Application
+	name gen.Atom
+	deps []gen.Atom
+}
+
+func createAppNamed(name gen.Atom, deps ...gen.Atom) gen.ApplicationBehavior {
+	return &appNamed{name: name, deps: deps}
+}
+
+func (a *appNamed) Load(args ...any) (gen.ApplicationSpec, error) {
+	spec := gen.ApplicationSpec{
+		Name:  a.name,
+		Group: []gen.ApplicationMemberSpec{{Factory: factoryAppMember}},
+	}
+	spec.Depends.Applications = a.deps
+	return spec, nil
+}
+
+// TestLocalApplicationCircularDependency: a circular application dependency is refused
+// with ErrApplicationDepends instead of overflowing the stack; the node stays alive.
+func TestLocalApplicationCircularDependency(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n", stage.NodeOptions{})
+	nn := n.Native()
+
+	a, err := nn.ApplicationLoad(createAppNamed("cycle_a", "cycle_b"))
+	check.NoError(t, err)
+	_, err = nn.ApplicationLoad(createAppNamed("cycle_b", "cycle_a"))
+	check.NoError(t, err)
+
+	check.ErrorIs(t, nn.ApplicationStart(a, gen.ApplicationOptions{}), gen.ErrApplicationDepends)
+
+	// the cycle was rejected before any app started, and the node survived (no overflow)
+	check.Equal(t, 0, len(nn.ApplicationsRunning()))
+	_, err = nn.ProcessList()
+	check.NoError(t, err)
+}
+
+// TestLocalApplicationDiamondDependency: a diamond (shared dependency reached by two
+// paths) resolves - the shared app starts once, the second path is ignored, all run.
+func TestLocalApplicationDiamondDependency(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n", stage.NodeOptions{})
+	nn := n.Native()
+
+	_, err := nn.ApplicationLoad(createAppNamed("diamond_d"))
+	check.NoError(t, err)
+	_, err = nn.ApplicationLoad(createAppNamed("diamond_b", "diamond_d"))
+	check.NoError(t, err)
+	_, err = nn.ApplicationLoad(createAppNamed("diamond_c", "diamond_d"))
+	check.NoError(t, err)
+	a, err := nn.ApplicationLoad(createAppNamed("diamond_a", "diamond_b", "diamond_c"))
+	check.NoError(t, err)
+
+	check.NoError(t, nn.ApplicationStart(a, gen.ApplicationOptions{}))
+	check.Equal(t, 4, len(nn.ApplicationsRunning()))
+}
