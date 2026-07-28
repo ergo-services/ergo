@@ -1215,6 +1215,7 @@ func (n *network) stop() error {
 	for _, a := range n.acceptors {
 		a.l.Close()
 	}
+	n.acceptors = nil
 
 	n.connections.Range(func(_, v any) bool {
 		c := v.(gen.Connection)
