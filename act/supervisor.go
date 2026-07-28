@@ -275,7 +275,9 @@ func (s *Supervisor) AddChild(child SupervisorChildSpec) error {
 }
 
 // EnableChild enables the child process in the supervisor spec and attempts to
-// start it. Returns error if spawning child process is failed.
+// start it. Returns error if spawning child process is failed. Returns
+// ErrSupervisorChildRunning if the child is still terminating after DisableChild;
+// retry once it has stopped.
 func (s *Supervisor) EnableChild(name gen.Atom) error {
 	if s.State() != gen.ProcessStateRunning {
 		return gen.ErrNotAllowed

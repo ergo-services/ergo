@@ -356,9 +356,13 @@ func TestSupervisorUnitEnableAfterDisable(t *testing.T) {
 	}
 	s, err := unit.Spawn(t, factorySupUnit, gen.ProcessOptions{}, spec)
 	check.NoError(t, err)
-	childPIDs(t, s, 1)
+	pids := childPIDs(t, s, 1)
 
 	check.NoError(t, control(s).DisableChild("a"))
+	// EnableChild refuses while the disabled child is still terminating
+	check.ErrorIs(t, control(s).EnableChild("a"), act.ErrSupervisorChildRunning)
+
+	s.DeliverExit(pids[0], gen.TerminateReasonShutdown) // child a has stopped
 	mark := s.Mark()
 	check.NoError(t, control(s).EnableChild("a"))
 	s.ShouldSpawn().Register("a").Since(mark).Once().Assert()
@@ -448,10 +452,15 @@ func TestSupervisorUnitRFODynamicAPI(t *testing.T) {
 
 	mark := s.Mark()
 	check.NoError(t, control(s).AddChild(act.SupervisorChildSpec{Name: "b", Factory: factorySupUnitChild}))
-	s.ShouldSpawn().Register("b").Since(mark).Once().Assert()
+	spawnB := s.ShouldSpawn().Register("b").Since(mark).Collect()
+	check.Equal(t, 1, len(spawnB))
 	check.Equal(t, 2, len(control(s).Children()))
 
 	check.NoError(t, control(s).DisableChild("b"))
+	// EnableChild refuses while the disabled child is still terminating
+	check.ErrorIs(t, control(s).EnableChild("b"), act.ErrSupervisorChildRunning)
+
+	s.DeliverExit(spawnB[0].Child, gen.TerminateReasonShutdown) // child b has stopped
 	mark2 := s.Mark()
 	check.NoError(t, control(s).EnableChild("b"))
 	s.ShouldSpawn().Register("b").Since(mark2).Once().Assert()

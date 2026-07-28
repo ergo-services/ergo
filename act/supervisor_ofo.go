@@ -370,6 +370,7 @@ func (s *supOFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supAc
 
 func (s *supOFO) childEnable(name gen.Atom) (supAction, error) {
 	var action supAction
+	var empty gen.PID
 	if s.shutdown {
 		return action, ErrSupervisorStrategyActive
 	}
@@ -381,6 +382,11 @@ func (s *supOFO) childEnable(name gen.Atom) (supAction, error) {
 		if cs.disabled == false {
 			// do nothing. its already enabled
 			return action, nil
+		}
+
+		if cs.pid != empty {
+			// still terminating after DisableChild; retry once it has stopped
+			return action, ErrSupervisorChildRunning
 		}
 
 		// it was disabled. enable it and start child process with this spec
