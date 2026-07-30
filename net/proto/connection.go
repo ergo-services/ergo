@@ -3947,6 +3947,22 @@ func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint3
 			c.log.Warning("too many fragments: %d (seq=%d)", totalFragments, sequenceID)
 			return nil
 		}
+		if c.maxFragmentAssemblies > 0 && len(assemblies) >= c.maxFragmentAssemblies {
+			// evict stale (dead-sender) assemblies before enforcing the cap; the ordered
+			// path has no cleanup timer, so a peer streaming first-fragments only would
+			// otherwise wedge the queue permanently
+			now := time.Now()
+			for seqID, a := range assemblies {
+				if now.After(a.deadline) {
+					delete(assemblies, seqID)
+					c.fragmentTimeouts.Add(1)
+				}
+			}
+			if len(assemblies) >= c.maxFragmentAssemblies {
+				c.log.Warning("too many concurrent ordered assemblies, dropping fragment (seq=%d)", sequenceID)
+				return nil
+			}
+		}
 		asm = &fragmentAssembly{
 			totalFragments: totalFragments,
 			payloads:       make([][]byte, 0, totalFragments),

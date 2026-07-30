@@ -67,6 +67,9 @@ type network struct {
 	staticRoutes  *staticRoutes
 	staticProxies *staticProxies
 
+	registrarRoutes  []string // route matches added from the registrar in hidden mode; cleared on stop
+	registrarProxies []string // proxy route matches added from the registrar in hidden mode; cleared on stop
+
 	enableSpawn    sync.Map
 	enableAppStart sync.Map
 
@@ -1221,6 +1224,16 @@ func (n *network) stop() error {
 	}
 	n.ready.Store(false)
 
+	// drop only registrar-sourced static routes; user-added routes survive a stop/start
+	for _, match := range n.registrarRoutes {
+		n.staticRoutes.remove(match)
+	}
+	n.registrarRoutes = nil
+	for _, match := range n.registrarProxies {
+		n.staticProxies.remove(match)
+	}
+	n.registrarProxies = nil
+
 	n.registrar.Terminate()
 
 	// stop acceptors
@@ -1297,13 +1310,17 @@ func (n *network) start(options gen.NetworkOptions) error {
 		for match, route := range static.Routes {
 			if err := n.AddRoute(match, route, 0); err != nil {
 				n.node.log.Error("unable to add static route %q from the registrar, ignored", match)
+				continue
 			}
+			n.registrarRoutes = append(n.registrarRoutes, match)
 		}
 		// add static proxy routes
 		for match, route := range static.Proxies {
 			if err := n.AddProxyRoute(match, route, 0); err != nil {
 				n.node.log.Error("unable to add static proxy route %q from the registrar, ignored", match)
+				continue
 			}
+			n.registrarProxies = append(n.registrarProxies, match)
 		}
 
 		n.ready.Store(true)

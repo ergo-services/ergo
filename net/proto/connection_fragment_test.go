@@ -143,6 +143,43 @@ func TestHandleFragmentUnorderedRejectsTooManyAssemblies(t *testing.T) {
 	check.False(t, has2)
 }
 
+// once the concurrent-assembly cap is reached on the ordered path, a fragment opening a
+// new assembly is dropped while the existing one is kept.
+func TestHandleFragmentOrderedRejectsTooManyAssemblies(t *testing.T) {
+	c := &connection{log: mock.NewLog(), fragmentTimeout: time.Minute, maxFragmentAssemblies: 1}
+	asm := map[uint32]*fragmentAssembly{}
+
+	check.Nil(t, c.handleFragmentOrdered(fragBuf(1, 0, 2, "foo"), asm)) // opens assembly seq=1 (incomplete)
+	check.Nil(t, c.handleFragmentOrdered(fragBuf(2, 0, 2, "bar"), asm)) // seq=2 exceeds the cap, dropped
+
+	check.Equal(t, 1, len(asm))
+	_, has1 := asm[1]
+	check.True(t, has1)
+	_, has2 := asm[2]
+	check.False(t, has2)
+}
+
+// at the cap, a fragment opening a new assembly first evicts stale (expired) assemblies,
+// so a dead sender streaming first-fragments cannot wedge the queue for a live one.
+func TestHandleFragmentOrderedEvictsStaleOnCap(t *testing.T) {
+	c := &connection{log: mock.NewLog(), fragmentTimeout: time.Minute, maxFragmentAssemblies: 1}
+	asm := map[uint32]*fragmentAssembly{}
+	asm[1] = &fragmentAssembly{ // stale assembly from a dead sender occupies the only slot
+		totalFragments: 2,
+		payloads:       make([][]byte, 0, 2),
+		deadline:       time.Now().Add(-time.Minute),
+	}
+
+	check.Nil(t, c.handleFragmentOrdered(fragBuf(2, 0, 2, "foo"), asm)) // evicts seq=1, opens seq=2
+
+	_, hasStale := asm[1]
+	check.False(t, hasStale)
+	_, hasNew := asm[2]
+	check.True(t, hasNew)
+	check.Equal(t, 1, len(asm))
+	check.Equal(t, uint64(1), c.fragmentTimeouts.Load())
+}
+
 // a fragment whose total-count disagrees with the open assembly drops the assembly.
 func TestHandleFragmentOrderedRejectsTotalMismatch(t *testing.T) {
 	c := &connection{log: mock.NewLog(), fragmentTimeout: time.Minute}
