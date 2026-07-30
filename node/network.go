@@ -28,6 +28,8 @@ func createNetwork(node *node) *network {
 		defaultHandshake: handshake.Create(handshake.Options{}),
 		defaultProto:     proto.Create(),
 	}
+	n.cookie.Store(new(string))
+	n.flags.Store(&gen.NetworkFlags{})
 	// register standard handshake and proto
 	n.RegisterHandshake(n.defaultHandshake)
 	n.RegisterProto(n.defaultProto)
@@ -35,16 +37,17 @@ func createNetwork(node *node) *network {
 }
 
 type network struct {
-	running atomic.Bool
+	running atomic.Bool // start/stop claim (prevents a concurrent start or stop)
+	ready   atomic.Bool // reader gate: true only after start() has published all state
 
-	mode       gen.NetworkMode
-	flags      gen.NetworkFlags
-	skipverify bool
+	mode       atomic.Int32 // gen.NetworkMode
+	flags      atomic.Pointer[gen.NetworkFlags]
+	skipverify atomic.Bool
 
 	node      *node
-	registrar gen.Registrar
+	registrar gen.Registrar // start-only; published via the ready gate
 
-	acceptors []*acceptor
+	acceptors atomic.Pointer[[]*acceptor]
 
 	defaultHandshake gen.NetworkHandshake
 	defaultProto     gen.NetworkProto
@@ -52,8 +55,8 @@ type network struct {
 	handshakes sync.Map // .Version().String() -> handshake
 	protos     sync.Map // .Version().String() -> proto
 
-	cookie                         string
-	maxmessagesize                 int
+	cookie                         atomic.Pointer[string]
+	maxmessagesize                 atomic.Int64
 	handshakeTimeoutDefault        time.Duration
 	handshakeMaxMessageSizeDefault int
 	softwareKeepAliveMisses        int
@@ -83,7 +86,7 @@ type pendingEntry struct {
 }
 
 func (n *network) Registrar() (gen.Registrar, error) {
-	if n.running.Load() == false {
+	if n.ready.Load() == false {
 		return nil, gen.ErrNetworkStopped
 	}
 	return n.registrar, nil
@@ -98,10 +101,10 @@ func (n *network) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes, erro
 }
 
 func (n *network) Cookie() string {
-	return n.cookie
+	return *n.cookie.Load()
 }
 func (n *network) SetCookie(cookie string) error {
-	n.cookie = cookie
+	n.cookie.Store(&cookie)
 	if lib.Verbose() {
 		n.node.Log().Trace("updated cookie")
 	}
@@ -109,34 +112,36 @@ func (n *network) SetCookie(cookie string) error {
 }
 
 func (n *network) NetworkFlags() gen.NetworkFlags {
-	return n.flags
+	return *n.flags.Load()
 }
 
 func (n *network) SetNetworkFlags(flags gen.NetworkFlags) {
 	if flags.Enable == false {
 		flags = gen.DefaultNetworkFlags
 	}
-	n.flags = flags
+	n.flags.Store(&flags)
 }
 
 func (n *network) MaxMessageSize() int {
-	return n.maxmessagesize
+	return int(n.maxmessagesize.Load())
 }
 
 func (n *network) SetMaxMessageSize(size int) {
 	if size < 0 {
 		size = 0
 	}
-	n.maxmessagesize = size
+	n.maxmessagesize.Store(int64(size))
 }
 
 func (n *network) Acceptors() ([]gen.Acceptor, error) {
 	var acceptors []gen.Acceptor
-	if n.running.Load() == false {
+	if n.ready.Load() == false {
 		return nil, gen.ErrNetworkStopped
 	}
-	for _, acceptor := range n.acceptors {
-		acceptors = append(acceptors, acceptor)
+	if accs := n.acceptors.Load(); accs != nil {
+		for _, acceptor := range *accs {
+			acceptors = append(acceptors, acceptor)
+		}
 	}
 	return acceptors, nil
 }
@@ -180,7 +185,7 @@ func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
 func (n *network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.RemoteNode, error) {
 	var emptyVersion gen.Version
 
-	route.InsecureSkipVerify = n.skipverify
+	route.InsecureSkipVerify = n.skipverify.Load()
 
 	if route.Resolver != nil {
 		resolved, err := route.Resolver.Resolve(name)
@@ -521,17 +526,19 @@ func (n *network) Nodes() []gen.Atom {
 func (n *network) Info() (gen.NetworkInfo, error) {
 	var info gen.NetworkInfo
 
-	if n.running.Load() == false {
+	if n.ready.Load() == false {
 		return info, gen.ErrNetworkStopped
 	}
 
-	info.Mode = n.mode
+	info.Mode = gen.NetworkMode(n.mode.Load())
 	info.Registrar = n.registrar.Info()
 
-	for _, acceptor := range n.acceptors {
-		info.Acceptors = append(info.Acceptors, acceptor.Info())
+	if accs := n.acceptors.Load(); accs != nil {
+		for _, acceptor := range *accs {
+			info.Acceptors = append(info.Acceptors, acceptor.Info())
+		}
 	}
-	info.MaxMessageSize = n.maxmessagesize
+	info.MaxMessageSize = int(n.maxmessagesize.Load())
 	info.HandshakeVersion = n.defaultHandshake.Version()
 	info.ProtoVersion = n.defaultProto.Version()
 
@@ -544,7 +551,7 @@ func (n *network) Info() (gen.NetworkInfo, error) {
 	info.Routes = n.staticRoutes.info()
 	info.ProxyRoutes = n.staticProxies.info()
 
-	info.Flags = n.flags
+	info.Flags = *n.flags.Load()
 
 	info.ConnectionsEstablished = n.connectionsEstablished.Load()
 	info.ConnectionsLost = n.connectionsLost.Load()
@@ -556,7 +563,7 @@ func (n *network) Info() (gen.NetworkInfo, error) {
 }
 
 func (n *network) Mode() gen.NetworkMode {
-	return n.mode
+	return gen.NetworkMode(n.mode.Load())
 }
 
 func (n *network) Protos() []gen.NetworkProto {
@@ -736,6 +743,10 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 		return v.(gen.Connection), nil
 	}
 
+	if n.ready.Load() == false {
+		return nil, gen.ErrNoRoute
+	}
+
 	registrar := n.registrar
 	if registrar == nil {
 		return nil, gen.ErrNoRoute
@@ -750,7 +761,7 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 			n.node.Log().Trace("found %s static route[s] for %s", len(sroutes), name)
 		}
 		for i, sroute := range sroutes {
-			sroute.InsecureSkipVerify = n.skipverify
+			sroute.InsecureSkipVerify = n.skipverify.Load()
 			if sroute.Resolver == nil {
 				if lib.Verbose() {
 					n.node.Log().Trace("use static route to %s (%d)", name, i+1)
@@ -779,13 +790,13 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 			for _, route := range nr {
 				nroute := gen.NetworkRoute{
 					Route:              route,
-					InsecureSkipVerify: n.skipverify,
+					InsecureSkipVerify: n.skipverify.Load(),
 				}
 				if nroute.Route.TLS && nroute.Cert == nil {
 					nroute.Cert = n.node.certmanager
 				}
 				if nroute.Cookie == "" {
-					nroute.Cookie = n.cookie
+					nroute.Cookie = *n.cookie.Load()
 				}
 				if c, err := n.connect(name, nroute); err == nil {
 					return c, nil
@@ -851,8 +862,8 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 		for _, route := range nr {
 			nroute := gen.NetworkRoute{
 				Route:              route,
-				InsecureSkipVerify: n.skipverify,
-				Cookie:             n.cookie,
+				InsecureSkipVerify: n.skipverify.Load(),
+				Cookie:             *n.cookie.Load(),
 			}
 
 			if route.TLS {
@@ -940,7 +951,7 @@ func (n *network) acquirePending(name gen.Atom) (*pendingEntry, error) {
 func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection, error) {
 	var dial func(network, addr string) (net.Conn, error)
 
-	if n.running.Load() == false {
+	if n.ready.Load() == false {
 		return nil, gen.ErrNetworkStopped
 	}
 
@@ -1025,7 +1036,7 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	hopts := gen.HandshakeOptions{
 		Cookie:                  route.Cookie,
 		Flags:                   route.Flags,
-		MaxMessageSize:          n.maxmessagesize,
+		MaxMessageSize:          int(n.maxmessagesize.Load()),
 		HandshakeMaxMessageSize: n.handshakeMaxMessageSize(route.HandshakeMaxMessageSize),
 		CheckPending: func(peer gen.Atom) bool {
 			_, exists := n.pending.Load(peer)
@@ -1034,10 +1045,10 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	}
 
 	if hopts.Cookie == "" {
-		hopts.Cookie = n.cookie
+		hopts.Cookie = *n.cookie.Load()
 	}
 	if hopts.Flags.Enable == false {
-		hopts.Flags = n.flags
+		hopts.Flags = *n.flags.Load()
 	}
 	// period for keepalive is already in hopts.Flags (from route.Flags or n.flags)
 
@@ -1208,14 +1219,16 @@ func (n *network) stop() error {
 	if swapped := n.running.CompareAndSwap(true, false); swapped == false {
 		return fmt.Errorf("network stack is already stopped")
 	}
+	n.ready.Store(false)
 
 	n.registrar.Terminate()
 
 	// stop acceptors
-	for _, a := range n.acceptors {
-		a.l.Close()
+	if accs := n.acceptors.Swap(nil); accs != nil {
+		for _, a := range *accs {
+			a.l.Close()
+		}
 	}
-	n.acceptors = nil
 
 	n.connections.Range(func(_, v any) bool {
 		c := v.(gen.Connection)
@@ -1231,7 +1244,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 		return fmt.Errorf("network stack is already running")
 	}
 
-	n.mode = options.Mode
+	n.mode.Store(int32(options.Mode))
 	if options.Mode == gen.NetworkModeDisabled {
 		n.running.Store(false)
 		n.node.log.Info("network is disabled")
@@ -1242,7 +1255,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 		n.node.log.Trace("starting network...")
 	}
 
-	n.skipverify = options.InsecureSkipVerify
+	n.skipverify.Store(options.InsecureSkipVerify)
 	n.registrar = options.Registrar
 	if n.registrar == nil {
 		n.registrar = registrar.Create(registrar.Options{})
@@ -1252,17 +1265,18 @@ func (n *network) start(options gen.NetworkOptions) error {
 		n.node.log.Warning("cookie is empty (gen.NetworkOptions), used randomized value")
 		options.Cookie = lib.RandomString(16)
 	}
-	n.cookie = options.Cookie
-	n.maxmessagesize = options.MaxMessageSize
+	n.cookie.Store(&options.Cookie)
+	n.maxmessagesize.Store(int64(options.MaxMessageSize))
 	n.handshakeTimeoutDefault = options.HandshakeTimeout
 	n.handshakeMaxMessageSizeDefault = options.HandshakeMaxMessageSize
 
 	if options.Flags.Enable == false {
 		options.Flags = gen.DefaultNetworkFlags
 	}
-	n.flags = options.Flags
+	n.flags.Store(&options.Flags)
 	n.softwareKeepAliveMisses = options.SoftwareKeepAliveMisses
 	if options.FragmentSize > 0 && options.FragmentSize < 4096 {
+		n.running.Store(false)
 		return fmt.Errorf("network option FragmentSize (%d) is too small, minimum is 4096 bytes", options.FragmentSize)
 	}
 	n.fragmentSize = options.FragmentSize
@@ -1275,6 +1289,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 	if options.Mode == gen.NetworkModeHidden {
 		static, err := n.registrar.Register(n.node, gen.RegisterRoutes{})
 		if err != nil {
+			n.running.Store(false)
 			return err
 		}
 
@@ -1291,6 +1306,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 			}
 		}
 
+		n.ready.Store(true)
 		if lib.Verbose() {
 			n.node.log.Trace("network started (hidden) with registrar %s", n.registrar.Version())
 		}
@@ -1334,6 +1350,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 		appRoutes = append(appRoutes, r)
 	}
 	routes := []gen.Route{}
+	var acceptors []*acceptor
 
 	for _, a := range options.Acceptors {
 		if a.Handshake == nil {
@@ -1368,14 +1385,14 @@ func (n *network) start(options gen.NetworkOptions) error {
 
 		acceptor, err := n.startAcceptor(a)
 		if err != nil {
-			// stop acceptors
-			for i := range n.acceptors {
-				n.acceptors[i].l.Close()
+			for _, x := range acceptors {
+				x.l.Close()
 			}
+			n.running.Store(false)
 			return err
 		}
 
-		n.acceptors = append(n.acceptors, acceptor)
+		acceptors = append(acceptors, acceptor)
 
 		// determine port to advertise in route
 		routePort := acceptor.port
@@ -1408,10 +1425,10 @@ func (n *network) start(options gen.NetworkOptions) error {
 		// TODO it returns static routes. they need to be handled
 		_, err = a.Registrar.Register(n.node, registerRoutes)
 		if err != nil {
-			// stop acceptors
-			for i := range n.acceptors {
-				n.acceptors[i].l.Close()
+			for _, x := range acceptors {
+				x.l.Close()
 			}
+			n.running.Store(false)
 			return fmt.Errorf(
 				"unable to register node on %s (%s): %s",
 				registrarInfo.Server,
@@ -1429,8 +1446,13 @@ func (n *network) start(options gen.NetworkOptions) error {
 
 	static, err := n.registrar.Register(n.node, registerRoutes)
 	if err != nil {
+		for _, x := range acceptors {
+			x.l.Close()
+		}
+		n.running.Store(false)
 		return fmt.Errorf("unable to register node: %s", err)
 	}
+	n.acceptors.Store(&acceptors)
 
 	// add static routes
 	for match, route := range static.Routes {
@@ -1445,6 +1467,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 		}
 	}
 
+	n.ready.Store(true)
 	if lib.Verbose() {
 		n.node.log.Trace("network started with registrar %s", n.registrar.Version())
 	}
@@ -1495,7 +1518,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		software_keepalive_misses:  n.keepAliveMisses(a.SoftwareKeepAliveMisses),
 	}
 	if a.Cookie == "" {
-		acceptor.cookie = n.cookie
+		acceptor.cookie = *n.cookie.Load()
 	}
 	for k, v := range a.AtomMapping {
 		acceptor.atom_mapping[k] = v
@@ -1563,7 +1586,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 func (n *network) accept(a *acceptor) {
 	cookie := a.cookie
 	if cookie == "" {
-		cookie = n.cookie
+		cookie = *n.cookie.Load()
 	}
 
 	hopts := gen.HandshakeOptions{
