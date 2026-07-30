@@ -89,6 +89,37 @@ func TestMetaSetSendPriorityRunningOnly(t *testing.T) {
 	}
 }
 
+// SendWithPriority applies the per-message override without mutating the shared default
+// priority (no save-restore), so a concurrent Send keeps seeing the default.
+func TestMetaSendWithPriorityKeepsDefault(t *testing.T) {
+	core := mock.NewCore()
+	m := newTestMeta(core)
+	m.priority.Store(int32(gen.MessagePriorityNormal))
+
+	var during gen.MessagePriority
+	var sent gen.MessageOptions
+	core.OnRouteSendPID(func(from, to gen.PID, o gen.MessageOptions, msg any) error {
+		during = gen.MessagePriority(m.priority.Load()) // the shared default as seen mid-send
+		sent = o
+		return nil
+	})
+
+	to := gen.PID{Node: "n@localhost", ID: 5, Creation: 1}
+	if err := m.SendWithPriority(to, "x", gen.MessagePriorityMax); err != nil {
+		t.Fatal(err)
+	}
+
+	if sent.Priority != gen.MessagePriorityMax {
+		t.Fatalf("override not applied to the message: got %v, want Max", sent.Priority)
+	}
+	if during != gen.MessagePriorityNormal {
+		t.Fatalf("shared default mutated during send (a concurrent Send would see it): got %v, want Normal", during)
+	}
+	if got := gen.MessagePriority(m.priority.Load()); got != gen.MessagePriorityNormal {
+		t.Fatalf("default priority after send: got %v, want Normal", got)
+	}
+}
+
 // SetCompression is Running-only per its godoc, and Compression reflects the stored value.
 func TestMetaSetCompressionRunningOnly(t *testing.T) {
 	m := newTestMeta(mock.NewCore())

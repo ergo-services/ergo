@@ -53,18 +53,14 @@ func (m *meta) SetSendPriority(priority gen.MessagePriority) error {
 }
 
 func (m *meta) Send(to any, message any) error {
-	if err := m.send(to, message); err != nil {
+	if err := m.send(to, message, gen.MessagePriority(m.priority.Load())); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (m *meta) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	prev := m.priority.Load()
-	m.priority.Store(int32(priority))
-	err := m.send(to, message)
-	m.priority.Store(prev)
-	return err
+	return m.send(to, message, priority)
 }
 
 func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
@@ -154,12 +150,12 @@ func (m *meta) SetCompression(enabled bool) error {
 	return nil
 }
 
-func (m *meta) send(to any, message any) error {
+func (m *meta) send(to any, message any, priority gen.MessagePriority) error {
 	compression := m.p.compression
 	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{
-		Priority:         gen.MessagePriority(m.priority.Load()),
+		Priority:         priority,
 		Compression:      compression,
 		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
@@ -175,7 +171,7 @@ func (m *meta) send(to any, message any) error {
 			qm.Message = message
 
 			var queue lib.QueueMPSC
-			switch gen.MessagePriority(m.priority.Load()) {
+			switch priority {
 			case gen.MessagePriorityHigh:
 				queue = m.p.mailbox.System
 			case gen.MessagePriorityMax:
