@@ -69,7 +69,7 @@ func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 		return gen.ErrNotAllowed
 	}
 
-	compression := m.p.compression
+	compression := *m.p.compression.Load()
 	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{
@@ -91,7 +91,7 @@ func (m *meta) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 		return gen.ErrNotAllowed
 	}
 
-	compression := m.p.compression
+	compression := *m.p.compression.Load()
 	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{
@@ -151,7 +151,7 @@ func (m *meta) SetCompression(enabled bool) error {
 }
 
 func (m *meta) send(to any, message any, priority gen.MessagePriority) error {
-	compression := m.p.compression
+	compression := *m.p.compression.Load()
 	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{

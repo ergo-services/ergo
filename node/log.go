@@ -1,6 +1,7 @@
 package node
 
 import (
+	"sync/atomic"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -9,14 +10,15 @@ import (
 // gen.Log interface implementation
 
 func createLog(level gen.LogLevel, dolog func(gen.MessageLog, string)) *log {
-	return &log{
-		level: level,
+	l := &log{
 		dolog: dolog,
 	}
+	l.level.Store(int32(level))
+	return l
 }
 
 type log struct {
-	level  gen.LogLevel
+	level  atomic.Int32
 	logger string
 	source any
 	fields []gen.LogField
@@ -25,7 +27,7 @@ type log struct {
 }
 
 func (l *log) Level() gen.LogLevel {
-	return l.level
+	return gen.LogLevel(l.level.Load())
 }
 
 func (l *log) SetLevel(level gen.LogLevel) error {
@@ -35,7 +37,7 @@ func (l *log) SetLevel(level gen.LogLevel) error {
 	if level > gen.LogLevelDisabled {
 		return gen.ErrIncorrect
 	}
-	l.level = level
+	l.level.Store(int32(level))
 	return nil
 }
 
@@ -137,7 +139,7 @@ func (l *log) setSource(source any) {
 }
 
 func (l *log) write(level gen.LogLevel, format string, args []any) {
-	if l.level > level {
+	if gen.LogLevel(l.level.Load()) > level {
 		return
 	}
 

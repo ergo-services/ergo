@@ -15,6 +15,7 @@ func newEveryProcess(core gen.Core) *process {
 		core: core,
 		node: &node{name: "n@localhost"}, // gen.Atom target resolves to a ProcessID on this node
 	}
+	p.compression.Store(&gen.Compression{})
 	p.state = int32(gen.ProcessStateRunning)
 	return p
 }

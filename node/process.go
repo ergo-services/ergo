@@ -53,7 +53,7 @@ type process struct {
 	initTime    uint64
 	wakeups     uint64
 
-	compression      gen.Compression
+	compression      atomic.Pointer[gen.Compression]
 	tracing          gen.Tracing
 	tracingSampler   atomic.Pointer[gen.TracingSampler]
 	tracingAttrs     atomic.Pointer[[]gen.TracingAttribute] // permanent, COW; pointer always non-nil
@@ -150,7 +150,7 @@ func (p *process) Spawn(
 		ParentPID:      p.pid,
 		ParentLeader:   p.leader,
 		ParentEnv:      p.EnvList(),
-		ParentLogLevel: p.log.level,
+		ParentLogLevel: p.log.Level(),
 		Application:    appName(p.application),
 		Args:           args,
 		Ref:            ref,
@@ -199,7 +199,7 @@ func (p *process) SpawnRegister(
 		ParentLeader:   p.leader,
 		ParentEnv:      p.EnvList(),
 		Register:       register,
-		ParentLogLevel: p.log.level,
+		ParentLogLevel: p.log.Level(),
 		Application:    appName(p.application),
 		Args:           args,
 		Ref:            ref,
@@ -303,7 +303,7 @@ func (p *process) RemoteSpawn(
 		ProcessOptions: options,
 		ParentPID:      p.pid,
 		ParentLeader:   p.leader,
-		ParentLogLevel: p.log.level,
+		ParentLogLevel: p.log.Level(),
 		Application:    appName(p.application),
 		Args:           args,
 	}
@@ -341,7 +341,7 @@ func (p *process) RemoteSpawnRegister(
 		ParentPID:      p.pid,
 		ParentLeader:   p.leader,
 		Register:       register,
-		ParentLogLevel: p.log.level,
+		ParentLogLevel: p.log.Level(),
 		Application:    appName(p.application),
 		Args:           args,
 	}
@@ -418,20 +418,33 @@ func (p *process) EnvDefault(name gen.Env, defaultValue any) any {
 	return defaultValue
 }
 
+// updateCompression applies f to a copy of the current compression settings and
+// publishes it atomically, retrying if a concurrent setter raced in.
+func (p *process) updateCompression(f func(c *gen.Compression)) {
+	for {
+		old := p.compression.Load()
+		nc := *old
+		f(&nc)
+		if p.compression.CompareAndSwap(old, &nc) {
+			return
+		}
+	}
+}
+
 func (p *process) Compression() bool {
-	return p.compression.Enable
+	return p.compression.Load().Enable
 }
 
 func (p *process) SetCompression(enable bool) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	p.compression.Enable = enable
+	p.updateCompression(func(c *gen.Compression) { c.Enable = enable })
 	return nil
 }
 
 func (p *process) CompressionType() gen.CompressionType {
-	return p.compression.Type
+	return p.compression.Load().Type
 }
 
 func (p *process) SetCompressionType(ctype gen.CompressionType) error {
@@ -447,12 +460,12 @@ func (p *process) SetCompressionType(ctype gen.CompressionType) error {
 		return gen.ErrIncorrect
 	}
 
-	p.compression.Type = ctype
+	p.updateCompression(func(c *gen.Compression) { c.Type = ctype })
 	return nil
 }
 
 func (p *process) CompressionLevel() gen.CompressionLevel {
-	return p.compression.Level
+	return p.compression.Load().Level
 }
 
 func (p *process) SetCompressionLevel(level gen.CompressionLevel) error {
@@ -468,12 +481,12 @@ func (p *process) SetCompressionLevel(level gen.CompressionLevel) error {
 		return gen.ErrIncorrect
 	}
 
-	p.compression.Level = level
+	p.updateCompression(func(c *gen.Compression) { c.Level = level })
 	return nil
 }
 
 func (p *process) CompressionThreshold() int {
-	return p.compression.Threshold
+	return p.compression.Load().Threshold
 }
 
 func (p *process) SetCompressionThreshold(threshold int) error {
@@ -483,7 +496,7 @@ func (p *process) SetCompressionThreshold(threshold int) error {
 	if threshold < gen.DefaultCompressionThreshold {
 		return gen.ErrIncorrect
 	}
-	p.compression.Threshold = threshold
+	p.updateCompression(func(c *gen.Compression) { c.Threshold = threshold })
 	return nil
 }
 
@@ -591,7 +604,7 @@ func (p *process) propagatingTrace() gen.Tracing {
 func (p *process) messageOptions(priority gen.MessagePriority, important, tracing bool) gen.MessageOptions {
 	options := gen.MessageOptions{
 		Priority:          priority,
-		Compression:       p.compression,
+		Compression:       *p.compression.Load(),
 		KeepNetworkOrder:  p.keeporder.Load(),
 		ImportantDelivery: important,
 	}

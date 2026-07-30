@@ -129,7 +129,7 @@ func (m *meta) handle() {
 				options := gen.MessageOptions{
 					Ref:              message.Ref,
 					Priority:         gen.MessagePriority(m.p.priority.Load()),
-					Compression:      m.p.compression,
+					Compression:      *m.p.compression.Load(),
 					KeepNetworkOrder: m.p.keeporder.Load(),
 				}
 				if reason == nil {
@@ -146,7 +146,7 @@ func (m *meta) handle() {
 				options := gen.MessageOptions{
 					Ref:              message.Ref,
 					Priority:         gen.MessagePriority(m.p.priority.Load()),
-					Compression:      m.p.compression,
+					Compression:      *m.p.compression.Load(),
 					KeepNetworkOrder: m.p.keeporder.Load(),
 				}
 				m.p.core.RouteSendResponse(m.p.pid, message.From, options, result)

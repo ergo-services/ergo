@@ -423,7 +423,7 @@ func (n *node) Spawn(
 		Args:           args,
 		ParentPID:      n.corePID,
 		ParentLeader:   n.corePID,
-		ParentLogLevel: n.log.level,
+		ParentLogLevel: n.log.Level(),
 		ParentEnv:      n.EnvList(),
 		Ref:            ref,
 	}
@@ -457,7 +457,7 @@ func (n *node) SpawnRegister(register gen.Atom, factory gen.ProcessFactory,
 		Args:           args,
 		ParentPID:      n.corePID,
 		ParentLeader:   n.corePID,
-		ParentLogLevel: n.log.level,
+		ParentLogLevel: n.log.Level(),
 		ParentEnv:      n.EnvList(),
 		Ref:            ref,
 	}
@@ -585,7 +585,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.RunningTime = atomic.LoadUint64(&p.runningTime)
 	info.InitTime = atomic.LoadUint64(&p.initTime)
 	info.Wakeups = atomic.LoadUint64(&p.wakeups)
-	info.Compression = p.compression
+	info.Compression = *p.compression.Load()
 	info.MessagePriority = gen.MessagePriority(p.priority.Load())
 	info.Uptime = p.Uptime()
 	info.State = p.State()
@@ -708,7 +708,7 @@ func (n *node) SetProcessCompression(pid gen.PID, enabled bool) error {
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	p.compression.Enable = enabled
+	p.updateCompression(func(c *gen.Compression) { c.Enable = enabled })
 	return nil
 }
 
@@ -728,7 +728,7 @@ func (n *node) SetProcessCompressionType(pid gen.PID, ctype gen.CompressionType)
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	p.compression.Type = ctype
+	p.updateCompression(func(c *gen.Compression) { c.Type = ctype })
 	return nil
 }
 
@@ -748,7 +748,7 @@ func (n *node) SetProcessCompressionLevel(pid gen.PID, level gen.CompressionLeve
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	p.compression.Level = level
+	p.updateCompression(func(c *gen.Compression) { c.Level = level })
 	return nil
 }
 
@@ -764,7 +764,7 @@ func (n *node) SetProcessCompressionThreshold(pid gen.PID, threshold int) error 
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
-	p.compression.Threshold = threshold
+	p.updateCompression(func(c *gen.Compression) { c.Threshold = threshold })
 	return nil
 }
 
@@ -2823,16 +2823,17 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		p.leader = options.Leader
 	}
 
-	p.compression = options.Compression
-	if p.compression.Level == 0 {
-		p.compression.Level = gen.DefaultCompressionLevel
+	compression := options.Compression
+	if compression.Level == 0 {
+		compression.Level = gen.DefaultCompressionLevel
 	}
-	if p.compression.Type == "" {
-		p.compression.Type = gen.DefaultCompressionType
+	if compression.Type == "" {
+		compression.Type = gen.DefaultCompressionType
 	}
-	if p.compression.Threshold == 0 {
-		p.compression.Threshold = gen.DefaultCompressionThreshold
+	if compression.Threshold == 0 {
+		compression.Threshold = gen.DefaultCompressionThreshold
 	}
+	p.compression.Store(&compression)
 
 	switch options.SendPriority {
 	case gen.MessagePriorityHigh:

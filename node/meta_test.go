@@ -14,6 +14,7 @@ func newTestMeta(core gen.Core) *meta {
 		pid:  gen.PID{Node: "n@localhost", ID: 100, Creation: 1},
 		core: core,
 	}
+	p.compression.Store(&gen.Compression{})
 	m := &meta{p: p}
 	m.state = int32(gen.MetaStateRunning)
 	return m

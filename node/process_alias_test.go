@@ -10,7 +10,7 @@ import (
 
 // deleting a non-head alias must keep the other aliases and drop only the target.
 func TestProcessDeleteAliasKeepsOthers(t *testing.T) {
-	n := &node{creation: 1, log: &log{level: gen.LogLevelDisabled}}
+	n := &node{creation: 1, log: createLog(gen.LogLevelDisabled, nil)}
 	p := &process{
 		pid:  gen.PID{Node: "n@localhost", ID: 100, Creation: 1},
 		node: n,
