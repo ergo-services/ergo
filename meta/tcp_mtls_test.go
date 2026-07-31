@@ -82,7 +82,7 @@ func TestTCPServerMutualTLSDynamic(t *testing.T) {
 	dial := func() error {
 		c, err := tls.Dial("tcp", addr, &tls.Config{
 			Certificates:       []tls.Certificate{cert}, // present the client cert
-			InsecureSkipVerify: true,                     // not verifying the server here
+			InsecureSkipVerify: true,                    // not verifying the server here
 			// TLS 1.2 so the client observes client-cert rejection during Dial (in 1.3 the
 			// client handshake completes optimistically before the server verifies).
 			MinVersion: tls.VersionTLS12,
