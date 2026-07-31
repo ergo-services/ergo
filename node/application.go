@@ -291,23 +291,22 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 		}
 
 		opts := gen.ProcessOptionsExtra{
-			Register:       item.Name,
-			ProcessOptions: item.Options,
-			ParentPID:      options.CorePID,
-			ParentLeader:   options.CorePID,
-			ParentLogLevel: options.CoreLogLevel,
-			ParentEnv:      appEnv,
-			Application:    a.spec.Name,
-			Ref:            ref,
+			Register:               item.Name,
+			ProcessOptions:         item.Options,
+			ParentPID:              options.CorePID,
+			ParentLeader:           options.CorePID,
+			ParentLogLevel:         options.CoreLogLevel,
+			ParentEnv:              appEnv,
+			Application:            a.spec.Name,
+			ApplicationGroupMember: true,
+			Ref:                    ref,
 		}
 		opts.Args = item.Args
 
-		pid, err := a.node.spawn(item.Factory, opts)
-		if err != nil {
+		if _, err := a.node.spawn(item.Factory, opts); err != nil {
 			a.spawnFailCleanup(err)
 			return err
 		}
-		a.group.Store(pid, true)
 	}
 
 	if atomic.CompareAndSwapInt32(&a.state,

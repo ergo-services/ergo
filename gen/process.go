@@ -1082,6 +1082,9 @@ type ProcessOptionsExtra struct {
 	Register    Atom
 	Application Atom
 
+	// ApplicationGroupMember registers the process in its application group before it runs (direct group members only).
+	ApplicationGroupMember bool
+
 	// Ref with deadline for spawn timeout.
 	// Deadline stored in Ref.ID[2] as unix timestamp.
 	Ref Ref

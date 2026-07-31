@@ -3020,6 +3020,13 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		n.waitprocesses.Add(1)
 	}
 
+	// register a direct application group member before it can run (and terminate)
+	if options.ApplicationGroupMember {
+		if app, ok := p.application.(*application); ok {
+			app.group.Store(p.pid, true)
+		}
+	}
+
 	// process could send a message to itself during initialization
 	// so we should run this process to make sure this message is handled
 	p.run()
