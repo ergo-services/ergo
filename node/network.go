@@ -1570,10 +1570,19 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 			MinVersion:         tls.VersionTLS12,
 		}
 
-		// check for mTLS support
+		// mTLS: re-read the CA pool and client-auth policy per incoming connection so
+		// CertAuthManager runtime updates take effect on the live listener
 		if cam, ok := acceptor.cert_manager.(gen.CertAuthManager); ok {
-			config.ClientAuth = cam.ClientAuth()
-			config.ClientCAs = cam.ClientCAs()
+			skipVerify := a.InsecureSkipVerify
+			config.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
+				return &tls.Config{
+					GetCertificate:     cam.GetCertificateFunc(),
+					InsecureSkipVerify: skipVerify,
+					MinVersion:         tls.VersionTLS12,
+					ClientAuth:         cam.ClientAuth(),
+					ClientCAs:          cam.ClientCAs(),
+				}, nil
+			}
 		}
 
 		acceptor.l = tls.NewListener(acceptor.l, config)

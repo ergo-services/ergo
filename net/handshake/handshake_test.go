@@ -140,7 +140,7 @@ func TestReject(t *testing.T) {
 	check.Equal(t, "denied", rej.Reason)
 }
 
-// TestHandshakeIntroduceOverUint16 guards #290: an Introduce whose cache exchange exceeds
+// TestHandshakeIntroduceOverUint16: an Introduce whose cache exchange exceeds
 // the old 64KB (uint16) ceiling must still round-trip, since the writer frames the length
 // as uint32. The same frame read under the small control ceiling is still rejected.
 func TestHandshakeIntroduceOverUint16(t *testing.T) {

@@ -360,7 +360,7 @@ func TestLocalApplicationMode(t *testing.T) {
 // ApplicationInfo.Env) report the effective environment - node core env +
 // ApplicationSpec.Env + per-start ApplicationOptions.Env while running, and only
 // ApplicationSpec.Env while not running. The per-start layer is replaced, not
-// accumulated, across starts. Regression for #250.
+// accumulated, across starts.
 func TestLocalApplicationEnvEffective(t *testing.T) {
 	s := stage.New(t)
 	n := s.StartNode("n", stage.NodeOptions{
@@ -387,7 +387,7 @@ func TestLocalApplicationEnvEffective(t *testing.T) {
 	check.NoError(t, err)
 	check.Equal(t, "core", info.Env["NODE"])
 	check.Equal(t, 12345, info.Env["TEST"])
-	check.Equal(t, "a", info.Env["OPT"]) // per-start env (the #250 fix)
+	check.Equal(t, "a", info.Env["OPT"]) // per-start env
 
 	// stopped: the per-start layer is gone
 	check.NoError(t, nn.ApplicationStop(appName))
@@ -409,7 +409,7 @@ func TestLocalApplicationEnvEffective(t *testing.T) {
 // TestLocalApplicationStartModeDependencies: the mode-specific start entry points
 // (Permanent/Transient/Temporary) resolve ApplicationSpec.Depends.Applications just
 // like ApplicationStart - refused with ErrApplicationDepends while a dependency is
-// unloaded, succeeding once it is loaded. Regression for #240.
+// unloaded, succeeding once it is loaded.
 func TestLocalApplicationStartModeDependencies(t *testing.T) {
 	starts := []struct {
 		name  string

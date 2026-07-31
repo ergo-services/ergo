@@ -168,7 +168,7 @@ type edfOverflowType int
 
 // Registering a type once the 16-bit reg-cache id space is exhausted must
 // surface an error, not silently register with a full-name fallback. Regression
-// for the discarded addRegCache error (#257): the overflow now propagates.
+// for the discarded addRegCache error: the overflow now propagates.
 func TestRegisterTypeCacheOverflow(t *testing.T) {
 	old := atomic.LoadUint32(&regCacheID)
 	atomic.StoreUint32(&regCacheID, math.MaxUint16)

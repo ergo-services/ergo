@@ -156,7 +156,7 @@ func TestMPSCparallel(t *testing.T) {
 // (non-flush) queue of limit 1 with no consumer: exactly one push may succeed and the
 // queue must hold exactly one item. The start barrier piles every producer onto the very
 // first slot, so they all read Len()==0 together - the old Len()-then-link check let them
-// all pass and overshoot, which this reliably exposes. Guards #281.
+// all pass and overshoot, which this reliably exposes.
 func TestQueueLimitMPSCConcurrentLimit(t *testing.T) {
 	const limit = 1
 	const producers = 256

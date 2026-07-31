@@ -50,8 +50,8 @@ func (a *instantApp) Load(args ...any) (gen.ApplicationSpec, error) {
 	}, nil
 }
 
-// TestLocalApplicationGroupMemberTerminateRace guards #248: a group member that terminates
-// in the window between spawn returning and start() recording its pid must not leave a
+// TestLocalApplicationGroupMemberTerminateRace: a group member that terminates in the
+// window between spawn returning and start() recording its pid must not leave a
 // phantom entry in the app group. With the fix each member is registered before it can run,
 // so terminate() always drains it and the group empties. Without the fix, members that win
 // the race leave phantom entries, the group never empties, and the app wedges in Stopping.

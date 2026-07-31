@@ -7,7 +7,7 @@ import (
 	"ergo.services/ergo/lib"
 )
 
-// TestNetworkProxyFlagsRoundTrip guards #256: NetworkProxyFlags.MarshalEDF/UnmarshalEDF
+// TestNetworkProxyFlagsRoundTrip: NetworkProxyFlags.MarshalEDF/UnmarshalEDF
 // were no-ops, so every flag was silently dropped on the wire. A mixed set of bits must
 // now survive an Encode/Decode round-trip (mixed values also catch swapped bit positions).
 func TestNetworkProxyFlagsRoundTrip(t *testing.T) {
