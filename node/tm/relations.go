@@ -76,12 +76,21 @@ func (tr *TargetRelations) compact() {
 // calling fn for every relation this call wins. Death fan-out: a concurrent
 // Unregister that wins the CAS first is skipped. Entry is dropped after, so
 // no splicing.
+//
+// Push is two-step (head.Swap then old.next.Store), so a relation whose node is
+// already published as the head can still have a nil next while its predecessor's
+// link is in flight. A plain "stop at next==nil" would miss it. When prev has a nil
+// next but is not the head, that link is pending: spin until it lands so the in-flight
+// Push is never dropped. prev==head is the only genuine end of the list.
 func (tr *TargetRelations) Drain(fn func(pid gen.PID, kind Kind)) {
 	prev := tr.tail.Load()
 	for {
 		curr := prev.next.Load()
 		if curr == nil {
-			return
+			if tr.head.Load() == prev {
+				return
+			}
+			continue
 		}
 		if curr.alive.CompareAndSwap(1, 0) {
 			fn(curr.pid, curr.kind)
