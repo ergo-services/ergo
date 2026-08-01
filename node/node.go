@@ -134,10 +134,14 @@ type node struct {
 }
 
 type tracingExporterEntry struct {
-	exporter gen.TracingBehavior
-	flags    gen.TracingFlags
-	pid      gen.PID // non-zero for process-based exporters
+	exporter   gen.TracingBehavior
+	flags      gen.TracingFlags
+	pid        gen.PID                          // non-zero for process-based exporters
+	dispatcher *lib.Dispatcher[gen.TracingSpan] // decouples an object exporter from the routing goroutine
 }
+
+// tracingExporterQueue bounds the buffer of spans awaiting an object exporter's HandleSpan.
+const tracingExporterQueue = 1024
 
 type eventOwner struct {
 	name      gen.Atom
@@ -888,10 +892,15 @@ func (n *node) Info() (gen.NodeInfo, error) {
 		if entry.exporter != nil {
 			behavior = strings.TrimPrefix(reflect.TypeOf(entry.exporter).String(), "*")
 		}
+		var dropped uint64
+		if entry.dispatcher != nil {
+			dropped = entry.dispatcher.Dropped()
+		}
 		info.TracingExporters = append(info.TracingExporters, gen.TracingExporterInfo{
-			Name:     k.(string),
-			Behavior: behavior,
-			Flags:    entry.flags,
+			Name:         k.(string),
+			Behavior:     behavior,
+			Flags:        entry.flags,
+			DroppedSpans: dropped,
 		})
 		return true
 	})
@@ -2474,11 +2483,23 @@ func (n *node) TracingExporterAdd(name string, exporter gen.TracingBehavior, fla
 	if exporter == nil {
 		return gen.ErrIncorrect
 	}
+	// run HandleSpan on a dedicated worker so a slow or blocking exporter cannot stall the
+	// routing goroutine; recover its panics so a buggy exporter cannot take the node down
+	handle := func(span gen.TracingSpan) {
+		defer func() {
+			if rcv := recover(); rcv != nil {
+				n.log.Error("tracing exporter %q panicked in HandleSpan: %#v", name, rcv)
+			}
+		}()
+		exporter.HandleSpan(span)
+	}
 	entry := tracingExporterEntry{
-		exporter: exporter,
-		flags:    flags,
+		exporter:   exporter,
+		flags:      flags,
+		dispatcher: lib.NewDispatcher[gen.TracingSpan](tracingExporterQueue, handle),
 	}
 	if _, loaded := n.tracingExporters.LoadOrStore(name, entry); loaded {
+		entry.dispatcher.Stop()
 		return gen.ErrTaken
 	}
 	return nil
@@ -2503,6 +2524,7 @@ func (n *node) TracingExporterDelete(name string) {
 	}
 	entry := v.(tracingExporterEntry)
 	if entry.exporter != nil {
+		entry.dispatcher.Stop() // no HandleSpan runs after this returns
 		entry.exporter.Terminate()
 	}
 }
@@ -2534,7 +2556,7 @@ func (n *node) sendTracingSpan(span gen.TracingSpan) {
 			return true
 		}
 		if entry.exporter != nil {
-			entry.exporter.HandleSpan(span)
+			entry.dispatcher.Push(span)
 			return true
 		}
 		value, loaded := n.processes.Load(entry.pid)

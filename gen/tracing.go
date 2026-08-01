@@ -162,7 +162,15 @@ type TracingInfo struct {
 
 // TracingBehavior interface for tracing exporters.
 type TracingBehavior interface {
+	// HandleSpan processes one span. The node calls it from a dedicated per-exporter
+	// worker (serially, so it need not be goroutine-safe), decoupled from the routing
+	// path - it may do I/O without stalling message delivery. Spans are buffered; a
+	// persistently slow exporter drops spans once the buffer fills (see
+	// TracingExporterInfo.DroppedSpans), so drain promptly for lossless export.
 	HandleSpan(TracingSpan)
+
+	// Terminate is called when the exporter is removed or the node stops, after the
+	// worker has finished; use it to flush and clean up.
 	Terminate()
 }
 

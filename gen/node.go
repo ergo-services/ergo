@@ -965,4 +965,8 @@ type TracingExporterInfo struct {
 
 	// Flags is the tracing granularity for this exporter.
 	Flags TracingFlags
+
+	// DroppedSpans counts spans dropped because the exporter's queue was full
+	// (a slow or blocked object exporter). Always zero for process-based exporters.
+	DroppedSpans uint64
 }
