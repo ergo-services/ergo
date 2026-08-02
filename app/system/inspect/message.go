@@ -345,7 +345,8 @@ type ResponseDoAppUnload struct {
 // do one-shot inspect
 
 type RequestDoInspect struct {
-	PID gen.PID
+	PID   gen.PID
+	Items []string
 }
 type ResponseDoInspect struct {
 	State map[string]string
@@ -353,7 +354,8 @@ type ResponseDoInspect struct {
 }
 
 type RequestDoInspectMeta struct {
-	Meta gen.Alias
+	Meta  gen.Alias
+	Items []string
 }
 type ResponseDoInspectMeta struct {
 	State map[string]string

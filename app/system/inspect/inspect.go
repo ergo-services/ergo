@@ -685,13 +685,13 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	case RequestDoInspect:
 		if r.PID == i.PID() {
-			return ResponseDoInspect{State: i.HandleInspect(i.PID())}, nil
+			return ResponseDoInspect{State: i.HandleInspect(i.PID(), r.Items...)}, nil
 		}
-		state, err := i.Inspect(r.PID)
+		state, err := i.Inspect(r.PID, r.Items...)
 		return ResponseDoInspect{State: state, Error: err}, nil
 
 	case RequestDoInspectMeta:
-		state, err := i.InspectMeta(r.Meta)
+		state, err := i.InspectMeta(r.Meta, r.Items...)
 		return ResponseDoInspectMeta{State: state, Error: err}, nil
 
 	case RequestDoGoroutines:
