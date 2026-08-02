@@ -182,11 +182,6 @@ func connectionListHash(name string, limit int) string {
 	return fmt.Sprintf("%x", hashStr(fmt.Sprintf("%s|%d", name, limit)))
 }
 
-// itemsHash builds a short deterministic suffix from inspect item filters
-func itemsHash(items []string) string {
-	return fmt.Sprintf("%x", hashStr(strings.Join(items, "|")))
-}
-
 func hashStr(s string) uint32 {
 	h := uint32(2166136261)
 	for i := 0; i < len(s); i++ {

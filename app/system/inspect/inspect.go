@@ -1,7 +1,6 @@
 package inspect
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -25,17 +24,9 @@ const (
 	inspectProcessPeriod     = time.Second
 	inspectProcessIdlePeriod = 5 * time.Second
 
-	inspectProcessState           = "inspect_process_state"
-	inspectProcessStatePeriod     = time.Second
-	inspectProcessStateIdlePeriod = 5 * time.Second
-
 	inspectMeta           = "inspect_meta"
 	inspectMetaPeriod     = time.Second
 	inspectMetaIdlePeriod = 5 * time.Second
-
-	inspectMetaState           = "inspect_meta_state"
-	inspectMetaStatePeriod     = time.Second
-	inspectMetaStateIdlePeriod = 5 * time.Second
 
 	inspectNetwork           = "inspect_network"
 	inspectNetworkPeriod     = time.Second
@@ -105,9 +96,7 @@ func Types() []any {
 		RequestInspectEventStream{}, ResponseInspectEventStream{},
 		RequestInspectLog{}, ResponseInspectLog{}, InspectLogEntry{}, MessageInspectLog{},
 		RequestInspectProcess{}, ResponseInspectProcess{}, MessageInspectProcess{},
-		RequestInspectProcessState{}, ResponseInspectProcessState{}, MessageInspectProcessState{},
 		RequestInspectMeta{}, ResponseInspectMeta{}, MessageInspectMeta{},
-		RequestInspectMetaState{}, ResponseInspectMetaState{}, MessageInspectMetaState{},
 		RequestInspectApplicationList{}, ResponseInspectApplicationList{}, MessageInspectApplicationList{},
 		RequestInspectHeap{}, ResponseInspectHeap{}, MessageInspectHeap{},
 		RequestInspectTracing{}, ResponseInspectTracing{}, MessageInspectTracing{},
@@ -288,49 +277,12 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		i.Send(pname, forward)
 		return nil, nil // no reply
 
-	case RequestInspectProcessState:
-		if r.PID == i.PID() {
-			return errors.New("unable to inspect the state of itself"), nil
-		}
-		opts := gen.ProcessOptions{
-			LinkParent: true,
-		}
-		pname := gen.Atom(fmt.Sprintf("%s_%s_%s", inspectProcessState, r.PID, itemsHash(r.Items)))
-		_, err := i.SpawnRegister(pname, factory_process_state, opts, r.PID, r.Items)
-		if err != nil && err != gen.ErrTaken {
-			return err, nil
-		}
-		// forward this request
-		forward := requestInspect{
-			pid: from,
-			ref: ref,
-		}
-		i.Send(pname, forward)
-		return nil, nil // no reply
-
 	case RequestInspectMeta:
 		opts := gen.ProcessOptions{
 			LinkParent: true,
 		}
 		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectMeta, r.Meta))
 		_, err := i.SpawnRegister(pname, factory_meta, opts, r.Meta)
-		if err != nil && err != gen.ErrTaken {
-			return err, nil
-		}
-		// forward this request
-		forward := requestInspect{
-			pid: from,
-			ref: ref,
-		}
-		i.Send(pname, forward)
-		return nil, nil // no reply
-
-	case RequestInspectMetaState:
-		opts := gen.ProcessOptions{
-			LinkParent: true,
-		}
-		pname := gen.Atom(fmt.Sprintf("%s_%s_%s", inspectMetaState, r.Meta, itemsHash(r.Items)))
-		_, err := i.SpawnRegister(pname, factory_meta_state, opts, r.Meta, r.Items)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}

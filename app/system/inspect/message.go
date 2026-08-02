@@ -141,21 +141,6 @@ type MessageInspectProcess struct {
 	Info gen.ProcessInfo
 }
 
-// process state
-type RequestInspectProcessState struct {
-	PID   gen.PID
-	Items []string
-}
-type ResponseInspectProcessState struct {
-	Event gen.Event
-}
-
-type MessageInspectProcessState struct {
-	Node  gen.Atom
-	PID   gen.PID
-	State map[string]string
-}
-
 // meta
 
 type RequestInspectMeta struct {
@@ -169,21 +154,6 @@ type ResponseInspectMeta struct {
 type MessageInspectMeta struct {
 	Node gen.Atom
 	Info gen.MetaInfo
-}
-
-// meta state
-type RequestInspectMetaState struct {
-	Meta  gen.Alias
-	Items []string
-}
-type ResponseInspectMetaState struct {
-	Event gen.Event
-}
-
-type MessageInspectMetaState struct {
-	Node  gen.Atom
-	Meta  gen.Alias
-	State map[string]string
 }
 
 // do send
