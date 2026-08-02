@@ -19,10 +19,12 @@ type meta_state struct {
 	generating bool
 	loopID     uint64
 	meta       gen.Alias
+	items      []string
 }
 
 func (ims *meta_state) Init(args ...any) error {
 	ims.meta = args[0].(gen.Alias)
+	ims.items = args[1].([]string)
 	ims.Log().SetLogger("default")
 	ims.SetProcessKind(gen.ProcessKindMonitor)
 	ims.Log().Debug("meta state inspector started. id %s", ims.meta)
@@ -31,7 +33,7 @@ func (ims *meta_state) Init(args ...any) error {
 		Notify: true,
 		Buffer: 1, // keep the last event
 	}
-	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectMetaState, ims.meta))
+	evname := gen.Atom(fmt.Sprintf("%s_%s_%s", inspectMetaState, ims.meta, itemsHash(ims.items)))
 	token, err := ims.RegisterEvent(evname, eopts)
 	if err != nil {
 		ims.Log().Error("unable to register meta state event: %s", err)
@@ -53,7 +55,7 @@ func (ims *meta_state) HandleMessage(from gen.PID, message any) error {
 			break // cancelled
 		}
 		ims.Log().Debug("generating event")
-		state, err := ims.InspectMeta(ims.meta)
+		state, err := ims.InspectMeta(ims.meta, ims.items...)
 		if err != nil {
 			if err == gen.ErrMetaUnknown {
 				return gen.TerminateReasonNormal

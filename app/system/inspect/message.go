@@ -143,7 +143,8 @@ type MessageInspectProcess struct {
 
 // process state
 type RequestInspectProcessState struct {
-	PID gen.PID
+	PID   gen.PID
+	Items []string
 }
 type ResponseInspectProcessState struct {
 	Event gen.Event
@@ -172,7 +173,8 @@ type MessageInspectMeta struct {
 
 // meta state
 type RequestInspectMetaState struct {
-	Meta gen.Alias
+	Meta  gen.Alias
+	Items []string
 }
 type ResponseInspectMetaState struct {
 	Event gen.Event

@@ -295,8 +295,8 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		opts := gen.ProcessOptions{
 			LinkParent: true,
 		}
-		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectProcessState, r.PID))
-		_, err := i.SpawnRegister(pname, factory_process_state, opts, r.PID)
+		pname := gen.Atom(fmt.Sprintf("%s_%s_%s", inspectProcessState, r.PID, itemsHash(r.Items)))
+		_, err := i.SpawnRegister(pname, factory_process_state, opts, r.PID, r.Items)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}
@@ -329,8 +329,8 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		opts := gen.ProcessOptions{
 			LinkParent: true,
 		}
-		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectMetaState, r.Meta))
-		_, err := i.SpawnRegister(pname, factory_meta_state, opts, r.Meta)
+		pname := gen.Atom(fmt.Sprintf("%s_%s_%s", inspectMetaState, r.Meta, itemsHash(r.Items)))
+		_, err := i.SpawnRegister(pname, factory_meta_state, opts, r.Meta, r.Items)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}

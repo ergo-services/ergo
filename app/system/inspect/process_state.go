@@ -19,10 +19,12 @@ type process_state struct {
 	generating bool
 	loopID     uint64
 	pid        gen.PID
+	items      []string
 }
 
 func (ips *process_state) Init(args ...any) error {
 	ips.pid = args[0].(gen.PID)
+	ips.items = args[1].([]string)
 	ips.Log().SetLogger("default")
 	ips.SetProcessKind(gen.ProcessKindMonitor)
 	ips.Log().Debug("process state inspector started. pid %s", ips.pid)
@@ -31,7 +33,7 @@ func (ips *process_state) Init(args ...any) error {
 		Notify: true,
 		Buffer: 1, // keep the last event
 	}
-	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectProcessState, ips.pid))
+	evname := gen.Atom(fmt.Sprintf("%s_%s_%s", inspectProcessState, ips.pid, itemsHash(ips.items)))
 	token, err := ips.RegisterEvent(evname, eopts)
 	if err != nil {
 		ips.Log().Error("unable to register process state event: %s", err)
@@ -53,7 +55,7 @@ func (ips *process_state) HandleMessage(from gen.PID, message any) error {
 			break // cancelled
 		}
 		ips.Log().Debug("generating event")
-		state, err := ips.Inspect(ips.pid)
+		state, err := ips.Inspect(ips.pid, ips.items...)
 		if err != nil {
 			if err == gen.ErrProcessUnknown {
 				return gen.TerminateReasonNormal
