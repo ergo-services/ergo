@@ -342,6 +342,35 @@ func TestRouterUnitDefaultCallbacks(t *testing.T) {
 	s.ShouldTerminate().None().Assert()
 }
 
+// router with its own HandleInspect
+type rtrInspect struct{ act.Router }
+
+func factoryRtrInspect() gen.ProcessBehavior { return &rtrInspect{} }
+
+func (r *rtrInspect) Init(args ...any) (act.RouterOptions, error) {
+	return args[0].(act.RouterOptions), nil
+}
+func (r *rtrInspect) RouteMessage(from gen.PID, message any) gen.Atom { return act.RouteDiscard }
+func (r *rtrInspect) RouteCall(from gen.PID, ref gen.Ref, request any) gen.Atom {
+	return act.RouteDiscard
+}
+func (r *rtrInspect) HandleInspect(from gen.PID, item ...string) map[string]string {
+	return map[string]string{"custom": "value", "type": "MyRouter"}
+}
+
+// a custom HandleInspect adds/overrides fields, the routing stats are kept.
+func TestRouterUnitInspectCustom(t *testing.T) {
+	s, err := unit.Spawn(t, factoryRtrInspect, gen.ProcessOptions{}, twoRoutes())
+	check.NoError(t, err)
+	s.ShouldSpawn().Times(2).Assert()
+
+	m, err := s.Inspect(gen.PID{})
+	check.NoError(t, err)
+	check.Equal(t, "value", m["custom"])
+	check.Equal(t, "2", m["routes_total"]) // routing stats are not lost
+	check.Equal(t, "MyRouter", m["type"])  // the behavior wins on the same key
+}
+
 // forwarding to a route whose worker is gone respawns it and retries the forward.
 func TestRouterUnitForwardRespawnRetry(t *testing.T) {
 	s, pids := spawnRouter(t, twoRoutes())

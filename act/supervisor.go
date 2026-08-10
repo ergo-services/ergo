@@ -49,7 +49,9 @@ type SupervisorBehavior interface {
 	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
 	HandleEvent(message gen.MessageEvent) error
 
-	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
+	// HandleInspect invoked on the request made with gen.Process.Inspect(...).
+	// The returning fields are merged into the supervisor state (strategy,
+	// children), so implement it to add or override the fields.
 	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
@@ -590,7 +592,12 @@ func (s *Supervisor) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := s.behavior.HandleInspect(message.From, message.Message.([]string)...)
+			items := message.Message.([]string)
+			// supervisor state first, the behavior may override any of the fields
+			result := s.sup.inspect(items...)
+			for k, v := range s.behavior.HandleInspect(message.From, items...) {
+				result[k] = v
+			}
 			s.SendResponse(message.From, message.Ref, result)
 
 		case gen.MailboxMessageTypeSpan:

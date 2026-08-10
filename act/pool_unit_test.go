@@ -279,6 +279,31 @@ func TestPoolUnitDefaultCallbacks(t *testing.T) {
 	s.ShouldTerminate().None().Assert()
 }
 
+// pool with its own HandleInspect
+type pluInspect struct{ act.Pool }
+
+func factoryPluInspect() gen.ProcessBehavior { return &pluInspect{} }
+
+func (p *pluInspect) Init(args ...any) (act.PoolOptions, error) {
+	return args[0].(act.PoolOptions), nil
+}
+
+func (p *pluInspect) HandleInspect(from gen.PID, item ...string) map[string]string {
+	return map[string]string{"custom": "value", "pool_size": "42"}
+}
+
+// a custom HandleInspect adds/overrides fields, the pool stats are kept.
+func TestPoolUnitInspectCustom(t *testing.T) {
+	s, err := unit.Spawn(t, factoryPluInspect, gen.ProcessOptions{}, poolOpts(2))
+	check.NoError(t, err)
+
+	m, err := s.Inspect(gen.PID{})
+	check.NoError(t, err)
+	check.Equal(t, "value", m["custom"])
+	check.Equal(t, "0", m["messages_forwarded"]) // pool stats are not lost
+	check.Equal(t, "42", m["pool_size"])         // the behavior wins on the same key
+}
+
 type pluPanic struct{ act.Pool }
 
 func factoryPluPanic() gen.ProcessBehavior { return &pluPanic{} }

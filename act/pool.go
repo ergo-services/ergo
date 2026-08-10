@@ -39,7 +39,9 @@ type PoolBehavior interface {
 	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
 	HandleEvent(message gen.MessageEvent) error
 
-	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
+	// HandleInspect invoked on the request made with gen.Process.Inspect(...).
+	// The returning fields are merged into the pool stats, so implement it to
+	// add or override the fields.
 	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
@@ -303,7 +305,12 @@ func (p *Pool) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := p.behavior.HandleInspect(message.From, message.Message.([]string)...)
+			items := message.Message.([]string)
+			// pool stats first, the behavior may override any of the fields
+			result := p.inspect()
+			for k, v := range p.behavior.HandleInspect(message.From, items...) {
+				result[k] = v
+			}
 			p.SendResponse(message.From, message.Ref, result)
 
 		}
@@ -364,6 +371,12 @@ func (p *Pool) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKi
 }
 
 func (p *Pool) HandleInspect(from gen.PID, item ...string) map[string]string {
+	return p.inspect()
+}
+
+// private
+
+func (p *Pool) inspect() map[string]string {
 	return map[string]string{
 		"pool_size":           fmt.Sprintf("%d", p.options.PoolSize),
 		"worker_behavior":     p.sWorkerBehavior,
@@ -373,8 +386,6 @@ func (p *Pool) HandleInspect(from gen.PID, item ...string) map[string]string {
 		"messages_unhandled":  fmt.Sprintf("%d", p.unhandled),
 	}
 }
-
-// private
 
 func (p *Pool) forward(message *gen.MailboxMessage) {
 	var err error

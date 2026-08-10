@@ -69,8 +69,9 @@ type RouterBehavior interface {
 	// HandleEvent is invoked on a subscribed event.
 	HandleEvent(message gen.MessageEvent) error
 
-	// HandleInspect is invoked on Inspect requests. Default returns routing
-	// statistics; override to add fields.
+	// HandleInspect is invoked on Inspect requests. The returning fields are
+	// merged into the routing statistics, so implement it to add or override
+	// the fields.
 	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
@@ -626,7 +627,12 @@ func (r *Router) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := r.behavior.HandleInspect(message.From, message.Message.([]string)...)
+			items := message.Message.([]string)
+			// routing stats first, the behavior may override any of the fields
+			result := r.inspect()
+			for k, v := range r.behavior.HandleInspect(message.From, items...) {
+				result[k] = v
+			}
 			r.SendResponse(message.From, message.Ref, result)
 
 		case gen.MailboxMessageTypeSpan:
@@ -851,6 +857,10 @@ func (r *Router) sendSpanProcessed(message *gen.MailboxMessage, kind gen.Tracing
 }
 
 func (r *Router) HandleInspect(from gen.PID, item ...string) map[string]string {
+	return r.inspect()
+}
+
+func (r *Router) inspect() map[string]string {
 	var empty gen.PID
 	result := map[string]string{
 		"type":         "Router",

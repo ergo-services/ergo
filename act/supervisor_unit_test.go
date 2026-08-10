@@ -712,6 +712,37 @@ func TestSupervisorUnitInspectStrategies(t *testing.T) {
 	check.NotNil(t, m)
 }
 
+// supervisor with its own HandleInspect
+type supUnitInspect struct{ act.Supervisor }
+
+func factorySupUnitInspect() gen.ProcessBehavior { return &supUnitInspect{} }
+
+func (s *supUnitInspect) Init(args ...any) (act.SupervisorSpec, error) {
+	return args[0].(act.SupervisorSpec), nil
+}
+
+func (s *supUnitInspect) HandleInspect(from gen.PID, item ...string) map[string]string {
+	return map[string]string{"custom": "value", "type": "MySupervisor"}
+}
+
+// a custom HandleInspect adds/overrides fields, the supervisor state is kept.
+func TestSupervisorUnitInspectCustom(t *testing.T) {
+	spec := act.SupervisorSpec{
+		Type:                act.SupervisorTypeOneForOne,
+		DisableAutoShutdown: true,
+		Children:            threeChildren(),
+	}
+	s, err := unit.Spawn(t, factorySupUnitInspect, gen.ProcessOptions{}, spec)
+	check.NoError(t, err)
+	childPIDs(t, s, 3)
+
+	m, err := s.Inspect(gen.PID{})
+	check.NoError(t, err)
+	check.Equal(t, "value", m["custom"])
+	check.Equal(t, "3", m["children_total"])  // supervisor state is not lost
+	check.Equal(t, "MySupervisor", m["type"]) // the behavior wins on the same key
+}
+
 // a PreserveMailbox child that dies with a *gen.Error carrying a mailbox is
 // restarted with that mailbox adopted (extractMailbox).
 func TestSupervisorUnitPreserveMailboxAdopt(t *testing.T) {

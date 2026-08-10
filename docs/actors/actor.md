@@ -421,6 +421,8 @@ info, err := node.Inspect(workerPID)
 
 Both methods only work for local processes (same node). Inspection requests go to the Urgent queue and bypass normal message processing. Keep `HandleInspect` implementation fast - don't do expensive computations or I/O. Return only string values (serialization limitation). The optional `item` parameters allow filtering which fields to return, though most implementations ignore them and return all fields.
 
+What you choose to expose here decides what can be diagnosed later, and everything built on top of it - the observer view, cluster-wide diagnostics, an AI agent correlating state with your source - is bounded by that choice. See [Inspecting Actor State](../advanced/inspecting-state.md).
+
 ## Actor Pools
 
 For workload distribution, use `act.Pool` instead of implementing manual worker management. See [Pool](pool.md) for details.
