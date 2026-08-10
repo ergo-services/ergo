@@ -257,11 +257,11 @@ func TestARFOInspectRecordsTriggerInHistory(t *testing.T) {
 	sup.childTerminated("a", pids["a"], errors.New("boom-from-a"))
 
 	out := sup.inspect()
-	if out["history:count"] != "1" {
-		t.Fatalf("expected exactly one history entry for the triggering child, got %q", out["history:count"])
+	if out["ergo:history:count"] != "1" {
+		t.Fatalf("expected exactly one history entry for the triggering child, got %q", out["ergo:history:count"])
 	}
-	if out["history:0:child"] != "a" || out["history:0:reason"] != "boom-from-a" {
-		t.Errorf("history[0] mismatch: child=%q reason=%q", out["history:0:child"], out["history:0:reason"])
+	if out["ergo:history:0:child"] != "a" || out["ergo:history:0:reason"] != "boom-from-a" {
+		t.Errorf("history[0] mismatch: child=%q reason=%q", out["ergo:history:0:child"], out["ergo:history:0:reason"])
 	}
 }
 

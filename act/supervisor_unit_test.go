@@ -722,7 +722,11 @@ func (s *supUnitInspect) Init(args ...any) (act.SupervisorSpec, error) {
 }
 
 func (s *supUnitInspect) HandleInspect(from gen.PID, item ...string) map[string]string {
-	return map[string]string{"custom": "value", "type": "MySupervisor"}
+	return map[string]string{
+		"custom":                "value",
+		"type":                  "MySupervisor", // no longer collides: the supervisor uses ergo:type
+		"ergo:children_running": "0",            // a reserved key, overridden on purpose
+	}
 }
 
 // a custom HandleInspect adds/overrides fields, the supervisor state is kept.
@@ -739,8 +743,10 @@ func TestSupervisorUnitInspectCustom(t *testing.T) {
 	m, err := s.Inspect(gen.PID{})
 	check.NoError(t, err)
 	check.Equal(t, "value", m["custom"])
-	check.Equal(t, "3", m["children_total"])  // supervisor state is not lost
-	check.Equal(t, "MySupervisor", m["type"]) // the behavior wins on the same key
+	check.Equal(t, "3", m["ergo:children_total"])   // supervisor state is not lost
+	check.Equal(t, "One For One", m["ergo:type"])   // an unprefixed lookalike does not clobber them
+	check.Equal(t, "MySupervisor", m["type"])       // and the behavior keeps its own key
+	check.Equal(t, "0", m["ergo:children_running"]) // a reserved key is overridden only on purpose
 }
 
 // a PreserveMailbox child that dies with a *gen.Error carrying a mailbox is

@@ -67,7 +67,9 @@ case gen.MailboxMessageTypeInspect:
     p.SendResponse(message.From, message.Ref, result)
 ```
 
-So a consumer adds fields, and may deliberately replace one, but cannot erase the rest. If you write a base behavior of your own, follow the same shape. If you are implementing `HandleInspect` on top of one, you can rely on it: the framework's fields will be there beside yours.
+So a consumer adds fields, and may deliberately replace one, but cannot erase the rest. If you are implementing `HandleInspect` on top of one, you can rely on it: the framework's fields will be there beside yours.
+
+The base behaviors namespace their own keys with a reserved `ergo:` prefix - `ergo:pool_size`, `ergo:children_total`, `ergo:state` and so on. That is what makes the merge safe in both directions: a field of yours cannot collide with one of theirs by accident, and you can still override one deliberately by naming it with the prefix. If you write a base behavior of your own, follow the same shape and the same prefix; if you are the consumer, keep your keys unprefixed and they will never clash.
 
 ## When the state is too large to return
 

@@ -304,11 +304,11 @@ func (s *supSOFO) children() []SupervisorChild {
 func (s *supSOFO) inspect(items ...string) map[string]string {
 	result := make(map[string]string)
 
-	result["type"] = "Simple One For One"
-	result["strategy"] = s.restart.Strategy.String()
-	result["intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
-	result["period"] = fmt.Sprintf("%d", s.restart.Period)
-	result["restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
+	result["ergo:type"] = "Simple One For One"
+	result["ergo:strategy"] = s.restart.Strategy.String()
+	result["ergo:intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
+	result["ergo:period"] = fmt.Sprintf("%d", s.restart.Period)
+	result["ergo:restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
 
 	specsTotal := len(s.spec)
 	specsDisabled := 0
@@ -331,16 +331,16 @@ func (s *supSOFO) inspect(items ...string) map[string]string {
 		}
 		count := instancesPerSpec[name]
 		countWithArgs := instancesWithArgsPerSpec[name]
-		result[fmt.Sprintf("child:%s", name)] = fmt.Sprintf("%d", count)
-		result[fmt.Sprintf("child:%s:args", name)] = fmt.Sprintf("%d", countWithArgs)
+		result[fmt.Sprintf("ergo:child:%s", name)] = fmt.Sprintf("%d", count)
+		result[fmt.Sprintf("ergo:child:%s:args", name)] = fmt.Sprintf("%d", countWithArgs)
 		if cs.Restart.Intensity > 0 {
-			result[fmt.Sprintf("child:%s:restarts", name)] = fmt.Sprintf("%d", localRestartsPerSpec[name])
+			result[fmt.Sprintf("ergo:child:%s:restarts", name)] = fmt.Sprintf("%d", localRestartsPerSpec[name])
 		}
 	}
 
-	result["specs_total"] = fmt.Sprintf("%d", specsTotal)
-	result["specs_disabled"] = fmt.Sprintf("%d", specsDisabled)
-	result["instances_total"] = fmt.Sprintf("%d", len(s.instances))
+	result["ergo:specs_total"] = fmt.Sprintf("%d", specsTotal)
+	result["ergo:specs_disabled"] = fmt.Sprintf("%d", specsDisabled)
+	result["ergo:instances_total"] = fmt.Sprintf("%d", len(s.instances))
 
 	supHistoryToInspect(s.history, result)
 

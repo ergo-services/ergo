@@ -4,782 +4,462 @@ description: Distributed leader election for coordinating work across a cluster
 
 # Leader
 
-Distributed systems often require coordination - ensuring only one node writes to prevent conflicts, scheduling tasks exactly once, or managing exclusive access to shared resources. This coordination demands selecting one node as the leader while others follow. The leader actor implements this election mechanism, handling failures, network issues, and dynamic cluster changes automatically.
+The leader actor elects exactly one coordinator among a group of nodes and tells your code when it becomes that coordinator and when it stops being one. You embed it, implement two callbacks, and the work that must run in exactly one place starts and stops on its own.
 
-When you embed `leader.Actor` in your process, it participates in distributed leader election with other instances across your Ergo cluster. The framework manages the election protocol - tracking terms, exchanging votes, broadcasting heartbeats. Your code focuses on what matters: what to do when elected leader, and how to behave as a follower.
+Discovery is not part of it. Resolve peers however suits your deployment - a registrar lookup, static configuration, a message from another system - and hand the names to `Join`. The actor negotiates with them from there, and membership spreads through the protocol once one side knows the other.
 
-## The Coordination Problem
+## The Problem
 
-Consider a typical scenario: you have a multi-replica service that needs to perform periodic cleanup. If every replica runs cleanup independently, you waste resources and might corrupt data through concurrent modifications. You need exactly one replica to run cleanup while others stand ready to take over if it fails.
+Plenty of work must happen once, not once per node. A scheduler that fires cron jobs. A reconciler that scans a database and dispatches what it finds. A single writer to a resource that cannot take concurrent writers. Run it on every node and you get duplicate jobs, duplicate dispatches, duplicate writes. Run it on one designated node and you have a single point of failure that needs a human to move.
 
-Traditional solutions involve external systems - ZooKeeper, etcd, or distributed locks in databases. These work, but add operational complexity. You need to deploy and maintain additional infrastructure. Your application depends on external services being available, correctly configured, and network-accessible. Each external dependency is another potential failure point.
+The obvious shortcut is to pick deterministically: sort the node names, lowest one wins. It needs no messages and it is genuinely appealing, right up to the moment two nodes disagree about the list. Node A believes the set is `{A, B, C}` and picks A; node B has just begun suspecting A and believes the set is `{B, C}`, so it picks B. Both act. Nothing in the scheme prevents it, because nothing in the scheme requires anyone to agree.
 
-The leader actor embeds coordination directly into your Ergo cluster. No external dependencies. Election happens through actor message passing using the same network protocols your application already uses. If your Ergo nodes can communicate with each other, they can elect a leader.
+Election is the fix. A node cannot take leadership by deciding it deserves it; it has to be granted by a majority of the group it believes in. Two nodes whose views differ slightly cannot both collect a majority, because their views overlap and a voter grants one vote per term.
 
-## How Election Works
+## How It Works
 
-The election protocol follows Raft consensus principles, adapted for actor message passing. Understanding the mechanism requires knowing about three concepts: states, terms, and quorum.
+The actor is a Raft-style election with no log: terms, votes, heartbeats, and nothing replicated.
 
-### States and Transitions
+**Roles.** Every actor is in one of four states.
 
-Every process starts as a **follower**. This is the initial state - passive, waiting to hear from a leader. If no heartbeats arrive within the election timeout, the follower transitions to **candidate** and starts an election. If the candidate receives enough votes, it becomes **leader**. If it discovers another leader or loses the election, it reverts to follower.
+- `unclustered` - the view is smaller than `MinClusterSize`, so this node may not have a leader at all. Not a failure; a group too small to be a cluster is behaving correctly by not operating as one.
+- `follower` - accepting another node's leadership, or waiting to campaign.
+- `candidate` - campaigning for a term, waiting for grants.
+- `leader` - holding leadership, sending heartbeats.
 
-```mermaid
-stateDiagram-v2
-    [*] --> Follower
-    Follower --> Candidate: election timeout
-    Candidate --> Leader: received majority votes
-    Candidate --> Follower: discovered leader with higher/equal term
-    Leader --> Follower: discovered leader with higher term
-    Follower --> Follower: received heartbeat
-```
+**The view.** Membership is the set of peers this node has been told about, plus itself. Peers arrive through `Options.Bootstrap` at startup, through `Join` at any time, and through the protocol itself - a node that sends a valid message is a member. A peer counts from the moment it is declared, before it has answered anything.
 
-The transitions are deliberate. Followers conserve resources by remaining passive. Only when leadership is needed (timeout occurs) does a node become active by candidacy. Leadership is earned through votes, not asserted unilaterally.
+**Terms.** A term is a logical clock, not a wall clock. A candidate increments it before asking for votes, and a higher term always wins: any node seeing one adopts it and steps back to follower. This is what settles disagreement without a shared clock.
 
-### Terms and Logical Time
-
-Elections happen in numbered **terms**. Terms increment monotonically - term 1, term 2, term 3, and so on. Each term has at most one leader. When a candidate starts an election, it increments the term. When nodes communicate, they include their current term. If a node sees a higher term, it updates immediately and acknowledges the new term.
-
-Terms solve a subtle problem: distinguishing stale information from current state. Without terms, a network partition could cause confusion - is this heartbeat from the current leader, or from a partitioned node that thinks it's still leader? Terms provide a logical clock that orders events without requiring synchronized system clocks.
+**Quorum.** To win, a candidate needs a majority of its view, counting itself. Three nodes need two votes, four need three, five need three. The denominator is the current view, so it moves as membership changes - and `MinClusterSize` is the floor that stops it moving somewhere useless.
 
 ```mermaid
 sequenceDiagram
-    participant A as Node A<br/>(term=3, Follower)
-    participant B as Node B<br/>(term=5, Leader)
-    
-    B->>A: Heartbeat (term=5)
-    Note over A: Term 5 > Term 3<br/>Update term to 5<br/>Acknowledge B as leader
-    A->>B: Acknowledgment
-```
+    participant A as node A
+    participant B as node B
+    participant C as node C
 
-This mechanism ensures that newer elections always supersede older ones, regardless of network delays or partitions.
+    Note over A,C: view = {A,B,C}, quorum = 2
 
-### Quorum and Split-Brain Prevention
+    Note over A: election timeout fires
+    A->>A: term 0 -> 1, vote for self
+    A->>B: RequestVote{term: 1}
+    A->>C: RequestVote{term: 1}
+    B->>A: Vote{term: 1, granted: true}
+    Note over A: 2 of 2 - leader at term 1
+    C->>A: Vote{term: 1, granted: true}
 
-To become leader, a candidate needs votes from a **majority** of nodes. In a three-node cluster, that's two votes (including voting for itself). In a five-node cluster, three votes. The majority requirement prevents split-brain - a dangerous scenario where multiple nodes believe they're leader simultaneously.
-
-Consider a network partition splitting five nodes into groups of 3 and 2:
-
-```mermaid
-graph TB
-    subgraph "Partition A (Majority)"
-        N1[Node1]
-        N2[Node2]
-        N3[Node3]
+    loop every HeartbeatInterval
+        A->>B: Heartbeat{term: 1, leader: A}
+        A->>C: Heartbeat{term: 1, leader: A}
     end
-    
-    subgraph "Partition B (Minority)"
-        N4[Node4]
-        N5[Node5]
-    end
-    
-    N1 -.-> N2
-    N2 -.-> N3
-    N3 -.-> N1
-    
-    N4 -.-> N5
-    
-    style N1 fill:#90EE90
-    style N2 fill:#90EE90
-    style N3 fill:#90EE90
-    style N4 fill:#FFB6C1
-    style N5 fill:#FFB6C1
-    
-    Note1[Can elect leader<br/>3/5 votes = majority]
-    Note2[Cannot elect leader<br/>2/5 votes = no majority]
-    
-    Note1 -.-> N2
-    Note2 -.-> N4
+
+    Note over A: crash
+    Note over B: no heartbeat within ElectionTimeout
+    B->>B: term 1 -> 2, vote for self
+    B->>C: RequestVote{term: 2}
+    C->>B: Vote{term: 2, granted: true}
+    Note over B: leader at term 2
 ```
 
-Only the majority side can elect a leader. The minority side remains leaderless, preventing conflicting leadership. When the partition heals, the minority nodes recognize the higher term from the majority side's leader and follow it.
+**The contract, in three sentences.** There is exactly one leader per cluster. A network partition does not put two leaders in one cluster - it splits one cluster into two, each electing its own, and a side too small to meet `MinClusterSize` or to hold a majority of its own view elects none. When connectivity returns they converge back into one cluster with one leader.
 
-### Election Sequence
+That last point deserves the attention it gets in [What It Guarantees](#what-it-guarantees) below, because it decides what you may safely build on top.
 
-Here's what happens when a cluster starts:
+## Setup
 
-```mermaid
-sequenceDiagram
-    participant N1 as Node1<br/>(Follower)
-    participant N2 as Node2<br/>(Follower)
-    participant N3 as Node3<br/>(Follower)
-    
-    Note over N1,N3: All nodes start, election timeouts running
-    
-    N1->>N1: Timeout fires first
-    Note over N1: Become candidate<br/>Term: 0 → 1<br/>Vote for self (1/3)
-    
-    N1->>N2: Vote Request (term=1)
-    N1->>N3: Vote Request (term=1)
-    
-    N2->>N1: Vote Granted
-    Note over N1: Votes: 2/3<br/>Majority reached!<br/>Become Leader
-    
-    N1->>N2: Heartbeat (term=1)
-    N1->>N3: Heartbeat (term=1)
-    
-    N3->>N1: Vote Granted
-    Note over N1: Vote arrives after<br/>already leader
-    
-    Note over N2,N3: Reset election timers<br/>Remain followers
-```
+Two steps, and both fail quietly if you skip them: the node starts, nothing errors, and the problem shows up later as a cluster that never converges.
 
-Election timeouts are randomized, so typically one node times out first and wins the election before others start their own campaigns. This reduces the chance of split votes.
+### Register the wire types
 
-### Leader Maintenance
+The package registers nothing on import. Type registration is node-scoped, so it cannot happen in a package `init()`, and doing it inside the actor would be too late - a node whose leader process starts after a connection is already established could not decode a peer's message, and could not repair that after the fact.
 
-Once elected, the leader sends periodic heartbeats to all followers:
-
-```mermaid
-sequenceDiagram
-    participant L as Leader
-    participant F1 as Follower1
-    participant F2 as Follower2
-    
-    loop Every HeartbeatInterval (50ms default)
-        L->>F1: Heartbeat (term=1)
-        L->>F2: Heartbeat (term=1)
-        Note over F1,F2: Reset election timers
-    end
-    
-    Note over L: Leader crashes
-    
-    Note over F1,F2: No heartbeats received...
-    
-    F1->>F1: Election timeout
-    Note over F1: Become candidate<br/>Term: 1 → 2
-    F1->>F2: Vote Request (term=2)
-    F2->>F1: Vote Granted
-    Note over F1: Become Leader (term=2)
-    
-    F1->>F2: Heartbeat (term=2)
-```
-
-Heartbeats serve two purposes: they suppress elections on followers (by resetting their timeouts), and they act as a liveness signal. If heartbeats stop, followers know the leader has failed and trigger a new election.
-
-### Peer Discovery
-
-Nodes discover each other dynamically. You provide bootstrap addresses - a list of known peers to contact initially. When a node sends or receives election messages, it monitors the sender. Over time, all nodes discover all peers, even if they didn't initially know about each other.
-
-```mermaid
-sequenceDiagram
-    participant N1 as Node1<br/>(knows: self)
-    participant N2 as Node2<br/>(knows: self, Node1)
-    participant N3 as Node3<br/>(knows: self, Node1, Node2)
-    
-    Note over N1: Starts election
-    N1->>N2: Vote Request<br/>(to bootstrap peer)
-    Note over N1: Discovers Node2<br/>Monitors Node2
-    
-    N2->>N3: Vote Request
-    N3->>N2: Vote Granted
-    N3->>N1: Vote Granted<br/>(knows Node1 from N2's request)
-    Note over N3: Discovers Node1<br/>Monitors Node1
-    
-    Note over N1,N3: All nodes now know each other
-```
-
-Discovery is automatic. You can provide a bootstrap list for faster initial synchronization, or start with an empty list and add peers dynamically using the `Join()` method. Bootstrap accelerates cluster formation but isn't required - nodes discover each other through any election message exchange.
-
-## Using the Leader Actor
-
-To create a leader-electing process, embed `leader.Actor` in your struct and implement the `leader.ActorBehavior` interface:
+Declare them on the application that hosts the actor:
 
 ```go
-type Coordinator struct {
+gen.ApplicationSpec{
+    Name: "scheduler",
+    Network: gen.ApplicationNetwork{
+        RegisterTypes:  leader.NetworkTypes(),
+        RegisterErrors: leader.ErrorTypes(),
+    },
+    Group: []gen.ApplicationMemberSpec{
+        {Name: "coordinator", Factory: factoryCoordinator},
+    },
+}
+```
+
+`ApplicationSpec.Network` is processed during `ApplicationLoad`, before any process in the application is spawned, which is exactly the timing this needs. Registering on the node directly works too, as long as it happens before the node starts serving:
+
+```go
+node.Network().RegisterTypes(leader.NetworkTypes())
+node.Network().RegisterErrors(leader.ErrorTypes())
+```
+
+`ErrorTypes()` returns nothing today - the actor sends no sentinel errors over the wire. It exists so your setup code stays uniform if that changes.
+
+### Set MinClusterSize
+
+`MinClusterSize` is the smallest view - this node plus the peers it knows - that may have a leader at all. The default is 3: the smallest size whose majority, two, survives losing one node.
+
+Lower values are permitted and warned about rather than rejected, because both have legitimate uses and neither breaks the contract:
+
+- `1` lets a lone node appoint itself. A single-node deployment must set this explicitly, and nothing then prevents a fragment of one from operating alone.
+- `2` gives a quorum of two out of two, so losing either node ends leadership. Sensible only when an external authority gates leadership through `HandleConfirmLeader`.
+
+Inheriting the default silently is the thing to avoid. Decide the number, write it down.
+
+## Basic Usage
+
+```go
+package main
+
+import (
+    "time"
+
+    "ergo.services/actor/leader"
+    "ergo.services/ergo"
+    "ergo.services/ergo/gen"
+)
+
+type coordinator struct {
     leader.Actor
-    
-    tasks      []Task
-    processing bool
+
+    running bool
 }
 
-func (c *Coordinator) Init(args ...any) (leader.Options, error) {
-    clusterID := args[0].(string)
-    bootstrap := args[1].([]gen.ProcessID)
-    
-    c.tasks = make([]Task, 0)
-    
+type messageDiscoverPeers struct{}
+
+func factoryCoordinator() gen.ProcessBehavior {
+    return &coordinator{}
+}
+
+func (c *coordinator) Init(args ...any) (leader.Options, error) {
+    // Join from a handler frame, not from here: the options below have not been
+    // applied yet, so a vote sent from Init would carry an empty ClusterID and be
+    // dropped by the receiver's own guard.
+    if err := c.Send(c.PID(), messageDiscoverPeers{}); err != nil {
+        return leader.Options{}, err
+    }
+
     return leader.Options{
-        ClusterID: clusterID,
-        Bootstrap: bootstrap,
+        ClusterID:      "scheduler",
+        MinClusterSize: 3,
     }, nil
 }
 
-func (c *Coordinator) HandleBecomeLeader() error {
-    c.Log().Info("elected as leader - starting task processor")
-    c.processing = true
-    c.startProcessing()
-    return nil
-}
-
-func (c *Coordinator) HandleBecomeFollower(leader gen.PID) error {
-    if leader == (gen.PID{}) {
-        c.Log().Info("no leader elected yet")
-    } else {
-        c.Log().Info("following leader: %s", leader)
-        c.processing = false
-        c.stopProcessing()
-    }
-    return nil
-}
-
-func (c *Coordinator) HandleMessage(from gen.PID, message any) error {
-    switch msg := message.(type) {
-    case AddTaskRequest:
-        if !c.IsLeader() {
-            // Not leader - reject or forward
-            c.Send(from, NotLeaderError{Leader: c.Leader()})
-            return nil
+func (c *coordinator) HandleMessage(from gen.PID, message any) error {
+    switch message.(type) {
+    case messageDiscoverPeers:
+        for _, node := range discoverNodes() { // your discovery, whatever it is
+            c.Join(gen.ProcessID{Name: "coordinator", Node: node})
         }
-        
-        c.tasks = append(c.tasks, msg.Task)
-        c.Send(from, TaskAccepted{})
-        
-    case ProcessNextTask:
-        if c.IsLeader() && len(c.tasks) > 0 {
-            task := c.tasks[0]
-            c.tasks = c.tasks[1:]
-            c.executeTask(task)
+        // Re-run it: peers appear and disappear, and a node that starts before its
+        // peers must keep looking.
+        if _, err := c.SendAfter(c.PID(), messageDiscoverPeers{}, 5*time.Second); err != nil {
+            return err
         }
     }
     return nil
 }
 
-func (c *Coordinator) Terminate(reason error) {
-    c.Log().Info("coordinator stopping: %s", reason)
+func (c *coordinator) HandleBecomeLeader() error {
+    c.Log().Info("became leader at term %d", c.Term())
+    c.running = true
+    return c.Send(c.PID(), messageTick{})
+}
+
+func (c *coordinator) HandleBecomeFollower(leader gen.PID) error {
+    c.Log().Info("no longer leader, following %s", leader)
+    c.running = false
+    return nil
+}
+
+func main() {
+    node, err := ergo.StartNode("n1@localhost", gen.NodeOptions{})
+    if err != nil {
+        panic(err)
+    }
+    defer node.Stop()
+
+    node.Network().RegisterTypes(leader.NetworkTypes())
+    node.SpawnRegister("coordinator", factoryCoordinator, gen.ProcessOptions{})
+
+    node.Wait()
 }
 ```
 
-Spawn it like any actor, passing cluster configuration:
+Two habits in that code worth copying. `Join` runs from a handler frame rather than from `Init`, and it re-runs on a timer - discovery is your responsibility, and a one-shot lookup leaves a node that started early with no peers forever. And `HandleBecomeFollower` stops the work unconditionally; treat it as the only place leadership ends, because it is.
+
+## Configuration
 
 ```go
-clusterID := "task-coordinators"
-bootstrap := []gen.ProcessID{
-    {Name: "coordinator", Node: "node1@host"},
-    {Name: "coordinator", Node: "node2@host"},
-    {Name: "coordinator", Node: "node3@host"},
+leader.Options{
+    ClusterID:          "scheduler",  // required
+    MinClusterSize:     3,            // default 3
+    Bootstrap:          peers,        // optional, []gen.ProcessID
+    ElectionTimeoutMin: 150,          // ms, default 150
+    ElectionTimeoutMax: 300,          // ms, default 300
+    HeartbeatInterval:  50,           // ms, default 50
+    GhostTTL:           5000,         // ms, default 5000
 }
-
-factory := func() gen.ProcessBehavior {
-    return &Coordinator{}
-}
-
-pid, err := node.SpawnRegister("coordinator", factory, 
-    gen.ProcessOptions{}, clusterID, bootstrap)
 ```
 
-When you spawn identical processes on three nodes with the same `ClusterID` and `Bootstrap`, they form a cluster. Within milliseconds, one becomes leader and starts processing tasks. The others stand by as followers.
+**ClusterID** is required and namespaces the election. Messages carrying a different one are dropped and counted, so two logically separate groups can share a network without interfering. Give distinct clusters distinct ids; sharing one by accident merges them.
 
-## The ActorBehavior Interface
+**MinClusterSize** - see [Set MinClusterSize](#set-minclustersize) above.
 
-The interface extends `gen.ProcessBehavior` with leader-specific callbacks:
+**Bootstrap** is a static list of peers, and it is exactly `Join` declared up front: the entries seed the same membership rather than being a second, parallel set of targets. Use it when the peer set is known at deploy time; use `Join` when it is discovered at runtime; use both if some of it is known and some is not.
+
+**ElectionTimeoutMin / ElectionTimeoutMax** bound the randomised wait before a follower campaigns. Randomising it is what stops every node timing out at the same instant and splitting the vote. Set only one and the other is derived - min alone doubles to a max, max alone halves to a min - so a partial configuration resolves instead of failing at startup.
+
+**HeartbeatInterval** is how often a leader asserts itself. It must be comfortably smaller than `ElectionTimeoutMin`, or followers will time out between heartbeats and campaign against a healthy leader; the actor warns at startup if it is not.
+
+**GhostTTL** is how long a peer whose connection dropped stays in the view before being dropped. It exists because those two things - a blip and a departure - look identical from here, and neither extreme works: keep an unreachable peer forever and, with dynamic node names, the view fills with names that will never return until quorum exceeds the number of nodes that exist; drop it immediately and a one-second blip lowers quorum. Five seconds separates the cases - far longer than a 150-300 ms election cycle, far shorter than a stage of a rolling deploy.
+
+It is not a safety control; `MinClusterSize` is. `GhostTTL` only bounds how long a gone peer keeps inflating quorum, and it is a net under `Leave` rather than a replacement for it - see [Membership](#membership). The cost of the window is that quorum is briefly too high, so a node that dies while the cluster sits exactly on its quorum leaves it leaderless for up to that long. That is the reason not to raise it to a minute.
+
+The defaults suit a local network. On a pod-to-pod network across zones, or anywhere a garbage-collection pause can exceed a couple of hundred milliseconds, raise all three together - for example 1000 / 2000 / 300. Aggressive timeouts do not make failover safer, they make spurious elections more likely.
+
+## ActorBehavior Interface
 
 ```go
 type ActorBehavior interface {
     gen.ProcessBehavior
-    
+
     Init(args ...any) (Options, error)
     HandleMessage(from gen.PID, message any) error
     HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
     Terminate(reason error)
     HandleInspect(from gen.PID, item ...string) map[string]string
-    
-    // Leadership transitions
+
+    // Leadership
+    HandleConfirmLeader() (bool, error)
     HandleBecomeLeader() error
     HandleBecomeFollower(leader gen.PID) error
-    
-    // Cluster membership changes
+
+    // Membership
     HandlePeerJoined(peer gen.PID) error
     HandlePeerLeft(peer gen.PID) error
-    
-    // Term changes (for log replication or versioning)
-    HandleTermChanged(oldTerm, newTerm uint64) error
+
+    // Framework message classes
+    HandleEvent(event gen.MessageEvent) error
+    HandleSpan(span gen.TracingSpan) error
+    HandleLog(message gen.MessageLog) error
 }
 ```
 
-### Mandatory Callbacks
+Only `Init` has no default - embedding `leader.Actor` satisfies the rest. `HandleBecomeLeader` and `HandleBecomeFollower` do have defaults, but they log a warning, because winning leadership and doing nothing with it is almost always a missing implementation rather than an intention.
 
-`Init` returns election configuration. The `Options` specify `ClusterID` (identifying which cluster this process belongs to), `Bootstrap` (initial peers to contact), and optional timing parameters for election and heartbeat intervals.
+**HandleBecomeLeader** is where the singleton work starts. Returning an error rolls the transition back: the actor steps down again and the error terminates it, so use it to refuse leadership you cannot honour.
 
-`HandleBecomeLeader` is called when this process becomes leader. Start exclusive work here - processing task queues, scheduling cron jobs, claiming resources. Return an error to reject leadership and trigger a new election.
+**HandleBecomeFollower** is where it stops, and it fires on every transition into follower - not only when a leader is demoted. A follower whose leader disappeared and a candidate that stood down both arrive here, with an empty PID when no leader is known. Make it idempotent.
 
-`HandleBecomeFollower` is called when this process follows a leader. The `leader` parameter identifies the leader's PID. If `leader` is empty (`gen.PID{}`), it means no leader is currently elected. Stop exclusive work here. Followers should redirect requests to the leader or buffer them until leadership is established.
+**HandleConfirmLeader** is consulted after this node has won the election and before leadership is published. Returning `false`, or an error, withholds it: `HandleBecomeLeader` does not run and the node re-campaigns after a backoff that grows with consecutive denials. An error counts as a denial, not as consent - the usual error is a timeout talking to whatever you are asking, which is exactly when someone else may be holding it. See [Leadership Safety](#leadership-safety).
 
-### Optional Callbacks
+**HandlePeerJoined / HandlePeerLeft** report membership changes. They are informational; membership is already applied by the time they run.
 
-`HandlePeerJoined` notifies when a new peer joins the cluster. Use this to track cluster size for capacity planning, or to send initialization messages to newcomers.
+## Membership
 
-`HandlePeerLeft` notifies when a peer crashes or disconnects. Use this to detect cluster degradation or to clean up peer-specific state.
+Discovery belongs to your code. The actor's job is to negotiate with the names you give it.
 
-`HandleTermChanged` notifies when the election term increases. This is useful for distributed log replication or versioned command processing - the term can serve as a logical timestamp for ordering operations.
+**`Join(peer gen.ProcessID)`** declares a peer and opens negotiation. The peer counts toward the view immediately, before it has answered - which is what lets a node reach `MinClusterSize` without needing traffic that only a campaigning node produces. Idempotent per node.
 
-The other callbacks (`HandleMessage`, `HandleCall`, `Terminate`, `HandleInspect`) work as they do in regular actors. `leader.Actor` provides default implementations that log warnings, so you only override what you need.
+**`Leave(node gen.Atom)`** withdraws a peer from the view and from every quorum computed afterwards. Call it when your discovery stops listing a node: you know the pod is gone, the actor can only guess. A withdrawal is sticky for one election timeout, so traffic already in flight cannot re-admit what you just removed.
 
-### Error Handling
+**A peer going down** is handled by reason. A death reported with an actual reason - the remote process terminated - removes the member immediately. A drop reported as `gen.ErrNoConnection` does not: the member stays in the view, with only the knowledge of how to reach it forgotten, and is dropped after `GhostTTL` if it has not come back. Silence alone never shrinks the view inside that window, because shrinking it lowers quorum and would let a momentary blip hand a fragment the ability to elect.
 
-If any callback returns an error, the actor terminates. This includes leadership callbacks - returning an error from `HandleBecomeLeader` causes the process to reject leadership, step down, and terminate. This is intentional: if initialization of leader responsibilities fails (can't open files, can't connect to database, etc.), it's better to terminate and let a supervisor restart with clean state than to limp along as a broken leader.
+**With dynamic node names this matters more than it looks.** Where every pod gets a name that will never be reused - `$(POD_NAME)@$(POD_IP)` and the like - a replaced pod leaves an unreachable member behind, and the framework reports everything on a lost node as `ErrNoConnection` whatever actually happened to it. Without a bound, two rolling deploys of a five-node cluster leave a view of thirteen and a quorum of seven that the five living nodes can never assemble - a cluster that is permanently leaderless and looks healthy field by field. `GhostTTL` bounds it, and calling `Leave` from your discovery loop closes it properly.
 
-## Configuration Options
+**Heartbeats go only to peers that have answered.** A declared peer that has never replied is not a follower: there is no election timer of yours to suppress, and if it is up it will campaign and be corrected by the reply. Vote requests do go to everyone declared, because reaching out is the whole point of a campaign.
 
-The `Options` struct controls election behavior:
+## What It Guarantees
+
+**Within a cluster, one leader.** A node cannot hold leadership without a majority of its view having granted it for the current term, and a voter grants one vote per term.
+
+**A leader that loses contact steps down by itself.** On each heartbeat tick it requires evidence of reaching a quorum - an accepted send or any inbound protocol message within one election timeout. Without it, it relinquishes leadership without waiting to be told. This is what prevents an isolated leader from holding on indefinitely, since every other exit from leadership needs an inbound message and an isolated node receives none.
+
+**A cluster reconverges after a partition.** When the two sides can talk again, the higher term wins and the other side steps down; the view grows back and quorum is recomputed over it.
+
+**No leader below the floor.** A group smaller than `MinClusterSize` reports `unclustered` and elects nobody.
+
+And what it does not guarantee:
+
+**Not a fixed number of clusters.** The invariant is one leader per cluster, but the number of clusters is not fixed - so from outside, looking at the deployment as one thing, you can see two leaders at once, for as long as the split lasts. Worth being precise about when:
+
+- **A connectivity partition of a converged cluster does not do this.** A lost connection keeps the peer in the view - only what the actor knew about reaching it is forgotten - so the quorum denominator does not shrink. Two disjoint groups cannot both be a majority of the same set, so at most one side elects and the other reports `unclustered` or waits.
+- **Diverged views do.** If each side only ever learned about its own members, each holds a majority of its own smaller view and each elects. That is the cold-start case: nodes come up, discovery resolves only what is reachable, and two groups form without ever having been one.
+- **So does losing members for real.** A process that actually died, or a peer you withdrew with `Leave`, leaves the view and lowers quorum with it.
+
+This is the price of dynamic membership with no seed list: the actor is never told how large the deployment is meant to be, so it cannot tell a group of three from half of six. If you would rather pay in availability than in duplicate leadership, that is what `MinClusterSize` is for - **set it above half the expected node count**, and two disjoint groups can never both qualify, at the cost of no leader in any partition smaller than that.
+
+**No replicated state.** Leadership changes hands; nothing carries state across. If the new leader needs to know what the old one did, put that somewhere both can read.
+
+**No persistence.** Election state lives in memory. A restarted node rejoins with a fresh term.
+
+**Nothing about your external resources.** Leadership is scoped to a cluster; a database row, a queue or a lock is not. See below.
+
+## Leadership Safety
+
+Three properties are usually conflated, and only the middle one is the election's job.
+
+**Two nodes briefly believing they lead.** Unavoidable in an asynchronous system - a superseded leader learns late. Harmless on its own.
+
+**Two nodes acting as leader inside one cluster.** Prevented, by majority voting and the quorum requirement above.
+
+**Two nodes performing an irreversible external action.** Not addressed by any election, including this one. When a partition turns one cluster into two, a shared resource is now serving two clusters, each with a legitimate leader, and nothing in the protocol can tell it which to obey.
+
+If leadership authorises something irreversible, the resource has to arbitrate. Two mechanisms, and they compose:
+
+**Gate leadership on an external authority.** Implement `HandleConfirmLeader` so that winning the election is necessary but not sufficient - the node must also hold something only one holder can have. A Kubernetes `Lease` is the natural choice where you already run on Kubernetes: no new infrastructure, and `metadata.resourceVersion` increases monotonically, so it doubles as a fencing token.
 
 ```go
-type Options struct {
-    ClusterID string            // Required: identifies the cluster
-    Bootstrap []gen.ProcessID   // Optional: initial peers to contact
-    
-    ElectionTimeoutMin int      // Minimum timeout (ms, default: 150)
-    ElectionTimeoutMax int      // Maximum timeout (ms, default: 300)
-    HeartbeatInterval  int      // Heartbeat frequency (ms, default: 50)
+func (c *coordinator) HandleConfirmLeader() (bool, error) {
+    return c.lease.Held(), nil // cheap read of locally cached state
 }
 ```
 
-`ClusterID` must match across all processes in the same election cluster. Processes with different cluster IDs ignore each other, allowing multiple independent elections in the same Ergo cluster.
+The callback runs on the actor's goroutine. It may talk over the network - it is called once per won election, not on a hot path - but bound it with a timeout well under the election timeout, and prefer answering from state that a separate process keeps up to date. That separate process is also the right place to relinquish leadership when a renewal fails, which the callback alone cannot do because it is only consulted at the transition.
 
-`Bootstrap` lists the initial peers to contact on startup. Can be empty - in this case, use the `Join()` method to add peers dynamically. When provided, each process should include itself in the list. At startup, processes send vote requests to bootstrap peers even if they haven't discovered them yet. This accelerates initial election and cluster formation.
+**Fence the resource.** Carry a monotonically increasing token with every irreversible action and let the resource reject a stale one:
 
-`ElectionTimeoutMin` and `ElectionTimeoutMax` define the randomization range for election timeouts. Actual timeouts are randomly chosen from this range to reduce the chance of simultaneous elections. Defaults (150-300ms) work well for local networks.
-
-`HeartbeatInterval` controls how often leaders send heartbeats. Must be significantly smaller than `ElectionTimeoutMin` - typically at least 3x smaller. The default (50ms) provides a 3x safety margin against the default election timeout.
-
-### Tuning for Network Conditions
-
-For local clusters (single datacenter, low latency):
-
-```go
-leader.Options{
-    ClusterID:          "my-cluster",
-    Bootstrap:          peers,
-    ElectionTimeoutMin: 150,
-    ElectionTimeoutMax: 300,
-    HeartbeatInterval:  50,
-}
+```sql
+UPDATE resources SET owner_token = :token
+WHERE id = :id AND (owner_token IS NULL OR owner_token < :token)
 ```
 
-For geographically distributed clusters (high latency, possible packet loss):
+Zero rows updated means a newer holder exists, and the caller must stop. This is the only part of the arrangement that does not depend on timing, and it is what turns "we try to have one writer" into "a superseded writer cannot take effect".
 
-```go
-leader.Options{
-    ClusterID:          "my-cluster",
-    Bootstrap:          peers,
-    ElectionTimeoutMin: 1000,  // 1 second
-    ElectionTimeoutMax: 2000,  // 2 seconds
-    HeartbeatInterval:  250,   // 4x safety margin
-}
-```
+A lock without a monotonic token - a plain `SETNX` in Redis, for instance - shrinks the window rather than closing it, and cannot survive a failover that promotes a replica which never saw the write. Worth knowing which of the two you have built.
 
-The tradeoff: longer timeouts increase failover time but reduce false elections during network hiccups. Shorter timeouts provide fast failover but risk spurious elections if networks are slow.
+## Partitions and Healing
+
+Take a five-node cluster, `{A,B,C,D,E}`, `MinClusterSize: 3`, A leading at term 4. The network splits into `{A,B,C}` and `{D,E}`.
+
+**The majority side.** A still reaches B and C: two peers plus itself is three, a majority of its view, so it keeps leadership at term 4. Nothing changes for the work it is running.
+
+**The minority side.** D and E stop hearing heartbeats and campaign. Their views stay at five - a lost connection does not remove a member, it only forgets how to reach it - so the quorum they need is still three, and between them they can muster two. Neither wins, and they keep retrying until the partition heals.
+
+That is the reason a converged cluster does not split into two leaders: the denominator survives the partition, and two disjoint groups cannot both be a majority of the same five. Two leaders need diverged views, not a dropped connection - see [What It Guarantees](#what-it-guarantees).
+
+**Healing.** Connectivity returns. Each side rediscovers the other through the protocol: a vote request or heartbeat resolves the peers, the views grow back to five, and quorum returns to three. If the far side had elected a leader at a higher term, the term comparison settles it - A adopts the higher term and steps down, and one leader remains. If nobody outranked A, its heartbeats simply reach D and E again and they follow.
+
+**What a leader on the wrong side does.** If A had ended up in the minority instead, its heartbeat tick would have found fewer reachable members than its quorum requires, and it would have stepped down on its own within one election timeout - without needing to hear from the majority side.
 
 ## API Methods
 
-The embedded `leader.Actor` provides methods for querying state and communicating with peers:
-
-### State Queries
-
-`IsLeader() bool` - Returns `true` if this process is currently the leader.
-
-`Leader() gen.PID` - Returns the current leader's PID, or empty if no leader elected yet.
-
-`Term() uint64` - Returns the current election term.
-
-`ClusterID() string` - Returns the cluster identifier.
-
-### Peer Information
-
-`Peers() []gen.PID` - Returns a snapshot of discovered peers. The slice is a copy, so you can iterate safely.
-
-`PeerCount() int` - Returns the number of known peers.
-
-`HasPeer(pid gen.PID) bool` - Checks if a specific PID is a known peer.
-
-`Bootstrap() []gen.ProcessID` - Returns the bootstrap peer list.
-
-### Communication
-
-`Broadcast(message any)` - Sends a message to all discovered peers. Useful for disseminating information or coordinating state across the cluster.
-
-`BroadcastBootstrap(message any)` - Sends a message to all bootstrap peers (excluding self). Useful for announcements before peer discovery completes.
-
-`Join(peer gen.ProcessID)` - Manually adds a peer to the cluster by sending it a vote request. Use this for dynamic cluster growth when new nodes join after initial bootstrap.
-
-### Example: Leader-Only Processing
+State, all safe to call from within your callbacks:
 
 ```go
-func (c *Coordinator) HandleMessage(from gen.PID, message any) error {
-    switch msg := message.(type) {
-    case ProcessTask:
-        if !c.IsLeader() {
-            // Forward to leader
-            if leader := c.Leader(); leader != (gen.PID{}) {
-                c.Send(leader, msg)
-            } else {
-                c.Send(from, ErrorNoLeader{})
-            }
-            return nil
-        }
-        
-        // We're leader - process the task
-        result := c.executeTask(msg.Task)
-        c.Send(from, TaskResult{Result: result})
-    }
-    return nil
-}
+c.IsLeader()      // bool
+c.Leader()        // gen.PID of the leader this node recognises, zero if none
+c.Term()          // uint64
+c.ClusterID()     // string
 ```
 
-### Example: Broadcasting State Updates
+Membership:
 
 ```go
-func (c *Coordinator) HandleBecomeLeader() error {
-    c.Log().Info("elected leader - broadcasting initial state")
-    
-    // Notify all peers of current state
-    c.Broadcast(StateUpdate{
-        Term:  c.Term(),
-        State: c.getCurrentState(),
-    })
-    
-    return nil
-}
-
-func (c *Coordinator) HandlePeerJoined(peer gen.PID) error {
-    if c.IsLeader() {
-        // New peer joined - send them current state
-        c.Send(peer, StateUpdate{
-            Term:  c.Term(),
-            State: c.getCurrentState(),
-        })
-    }
-    return nil
-}
+c.Peers()         // []gen.PID of the peers whose PID is known
+c.PeerCount()     // int
+c.HasPeer(pid)    // bool
+c.Bootstrap()     // []gen.ProcessID as configured
+c.Join(procID)    // declare a peer
+c.Leave(node)     // withdraw one
 ```
+
+Messaging:
+
+```go
+failed, err := c.Broadcast(message)
+```
+
+`Broadcast` sends to every member of the current view, addressing each by PID where known and by name otherwise, and returns how many targets failed together with the first error. It does not stop at the first failure.
+
+Exit handling:
+
+```go
+c.SetTrapExit(true)   // an exit from anyone but the parent arrives as a message
+c.TrapExit()          // bool
+```
+
+Off by default, in which case any exit signal terminates the actor. Turn it on when the actor links to children whose failure should not remove this node from the cluster - an application group member is not restarted, so an untrapped exit takes the node out of the election for good.
 
 ## Common Patterns
 
-### Single Writer Coordination
+### Leader-only work
 
-Only the leader writes to external storage:
-
-```go
-func (c *Coordinator) HandleMessage(from gen.PID, message any) error {
-    switch msg := message.(type) {
-    case WriteRequest:
-        if !c.IsLeader() {
-            c.Send(from, ErrorNotLeader{Leader: c.Leader()})
-            return nil
-        }
-        
-        // Only leader performs writes
-        err := c.database.Write(msg.Key, msg.Value)
-        if err != nil {
-            c.Send(from, WriteError{Err: err})
-        } else {
-            c.Send(from, WriteSuccess{})
-        }
-    }
-    return nil
-}
-```
-
-### Task Scheduling
-
-Only the leader schedules periodic tasks:
+Start on promotion, stop on demotion, and check on every tick rather than trusting a flag set long ago:
 
 ```go
-func (c *Coordinator) HandleBecomeLeader() error {
-    c.schedulerActive = true
-    c.scheduleNextTask()
-    return nil
+func (c *coordinator) HandleBecomeLeader() error {
+    return c.Send(c.PID(), messageTick{})
 }
 
-func (c *Coordinator) HandleBecomeFollower(leader gen.PID) error {
-    c.schedulerActive = false
-    return nil
-}
-
-func (c *Coordinator) scheduleNextTask() {
-    if !c.schedulerActive {
-        return
-    }
-    
-    c.SendAfter(c.PID(), RunScheduledTask{}, 10*time.Second)
-}
-
-func (c *Coordinator) HandleMessage(from gen.PID, message any) error {
+func (c *coordinator) HandleMessage(from gen.PID, message any) error {
     switch message.(type) {
-    case RunScheduledTask:
-        if c.IsLeader() {
-            c.executeScheduledWork()
-            c.scheduleNextTask()  // Reschedule
+    case messageTick:
+        if c.IsLeader() == false {
+            return nil // demoted between ticks
         }
+        c.doWork()
+        _, err := c.SendAfter(c.PID(), messageTick{}, time.Second)
+        return err
     }
     return nil
 }
 ```
 
-### Forwarding to Leader
+### Forwarding to the leader
 
-Followers forward writes to the leader:
+A request can arrive at any node. Handle it locally when you lead, forward when you do not, and reject when there is no leader - do not queue for one that may never appear:
 
 ```go
-func (c *Coordinator) HandleMessage(from gen.PID, message any) error {
-    switch msg := message.(type) {
-    case WriteCommand:
-        if c.IsLeader() {
-            // Process locally
-            c.applyWrite(msg)
-            c.Send(from, WriteSuccess{})
-        } else {
-            // Forward to leader
-            leader := c.Leader()
-            if leader == (gen.PID{}) {
-                c.Send(from, ErrorNoLeader{})
-            } else {
-                c.Send(leader, ForwardedWrite{
-                    OriginalSender: from,
-                    Command:        msg,
-                })
-            }
-        }
-        
-    case ForwardedWrite:
-        // Leader received forwarded write
-        if c.IsLeader() {
-            c.applyWrite(msg.Command)
-            c.Send(msg.OriginalSender, WriteSuccess{})
-        }
+func (c *coordinator) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+    if c.IsLeader() {
+        return c.handle(request), nil
     }
-    return nil
-}
-```
-
-### Dynamic Cluster Membership
-
-You can start a node with an empty bootstrap list and add peers dynamically:
-
-```go
-// Start isolated node with no bootstrap
-pid, err := node.SpawnRegister("coordinator", createCoordinator,
-    gen.ProcessOptions{}, 
-    "cluster-id", 
-    []gen.ProcessID{})  // Empty bootstrap
-
-// Later, add peers dynamically
-coordinator.Join(gen.ProcessID{
-    Name: "coordinator",
-    Node: "node2@host",
-})
-
-coordinator.Join(gen.ProcessID{
-    Name: "coordinator", 
-    Node: "node3@host",
-})
-```
-
-## Network Partitions and Split-Brain
-
-Network partitions are inevitable in distributed systems. The election algorithm handles them safely through the quorum requirement.
-
-### Partition Scenario
-
-Consider a five-node cluster that splits into groups of 3 and 2:
-
-```mermaid
-graph LR
-    subgraph "Before Partition"
-        B1[Node1 Leader]
-        B2[Node2]
-        B3[Node3]
-        B4[Node4]
-        B5[Node5]
-        B1 --- B2 --- B3 --- B4 --- B5
-    end
-```
-
-```mermaid
-graph TB
-    subgraph "After Partition: Group A (Majority)"
-        A1[Node1 Leader ✓]
-        A2[Node2]
-        A3[Node3]
-        A1 -.Heartbeat.-> A2
-        A1 -.Heartbeat.-> A3
-        A2 -.Ack.-> A1
-        A3 -.Ack.-> A1
-    end
-    
-    subgraph "After Partition: Group B (Minority)"
-        A4[Node4<br/>No Leader ✗]
-        A5[Node5<br/>No Leader ✗]
-        A4 -.Election fails.-> A5
-    end
-    
-    style A1 fill:#90EE90
-    style A2 fill:#90EE90
-    style A3 fill:#90EE90
-    style A4 fill:#FFB6C1
-    style A5 fill:#FFB6C1
-```
-
-**Group A** (majority side) - Node1 remains leader because it can send heartbeats to Node2 and Node3, which acknowledge them. The majority side continues operating normally.
-
-**Group B** (minority side) - Node4 and Node5 don't receive heartbeats from Node1. They trigger elections, but neither can get 3 votes (only 2 nodes total in their partition). They remain leaderless and reject write requests.
-
-This asymmetry is intentional. Only one side can have a leader, preventing split-brain writes that would corrupt data.
-
-### Partition Healing
-
-When the network partition heals:
-
-```mermaid
-sequenceDiagram
-    participant N1 as Node1<br/>(Leader, term=5)
-    participant N4 as Node4<br/>(Follower, term=5)
-    
-    Note over N1,N4: Network partition heals
-    
-    N1->>N4: Heartbeat (term=5)
-    Note over N4: Accepts N1 as leader<br/>(same term)
-    
-    N4->>N1: Acknowledges
-    
-    Note over N1,N4: Cluster reunified
-```
-
-The minority nodes recognize the majority leader's heartbeats and rejoin the cluster. If they had incremented their term during failed election attempts, they would detect the higher term and update accordingly.
-
-## Integration with Applications
-
-For real applications, the leader actor is a building block for distributed systems patterns:
-
-### Distributed Key-Value Store
-
-Extend the leader actor with log replication for a linearizable KV store:
-
-```go
-type KVStore struct {
-    leader.Actor
-    
-    data      map[string]string
-    log       []LogEntry
-    commitIdx uint64
-}
-
-func (kv *KVStore) HandleBecomeLeader() error {
-    // Leader starts replicating log to followers
-    kv.startReplication()
-    return nil
-}
-
-func (kv *KVStore) HandleMessage(from gen.PID, message any) error {
-    switch msg := message.(type) {
-    case PutRequest:
-        if !kv.IsLeader() {
-            return kv.forwardToLeader(from, msg)
-        }
-        
-        // Append to log
-        entry := LogEntry{
-            Term:    kv.Term(),
-            Command: msg,
-        }
-        kv.log = append(kv.log, entry)
-        
-        // Replicate to followers (simplified)
-        kv.Broadcast(ReplicateEntry{Entry: entry})
-        
-    case ReplicateEntry:
-        // Follower receives log entry
-        kv.log = append(kv.log, msg.Entry)
+    leader := c.Leader()
+    if leader == (gen.PID{}) {
+        return nil, gen.ErrNotAllowed // no leader right now
     }
-    return nil
+    return c.Call(leader, request)
 }
 ```
 
-### Distributed Lock Service
+### Draining before standing down
 
-Implement distributed locks where the leader grants leases:
+`HandleBecomeFollower` runs on the actor's goroutine, so it cannot wait for in-flight work. Mark the actor as not leading, let the work notice on its next step, and keep the teardown itself immediate:
 
 ```go
-type LockService struct {
-    leader.Actor
-    
-    locks map[string]LockInfo
-}
-
-func (ls *LockService) HandleMessage(from gen.PID, message any) error {
-    switch msg := message.(type) {
-    case AcquireLock:
-        if !ls.IsLeader() {
-            ls.Send(from, ErrorNotLeader{Leader: ls.Leader()})
-            return nil
-        }
-        
-        if _, held := ls.locks[msg.Resource]; held {
-            ls.Send(from, LockDenied{})
-        } else {
-            ls.locks[msg.Resource] = LockInfo{
-                Holder: from,
-                Expiry: time.Now().Add(msg.Duration),
-            }
-            ls.Send(from, LockGranted{})
-        }
-        
-    case ReleaseLock:
-        if ls.IsLeader() {
-            delete(ls.locks, msg.Resource)
-        }
-    }
-    return nil
-}
-
-func (ls *LockService) HandleBecomeFollower(leader gen.PID) error {
-    // Leader changed - invalidate all locks
-    ls.locks = make(map[string]LockInfo)
+func (c *coordinator) HandleBecomeFollower(leader gen.PID) error {
+    c.running = false // the tick handler checks this and stops rescheduling
     return nil
 }
 ```
-
-## Limitations and Trade-offs
-
-The leader election actor solves coordination, but it's not a complete distributed database. Understanding what it doesn't provide is as important as knowing what it does.
-
-**No automatic log replication** - The actor handles leader election but doesn't replicate application state. If you need replicated state machines, you must implement log replication yourself on top of the election foundation.
-
-**No persistence** - Election state exists only in memory. If all nodes restart simultaneously, the cluster performs a fresh election. For state that must survive restarts, use external storage or implement persistence in your application.
-
-**Cluster membership is dynamic discovery, not consensus** - Nodes discover peers through message exchange, not through a formal membership protocol. This is sufficient for most use cases but isn't suitable for scenarios requiring precise, consensus-based membership changes.
-
-**Leader election is not instantly consistent** - During network partitions or failures, there may be brief periods with no leader, or where nodes have inconsistent views of leadership. This is fundamental to distributed consensus and cannot be avoided.
-
-The actor provides the foundation - stable leader election with safety guarantees. Building complete distributed systems (databases, coordination services) requires additional mechanisms built on this foundation.
 
 ## Observability
 
-The leader actor integrates with Ergo's inspection system:
+`HandleInspect` reports the full election state. Passing item names returns only those keys; pass `help` for the list, and an unknown item comes back as `<unknown item>` rather than silently missing.
 
-```go
-info, err := node.Inspect(coordinatorPID)
-fmt.Printf("Cluster: %s\n", info["cluster"])
-fmt.Printf("Term: %s\n", info["term"])
-fmt.Printf("IsLeader: %s\n", info["leader"])
-fmt.Printf("Peers: %s\n", info["peers"])
-```
+The keys, grouped by what they answer:
 
-Monitor leadership changes in your logging:
+- **Role and term** - `ergo:state` (`leader`, `candidate`, `follower`, `unclustered`), `ergo:leader` (this node's own belief, as a boolean), `ergo:leader_pid`, `ergo:leader_node`, `ergo:term`, `ergo:voted_for`, `ergo:term_changed_at`
+- **Membership** - `ergo:view_size`, `ergo:quorum`, `ergo:min_cluster_size`, `ergo:peers`, `ergo:peers_list`, `ergo:declared`, `ergo:bootstrap`, `ergo:unreachable` (each member whose connection dropped, with how long ago), `ergo:ghost_ttl`
+- **The current election** - `ergo:votes_granted`, `ergo:votes_count`
+- **Liveness** - `ergo:election_timer_armed`, `ergo:heartbeat_timer_armed`, `ergo:heartbeat_in_last`, `ergo:heartbeat_out_last`, `ergo:election_timeout_min`, `ergo:election_timeout_max`, `ergo:heartbeat_interval`
+- **Problems** - `ergo:dropped_by_reason` (per-reason counters for every message the actor discarded), `ergo:send_failing_peers`, `ergo:confirm_denied`, `ergo:last_denied_at`
 
-```go
-func (c *Coordinator) HandleBecomeLeader() error {
-    c.Log().Info("became leader at term=%d with %d peers", 
-        c.Term(), c.PeerCount())
-    // Record metric, emit event, update monitoring dashboard
-    return nil
-}
+Three of those are worth knowing about before you need them. `ergo:state` distinguishes a stuck candidate from a healthy follower, which a boolean cannot. `ergo:election_timer_armed` distinguishes a node waiting to campaign from one that has stopped. And `ergo:dropped_by_reason` is often the only trace a discarded message leaves anywhere.
 
-func (c *Coordinator) HandlePeerLeft(peer gen.PID) error {
-    c.Log().Warning("peer left: %s (remaining: %d)", 
-        peer, c.PeerCount())
-    return nil
-}
-```
+The election state uses the reserved `ergo:` prefix, the same convention the core behaviors follow. When embedding `leader.Actor` and overriding `HandleInspect()`, your keys are merged on top of base inspection data, so your own fields sit beside the election state and one of its keys is replaced only if you name it with the prefix.
 
-Track cluster health by monitoring peer counts and leadership stability over time.
+For guidance on designing your own inspection surface, see [Inspecting Actor State](../../advanced/inspecting-state.md).
+
+## Observer Integration
+
+[Observer](../../advanced/observer.md) shows the election state of any leader actor in the process view, updating live, and the process kind reflects the role - `leader`, `follower` or `candidate` - so a stuck candidate is visible in a process list without opening it.
+
+## MCP
+
+[MCP](../applications/mcp.md) exposes the same inspection surface as tools an AI agent calls on demand, across every node in the cluster through one entry point. For a leader actor that means the whole election can be read in one pass: which node each replica thinks is leading, at which term, with which view and quorum - which is how a divergence between replicas becomes obvious rather than inferred.

@@ -51,7 +51,9 @@ type SupervisorBehavior interface {
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...).
 	// The returning fields are merged into the supervisor state (strategy,
-	// children), so implement it to add or override the fields.
+	// children), so implement it to add the fields of your own. The supervisor
+	// state uses the reserved "ergo:" prefix for its keys; a returning field
+	// with such a key overrides it.
 	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
@@ -894,9 +896,9 @@ func supAppendHistory(history []supRestartEvent, name gen.Atom, reason error) []
 }
 
 func supHistoryToInspect(history []supRestartEvent, result map[string]string) {
-	result["history:count"] = fmt.Sprintf("%d", len(history))
+	result["ergo:history:count"] = fmt.Sprintf("%d", len(history))
 	for i, e := range history {
-		prefix := fmt.Sprintf("history:%d:", i)
+		prefix := fmt.Sprintf("ergo:history:%d:", i)
 		result[prefix+"time"] = e.timestamp.UTC().Format(time.RFC3339Nano)
 		result[prefix+"child"] = string(e.spec)
 		result[prefix+"reason"] = e.reason

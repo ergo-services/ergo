@@ -80,7 +80,7 @@ func TestPoolUnitInitDefaultSize(t *testing.T) {
 	// the default must land in the stored options, not just a local copy
 	m, err := s.Inspect(gen.PID{})
 	check.NoError(t, err)
-	check.Equal(t, "3", m["pool_size"])
+	check.Equal(t, "3", m["ergo:pool_size"])
 }
 
 func TestPoolUnitInitPanic(t *testing.T) {
@@ -188,7 +188,7 @@ func TestPoolUnitForwardAllFullUnhandled(t *testing.T) {
 	s.SendMessage(gen.PID{}, "m")
 	m, err := s.Inspect(gen.PID{})
 	check.NoError(t, err)
-	check.Equal(t, "1", m["messages_unhandled"])
+	check.Equal(t, "1", m["ergo:messages_unhandled"])
 }
 
 // a respawn that succeeds but whose forward then fails must not be counted as
@@ -205,8 +205,8 @@ func TestPoolUnitForwardRespawnForwardFails(t *testing.T) {
 
 	m, err := s.Inspect(gen.PID{})
 	check.NoError(t, err)
-	check.Equal(t, "0", m["messages_forwarded"])
-	check.Equal(t, "1", m["messages_unhandled"])
+	check.Equal(t, "0", m["ergo:messages_forwarded"])
+	check.Equal(t, "1", m["ergo:messages_unhandled"])
 }
 
 // a high-priority Call reaches the admin HandleCall (not forwarded to a worker).
@@ -289,7 +289,11 @@ func (p *pluInspect) Init(args ...any) (act.PoolOptions, error) {
 }
 
 func (p *pluInspect) HandleInspect(from gen.PID, item ...string) map[string]string {
-	return map[string]string{"custom": "value", "pool_size": "42"}
+	return map[string]string{
+		"custom":               "value",
+		"pool_size":            "42", // no longer collides: the pool uses ergo:pool_size
+		"ergo:worker_restarts": "99", // a reserved key, overridden on purpose
+	}
 }
 
 // a custom HandleInspect adds/overrides fields, the pool stats are kept.
@@ -300,8 +304,10 @@ func TestPoolUnitInspectCustom(t *testing.T) {
 	m, err := s.Inspect(gen.PID{})
 	check.NoError(t, err)
 	check.Equal(t, "value", m["custom"])
-	check.Equal(t, "0", m["messages_forwarded"]) // pool stats are not lost
-	check.Equal(t, "42", m["pool_size"])         // the behavior wins on the same key
+	check.Equal(t, "0", m["ergo:messages_forwarded"]) // pool stats are not lost
+	check.Equal(t, "2", m["ergo:pool_size"])          // an unprefixed lookalike does not clobber them
+	check.Equal(t, "42", m["pool_size"])              // and the behavior keeps its own key
+	check.Equal(t, "99", m["ergo:worker_restarts"])   // a reserved key is overridden only on purpose
 }
 
 type pluPanic struct{ act.Pool }

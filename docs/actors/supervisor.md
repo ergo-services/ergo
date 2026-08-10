@@ -715,37 +715,40 @@ This lets you build management APIs: query supervisor state, scale children dyna
 Supervisors provide runtime inspection via the `HandleInspect` method, which is automatically integrated with the Observer monitoring tool. When you call `gen.Process.Inspect()` on a supervisor, it returns detailed metrics about its current state:
 
 **One For One / All For One / Rest For One:**
-- `type`: Supervisor type ("One For One", "All For One", "Rest For One")
-- `strategy`: Restart strategy (Transient, Temporary, Permanent)
-- `intensity`: Maximum restart count within period
-- `period`: Time window in seconds for restart intensity
-- `keep_order`: Whether children stop sequentially (All/Rest For One only)
-- `auto_shutdown`: Whether supervisor stops when all children terminate
-- `restarts_count`: Number of supervisor-level restart timestamps currently tracked
-- `children_total`: Total child specs defined
-- `children_running`: Currently running children
-- `children_disabled`: Disabled children that won't restart
-- `child:<name>:restarts`: Per-child restart count, only present for children with `Intensity > 0` in their `SupervisorChildRestart`
+- `ergo:type`: Supervisor type ("One For One", "All For One", "Rest For One")
+- `ergo:strategy`: Restart strategy (Transient, Temporary, Permanent)
+- `ergo:intensity`: Maximum restart count within period
+- `ergo:period`: Time window in seconds for restart intensity
+- `ergo:keep_order`: Whether children stop sequentially (All/Rest For One only)
+- `ergo:auto_shutdown`: Whether supervisor stops when all children terminate
+- `ergo:restarts_count`: Number of supervisor-level restart timestamps currently tracked
+- `ergo:children_total`: Total child specs defined
+- `ergo:children_running`: Currently running children
+- `ergo:children_disabled`: Disabled children that won't restart
+- `ergo:child:<name>:restarts`: Per-child restart count, only present for children with `Intensity > 0` in their `SupervisorChildRestart`
 
 **Simple One For One:**
-- `type`: "Simple One For One"
-- `strategy`: Restart strategy
-- `intensity`: Maximum restart count within period
-- `period`: Time window in seconds
-- `restarts_count`: Number of supervisor-level restart timestamps tracked
-- `specs_total`: Total child spec templates
-- `specs_disabled`: Disabled specs
-- `instances_total`: Total running instances across all specs
-- `child:<name>`: Number of running instances for that child spec
-- `child:<name>:args`: Number of instances with custom args for that child spec
-- `child:<name>:restarts`: Aggregated per-instance restart count for that spec, only present when the spec has `Intensity > 0` in its `SupervisorChildRestart`
+- `ergo:type`: "Simple One For One"
+- `ergo:strategy`: Restart strategy
+- `ergo:intensity`: Maximum restart count within period
+- `ergo:period`: Time window in seconds
+- `ergo:restarts_count`: Number of supervisor-level restart timestamps tracked
+- `ergo:specs_total`: Total child spec templates
+- `ergo:specs_disabled`: Disabled specs
+- `ergo:instances_total`: Total running instances across all specs
+- `ergo:child:<name>`: Number of running instances for that child spec
+- `ergo:child:<name>:args`: Number of instances with custom args for that child spec
+- `ergo:child:<name>:restarts`: Aggregated per-instance restart count for that spec, only present when the spec has `Intensity > 0` in its `SupervisorChildRestart`
 
 **Restart history (all supervisor types):**
 
-- `history:count`: Number of restart events currently kept in the ring buffer
-- `history:<N>:time`: RFC3339Nano timestamp of restart event N (oldest at index 0)
-- `history:<N>:child`: Spec name of the child that triggered this restart
-- `history:<N>:reason`: `Error()` string of the termination reason
+- `ergo:history:count`: Number of restart events currently kept in the ring buffer
+- `ergo:history:<N>:time`: RFC3339Nano timestamp of restart event N (oldest at index 0)
+- `ergo:history:<N>:child`: Spec name of the child that triggered this restart
+- `ergo:history:<N>:reason`: `Error()` string of the termination reason
+
+All of these keys use the reserved `ergo:` prefix. A `HandleInspect` you implement is merged on top of them, so your fields are added beside these rather than replacing the set - and one of these is overridden only if you name it with the prefix.
+
 
 The history captures up to 50 recent restart decisions and is the fastest path to diagnose "why is this subtree flapping" without parsing logs. For All For One / Rest For One supervisors only the triggering child is recorded, not the cascading sibling kills.
 

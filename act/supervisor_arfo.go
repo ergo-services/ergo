@@ -497,16 +497,16 @@ func (s *supARFO) inspect(items ...string) map[string]string {
 	result := make(map[string]string)
 
 	if s.rest {
-		result["type"] = "Rest For One"
+		result["ergo:type"] = "Rest For One"
 	} else {
-		result["type"] = "All For One"
+		result["ergo:type"] = "All For One"
 	}
-	result["strategy"] = s.restart.Strategy.String()
-	result["intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
-	result["period"] = fmt.Sprintf("%d", s.restart.Period)
-	result["keep_order"] = fmt.Sprintf("%t", s.keeporder)
-	result["auto_shutdown"] = fmt.Sprintf("%t", s.autoshutdown)
-	result["restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
+	result["ergo:strategy"] = s.restart.Strategy.String()
+	result["ergo:intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
+	result["ergo:period"] = fmt.Sprintf("%d", s.restart.Period)
+	result["ergo:keep_order"] = fmt.Sprintf("%t", s.keeporder)
+	result["ergo:auto_shutdown"] = fmt.Sprintf("%t", s.autoshutdown)
+	result["ergo:restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
 
 	totalChildren := len(s.spec)
 	runningChildren := 0
@@ -520,9 +520,9 @@ func (s *supARFO) inspect(items ...string) map[string]string {
 		}
 	}
 
-	result["children_total"] = fmt.Sprintf("%d", totalChildren)
-	result["children_running"] = fmt.Sprintf("%d", runningChildren)
-	result["children_disabled"] = fmt.Sprintf("%d", disabledChildren)
+	result["ergo:children_total"] = fmt.Sprintf("%d", totalChildren)
+	result["ergo:children_running"] = fmt.Sprintf("%d", runningChildren)
+	result["ergo:children_disabled"] = fmt.Sprintf("%d", disabledChildren)
 
 	supHistoryToInspect(s.history, result)
 

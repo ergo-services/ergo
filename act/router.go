@@ -70,8 +70,9 @@ type RouterBehavior interface {
 	HandleEvent(message gen.MessageEvent) error
 
 	// HandleInspect is invoked on Inspect requests. The returning fields are
-	// merged into the routing statistics, so implement it to add or override
-	// the fields.
+	// merged into the routing statistics, so implement it to add the fields of
+	// your own. The routing statistics use the reserved "ergo:" prefix for its
+	// keys; a returning field with such a key overrides it.
 	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
@@ -863,17 +864,17 @@ func (r *Router) HandleInspect(from gen.PID, item ...string) map[string]string {
 func (r *Router) inspect() map[string]string {
 	var empty gen.PID
 	result := map[string]string{
-		"type":         "Router",
-		"routes_total": fmt.Sprintf("%d", len(r.routes)),
-		"mailbox_size": fmt.Sprintf("%d", r.options.MailboxSize),
-		"forwarded":    fmt.Sprintf("%d", r.forwarded),
-		"discarded":    fmt.Sprintf("%d", r.discarded),
-		"failed":       fmt.Sprintf("%d", r.failed),
-		"restarts":     fmt.Sprintf("%d", r.restarts),
+		"ergo:type":         "Router",
+		"ergo:routes_total": fmt.Sprintf("%d", len(r.routes)),
+		"ergo:mailbox_size": fmt.Sprintf("%d", r.options.MailboxSize),
+		"ergo:forwarded":    fmt.Sprintf("%d", r.forwarded),
+		"ergo:discarded":    fmt.Sprintf("%d", r.discarded),
+		"ergo:failed":       fmt.Sprintf("%d", r.failed),
+		"ergo:restarts":     fmt.Sprintf("%d", r.restarts),
 	}
 	active, disabled, pending := 0, 0, 0
 	for _, re := range r.routes {
-		base := "route:" + string(re.Name)
+		base := "ergo:route:" + string(re.Name)
 		if re.pid == empty {
 			result[base+":pid"] = ""
 		} else {
@@ -889,8 +890,8 @@ func (r *Router) inspect() map[string]string {
 			pending++
 		}
 	}
-	result["routes_active"] = fmt.Sprintf("%d", active)
-	result["routes_disabled"] = fmt.Sprintf("%d", disabled)
-	result["routes_pending"] = fmt.Sprintf("%d", pending)
+	result["ergo:routes_active"] = fmt.Sprintf("%d", active)
+	result["ergo:routes_disabled"] = fmt.Sprintf("%d", disabled)
+	result["ergo:routes_pending"] = fmt.Sprintf("%d", pending)
 	return result
 }

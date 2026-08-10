@@ -449,12 +449,12 @@ func (s *supOFO) inspect(items ...string) map[string]string {
 	var empty gen.PID
 	result := make(map[string]string)
 
-	result["type"] = "One For One"
-	result["strategy"] = s.restart.Strategy.String()
-	result["intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
-	result["period"] = fmt.Sprintf("%d", s.restart.Period)
-	result["auto_shutdown"] = fmt.Sprintf("%t", s.autoshutdown)
-	result["restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
+	result["ergo:type"] = "One For One"
+	result["ergo:strategy"] = s.restart.Strategy.String()
+	result["ergo:intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
+	result["ergo:period"] = fmt.Sprintf("%d", s.restart.Period)
+	result["ergo:auto_shutdown"] = fmt.Sprintf("%t", s.autoshutdown)
+	result["ergo:restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
 
 	totalChildren := len(s.spec)
 	runningChildren := 0
@@ -467,14 +467,14 @@ func (s *supOFO) inspect(items ...string) map[string]string {
 			runningChildren++
 		}
 		if cs.Restart.Intensity > 0 {
-			key := fmt.Sprintf("child:%s:restarts", cs.Name)
+			key := fmt.Sprintf("ergo:child:%s:restarts", cs.Name)
 			result[key] = fmt.Sprintf("%d", len(cs.localRestarts))
 		}
 	}
 
-	result["children_total"] = fmt.Sprintf("%d", totalChildren)
-	result["children_running"] = fmt.Sprintf("%d", runningChildren)
-	result["children_disabled"] = fmt.Sprintf("%d", disabledChildren)
+	result["ergo:children_total"] = fmt.Sprintf("%d", totalChildren)
+	result["ergo:children_running"] = fmt.Sprintf("%d", runningChildren)
+	result["ergo:children_disabled"] = fmt.Sprintf("%d", disabledChildren)
 
 	supHistoryToInspect(s.history, result)
 

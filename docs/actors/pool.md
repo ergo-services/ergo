@@ -220,15 +220,17 @@ Pools expose internal metrics via `Inspect`:
 ```go
 stats, err := node.Inspect(poolPID)
 // stats contains:
-// - "pool_size": configured number of workers
-// - "worker_behavior": type name of worker behavior
-// - "worker_mailbox_size": mailbox limit per worker
-// - "worker_restarts": count of workers restarted
-// - "messages_forwarded": total messages forwarded to workers
-// - "messages_unhandled": messages dropped (all workers full)
+// - "ergo:pool_size": configured number of workers
+// - "ergo:worker_behavior": type name of worker behavior
+// - "ergo:worker_mailbox_size": mailbox limit per worker
+// - "ergo:worker_restarts": count of workers restarted
+// - "ergo:messages_forwarded": total messages forwarded to workers
+// - "ergo:messages_unhandled": messages dropped (all workers full)
 ```
 
-Use this for monitoring pool health. High `messages_unhandled` indicates workers are overwhelmed. High `worker_restarts` suggests worker stability issues.
+All of these keys use the reserved `ergo:` prefix. A `HandleInspect` you implement is merged on top of them, so your fields are added beside these rather than replacing the set - and one of these is overridden only if you name it with the prefix.
+
+Use this for monitoring pool health. High `ergo:messages_unhandled` indicates workers are overwhelmed. High `ergo:worker_restarts` suggests worker stability issues.
 
 ## When to Use Pools
 
@@ -250,7 +252,7 @@ Pools are for horizontal scaling of stateless work. If workers need state coordi
 
 **Don't forward Exit signals intentionally**. The pool doesn't forward Exit messages to workers. If you need to broadcast shutdown to all workers, iterate manually and send to each worker PID.
 
-**Monitor forwarding metrics**. If `messages_unhandled` increases, your pool is undersized or workers are too slow. Scale up with `AddWorkers` or optimize worker processing.
+**Monitor forwarding metrics**. If `ergo:messages_unhandled` increases, your pool is undersized or workers are too slow. Scale up with `AddWorkers` or optimize worker processing.
 
 **Use priority for pool management**. Send management commands with `MessagePriorityHigh` to ensure they go to the pool, not forwarded to workers.
 

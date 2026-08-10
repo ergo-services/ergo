@@ -67,8 +67,8 @@ func TestLocalNodeInspect(t *testing.T) {
 	sup := n.Spawn(factoryInspectSup, gen.ProcessOptions{})
 	info, err := nd.Inspect(sup)
 	check.NoError(t, err)
-	check.Equal(t, "One For One", info["type"])
-	check.Equal(t, "2", info["children_total"])
+	check.Equal(t, "One For One", info["ergo:type"])
+	check.Equal(t, "2", info["ergo:children_total"])
 
 	// unknown process
 	_, err = nd.Inspect(gen.PID{Node: n.Name(), ID: 99999, Creation: 1})

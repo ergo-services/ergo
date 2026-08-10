@@ -310,20 +310,23 @@ Default `HandleInspect` returns a flat key-value map with router-level counters 
 ```go
 stats, err := node.Inspect(routerPID)
 // stats contains:
-// - "type": "Router"
-// - "routes_total": N
-// - "routes_active": number of routes with non-empty PID
-// - "routes_disabled": count of routes with Disabled=true
-// - "routes_pending": count of routes with pending != None
-// - "mailbox_size": router's MailboxSize from Init
-// - "forwarded": total successful forwards
-// - "discarded": total RouteDiscard returns
-// - "failed": total forward failures (including registry misses)
-// - "restarts": total worker restarts
-// - "route:NAME:pid": pid of the route (empty string if not running)
-// - "route:NAME:disabled": "true" or "false"
-// - "route:NAME:pending": "disable" / "replace" / "remove" if pending
+// - "ergo:type": "Router"
+// - "ergo:routes_total": N
+// - "ergo:routes_active": number of routes with non-empty PID
+// - "ergo:routes_disabled": count of routes with Disabled=true
+// - "ergo:routes_pending": count of routes with pending != None
+// - "ergo:mailbox_size": router's MailboxSize from Init
+// - "ergo:forwarded": total successful forwards
+// - "ergo:discarded": total RouteDiscard returns
+// - "ergo:failed": total forward failures (including registry misses)
+// - "ergo:restarts": total worker restarts
+
+// - "ergo:route:NAME:pid": pid of the route (empty string if not running)
+// - "ergo:route:NAME:disabled": "true" or "false"
+// - "ergo:route:NAME:pending": "disable" / "replace" / "remove" if pending
 ```
+
+All of these keys use the reserved `ergo:` prefix. A `HandleInspect` you implement is merged on top of them, so your fields are added beside these rather than replacing the set - and one of these is overridden only if you name it with the prefix.
 
 Override `HandleInspect` to add fields specific to your routing logic.
 

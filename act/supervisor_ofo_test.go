@@ -485,19 +485,19 @@ func TestOFOInspectExposesRestartHistory(t *testing.T) {
 	killOFO(t, sup, pids, "a", errors.New("boom-a-2"))
 
 	out := sup.inspect()
-	if out["history:count"] != "3" {
-		t.Fatalf("history:count = %q, want 3", out["history:count"])
+	if out["ergo:history:count"] != "3" {
+		t.Fatalf("history:count = %q, want 3", out["ergo:history:count"])
 	}
-	if out["history:0:child"] != "a" || out["history:0:reason"] != "boom-a" {
-		t.Errorf("history[0] mismatch: child=%q reason=%q", out["history:0:child"], out["history:0:reason"])
+	if out["ergo:history:0:child"] != "a" || out["ergo:history:0:reason"] != "boom-a" {
+		t.Errorf("history[0] mismatch: child=%q reason=%q", out["ergo:history:0:child"], out["ergo:history:0:reason"])
 	}
-	if out["history:1:child"] != "b" || out["history:1:reason"] != "boom-b" {
-		t.Errorf("history[1] mismatch: child=%q reason=%q", out["history:1:child"], out["history:1:reason"])
+	if out["ergo:history:1:child"] != "b" || out["ergo:history:1:reason"] != "boom-b" {
+		t.Errorf("history[1] mismatch: child=%q reason=%q", out["ergo:history:1:child"], out["ergo:history:1:reason"])
 	}
-	if out["history:2:child"] != "a" || out["history:2:reason"] != "boom-a-2" {
-		t.Errorf("history[2] mismatch: child=%q reason=%q", out["history:2:child"], out["history:2:reason"])
+	if out["ergo:history:2:child"] != "a" || out["ergo:history:2:reason"] != "boom-a-2" {
+		t.Errorf("history[2] mismatch: child=%q reason=%q", out["ergo:history:2:child"], out["ergo:history:2:reason"])
 	}
-	if out["history:0:time"] == "" {
+	if out["ergo:history:0:time"] == "" {
 		t.Errorf("history[0]:time must be a non-empty RFC3339 string")
 	}
 }
@@ -515,8 +515,8 @@ func TestOFOHistoryCapped(t *testing.T) {
 	}
 
 	out := sup.inspect()
-	if out["history:count"] != fmt.Sprintf("%d", supRestartHistoryMax) {
-		t.Errorf("history must be capped at %d, got %s", supRestartHistoryMax, out["history:count"])
+	if out["ergo:history:count"] != fmt.Sprintf("%d", supRestartHistoryMax) {
+		t.Errorf("history must be capped at %d, got %s", supRestartHistoryMax, out["ergo:history:count"])
 	}
 }
 
@@ -538,11 +538,11 @@ func TestOFOInspectIncludesLocalRestarts(t *testing.T) {
 
 	out := sup.inspect()
 	// gen.Atom.String() wraps the name in single quotes (matches existing inspect keys)
-	if v := out["child:'b':restarts"]; v != "1" {
+	if v := out["ergo:child:'b':restarts"]; v != "1" {
 		t.Errorf("child:'b':restarts = %q, want 1", v)
 	}
 	// "a" has no local Restart, must NOT show the key
-	if _, ok := out["child:'a':restarts"]; ok {
+	if _, ok := out["ergo:child:'a':restarts"]; ok {
 		t.Errorf("child:'a':restarts must not appear when no local counter is configured")
 	}
 }

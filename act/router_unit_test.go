@@ -355,7 +355,11 @@ func (r *rtrInspect) RouteCall(from gen.PID, ref gen.Ref, request any) gen.Atom 
 	return act.RouteDiscard
 }
 func (r *rtrInspect) HandleInspect(from gen.PID, item ...string) map[string]string {
-	return map[string]string{"custom": "value", "type": "MyRouter"}
+	return map[string]string{
+		"custom":      "value",
+		"type":        "MyRouter", // no longer collides: the router uses ergo:type
+		"ergo:failed": "7",        // a reserved key, overridden on purpose
+	}
 }
 
 // a custom HandleInspect adds/overrides fields, the routing stats are kept.
@@ -367,8 +371,10 @@ func TestRouterUnitInspectCustom(t *testing.T) {
 	m, err := s.Inspect(gen.PID{})
 	check.NoError(t, err)
 	check.Equal(t, "value", m["custom"])
-	check.Equal(t, "2", m["routes_total"]) // routing stats are not lost
-	check.Equal(t, "MyRouter", m["type"])  // the behavior wins on the same key
+	check.Equal(t, "2", m["ergo:routes_total"]) // routing stats are not lost
+	check.Equal(t, "Router", m["ergo:type"])    // an unprefixed lookalike does not clobber them
+	check.Equal(t, "MyRouter", m["type"])       // and the behavior keeps its own key
+	check.Equal(t, "7", m["ergo:failed"])       // a reserved key is overridden only on purpose
 }
 
 // forwarding to a route whose worker is gone respawns it and retries the forward.

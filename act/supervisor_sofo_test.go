@@ -494,14 +494,14 @@ func TestSOFOInspectExposesRestartHistory(t *testing.T) {
 	_, _ = killSOFO(t, sup, "worker", pid, errors.New("second"))
 
 	out := sup.inspect()
-	if out["history:count"] != "2" {
-		t.Fatalf("expected 2 history entries, got %q", out["history:count"])
+	if out["ergo:history:count"] != "2" {
+		t.Fatalf("expected 2 history entries, got %q", out["ergo:history:count"])
 	}
-	if out["history:0:reason"] != "first" || out["history:1:reason"] != "second" {
-		t.Errorf("history reasons mismatch: %q / %q", out["history:0:reason"], out["history:1:reason"])
+	if out["ergo:history:0:reason"] != "first" || out["ergo:history:1:reason"] != "second" {
+		t.Errorf("history reasons mismatch: %q / %q", out["ergo:history:0:reason"], out["ergo:history:1:reason"])
 	}
-	if out["history:0:child"] != "worker" || out["history:1:child"] != "worker" {
-		t.Errorf("history child names mismatch: %q / %q", out["history:0:child"], out["history:1:child"])
+	if out["ergo:history:0:child"] != "worker" || out["ergo:history:1:child"] != "worker" {
+		t.Errorf("history child names mismatch: %q / %q", out["ergo:history:0:child"], out["ergo:history:1:child"])
 	}
 }
 
@@ -519,7 +519,7 @@ func TestSOFOInspectIncludesLocalRestarts(t *testing.T) {
 	_, _ = killSOFO(t, sup, "worker", pid, errors.New("boom"))
 
 	out := sup.inspect()
-	if v := out["child:'worker':restarts"]; v != "1" {
+	if v := out["ergo:child:'worker':restarts"]; v != "1" {
 		t.Errorf("child:'worker':restarts = %q, want 1", v)
 	}
 }

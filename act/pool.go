@@ -41,7 +41,8 @@ type PoolBehavior interface {
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...).
 	// The returning fields are merged into the pool stats, so implement it to
-	// add or override the fields.
+	// add the fields of your own. The pool stats use the reserved "ergo:"
+	// prefix for its keys; a returning field with such a key overrides it.
 	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
@@ -378,12 +379,12 @@ func (p *Pool) HandleInspect(from gen.PID, item ...string) map[string]string {
 
 func (p *Pool) inspect() map[string]string {
 	return map[string]string{
-		"pool_size":           fmt.Sprintf("%d", p.options.PoolSize),
-		"worker_behavior":     p.sWorkerBehavior,
-		"worker_mailbox_size": fmt.Sprintf("%d", p.options.WorkerMailboxSize),
-		"worker_restarts":     fmt.Sprintf("%d", p.restarts),
-		"messages_forwarded":  fmt.Sprintf("%d", p.forwarded),
-		"messages_unhandled":  fmt.Sprintf("%d", p.unhandled),
+		"ergo:pool_size":           fmt.Sprintf("%d", p.options.PoolSize),
+		"ergo:worker_behavior":     p.sWorkerBehavior,
+		"ergo:worker_mailbox_size": fmt.Sprintf("%d", p.options.WorkerMailboxSize),
+		"ergo:worker_restarts":     fmt.Sprintf("%d", p.restarts),
+		"ergo:messages_forwarded":  fmt.Sprintf("%d", p.forwarded),
+		"ergo:messages_unhandled":  fmt.Sprintf("%d", p.unhandled),
 	}
 }
 
