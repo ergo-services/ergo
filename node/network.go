@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -718,13 +719,44 @@ func (n *network) RegisteredTypes() []gen.RegisteredTypeInfo {
 	return all
 }
 
+// LookupType resolves a canonical type name across the registries. The name is globally
+// unique, so two registries disagreeing is a conflict, not a preference: report it and
+// pick by registry order.
 func (n *network) LookupType(name string) (reflect.Type, bool) {
-	for _, r := range n.typeRegistries() {
-		if t, ok := r.registry.LookupType(name); ok {
-			return t, true
+	var (
+		found  reflect.Type
+		winner string
+	)
+	for _, r := range n.sortedTypeRegistries() {
+		t, ok := r.registry.LookupType(name)
+		if ok == false {
+			continue
+		}
+		if found == nil {
+			found, winner = t, protoName(r.proto)
+			continue
+		}
+		if t != found {
+			n.node.Log().Error("type %q resolves to %s in proto %s and to %s in proto %s; using %s",
+				name, found, winner, t, protoName(r.proto), winner)
 		}
 	}
-	return nil, false
+	return found, found != nil
+}
+
+// sortedTypeRegistries makes cross-registry lookup reproducible; typeRegistries walks a
+// sync.Map.
+func (n *network) sortedTypeRegistries() []typeRegistryEntry {
+	list := n.typeRegistries()
+	sort.SliceStable(list, func(i, j int) bool {
+		return protoName(list[i].proto) < protoName(list[j].proto)
+	})
+	return list
+}
+
+func protoName(p gen.NetworkProto) string {
+	v := p.Version()
+	return v.Name + " " + v.Release
 }
 
 //

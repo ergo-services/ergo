@@ -1072,31 +1072,13 @@ func RegisterTypesOf(types []any) error {
 	return nil
 }
 
-// LookupType returns the reflect.Type for a registered type by name.
-// The name can be a full EDF name ("#pkgpath/TypeName") or a short
-// type name ("TypeName") which matches the first type with that suffix.
+// LookupType returns the reflect.Type registered under the canonical EDF name
+// ("#pkgpath/TypeName"), matched exactly. The old short-name fallback took the first
+// suffix hit over a sync.Map, so the same name could resolve to a different package's
+// type on every call. Search by short name over RegisteredTypes instead.
 func LookupType(name string) (reflect.Type, bool) {
-	// Try exact match first
 	if v, ok := decoders.Load(name); ok {
 		return v.(*decoder).Type, true
-	}
-
-	// Try short name match (suffix match on "/TypeName")
-	suffix := "/" + name
-	var found reflect.Type
-	decoders.Range(func(k, v any) bool {
-		s, ok := k.(string)
-		if ok == false {
-			return true
-		}
-		if len(s) > len(suffix) && s[len(s)-len(suffix):] == suffix {
-			found = v.(*decoder).Type
-			return false
-		}
-		return true
-	})
-	if found != nil {
-		return found, true
 	}
 	return nil, false
 }

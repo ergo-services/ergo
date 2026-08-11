@@ -2,6 +2,9 @@ package unit_test
 
 import (
 	"errors"
+	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -673,4 +676,57 @@ func TestSmokeProcessStateTerminated(t *testing.T) {
 	state, err := s.Node().ProcessState(s.PID())
 	check.NoError(t, err)
 	check.Equal(t, gen.ProcessStateTerminated, state)
+}
+
+// wireType is a stand-in for a package's own protocol message.
+type wireType struct{ Field string }
+
+// typeChecker reports at Init whether its wire type is registered on the node - the
+// pattern an actor uses to refuse to start on an unregistered protocol.
+type typeChecker struct{ act.Actor }
+
+func factoryTypeChecker() gen.ProcessBehavior { return &typeChecker{} }
+
+func (c *typeChecker) Init(args ...any) error {
+	name := fmt.Sprintf("#%s/wireType", reflect.TypeOf(wireType{}).PkgPath())
+	if _, ok := c.Node().Network().LookupType(name); ok == false {
+		return errBoom
+	}
+	return nil
+}
+
+// An actor that verifies its own wire surface must be able to see the registration a
+// test performed; before the mock recorded them, LookupType answered "no" always and
+// this whole class of check was untestable.
+func TestSmokeMockNetworkTypeRegistry(t *testing.T) {
+	a, _ := unit.Spawn(t, factorySample, gen.ProcessOptions{})
+	net := a.Node().Network()
+
+	check.NoError(t, net.RegisterTypes([]any{wireType{}}))
+
+	registered := net.RegisteredTypes()
+	check.Equal(t, 1, len(registered))
+	if strings.HasSuffix(registered[0].Name, "/wireType") == false {
+		t.Fatalf("registry name %q does not carry the type name", registered[0].Name)
+	}
+
+	got, ok := net.LookupType(registered[0].Name)
+	check.True(t, ok, "the canonical key must resolve")
+	check.Equal(t, reflect.TypeOf(wireType{}), got)
+
+	// A short name must not resolve: two packages can hold the same type name, so
+	// searching by it is the caller's job over RegisteredTypes.
+	if _, ok := net.LookupType("wireType"); ok == true {
+		t.Fatal("short name must not resolve")
+	}
+
+	net.FailRegisterTypes(gen.ErrUnsupported)
+	check.Error(t, gen.ErrUnsupported, net.RegisterTypes([]any{wireType{}}))
+}
+
+// The registration is a real precondition for the actor, not just for the test's own
+// assertions: Init sees the same registry.
+func TestSmokeMockNetworkTypeRegistryGatesInit(t *testing.T) {
+	_, err := unit.Spawn(t, factoryTypeChecker, gen.ProcessOptions{})
+	check.Error(t, errBoom, err)
 }

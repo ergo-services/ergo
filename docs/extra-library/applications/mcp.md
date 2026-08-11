@@ -221,6 +221,8 @@ func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
 
 The agent discovers it with `message_types`, inspects its fields with `message_type_info`, and sends it with `call_process`. The process receives a real `StatusRequest{Verbose: true}` in its `HandleCall`, not a map or raw bytes.
 
+Name the type as `message_types` lists it. A bare `StatusRequest` is accepted while only one registered type carries that name; once two packages do, the tool asks which one rather than picking, because guessing sends the wrong message.
+
 This makes interactive debugging possible: the agent can call any process with any registered request type, inspect the response, and reason about the behavior.
 
 ## Network Diagnostics

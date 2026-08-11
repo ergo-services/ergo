@@ -137,6 +137,8 @@ sub.Node().Network().Registrar().Resolver().
 
 `FailRegistrar` drives the no-registrar branch, and `OnGetNode` returns a programmable remote node - reaching it is a read, but the `Spawn` the actor then issues on it is outward work, recorded and asserted as remote egress. Cron jobs the actor adds via `sub.Node().Cron().AddJob` are recorded and fire only when the test calls `FireCron`, so a scheduled action stays deterministic.
 
+The node's type registry is modelled rather than stubbed away: `RegisterTypes` seeds it the way an application's `Load` does, `LookupType` and `RegisteredTypes` read it back, and `FailRegisterTypes` drives the rejected-registration branch. So "did this actor register the wire surface it needs" is assertable here instead of only in a system test. `LookupType` matches the canonical `#pkgpath/Name` key exactly, as a live node does - a short type name does not resolve.
+
 ## Reading What the Actor Produced
 
 With the world set up and an input driven, you assert on the result. Beyond the record assertions you already know from [check](check.md), two things are worth calling out.

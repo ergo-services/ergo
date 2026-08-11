@@ -1,7 +1,9 @@
 package unit
 
 import (
+	"fmt"
 	"reflect"
+	"sort"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
@@ -24,6 +26,8 @@ type mockNetwork struct {
 	event      *gen.Event
 	eventErr   error
 	regErr     error // when set, Registrar() returns this error
+	types      map[string]reflect.Type
+	typesErr   error // when set, RegisterType/RegisterTypes return this error
 }
 
 type resolveResult struct {
@@ -46,6 +50,7 @@ func newMockNetwork(n *mockNode) *mockNetwork {
 		resolve:    make(map[gen.Atom]*resolveResult),
 		resolveApp: make(map[gen.Atom]*resolveAppResult),
 		remotes:    make(map[gen.Atom]*mockRemoteNode),
+		types:      make(map[string]reflect.Type),
 	}
 	ev := gen.Event{Name: unitRegistrarEvent, Node: n.nodeName}
 	mn.event = &ev
@@ -105,14 +110,61 @@ func (mn *mockNetwork) DisableApplicationStart(gen.Atom, ...gen.Atom) error     
 func (mn *mockNetwork) Info() (gen.NetworkInfo, error)                              { return gen.NetworkInfo{}, nil }
 func (mn *mockNetwork) Mode() gen.NetworkMode                                       { return gen.NetworkModeEnabled }
 func (mn *mockNetwork) Protos() []gen.NetworkProto                                  { return nil }
-func (mn *mockNetwork) RegisterType(any) error                                      { return nil }
-func (mn *mockNetwork) RegisterTypes([]any) error                                   { return nil }
 func (mn *mockNetwork) RegisterError(error) error                                   { return nil }
 func (mn *mockNetwork) RegisterErrors([]error) error                                { return nil }
 func (mn *mockNetwork) RegisterAtom(gen.Atom) error                                 { return nil }
 func (mn *mockNetwork) RegisterAtoms([]gen.Atom) error                              { return nil }
-func (mn *mockNetwork) RegisteredTypes() []gen.RegisteredTypeInfo                   { return nil }
-func (mn *mockNetwork) LookupType(string) (reflect.Type, bool)                      { return nil, false }
+
+// The type registry is recorded rather than dropped: "did this app register its wire
+// surface" is a real failure mode, and a stub that always answers "not registered"
+// makes it untestable at this layer.
+
+// regTypeName mirrors edf's registry key, so a lookup resolves as it does on a live node.
+func regTypeName(t reflect.Type) string {
+	return fmt.Sprintf("#%s/%s", t.PkgPath(), t.Name())
+}
+
+func (mn *mockNetwork) RegisterType(v any) error { return mn.RegisterTypes([]any{v}) }
+
+func (mn *mockNetwork) RegisterTypes(types []any) error {
+	if mn.typesErr != nil {
+		return mn.typesErr
+	}
+	for _, v := range types {
+		if t := reflect.TypeOf(v); t != nil {
+			mn.types[regTypeName(t)] = t
+		}
+	}
+	return nil
+}
+
+func (mn *mockNetwork) RegisteredTypes() []gen.RegisteredTypeInfo {
+	names := make([]string, 0, len(mn.types))
+	for name := range mn.types {
+		names = append(names, name)
+	}
+	// Map order is random; a listing a test asserts on has to be stable.
+	sort.Strings(names)
+
+	out := make([]gen.RegisteredTypeInfo, 0, len(names))
+	for i, name := range names {
+		t := mn.types[name]
+		out = append(out, gen.RegisteredTypeInfo{
+			ID:     uint64(i + 1),
+			Name:   name,
+			Kind:   t.Kind().String(),
+			Schema: t.String(),
+			Proto:  "unit",
+		})
+	}
+	return out
+}
+
+// LookupType matches the canonical key exactly, as edf.LookupType does.
+func (mn *mockNetwork) LookupType(name string) (reflect.Type, bool) {
+	t, ok := mn.types[name]
+	return t, ok
+}
 
 // mockRegistrar is the gen.Registrar behind Network().Registrar(). Resolver() returns
 // the same discovery stubs; Event() is stubbed via OnRegistrarEvent. The rest is
@@ -193,6 +245,18 @@ func (m *MockNetwork) Registrar() *MockRegistrar { return &MockRegistrar{net: m.
 
 // FailRegistrar makes Network().Registrar() return err (no registrar configured).
 func (m *MockNetwork) FailRegistrar(err error) { m.net.regErr = err }
+
+// RegisterTypes seeds the mock registry the way an application's Load does, so an actor
+// that checks its own wire surface faces the same precondition as in production.
+func (m *MockNetwork) RegisterTypes(types []any) error { return m.net.RegisterTypes(types) }
+
+// FailRegisterTypes makes RegisterType / RegisterTypes return err.
+func (m *MockNetwork) FailRegisterTypes(err error) { m.net.typesErr = err }
+
+// LookupType and RegisteredTypes read the mock registry, so a test can assert what the
+// actor under test registered.
+func (m *MockNetwork) LookupType(name string) (reflect.Type, bool) { return m.net.LookupType(name) }
+func (m *MockNetwork) RegisteredTypes() []gen.RegisteredTypeInfo   { return m.net.RegisteredTypes() }
 
 // MockRegistrar is the test-config handle for Network().Registrar().
 type MockRegistrar struct{ net *mockNetwork }
