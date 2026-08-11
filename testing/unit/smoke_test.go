@@ -730,3 +730,36 @@ func TestSmokeMockNetworkTypeRegistryGatesInit(t *testing.T) {
 	_, err := unit.Spawn(t, factoryTypeChecker, gen.ProcessOptions{})
 	check.Error(t, errBoom, err)
 }
+
+// selfQueue does its real work outside the Init frame, the way an actor that must not
+// block startup does it.
+type selfQueue struct{ act.Actor }
+
+func factorySelfQueue() gen.ProcessBehavior { return &selfQueue{} }
+
+func (q *selfQueue) Init(args ...any) error {
+	return q.Send(q.PID(), "queued-in-init")
+}
+
+func (q *selfQueue) HandleMessage(from gen.PID, message any) error {
+	if message == "queued-in-init" {
+		q.Send(gen.Atom("logger"), "init-work-done")
+	}
+	return nil
+}
+
+// A Send is outward work the harness records, never performs - including a Send to self.
+// So the message an actor queues for itself in Init is asserted as egress and does not run:
+// it is not a timer either, so FireTimers does not reach it. A test that wants the deferred
+// work to happen delivers that message itself.
+func TestSmokeInitSelfSendIsRecordedNotExecuted(t *testing.T) {
+	a, err := unit.Spawn(t, factorySelfQueue, gen.ProcessOptions{})
+	check.NoError(t, err)
+
+	a.ShouldSend().To(a.PID()).Message("queued-in-init").Once().Assert()
+	check.Equal(t, 0, a.FireTimers())
+	a.ShouldSend().To(gen.Atom("logger")).None().Assert()
+
+	a.SendMessage(gen.PID{}, "queued-in-init")
+	a.ShouldSend().To(gen.Atom("logger")).Message("init-work-done").Once().Assert()
+}

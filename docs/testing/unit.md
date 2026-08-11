@@ -54,6 +54,8 @@ check.Equal(t, "ready", resp)
 
 Keep the direction straight here, because it is the most common source of confusion in unit tests: `Call` is you calling *into* the actor. Controlling what the actor's *own* outbound calls return is a different tool, `OnCall`, which comes up below. (One related subtlety: a message the actor sends to itself is recorded as an outgoing send, not looped back into its mailbox - to drive the reaction to it, deliver it yourself with `SendMessage`.)
 
+`FireTimers` is what makes time-driven behavior deterministic - a periodic tick, a timeout, a retry back-off, a TTL - so a test never sleeps to watch one elapse. Three things it deliberately does not do. It fires every pending timer at once rather than stepping to the next, and a timer the handler re-arms is left for the following call. A timer aimed at another process is marked fired but not delivered, because that message is outward work: assert it with `ShouldSendAfter`. And it advances no clock, so an actor comparing `time.Now()` against a stored timestamp still needs the wall time to have passed - give such a test a millisecond timeout rather than a mocked hour.
+
 ## Setting Up the Actor's World
 
 An actor never runs in a vacuum: it calls out to dependencies, and it reads things about itself and its node. To test it in isolation you control both sides of that world, and `unit` gives you a distinct tool for each. What the actor *does* outward - the calls and sends it makes - you shape with typed stubs. What the actor *reads* - its environment, its node, service discovery - you supply with overrides. Everything in the next two sections is one or the other; keeping that split in mind is most of what it takes to write a unit test confidently.
