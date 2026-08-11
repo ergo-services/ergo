@@ -74,6 +74,8 @@ Two steps, and both fail quietly if you skip them: the node starts, nothing erro
 
 The package registers nothing on import. Type registration is node-scoped, so it cannot happen in a package `init()`, and doing it inside the actor would be too late - a node whose leader process starts after a connection is already established could not decode a peer's message, and could not repair that after the fact.
 
+The actor checks this at `Init` and refuses to start if its protocol is not registered: an unregistered vote fails to encode on every send, so the alternative is a healthy-looking node that never joins an election.
+
 Declare them on the application that hosts the actor:
 
 ```go
