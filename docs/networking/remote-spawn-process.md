@@ -206,6 +206,31 @@ The spawned process receives attributes from the requesting node's core:
 
 This creates independent processes without application affiliation. Use this for standalone remote workers that don't need to be part of an application's logical structure.
 
+### The Parent Holds an Unconditional Stop
+
+An actor with `SetTrapExit(true)` refuses exit requests. They arrive as regular messages and it decides what to do with them. Its parent is the exception: an exit from the parent always terminates the actor, whatever reason it carries, trap or no trap.
+
+`process.RemoteSpawn` makes the caller that parent. The caller therefore keeps a stop signal the remote process cannot decline:
+
+```go
+// terminates the remote process even with the trap enabled
+process.SendExit(pid, gen.TerminateReasonShutdown)
+```
+
+A coordinator that places work on other nodes needs exactly this. It can reclaim what it started without the remote side agreeing to stop.
+
+Three limits come with it.
+
+**Only the spawner gets it.** Process options have no parent field, so you cannot point this at a third process. `Leader` sets the group leader, which shapes environment inheritance and logging and grants nothing here. For a supervisor on the target node to hold the stop, that supervisor has to do the spawn.
+
+**Node-level spawn does not grant it.** `RemoteNode.Spawn` records the requesting node's core as the parent, and no process of yours is that core. Stopping such a process means asking it with a message.
+
+**It dies with the PID that holds it.** A coordinator that restarts comes back with a new PID. It is no longer the parent of what it spawned earlier, and those processes keep running out of its reach.
+
+The last limit shapes the design. Give the remote process a cooperative stop as well, a message it honours by terminating itself, so a restarted coordinator can still ask. And when the stop has to survive that restart, spawn on the target node under a local supervisor: parent and children live on the same node, a supervisor restart takes its children with it instead of orphaning them, and the coordinator asks the supervisor to stop a child rather than owning the relationship itself.
+
+A process built directly on `gen.ProcessBehavior` runs its own message loop, so this rule is its own to implement or ignore.
+
 ## Environment Variable Inheritance
 
 By default, remote processes don't inherit environment variables. This is a security decision - you probably don't want to expose your node's configuration to remote processes.

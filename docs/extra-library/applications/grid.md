@@ -103,6 +103,27 @@ The registration timestamp decides; ties break by owner PID, then by node name, 
 
 This is a deliberate trade-off. Last-writer-wins keeps the registry available and self-healing with no consensus round, but it means a registration you thought succeeded can later be revoked, and the process that lost is terminated. Grid's registry is a fast observation and coordination layer, not a distributed lock. If your application requires at-most-one ownership with no window of divergence - for example, exclusive control of an external resource - use grid to observe and route, and pair it with a linearizable authority for the actual exclusivity.
 
+### What the Losing Owner Must Do
+
+The conflict exit comes from a shard actor, not from the loser's parent, so it is an ordinary exit request. An owner with `SetTrapExit(true)` receives it as a message and can carry on running. Grid does not try again. You are left with a process that still believes it owns the key while every registry in the cluster names someone else.
+
+So do not enable the trap on a process that registers keys. If it is on for other reasons, terminate as soon as the conflict arrives. The one signal a trap cannot refuse comes from the parent, which is why a locally supervised owner is easier to reclaim than a remote one - see [Remote Spawn Process](../../networking/remote-spawn-process.md#the-parent-holds-an-unconditional-stop).
+
+The second rule is about state. A losing owner usually writes its state back on the way out, and by then the winner has already loaded that state and carried on from it. The loser's flush overwrites the winner's work, and the symptom appears much later as a lost update. Check the reason first. It arrives wrapped, so compare it with `errors.Is`:
+
+```go
+func (e *entity) Terminate(reason error) {
+    if errors.Is(reason, grid.ErrRegistryConflict) {
+        return // the key is someone else's now, our state is stale
+    }
+    e.flush()
+}
+```
+
+If the write cannot be skipped, let storage decide instead. Version the row and update it conditionally, so a stale owner's write matches nothing. The [Leader](../actors/leader.md#leadership-safety) actor documentation shows that pattern in full.
+
+Grid cannot supply the version for you. It orders conflicts by registration time, and clocks on separate nodes do not form a monotonic sequence.
+
 ## Monitoring Keys
 
 Monitors tell an actor when keys change. You subscribe to an exact key, a prefix, or the whole domain, and notifications arrive in `HandleMessage`.
