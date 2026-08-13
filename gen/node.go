@@ -1048,8 +1048,13 @@ type NodeShortInfo struct {
 	// SystemTime is the system CPU time in nanoseconds.
 	SystemTime int64
 
-	// Peers lists the remote nodes this node has a connection with.
-	Peers []Atom
+	// Applications lists the applications loaded on this node. The set of
+	// applications is what makes a node's role, so it groups nodes the way
+	// naming conventions cannot.
+	Applications []Atom
+
+	// Peers describes the connections this node currently has.
+	Peers []RemoteNodeShortInfo
 
 	// ServerTime is the current server time with timezone.
 	ServerTime time.Time

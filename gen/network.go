@@ -742,6 +742,35 @@ type RemoteNodeInfo struct {
 	ClockSkew int64
 }
 
+// RemoteNodeShortInfo is the essential information about a connection to a
+// remote node. The short form of RemoteNodeInfo, carried by NodeShortInfo.Peers.
+type RemoteNodeShortInfo struct {
+	// Node is the remote node name.
+	Node Atom
+
+	// ConnectionUptime is the connection age in seconds.
+	ConnectionUptime int64
+
+	// MessagesIn is the total number of messages received from this remote node.
+	MessagesIn uint64
+
+	// MessagesOut is the total number of messages sent to this remote node.
+	MessagesOut uint64
+
+	// BytesIn is the total bytes received from this remote node.
+	BytesIn uint64
+
+	// BytesOut is the total bytes sent to this remote node.
+	BytesOut uint64
+
+	// Reconnections is the total number of pool item reconnections.
+	// A non-zero value indicates connection instability.
+	Reconnections uint64
+
+	// TLS indicates whether this connection uses TLS encryption.
+	TLS bool
+}
+
 // AcceptorOptions configures a network listener (acceptor) for incoming connections.
 // Part of NetworkOptions.Acceptors. Node can have multiple acceptors on different ports/interfaces.
 type AcceptorOptions struct {

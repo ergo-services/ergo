@@ -40,7 +40,9 @@ var (
 		gen.CronInfo{},
 		gen.CronSchedule{},
 		gen.NodeInfo{},
+		gen.RemoteNodeShortInfo{},
 		gen.NodeShortInfo{},
+
 		gen.Compression{},
 		gen.MailboxQueues{},
 		gen.ProcessInfo{},

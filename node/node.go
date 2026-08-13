@@ -986,7 +986,7 @@ func (n *node) ShortInfo() (gen.NodeShortInfo, error) {
 	info.Framework = n.framework
 	info.LogLevel = n.log.Level()
 	info.Mode = n.network.Mode()
-	info.Peers = n.network.Nodes()
+	info.Peers = n.peers()
 
 	n.processes.Range(func(_, v any) bool {
 		info.ProcessesTotal++
@@ -1006,8 +1006,16 @@ func (n *node) ShortInfo() (gen.NodeShortInfo, error) {
 	info.ProcessesSpawnFailed = atomic.LoadUint64(&n.processesSpawnFailed)
 	info.ProcessesTerminated = atomic.LoadUint64(&n.processesTerminated)
 
-	info.ApplicationsTotal = int64(len(n.Applications()))
-	info.ApplicationsRunning = int64(len(n.ApplicationsRunning()))
+	// one pass for the counters and the names
+	n.applications.Range(func(_, v any) bool {
+		app := v.(*application)
+		info.ApplicationsTotal++
+		if app.isRunning() {
+			info.ApplicationsRunning++
+		}
+		info.Applications = append(info.Applications, app.spec.Name)
+		return true
+	})
 
 	info.SendErrorsLocal = atomic.LoadUint64(&n.sendErrorsLocal)
 	info.SendErrorsRemote = atomic.LoadUint64(&n.sendErrorsRemote)
@@ -1127,6 +1135,33 @@ func (n *node) Network() gen.Network {
 // Peers implements gen.NodeRegistrar.
 func (n *node) Peers() []gen.Atom {
 	return n.network.Nodes()
+}
+
+// peers describes the current connections for gen.NodeShortInfo.
+func (n *node) peers() []gen.RemoteNodeShortInfo {
+	nodes := n.network.Nodes()
+	peers := make([]gen.RemoteNodeShortInfo, 0, len(nodes))
+
+	for _, name := range nodes {
+		remote, err := n.network.Node(name)
+		if err != nil {
+			// disconnected between listing and reading
+			peers = append(peers, gen.RemoteNodeShortInfo{Node: name})
+			continue
+		}
+		info := remote.Info()
+		peers = append(peers, gen.RemoteNodeShortInfo{
+			Node:             info.Node,
+			ConnectionUptime: info.ConnectionUptime,
+			MessagesIn:       info.MessagesIn,
+			MessagesOut:      info.MessagesOut,
+			BytesIn:          info.BytesIn,
+			BytesOut:         info.BytesOut,
+			Reconnections:    info.Reconnections,
+			TLS:              info.TLS,
+		})
+	}
+	return peers
 }
 
 func (n *node) Cron() gen.Cron {
