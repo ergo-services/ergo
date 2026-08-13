@@ -1,6 +1,7 @@
 package stage
 
 import (
+	"sort"
 	"sync"
 
 	"ergo.services/ergo/gen"
@@ -25,6 +26,18 @@ type memStore struct {
 	routes map[gen.Atom][]gen.Route
 	apps   map[gen.Atom]map[gen.Atom]gen.ApplicationRoute // app name -> node -> route
 	regs   []*memRegistrar                                // live registrars, for event fan-out
+}
+
+// nodes lists the registered node names.
+func (s *memStore) nodes() []gen.Atom {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	nodes := make([]gen.Atom, 0, len(s.routes))
+	for name := range s.routes {
+		nodes = append(nodes, name)
+	}
+	return nodes
 }
 
 func newMemStore(full bool) *memStore {
@@ -283,9 +296,29 @@ func (r *memRegistrar) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes,
 
 // unsupported optional features (parity with the embedded registrar)
 
-func (r *memRegistrar) RegisterProxy(gen.Atom) error             { return gen.ErrUnsupported }
-func (r *memRegistrar) UnregisterProxy(gen.Atom) error           { return gen.ErrUnsupported }
-func (r *memRegistrar) Nodes() ([]gen.Atom, error)               { return nil, gen.ErrUnsupported }
+func (r *memRegistrar) RegisterProxy(gen.Atom) error   { return gen.ErrUnsupported }
+func (r *memRegistrar) UnregisterProxy(gen.Atom) error { return gen.ErrUnsupported }
+
+// Nodes reports the cluster membership in full mode, excluding this node, the
+// way etcd and saturn do. In minimal mode it reports ErrUnsupported, matching
+// the embedded registrar, so a stage cluster without RegistrarFull behaves as a
+// mesh where membership is only discoverable through peers.
+func (r *memRegistrar) Nodes() ([]gen.Atom, error) {
+	if r.store.full == false {
+		return nil, gen.ErrUnsupported
+	}
+
+	self := r.node.Name()
+	nodes := make([]gen.Atom, 0)
+	for _, name := range r.store.nodes() {
+		if name == self {
+			continue
+		}
+		nodes = append(nodes, name)
+	}
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i] < nodes[j] })
+	return nodes, nil
+}
 func (r *memRegistrar) Config(...string) (map[string]any, error) { return nil, gen.ErrUnsupported }
 func (r *memRegistrar) ConfigItem(string) (any, error)           { return nil, gen.ErrUnsupported }
 

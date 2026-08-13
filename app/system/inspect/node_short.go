@@ -1,6 +1,8 @@
 package inspect
 
 import (
+	"time"
+
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 )
@@ -13,11 +15,17 @@ type nodeShort struct {
 	act.Actor
 	token gen.Ref
 
+	event  gen.Atom
+	period time.Duration
+
 	generating bool
 	loopID     uint64
 }
 
 func (in *nodeShort) Init(args ...any) error {
+	in.event = args[0].(gen.Atom)
+	in.period = args[1].(time.Duration)
+
 	in.Log().SetLogger("default")
 	in.SetProcessKind(gen.ProcessKindMonitor)
 	in.SetCompression(true)
@@ -27,12 +35,12 @@ func (in *nodeShort) Init(args ...any) error {
 		Notify: true,
 		Buffer: 1, // keep the last event
 	}
-	token, err := in.RegisterEvent(inspectNodeShort, eopts)
+	token, err := in.RegisterEvent(in.event, eopts)
 	if err != nil {
 		in.Log().Error("unable to register event: %s", err)
 		return err
 	}
-	in.Log().Info("registered event %s", inspectNodeShort)
+	in.Log().Info("registered event %s", in.event)
 	in.token = token
 	in.SendAfter(in.PID(), shutdown{}, inspectNodeShortIdlePeriod)
 
@@ -58,17 +66,17 @@ func (in *nodeShort) HandleMessage(from gen.PID, message any) error {
 			Info: info,
 		}
 
-		if err := in.SendEvent(inspectNodeShort, in.token, ev); err != nil {
-			in.Log().Error("unable to send event %q: %s", inspectNodeShort, err)
+		if err := in.SendEvent(in.event, in.token, ev); err != nil {
+			in.Log().Error("unable to send event %q: %s", in.event, err)
 			return gen.TerminateReasonNormal
 		}
 
-		in.SendAfter(in.PID(), generate{id: in.loopID}, inspectNodeShortPeriod)
+		in.SendAfter(in.PID(), generate{id: in.loopID}, in.period)
 
 	case requestInspect:
 		response := ResponseInspectNodeShort{
 			Event: gen.Event{
-				Name: inspectNodeShort,
+				Name: in.event,
 				Node: in.Node().Name(),
 			},
 		}

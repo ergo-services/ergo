@@ -1,6 +1,10 @@
 package inspect
 
-import "ergo.services/ergo/gen"
+import (
+	"time"
+
+	"ergo.services/ergo/gen"
+)
 
 type RequestInspectNode struct{}
 type ResponseInspectNode struct {
@@ -30,7 +34,12 @@ type MessageInspectNode struct {
 
 // node short
 
-type RequestInspectNodeShort struct{}
+type RequestInspectNodeShort struct {
+	// Period between the published snapshots. Zero applies the default of 3s,
+	// and anything below 100ms is raised to it. Consumers asking for different
+	// periods get their own inspector and their own event.
+	Period time.Duration
+}
 type ResponseInspectNodeShort struct {
 	Event gen.Event
 	Info  gen.NodeShortInfo

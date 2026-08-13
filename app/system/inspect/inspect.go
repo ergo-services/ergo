@@ -18,6 +18,7 @@ const (
 
 	inspectNodeShort           = "inspect_node_short"
 	inspectNodeShortPeriod     = 3 * time.Second
+	inspectNodeShortMinPeriod  = 100 * time.Millisecond
 	inspectNodeShortIdlePeriod = 10 * time.Second
 
 	inspectProcessList           = "inspect_process_list"
@@ -190,7 +191,19 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		opts := gen.ProcessOptions{
 			LinkParent: true,
 		}
-		_, err := i.SpawnRegister(inspectNodeShort, factory_node_short, opts)
+
+		period := r.Period
+		if period == 0 {
+			period = inspectNodeShortPeriod
+		}
+		if period < inspectNodeShortMinPeriod {
+			period = inspectNodeShortMinPeriod
+		}
+
+		// the period is part of the identity: consumers wanting different rates
+		// must not share an inspector, nor its event
+		pname := gen.Atom(fmt.Sprintf("%s_%d", inspectNodeShort, period.Milliseconds()))
+		_, err := i.SpawnRegister(pname, factory_node_short, opts, pname, period)
 		if err != nil && err != gen.ErrTaken {
 			return err, nil
 		}
@@ -199,7 +212,7 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(inspectNodeShort, forward)
+		i.Send(pname, forward)
 		return nil, nil // no reply
 
 	case RequestInspectNetwork:
