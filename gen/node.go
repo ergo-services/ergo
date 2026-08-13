@@ -929,10 +929,10 @@ type NodeInfo struct {
 	// ApplicationsRunning is the number of currently running applications.
 	ApplicationsRunning int64
 
-	// MemoryUsed is the current memory usage in bytes (from runtime.MemStats.Alloc).
+	// MemoryUsed is the total memory obtained from the OS, in bytes.
 	MemoryUsed uint64
 
-	// MemoryAlloc is the cumulative bytes allocated (from runtime.MemStats.TotalAlloc).
+	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
 	MemoryAlloc uint64
 
 	// UserTime is the user CPU time in nanoseconds.

@@ -1,13 +1,10 @@
-package node
+package lib
 
 import (
 	"runtime/metrics"
 	"sync"
-
-	"ergo.services/ergo/gen"
 )
 
-// Runtime metrics sampled for gen.NodeShortInfo.
 const (
 	metricMemoryTotal = "/memory/classes/total:bytes"
 	metricHeapObjects = "/memory/classes/heap/objects:bytes"
@@ -19,6 +16,35 @@ const (
 	metricCPUGC       = "/cpu/classes/gc/total:cpu-seconds"
 	metricCPUTotal    = "/cpu/classes/total:cpu-seconds"
 )
+
+// RuntimeMetrics contains the runtime counters sampled through runtime/metrics.
+// A metric unknown to the running Go version leaves its field zero.
+type RuntimeMetrics struct {
+	// MemoryTotal is the total memory obtained from the OS, in bytes.
+	MemoryTotal uint64
+
+	// MemoryObjects is the memory occupied by live heap objects, in bytes.
+	MemoryObjects uint64
+
+	// MemoryLimit is the soft memory limit set via GOMEMLIMIT, in bytes.
+	// MaxInt64 means no limit is set.
+	MemoryLimit uint64
+
+	// HeapLive is the heap memory occupied as of the last garbage collection, in bytes.
+	HeapLive uint64
+
+	// HeapGoal is the heap size that triggers the next garbage collection, in bytes.
+	HeapGoal uint64
+
+	// Goroutines is the current number of goroutines.
+	Goroutines int64
+
+	// GCCycles is the cumulative number of completed garbage collection cycles.
+	GCCycles uint64
+
+	// GCCPUFraction is the share of total CPU time spent in garbage collection.
+	GCCPUFraction float64
+}
 
 var runtimeMetrics = []string{
 	metricMemoryTotal,
@@ -32,8 +58,8 @@ var runtimeMetrics = []string{
 	metricCPUTotal,
 }
 
-// supportedRuntimeMetrics keeps the names this Go runtime knows. The metric set
-// grows between Go releases, and reading an unknown name yields KindBad.
+// supportedRuntimeMetrics keeps the names the running Go version knows. The
+// metric set grows between Go releases, and an unknown name yields KindBad.
 var supportedRuntimeMetrics = sync.OnceValue(func() []string {
 	known := make(map[string]bool)
 	for _, d := range metrics.All() {
@@ -49,9 +75,11 @@ var supportedRuntimeMetrics = sync.OnceValue(func() []string {
 	return supported
 })
 
-// readRuntimeMetrics fills the runtime part of info. Metrics missing on this
-// runtime leave their fields zero.
-func readRuntimeMetrics(info *gen.NodeShortInfo) {
+// ReadRuntimeMetrics samples the runtime counters. Unlike runtime.ReadMemStats
+// it does not stop the world.
+func ReadRuntimeMetrics() RuntimeMetrics {
+	var rm RuntimeMetrics
+
 	names := supportedRuntimeMetrics()
 	samples := make([]metrics.Sample, len(names))
 	for i, name := range names {
@@ -67,19 +95,19 @@ func readRuntimeMetrics(info *gen.NodeShortInfo) {
 			value := sample.Value.Uint64()
 			switch sample.Name {
 			case metricMemoryTotal:
-				info.MemoryUsed = value
+				rm.MemoryTotal = value
 			case metricHeapObjects:
-				info.MemoryAlloc = value
+				rm.MemoryObjects = value
 			case metricMemoryLimit:
-				info.MemoryLimit = value
+				rm.MemoryLimit = value
 			case metricHeapLive:
-				info.HeapLive = value
+				rm.HeapLive = value
 			case metricHeapGoal:
-				info.HeapGoal = value
+				rm.HeapGoal = value
 			case metricGoroutines:
-				info.Goroutines = int64(value)
+				rm.Goroutines = int64(value)
 			case metricGCCycles:
-				info.GCCycles = value
+				rm.GCCycles = value
 			}
 
 		case metrics.KindFloat64:
@@ -93,6 +121,8 @@ func readRuntimeMetrics(info *gen.NodeShortInfo) {
 	}
 
 	if cpuTotal > 0 {
-		info.GCCPUFraction = cpuGC / cpuTotal
+		rm.GCCPUFraction = cpuGC / cpuTotal
 	}
+
+	return rm
 }

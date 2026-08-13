@@ -8,6 +8,7 @@ import (
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 )
 
 func factory_heap() gen.ProcessBehavior {
@@ -63,9 +64,6 @@ func (h *heap_inspector) HandleMessage(from gen.PID, message any) error {
 			totalObjects += r.InuseObjects
 		}
 
-		var ms runtime.MemStats
-		runtime.ReadMemStats(&ms)
-
 		ev := MessageInspectHeap{
 			Node:          h.Node().Name(),
 			Records:       records,
@@ -73,7 +71,7 @@ func (h *heap_inspector) HandleMessage(from gen.PID, message any) error {
 			TotalObjects:  totalObjects,
 			TotalAlloc:    totalAlloc,
 			TotalFree:     totalFree,
-			GCCPUFraction: ms.GCCPUFraction,
+			GCCPUFraction: lib.ReadRuntimeMetrics().GCCPUFraction,
 		}
 
 		if err := h.SendEvent(h.event, h.token, ev); err != nil {

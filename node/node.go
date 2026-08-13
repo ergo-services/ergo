@@ -960,10 +960,9 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.ApplicationsTotal = int64(len(n.Applications()))
 	info.ApplicationsRunning = int64(len(n.ApplicationsRunning()))
 
-	var mstat runtime.MemStats
-	runtime.ReadMemStats(&mstat)
-	info.MemoryUsed = mstat.Sys
-	info.MemoryAlloc = mstat.Alloc
+	rm := lib.ReadRuntimeMetrics()
+	info.MemoryUsed = rm.MemoryTotal
+	info.MemoryAlloc = rm.MemoryObjects
 
 	utime, stime := osdep.ResourceUsage()
 	info.UserTime = utime
@@ -1019,7 +1018,15 @@ func (n *node) ShortInfo() (gen.NodeShortInfo, error) {
 		info.LogMessages[i] = atomic.LoadUint64(&n.logMessages[i])
 	}
 
-	readRuntimeMetrics(&info)
+	rmShort := lib.ReadRuntimeMetrics()
+	info.MemoryUsed = rmShort.MemoryTotal
+	info.MemoryAlloc = rmShort.MemoryObjects
+	info.MemoryLimit = rmShort.MemoryLimit
+	info.HeapLive = rmShort.HeapLive
+	info.HeapGoal = rmShort.HeapGoal
+	info.Goroutines = rmShort.Goroutines
+	info.GCCycles = rmShort.GCCycles
+	info.GCCPUFraction = rmShort.GCCPUFraction
 
 	utime, stime := osdep.ResourceUsage()
 	info.UserTime = utime

@@ -5,10 +5,32 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"ergo.services/ergo/lib"
 )
 
+// goroutineDumpSize estimates the dump size from the goroutine count. Every
+// runtime.Stack of all goroutines stops the world, so an undersized buffer costs
+// another pause per retry.
+func goroutineDumpSize() int {
+	const (
+		perGoroutine = 4096
+		minSize      = 1 << 20
+		maxSize      = 256 << 20
+	)
+
+	size := int(lib.ReadRuntimeMetrics().Goroutines) * perGoroutine
+	if size < minSize {
+		return minSize
+	}
+	if size > maxSize {
+		return maxSize
+	}
+	return size
+}
+
 func captureGoroutines(req RequestDoGoroutines) ResponseDoGoroutines {
-	buf := make([]byte, 1<<20)
+	buf := make([]byte, goroutineDumpSize())
 	for {
 		n := runtime.Stack(buf, true)
 		if n < len(buf) {
