@@ -974,6 +974,62 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	return info, nil
 }
 
+func (n *node) ShortInfo() (gen.NodeShortInfo, error) {
+	var info gen.NodeShortInfo
+	if n.isRunning() == false {
+		return info, gen.ErrNodeTerminated
+	}
+
+	info.Name = n.name
+	info.Creation = atomic.LoadInt64(&n.creation)
+	info.Uptime = n.Uptime()
+	info.Version = n.version
+	info.Framework = n.framework
+	info.LogLevel = n.log.Level()
+	info.Mode = n.network.Mode()
+	info.Peers = n.network.Nodes()
+
+	n.processes.Range(func(_, v any) bool {
+		info.ProcessesTotal++
+		p := v.(*process)
+		switch p.State() {
+		case gen.ProcessStateRunning:
+			info.ProcessesRunning++
+		case gen.ProcessStateWaitResponse:
+			info.ProcessesWaitResponse++
+		case gen.ProcessStateZombee:
+			info.ProcessesZombee++
+		}
+		return true
+	})
+
+	info.ProcessesSpawned = atomic.LoadUint64(&n.processesSpawned)
+	info.ProcessesSpawnFailed = atomic.LoadUint64(&n.processesSpawnFailed)
+	info.ProcessesTerminated = atomic.LoadUint64(&n.processesTerminated)
+
+	info.ApplicationsTotal = int64(len(n.Applications()))
+	info.ApplicationsRunning = int64(len(n.ApplicationsRunning()))
+
+	info.SendErrorsLocal = atomic.LoadUint64(&n.sendErrorsLocal)
+	info.SendErrorsRemote = atomic.LoadUint64(&n.sendErrorsRemote)
+	info.CallErrorsLocal = atomic.LoadUint64(&n.callErrorsLocal)
+	info.CallErrorsRemote = atomic.LoadUint64(&n.callErrorsRemote)
+
+	for i := 0; i < 6; i++ {
+		info.LogMessages[i] = atomic.LoadUint64(&n.logMessages[i])
+	}
+
+	readRuntimeMetrics(&info)
+
+	utime, stime := osdep.ResourceUsage()
+	info.UserTime = utime
+	info.SystemTime = stime
+
+	info.ServerTime = time.Now()
+
+	return info, nil
+}
+
 func (n *node) ProcessList() ([]gen.PID, error) {
 	var pl []gen.PID
 
@@ -1017,31 +1073,7 @@ func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.Process
 			continue
 		}
 		process := v.(*process)
-		messagesMailbox := process.mailbox.Main.Len() +
-			process.mailbox.System.Len() +
-			process.mailbox.Urgent.Len() +
-			process.mailbox.Log.Len()
-
-		info := gen.ProcessShortInfo{
-			PID:             process.pid,
-			Name:            process.name,
-			Application:     appName(process.application),
-			Behavior:        process.sbehavior,
-			Kind:            process.kind,
-			MessagesIn:      atomic.LoadUint64(&process.messagesIn),
-			MessagesOut:     atomic.LoadUint64(&process.messagesOut),
-			MessagesMailbox: uint64(messagesMailbox),
-			MailboxLatency:  process.mailbox.Latency(),
-			RunningTime:     atomic.LoadUint64(&process.runningTime),
-			InitTime:        atomic.LoadUint64(&process.initTime),
-			Wakeups:         atomic.LoadUint64(&process.wakeups),
-			Uptime:          process.Uptime(),
-			State:           process.State(),
-			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&process.stateEntered),
-			Parent:          process.parent,
-			Leader:          process.leader,
-			LogLevel:        process.log.Level(),
-		}
+		info := process.shortInfo()
 		if len(filter) > 0 && filter[0](info) == false {
 			continue
 		}
@@ -1060,32 +1092,7 @@ func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
 
 	n.processes.Range(func(_, v any) bool {
 		p := v.(*process)
-		messagesMailbox := p.mailbox.Main.Len() +
-			p.mailbox.System.Len() +
-			p.mailbox.Urgent.Len() +
-			p.mailbox.Log.Len()
-
-		info := gen.ProcessShortInfo{
-			PID:             p.pid,
-			Name:            p.name,
-			Application:     appName(p.application),
-			Behavior:        p.sbehavior,
-			Kind:            p.kind,
-			MessagesIn:      atomic.LoadUint64(&p.messagesIn),
-			MessagesOut:     atomic.LoadUint64(&p.messagesOut),
-			MessagesMailbox: uint64(messagesMailbox),
-			MailboxLatency:  p.mailbox.Latency(),
-			RunningTime:     atomic.LoadUint64(&p.runningTime),
-			InitTime:        atomic.LoadUint64(&p.initTime),
-			Wakeups:         atomic.LoadUint64(&p.wakeups),
-			Uptime:          p.Uptime(),
-			State:           p.State(),
-			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
-			Parent:          p.parent,
-			Leader:          p.leader,
-			LogLevel:        p.log.Level(),
-		}
-		return fn(info)
+		return fn(p.shortInfo())
 	})
 
 	return nil
@@ -2117,31 +2124,7 @@ func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.
 			continue
 		}
 
-		messagesMailbox := p.mailbox.Main.Len() +
-			p.mailbox.System.Len() +
-			p.mailbox.Urgent.Len() +
-			p.mailbox.Log.Len()
-
-		info := gen.ProcessShortInfo{
-			PID:             p.pid,
-			Name:            p.name,
-			Application:     appName(p.application),
-			Behavior:        p.sbehavior,
-			Kind:            p.kind,
-			MessagesIn:      atomic.LoadUint64(&p.messagesIn),
-			MessagesOut:     atomic.LoadUint64(&p.messagesOut),
-			MessagesMailbox: uint64(messagesMailbox),
-			MailboxLatency:  p.mailbox.Latency(),
-			RunningTime:     atomic.LoadUint64(&p.runningTime),
-			InitTime:        atomic.LoadUint64(&p.initTime),
-			Wakeups:         atomic.LoadUint64(&p.wakeups),
-			Uptime:          p.Uptime(),
-			State:           p.State(),
-			StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
-			Parent:          p.parent,
-			Leader:          p.leader,
-			LogLevel:        p.log.Level(),
-		}
+		info := p.shortInfo()
 		psi = append(psi, info)
 	}
 

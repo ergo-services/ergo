@@ -42,6 +42,12 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states.
 	Info() (NodeInfo, error)
 
+	// ShortInfo returns essential node information.
+	// Includes uptime, process and application counters, memory, runtime and peers.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states.
+	ShortInfo() (NodeShortInfo, error)
+
 	// EnvList returns a map of configured node environment variables.
 	// Available in all states.
 	EnvList() map[Env]any
@@ -937,6 +943,112 @@ type NodeInfo struct {
 
 	// ServerTime is the current server time with timezone.
 	// Useful in Observer and MCP for correlating logs across nodes in different timezones.
+	ServerTime time.Time
+}
+
+// NodeShortInfo contains essential information about a node.
+// Retrieved via node.ShortInfo().
+type NodeShortInfo struct {
+	// Name is the node name.
+	Name Atom
+
+	// Creation is the node incarnation identifier. A different value means
+	// the node has been restarted.
+	Creation int64
+
+	// Uptime is the node uptime in seconds since start.
+	Uptime int64
+
+	// Version is the node version information.
+	Version Version
+
+	// Framework is the Ergo framework version.
+	Framework Version
+
+	// Mode is the current network mode (Enabled, Hidden, or Disabled).
+	Mode NetworkMode
+
+	// LogLevel is the default logging level for the node.
+	LogLevel LogLevel
+
+	// ProcessesTotal is the total number of processes on this node.
+	ProcessesTotal int64
+
+	// ProcessesRunning is the number of processes currently in Running state.
+	ProcessesRunning int64
+
+	// ProcessesWaitResponse is the number of processes blocked in a synchronous Call.
+	ProcessesWaitResponse int64
+
+	// ProcessesZombee is the number of killed processes (Zombee state).
+	ProcessesZombee int64
+
+	// ProcessesSpawned is the cumulative number of successfully spawned processes.
+	ProcessesSpawned uint64
+
+	// ProcessesSpawnFailed is the cumulative number of failed spawn attempts.
+	ProcessesSpawnFailed uint64
+
+	// ProcessesTerminated is the cumulative number of terminated processes.
+	ProcessesTerminated uint64
+
+	// ApplicationsTotal is the total number of loaded applications.
+	ApplicationsTotal int64
+
+	// ApplicationsRunning is the number of currently running applications.
+	ApplicationsRunning int64
+
+	// SendErrorsLocal is the cumulative number of local send delivery errors.
+	SendErrorsLocal uint64
+
+	// SendErrorsRemote is the cumulative number of remote send delivery errors.
+	SendErrorsRemote uint64
+
+	// CallErrorsLocal is the cumulative number of local call delivery errors.
+	CallErrorsLocal uint64
+
+	// CallErrorsRemote is the cumulative number of remote call delivery errors.
+	CallErrorsRemote uint64
+
+	// LogMessages contains cumulative log message counts by level.
+	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
+	LogMessages [6]uint64
+
+	// MemoryUsed is the total memory obtained from the OS, in bytes.
+	MemoryUsed uint64
+
+	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
+	MemoryAlloc uint64
+
+	// MemoryLimit is the soft memory limit set via GOMEMLIMIT, in bytes.
+	// MaxInt64 means no limit is set.
+	MemoryLimit uint64
+
+	// HeapLive is the heap memory occupied as of the last garbage collection, in bytes.
+	HeapLive uint64
+
+	// HeapGoal is the heap size that triggers the next garbage collection, in bytes.
+	HeapGoal uint64
+
+	// Goroutines is the current number of goroutines.
+	Goroutines int64
+
+	// GCCycles is the cumulative number of completed garbage collection cycles.
+	GCCycles uint64
+
+	// GCCPUFraction is the share of total CPU time spent in garbage collection.
+	GCCPUFraction float64
+
+	// UserTime is the user CPU time in nanoseconds.
+	UserTime int64
+
+	// SystemTime is the system CPU time in nanoseconds.
+	SystemTime int64
+
+	// Peers lists the remote nodes this node has a connection with.
+	Peers []Atom
+
+	// ServerTime is the current server time with timezone.
 	ServerTime time.Time
 }
 

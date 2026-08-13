@@ -16,6 +16,10 @@ const (
 	inspectNodePeriod     = time.Second
 	inspectNodeIdlePeriod = 5 * time.Second
 
+	inspectNodeShort           = "inspect_node_short"
+	inspectNodeShortPeriod     = 3 * time.Second
+	inspectNodeShortIdlePeriod = 10 * time.Second
+
 	inspectProcessList           = "inspect_process_list"
 	inspectProcessListPeriod     = time.Second
 	inspectProcessListIdlePeriod = 5 * time.Second
@@ -86,6 +90,7 @@ func Factory() gen.ProcessBehavior {
 func Types() []any {
 	return []any{
 		RequestInspectNode{}, ResponseInspectNode{}, MessageInspectNode{},
+		RequestInspectNodeShort{}, ResponseInspectNodeShort{}, MessageInspectNodeShort{},
 		RequestInspectNetwork{}, ResponseInspectNetwork{}, MessageInspectNetwork{},
 		RequestInspectConnection{}, ResponseInspectConnection{}, MessageInspectConnection{},
 		RequestInspectConnectionList{}, ResponseInspectConnectionList{}, MessageInspectConnectionList{},
@@ -179,6 +184,22 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			ref: ref,
 		}
 		i.Send(inspectNode, forward)
+		return nil, nil // no reply
+
+	case RequestInspectNodeShort:
+		opts := gen.ProcessOptions{
+			LinkParent: true,
+		}
+		_, err := i.SpawnRegister(inspectNodeShort, factory_node_short, opts)
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		// forward this request
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		i.Send(inspectNodeShort, forward)
 		return nil, nil // no reply
 
 	case RequestInspectNetwork:

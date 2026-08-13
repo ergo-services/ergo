@@ -28,6 +28,20 @@ type MessageInspectNode struct {
 	Info gen.NodeInfo
 }
 
+// node short
+
+type RequestInspectNodeShort struct{}
+type ResponseInspectNodeShort struct {
+	Event gen.Event
+	Info  gen.NodeShortInfo
+	Error error
+}
+
+type MessageInspectNodeShort struct {
+	Node gen.Atom
+	Info gen.NodeShortInfo
+}
+
 // network
 
 type RequestInspectNetwork struct{}

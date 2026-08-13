@@ -30,6 +30,7 @@ type nodeOverrides struct {
 	version                         func() gen.Version
 	frameworkVersion                func() gen.Version
 	info                            func() (gen.NodeInfo, error)
+	shortInfo                       func() (gen.NodeShortInfo, error)
 	envList                         func() map[gen.Env]any
 	setEnv                          func(name gen.Env, value any)
 	env                             func(name gen.Env) (any, bool)
@@ -146,15 +147,16 @@ func newNode(r recorder) *Node {
 
 // On<Method> overrides
 
-func (n *Node) OnName(fn func() gen.Atom)                 { n.ov.name = fn }
-func (n *Node) OnIsAlive(fn func() bool)                  { n.ov.isAlive = fn }
-func (n *Node) OnUptime(fn func() int64)                  { n.ov.uptime = fn }
-func (n *Node) OnVersion(fn func() gen.Version)           { n.ov.version = fn }
-func (n *Node) OnFrameworkVersion(fn func() gen.Version)  { n.ov.frameworkVersion = fn }
-func (n *Node) OnInfo(fn func() (gen.NodeInfo, error))    { n.ov.info = fn }
-func (n *Node) OnEnvList(fn func() map[gen.Env]any)       { n.ov.envList = fn }
-func (n *Node) OnSetEnv(fn func(name gen.Env, value any)) { n.ov.setEnv = fn }
-func (n *Node) OnEnv(fn func(name gen.Env) (any, bool))   { n.ov.env = fn }
+func (n *Node) OnName(fn func() gen.Atom)                        { n.ov.name = fn }
+func (n *Node) OnIsAlive(fn func() bool)                         { n.ov.isAlive = fn }
+func (n *Node) OnUptime(fn func() int64)                         { n.ov.uptime = fn }
+func (n *Node) OnVersion(fn func() gen.Version)                  { n.ov.version = fn }
+func (n *Node) OnFrameworkVersion(fn func() gen.Version)         { n.ov.frameworkVersion = fn }
+func (n *Node) OnInfo(fn func() (gen.NodeInfo, error))           { n.ov.info = fn }
+func (n *Node) OnShortInfo(fn func() (gen.NodeShortInfo, error)) { n.ov.shortInfo = fn }
+func (n *Node) OnEnvList(fn func() map[gen.Env]any)              { n.ov.envList = fn }
+func (n *Node) OnSetEnv(fn func(name gen.Env, value any))        { n.ov.setEnv = fn }
+func (n *Node) OnEnv(fn func(name gen.Env) (any, bool))          { n.ov.env = fn }
 func (n *Node) OnEnvDefault(fn func(name gen.Env, def any) any) {
 	n.ov.envDefault = fn
 }
@@ -499,6 +501,13 @@ func (n *Node) Info() (gen.NodeInfo, error) {
 		return n.ov.info()
 	}
 	return gen.NodeInfo{}, nil
+}
+
+func (n *Node) ShortInfo() (gen.NodeShortInfo, error) {
+	if n.ov.shortInfo != nil {
+		return n.ov.shortInfo()
+	}
+	return gen.NodeShortInfo{}, nil
 }
 
 func (n *Node) EnvList() map[gen.Env]any {

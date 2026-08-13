@@ -121,6 +121,7 @@ type processOverrides struct {
 	demonitorNode              func(node gen.Atom) error
 	log                        func() gen.Log
 	info                       func() (gen.ProcessInfo, error)
+	shortInfo                  func() (gen.ProcessShortInfo, error)
 	metaInfo                   func(meta gen.Alias) (gen.MetaInfo, error)
 	mailbox                    func() gen.ProcessMailbox
 	behavior                   func() gen.ProcessBehavior
@@ -340,11 +341,12 @@ func (p *Process) OnDemonitorAlias(fn func(alias gen.Alias) error) { p.ov.demoni
 func (p *Process) OnMonitorEvent(fn func(event gen.Event) ([]gen.MessageEvent, error)) {
 	p.ov.monitorEvent = fn
 }
-func (p *Process) OnDemonitorEvent(fn func(event gen.Event) error) { p.ov.demonitorEvent = fn }
-func (p *Process) OnMonitorNode(fn func(node gen.Atom) error)      { p.ov.monitorNode = fn }
-func (p *Process) OnDemonitorNode(fn func(node gen.Atom) error)    { p.ov.demonitorNode = fn }
-func (p *Process) OnLog(fn func() gen.Log)                         { p.ov.log = fn }
-func (p *Process) OnInfo(fn func() (gen.ProcessInfo, error))       { p.ov.info = fn }
+func (p *Process) OnDemonitorEvent(fn func(event gen.Event) error)     { p.ov.demonitorEvent = fn }
+func (p *Process) OnMonitorNode(fn func(node gen.Atom) error)          { p.ov.monitorNode = fn }
+func (p *Process) OnDemonitorNode(fn func(node gen.Atom) error)        { p.ov.demonitorNode = fn }
+func (p *Process) OnLog(fn func() gen.Log)                             { p.ov.log = fn }
+func (p *Process) OnInfo(fn func() (gen.ProcessInfo, error))           { p.ov.info = fn }
+func (p *Process) OnShortInfo(fn func() (gen.ProcessShortInfo, error)) { p.ov.shortInfo = fn }
 func (p *Process) OnMetaInfo(fn func(meta gen.Alias) (gen.MetaInfo, error)) {
 	p.ov.metaInfo = fn
 }
@@ -1167,6 +1169,13 @@ func (p *Process) Info() (gen.ProcessInfo, error) {
 		return p.ov.info()
 	}
 	return gen.ProcessInfo{}, nil
+}
+
+func (p *Process) ShortInfo() (gen.ProcessShortInfo, error) {
+	if p.ov.shortInfo != nil {
+		return p.ov.shortInfo()
+	}
+	return gen.ProcessShortInfo{}, nil
 }
 
 func (p *Process) MetaInfo(meta gen.Alias) (gen.MetaInfo, error) {

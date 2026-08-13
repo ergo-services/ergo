@@ -49,6 +49,7 @@ type nodeOverrides struct {
 	eventListInfo   func(timestamp int64, limit int, filter ...func(gen.EventInfo) bool) ([]gen.EventInfo, error)
 
 	info                  func() (gen.NodeInfo, error)
+	shortInfo             func() (gen.NodeShortInfo, error)
 	metaInfo              func(meta gen.Alias) (gen.MetaInfo, error)
 	processInfo           func(pid gen.PID) (gen.ProcessInfo, error)
 	processList           func() ([]gen.PID, error)
@@ -159,6 +160,7 @@ func (n *mockNode) OnEventListInfo(fn func(timestamp int64, limit int, filter ..
 }
 
 func (n *mockNode) OnInfo(fn func() (gen.NodeInfo, error))                   { n.ov.info = fn }
+func (n *mockNode) OnShortInfo(fn func() (gen.NodeShortInfo, error))         { n.ov.shortInfo = fn }
 func (n *mockNode) OnMetaInfo(fn func(meta gen.Alias) (gen.MetaInfo, error)) { n.ov.metaInfo = fn }
 func (n *mockNode) OnProcessInfo(fn func(pid gen.PID) (gen.ProcessInfo, error)) {
 	n.ov.processInfo = fn

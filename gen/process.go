@@ -884,6 +884,12 @@ type Process interface {
 	// Returns ErrNotAllowed in other states.
 	Info() (ProcessInfo, error)
 
+	// ShortInfo returns essential information about this process.
+	// Includes PID, name, state, behavior type, message and mailbox counters.
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
+	ShortInfo() (ProcessShortInfo, error)
+
 	// MetaInfo returns summary information about the given meta process.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.

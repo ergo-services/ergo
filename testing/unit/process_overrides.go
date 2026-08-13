@@ -56,6 +56,7 @@ type processOverrides struct {
 	inspect     func(target gen.PID, item ...string) (map[string]string, error)
 	inspectMeta func(meta gen.Alias, item ...string) (map[string]string, error)
 	info        func() (gen.ProcessInfo, error)
+	shortInfo   func() (gen.ProcessShortInfo, error)
 	metaInfo    func(meta gen.Alias) (gen.MetaInfo, error)
 
 	propagatingTrace           func() gen.Tracing
@@ -138,7 +139,8 @@ func (s *Subject) OnInspect(fn func(target gen.PID, item ...string) (map[string]
 func (s *Subject) OnInspectMeta(fn func(meta gen.Alias, item ...string) (map[string]string, error)) {
 	s.process.ov.inspectMeta = fn
 }
-func (s *Subject) OnInfo(fn func() (gen.ProcessInfo, error)) { s.process.ov.info = fn }
+func (s *Subject) OnInfo(fn func() (gen.ProcessInfo, error))           { s.process.ov.info = fn }
+func (s *Subject) OnShortInfo(fn func() (gen.ProcessShortInfo, error)) { s.process.ov.shortInfo = fn }
 func (s *Subject) OnMetaInfo(fn func(meta gen.Alias) (gen.MetaInfo, error)) {
 	s.process.ov.metaInfo = fn
 }

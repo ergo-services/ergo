@@ -553,6 +553,13 @@ func (n *mockNode) Info() (gen.NodeInfo, error) {
 	n.unsupported("Info")
 	return gen.NodeInfo{}, nil
 }
+func (n *mockNode) ShortInfo() (gen.NodeShortInfo, error) {
+	if n.ov.shortInfo != nil {
+		return n.ov.shortInfo()
+	}
+	n.unsupported("ShortInfo")
+	return gen.NodeShortInfo{}, nil
+}
 func (n *mockNode) MetaInfo(meta gen.Alias) (gen.MetaInfo, error) {
 	if n.ov.metaInfo != nil {
 		return n.ov.metaInfo(meta)

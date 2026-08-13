@@ -874,6 +874,16 @@ func (p *mockProcess) Info() (gen.ProcessInfo, error) {
 	}
 	return gen.ProcessInfo{PID: p.pid, Name: p.name, Parent: p.parent, Leader: p.leader, State: p.state, Env: p.env}, nil
 }
+
+func (p *mockProcess) ShortInfo() (gen.ProcessShortInfo, error) {
+	if p.ov.shortInfo != nil {
+		return p.ov.shortInfo()
+	}
+	if p.stateIR() == false {
+		return gen.ProcessShortInfo{}, gen.ErrNotAllowed
+	}
+	return gen.ProcessShortInfo{PID: p.pid, Name: p.name, Parent: p.parent, Leader: p.leader, State: p.state}, nil
+}
 func (p *mockProcess) MetaInfo(meta gen.Alias) (gen.MetaInfo, error) {
 	if p.ov.metaInfo != nil {
 		return p.ov.metaInfo(meta)

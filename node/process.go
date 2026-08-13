@@ -121,6 +121,42 @@ func (p *process) Parent() gen.PID {
 	return p.parent
 }
 
+// shortInfo builds the essential information about this process.
+func (p *process) shortInfo() gen.ProcessShortInfo {
+	messagesMailbox := p.mailbox.Main.Len() +
+		p.mailbox.System.Len() +
+		p.mailbox.Urgent.Len() +
+		p.mailbox.Log.Len()
+
+	return gen.ProcessShortInfo{
+		PID:             p.pid,
+		Name:            p.name,
+		Application:     appName(p.application),
+		Behavior:        p.sbehavior,
+		Kind:            p.kind,
+		MessagesIn:      atomic.LoadUint64(&p.messagesIn),
+		MessagesOut:     atomic.LoadUint64(&p.messagesOut),
+		MessagesMailbox: uint64(messagesMailbox),
+		MailboxLatency:  p.mailbox.Latency(),
+		RunningTime:     atomic.LoadUint64(&p.runningTime),
+		InitTime:        atomic.LoadUint64(&p.initTime),
+		Wakeups:         atomic.LoadUint64(&p.wakeups),
+		Uptime:          p.Uptime(),
+		State:           p.State(),
+		StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
+		Parent:          p.parent,
+		Leader:          p.leader,
+		LogLevel:        p.log.Level(),
+	}
+}
+
+func (p *process) ShortInfo() (gen.ProcessShortInfo, error) {
+	if p.isStateIRT() == false {
+		return gen.ProcessShortInfo{}, gen.ErrNotAllowed
+	}
+	return p.shortInfo(), nil
+}
+
 func (p *process) Uptime() int64 {
 	return time.Now().Unix() - p.creation
 }
