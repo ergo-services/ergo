@@ -600,6 +600,9 @@ type Node interface {
 type NodeRegistrar interface {
 	Name() Atom
 	Creation() int64
+
+	// Peers returns the remote nodes this node has a connection with.
+	Peers() []Atom
 	SetEnv(name Env, value any)
 	RegisterEvent(name Atom, options EventOptions) (Ref, error)
 	UnregisterEvent(name Atom) error

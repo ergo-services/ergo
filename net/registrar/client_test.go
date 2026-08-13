@@ -19,6 +19,7 @@ type testNode struct {
 
 func (n *testNode) Name() gen.Atom                                             { return n.name }
 func (n *testNode) Creation() int64                                            { return 1 }
+func (n *testNode) Peers() []gen.Atom                                          { return nil }
 func (n *testNode) SetEnv(gen.Env, any)                                        {}
 func (n *testNode) RegisterEvent(gen.Atom, gen.EventOptions) (gen.Ref, error)  { return gen.Ref{}, nil }
 func (n *testNode) UnregisterEvent(gen.Atom) error                             { return nil }

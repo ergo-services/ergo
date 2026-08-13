@@ -24,6 +24,14 @@ type server struct {
 	routes     map[gen.Atom][]gen.Route
 	registered map[net.Conn]gen.Atom
 	terminated atomic.Bool
+
+	// localNotify is set by the client that owns this server, which has no
+	// registration link to be pushed over.
+	localNotify func(name gen.Atom, joined bool)
+
+	// writeMu serializes pushes so two notifications cannot interleave bytes
+	// in one registration link.
+	writeMu sync.Mutex
 }
 
 func tryStartServer(port uint16, log gen.Log) *server {
@@ -100,7 +108,7 @@ func (s *server) serveResolve() {
 			continue
 		}
 
-		if buf[1] != protoResolve {
+		if buf[1] != protoResolve && buf[1] != protoNodes {
 			s.log.Error("(registrar) unknown UDP packet type from %s: %d", addr, buf[1])
 			continue
 		}
@@ -117,25 +125,32 @@ func (s *server) serveResolve() {
 			continue
 		}
 
-		resolve, ok := v.(MessageResolveRoutes)
-		if ok == false {
-			s.log.Error("(registrar) incorrect <register route> message from %s: %#v", addr, v)
-			continue
-		}
+		var reply any
+		replyType := protoResolveReply
 
-		// resolve and send reply
-		routes, err := s.resolve(resolve.Node, false)
-		reply := MessageResolveReply{
-			Routes: routes,
-			Error:  err,
+		switch request := v.(type) {
+		case MessageResolveRoutes:
+			routes, err := s.resolve(request.Node, false)
+			reply = MessageResolveReply{
+				Routes: routes,
+				Error:  err,
+			}
+
+		case MessageNodes:
+			replyType = protoNodesReply
+			reply = MessageNodesReply{Nodes: s.nodes()}
+
+		default:
+			s.log.Error("(registrar) incorrect message from %s: %#v", addr, v)
+			continue
 		}
 
 		rbuf.Reset()
 		rbuf.Allocate(4)
 		rbuf.B[0] = protoVersion
-		rbuf.B[1] = protoResolveReply
+		rbuf.B[1] = replyType
 		if err := edf.Encode(reply, rbuf, edf.Options{}); err != nil {
-			s.log.Error("(registrar) unable to encode resolve reply message: %s", err)
+			s.log.Error("(registrar) unable to encode reply message: %s", err)
 			continue
 		}
 		binary.BigEndian.PutUint16(rbuf.B[2:4], uint16(rbuf.Len()-4))
@@ -212,7 +227,7 @@ func (s *server) serveConn(conn net.Conn) {
 	}
 
 	reply := MessageRegisterReply{
-		Error: s.registerNode(routes.Node, routes.Routes, conn),
+		Error: s.register(routes.Node, routes.Routes, conn),
 	}
 
 	rbuf := lib.TakeBuffer()
@@ -236,7 +251,7 @@ func (s *server) serveConn(conn net.Conn) {
 	}
 
 	conn.SetReadDeadline(time.Time{})
-	defer s.unregisterNode(routes.Node, conn)
+	defer s.unregister(routes.Node, conn)
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
@@ -268,6 +283,19 @@ func (s *server) registerNode(name gen.Atom, routes []gen.Route, conn net.Conn) 
 	return nil
 }
 
+func (s *server) register(name gen.Atom, routes []gen.Route, conn net.Conn) error {
+	if err := s.registerNode(name, routes, conn); err != nil {
+		return err
+	}
+	s.notify(name, true)
+	return nil
+}
+
+func (s *server) unregister(name gen.Atom, conn net.Conn) {
+	s.unregisterNode(name, conn)
+	s.notify(name, false)
+}
+
 func (s *server) unregisterNode(name gen.Atom, conn net.Conn) {
 	s.Lock()
 	defer s.Unlock()
@@ -278,6 +306,72 @@ func (s *server) unregisterNode(name gen.Atom, conn net.Conn) {
 	delete(s.registered, conn)
 
 	s.log.Trace("(registrar) unregistered node %s", name)
+}
+
+// nodes returns the names registered on this server.
+// setLocalNotify registers the callback of the client owning this server.
+func (s *server) setLocalNotify(fn func(name gen.Atom, joined bool)) {
+	s.Lock()
+	s.localNotify = fn
+	s.Unlock()
+}
+
+func (s *server) nodes() []gen.Atom {
+	s.RLock()
+	defer s.RUnlock()
+
+	nodes := make([]gen.Atom, 0, len(s.routes))
+	for name := range s.routes {
+		nodes = append(nodes, name)
+	}
+	return nodes
+}
+
+// notify pushes a membership change to every registration link except the one
+// belonging to the node the change is about.
+func (s *server) notify(name gen.Atom, joined bool) {
+	s.RLock()
+	local := s.localNotify
+	links := make([]net.Conn, 0, len(s.registered))
+	for conn, owner := range s.registered {
+		if owner == name {
+			continue
+		}
+		links = append(links, conn)
+	}
+	s.RUnlock()
+
+	if local != nil {
+		local(name, joined)
+	}
+
+	if len(links) == 0 {
+		return
+	}
+
+	buf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(buf)
+
+	buf.Allocate(4)
+	buf.B[0] = protoVersion
+	buf.B[1] = protoNodeEvent
+	event := MessageNodeEvent{Node: name, Joined: joined}
+	if err := edf.Encode(event, buf, edf.Options{}); err != nil {
+		s.log.Error("(registrar) unable to encode node event: %s", err)
+		return
+	}
+	binary.BigEndian.PutUint16(buf.B[2:4], uint16(buf.Len()-4))
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	for _, conn := range links {
+		conn.SetWriteDeadline(time.Now().Add(time.Second))
+		if _, err := conn.Write(buf.B); err != nil {
+			s.log.Trace("(registrar) unable to push node event: %s", err)
+		}
+		conn.SetWriteDeadline(time.Time{})
+	}
 }
 
 func (s *server) resolve(name gen.Atom, docopy bool) ([]gen.Route, error) {

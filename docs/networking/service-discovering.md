@@ -31,14 +31,48 @@ When a node's registrar runs in server mode, it:
 - Listens on UDP 0.0.0.0:4499 (all interfaces) for resolution queries from any host
 - Maintains a registry of which nodes are running and how to reach them
 - Responds to queries with current connection information
+- Answers node listing queries with the nodes registered on it
+- Pushes membership changes to its registered clients over their registration links
 
 When a node's registrar runs in client mode, it:
 - Connects via TCP to the local registrar server at localhost:4499
 - Forwards its own registration to the server over TCP
 - Performs discovery queries via UDP (to localhost for same-host, to remote hosts for cross-host)
 - Maintains the TCP connection until termination (for registration keepalive)
+- Receives membership changes pushed by the server over that same connection
 
 This dual-mode design provides automatic failover. If the server node terminates, its TCP connections close. The remaining nodes detect the disconnection, and they race to bind port 4499. The winner becomes the new server. The others reconnect as clients. Discovery continues without manual intervention.
+
+### Listing Nodes and Membership Events
+
+`Registrar.Nodes()` returns the other nodes the registrar knows about, excluding the node
+itself. For the embedded registrar the answer covers the nodes registered on this host plus
+the nodes registered on the hosts of the peers this node is connected with - one UDP query
+per known host, cached for a few seconds. A host nobody in the cluster talks to stays
+invisible: the embedded registrar keeps no state shared between hosts.
+
+`Registrar.Event()` returns an event carrying `gen.MessageRegistrarNodeJoined` and
+`gen.MessageRegistrarNodeLeft`. For the embedded registrar the scope is this host, because
+registration is accepted over loopback only - a node learns immediately about nodes appearing
+and leaving on its own machine, and learns about the rest through `Nodes()` and through the
+peer lists of the nodes it already knows.
+
+```go
+registrar, err := node.Network().Registrar()
+if err != nil {
+    return err
+}
+
+nodes, err := registrar.Nodes()      // other nodes, without this one
+event, err := registrar.Event()      // membership changes
+process.MonitorEvent(event)
+```
+
+Central registrars answer both with cluster-wide scope: etcd and Saturn keep a mirror of the
+whole registry, so `Nodes()` returns every node and the event reports every join and leave.
+This difference in scope is worth designing around - code that must see the entire cluster
+should combine the event with a periodic `Nodes()` call rather than relying on notifications
+alone.
 
 ## Registration
 
@@ -276,7 +310,7 @@ import "ergo.services/registrar/saturn"
 registrar, _ := node.Network().Registrar()
 event, err := registrar.Event()
 if err != nil {
-    // registrar doesn't support events (embedded registrar only)
+    // this registrar does not support events
 }
 
 // Link to the event to receive notifications
@@ -339,7 +373,8 @@ func (w *Worker) HandleEvent(event gen.MessageEvent) error {
 
 Each registrar defines its own event types in its package (`ergo.services/registrar/etcd` or `ergo.services/registrar/saturn`). The event structures are identical, but you must use the correct package import for your registrar. This lets you react to cluster changes in real-time.
 
-**Embedded registrar** doesn't support events.
+**The embedded registrar** supports events too, with a narrower scope: it reports nodes
+joining and leaving this host. See [Listing Nodes and Membership Events](#listing-nodes-and-membership-events).
 
 With event notifications from etcd or Saturn registrars, nodes learn about configuration changes within milliseconds.
 
@@ -375,7 +410,8 @@ For cross-host discovery, the same failover mechanism applies to each host indep
 
 ## Limitations of the Embedded Registrar
 
-The embedded registrar is minimal by design. It provides route resolution only. What it doesn't provide:
+The embedded registrar is minimal by design. It provides route resolution, node listing and
+membership events. What it doesn't provide:
 
 **No application discovery** - You can discover where nodes are, but not where specific applications are running. Want to find which nodes are running the "workers" application? You have to query every node individually or maintain that mapping yourself.
 
@@ -383,7 +419,10 @@ The embedded registrar is minimal by design. It provides route resolution only. 
 
 **No centralized configuration** - Configuration lives with each node. There's no cluster-wide config store. If you want to change a setting across the cluster, you modify each node individually through node environment variables or configuration files.
 
-**No event notifications** - Discovery is pull-based. You query when you need information. The registrar doesn't push updates when things change. If a node joins or leaves, or an application starts or stops, you only discover the change when you query again.
+**Host-scoped events** - Membership events cover this host only, since registration is
+accepted over loopback. A node appearing on another machine is not announced; it shows up on
+the next `Nodes()` call, or through the peer list of a node already known. Application
+lifecycle and configuration changes are not reported at all.
 
 **No topology awareness** - The registrar doesn't understand your cluster structure. It treats all nodes equally. If you have nodes in different datacenters or regions, the registrar provides no metadata to help you route efficiently based on proximity or cost.
 

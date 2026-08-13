@@ -100,7 +100,7 @@ Cross-host discovery uses UDP queries. When node 2 needs to reach node 4, it ask
 
 **Use for**: Development, testing, single-host deployments, simple multi-host setups without firewalls blocking UDP.
 
-**Limitations**: No application discovery, no configuration management, no event notifications.
+**Limitations**: No application discovery, no configuration management. Node listing and membership events are host-scoped - they cover the nodes of this machine plus, for listing, the hosts of connected peers.
 
 ### etcd Registrar
 

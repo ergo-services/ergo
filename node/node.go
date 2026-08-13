@@ -1124,6 +1124,11 @@ func (n *node) Network() gen.Network {
 	return n.network
 }
 
+// Peers implements gen.NodeRegistrar.
+func (n *node) Peers() []gen.Atom {
+	return n.network.Nodes()
+}
+
 func (n *node) Cron() gen.Cron {
 	return n.cron
 }

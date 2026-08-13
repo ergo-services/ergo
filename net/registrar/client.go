@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -36,6 +37,9 @@ func Create(options Options) gen.Registrar {
 	edf.RegisterTypeOf(MessageRegisterReply{})
 	edf.RegisterTypeOf(MessageResolveRoutes{})
 	edf.RegisterTypeOf(MessageResolveReply{})
+	edf.RegisterTypeOf(MessageNodes{})
+	edf.RegisterTypeOf(MessageNodesReply{})
+	edf.RegisterTypeOf(MessageNodeEvent{})
 
 	return client
 }
@@ -50,6 +54,14 @@ type client struct {
 	mu     sync.Mutex
 	server *server
 	conn   net.Conn
+
+	// nodes cache. Every Nodes() costs one datagram per known peer host.
+	nodesCache   []gen.Atom
+	nodesCacheAt time.Time
+
+	// event is registered on the first Event() call
+	event      gen.Atom
+	eventToken gen.Ref
 
 	terminated atomic.Bool
 }
@@ -175,8 +187,112 @@ func (c *client) RegisterApplicationRoute(route gen.ApplicationRoute) error {
 func (c *client) UnregisterApplicationRoute(name gen.Atom) error {
 	return gen.ErrUnsupported
 }
+
+// Nodes returns the other nodes known to this registrar: the ones registered on
+// the ESRD server of this host, plus the ones registered on the hosts of the
+// nodes this node is connected with. ESRD has no state shared between hosts, so
+// a host nobody talks to stays invisible.
 func (c *client) Nodes() ([]gen.Atom, error) {
-	return nil, gen.ErrUnsupported
+	if c.terminated.Load() {
+		return nil, gen.ErrRegistrarTerminated
+	}
+
+	c.mu.Lock()
+	if time.Since(c.nodesCacheAt) < nodesCacheTTL {
+		cached := c.nodesCache
+		c.mu.Unlock()
+		return cached, nil
+	}
+	c.mu.Unlock()
+
+	self := c.node.Name()
+	seen := map[gen.Atom]bool{self: true}
+	hosts := make(map[string]bool)
+	nodes := []gen.Atom{}
+
+	collect := func(host string) {
+		if host == "" || hosts[host] {
+			return
+		}
+		hosts[host] = true
+		for _, name := range c.nodesOnHost(host) {
+			if seen[name] {
+				continue
+			}
+			seen[name] = true
+			nodes = append(nodes, name)
+		}
+	}
+
+	collect(self.Host())
+	for _, peer := range c.node.Peers() {
+		collect(peer.Host())
+	}
+
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i] < nodes[j] })
+
+	c.mu.Lock()
+	c.nodesCache = nodes
+	c.nodesCacheAt = time.Now()
+	c.mu.Unlock()
+
+	return nodes, nil
+}
+
+// nodesOnHost lists the nodes registered on the ESRD server of the given host.
+func (c *client) nodesOnHost(host string) []gen.Atom {
+	c.mu.Lock()
+	srv := c.server
+	c.mu.Unlock()
+
+	if srv != nil && host == c.node.Name().Host() {
+		return srv.nodes()
+	}
+
+	dsn := net.JoinHostPort(host, strconv.Itoa(int(c.options.Port)))
+	conn, err := net.Dial("udp", dsn)
+	if err != nil {
+		return nil
+	}
+	defer conn.Close()
+
+	rbuf := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(rbuf)
+
+	rbuf.Allocate(4)
+	rbuf.B[0] = protoVersion
+	rbuf.B[1] = protoNodes
+	if err := edf.Encode(MessageNodes{}, rbuf, edf.Options{}); err != nil {
+		return nil
+	}
+	binary.BigEndian.PutUint16(rbuf.B[2:4], uint16(rbuf.Len()-4))
+
+	if _, err := conn.Write(rbuf.B); err != nil {
+		return nil
+	}
+
+	conn.SetReadDeadline(time.Now().Add(nodesRequestTimeout))
+	buf := make([]byte, 65535)
+	n, err := conn.Read(buf)
+	if err != nil || n < 4 {
+		return nil
+	}
+	if buf[0] != protoVersion || buf[1] != protoNodesReply {
+		return nil
+	}
+	l := int(binary.BigEndian.Uint16(buf[2:4]))
+	if 4+l > n {
+		return nil
+	}
+	v, _, err := edf.Decode(buf[4:4+l], edf.Options{})
+	if err != nil {
+		return nil
+	}
+	reply, ok := v.(MessageNodesReply)
+	if ok == false {
+		return nil
+	}
+	return reply.Nodes
 }
 func (c *client) Config(items ...string) (map[string]any, error) {
 	return nil, gen.ErrUnsupported
@@ -184,8 +300,63 @@ func (c *client) Config(items ...string) (map[string]any, error) {
 func (c *client) ConfigItem(item string) (any, error) {
 	return nil, gen.ErrUnsupported
 }
+
+// Event returns the event this registrar publishes membership changes to.
+//
+// The scope is this host: ESRD accepts registrations over loopback only, so
+// gen.MessageRegistrarNodeJoined and gen.MessageRegistrarNodeLeft are emitted
+// for the nodes of this machine. Nodes on other hosts are discovered by Nodes()
+// and by the peer lists of the nodes already known.
 func (c *client) Event() (gen.Event, error) {
-	return gen.Event{}, gen.ErrUnsupported
+	if c.terminated.Load() {
+		return gen.Event{}, gen.ErrRegistrarTerminated
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.event != "" {
+		return gen.Event{Name: c.event, Node: c.node.Name()}, nil
+	}
+
+	name := gen.Atom(registrarName + "_event")
+	token, err := c.node.RegisterEvent(name, gen.EventOptions{Notify: false})
+	if err != nil {
+		return gen.Event{}, err
+	}
+	c.event = name
+	c.eventToken = token
+
+	if c.server != nil {
+		c.server.setLocalNotify(c.publish)
+	}
+
+	return gen.Event{Name: name, Node: c.node.Name()}, nil
+}
+
+// publish emits a membership change to the local subscribers.
+func (c *client) publish(name gen.Atom, joined bool) {
+	c.mu.Lock()
+	event := c.event
+	token := c.eventToken
+	c.mu.Unlock()
+
+	if event == "" {
+		return
+	}
+
+	var message any = gen.MessageRegistrarNodeLeft{Name: name}
+	if joined {
+		message = gen.MessageRegistrarNodeJoined{Name: name}
+	}
+
+	if err := c.node.SendEvent(event, token, gen.MessageOptions{}, message); err != nil {
+		c.node.Log().Trace("(registrar) unable to send node event: %s", err)
+	}
+
+	c.mu.Lock()
+	c.nodesCacheAt = time.Time{}
+	c.mu.Unlock()
 }
 func (c *client) Info() gen.RegistrarInfo {
 	c.mu.Lock()
@@ -194,6 +365,7 @@ func (c *client) Info() gen.RegistrarInfo {
 	c.mu.Unlock()
 	info := gen.RegistrarInfo{
 		EmbeddedServer: server != nil,
+		SupportEvent:   true,
 		Version:        c.Version(),
 	}
 	if conn != nil {
@@ -274,6 +446,44 @@ func (c *client) Terminate() {
 	c.node.Log().Trace("registrar client terminated")
 }
 
+// readPush reads one framed message the server pushed over the registration link.
+func (c *client) readPush(conn net.Conn) error {
+	var header [4]byte
+	if _, err := io.ReadFull(conn, header[:]); err != nil {
+		return err
+	}
+	if header[0] != protoVersion {
+		return gen.ErrMalformed
+	}
+
+	l := int(binary.BigEndian.Uint16(header[2:4]))
+	if l == 0 {
+		return nil
+	}
+	body := make([]byte, l)
+	if _, err := io.ReadFull(conn, body); err != nil {
+		return err
+	}
+
+	if header[1] != protoNodeEvent {
+		// a message this version does not know; the link stays usable
+		return nil
+	}
+
+	v, _, err := edf.Decode(body, edf.Options{})
+	if err != nil {
+		c.node.Log().Trace("(registrar) unable to decode node event: %s", err)
+		return nil
+	}
+	event, ok := v.(MessageNodeEvent)
+	if ok == false {
+		return nil
+	}
+
+	c.publish(event.Node, event.Joined)
+	return nil
+}
+
 func (c *client) Version() gen.Version {
 	return gen.Version{
 		Name:    registrarName,
@@ -290,7 +500,13 @@ func (c *client) tryRegister() (net.Conn, error) {
 		c.mu.Unlock()
 		if srv != nil {
 			// local registrar is started
-			srv.registerNode(c.node.Name(), c.routes, nil)
+			c.mu.Lock()
+			event := c.event
+			c.mu.Unlock()
+			if event != "" {
+				srv.setLocalNotify(c.publish)
+			}
+			srv.register(c.node.Name(), c.routes, nil)
 			return nil, nil
 		}
 		c.node.Log().Trace("unable to start registrar server, run as a client only")
@@ -380,7 +596,6 @@ func (c *client) tryRegister() (net.Conn, error) {
 }
 
 func (c *client) serve(conn net.Conn) {
-	var buf [16]byte
 	c.mu.Lock()
 	if c.terminated.Load() {
 		c.mu.Unlock()
@@ -391,12 +606,11 @@ func (c *client) serve(conn net.Conn) {
 	c.mu.Unlock()
 
 	for {
-		_, err := conn.Read(buf[:])
+		err := c.readPush(conn)
 		if c.terminated.Load() {
 			return
 		}
 		if err == nil {
-			// unexpected data from the registrar; ignore and keep reading
 			continue
 		}
 
