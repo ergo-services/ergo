@@ -308,13 +308,21 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	}
 	m.log.setSource(logSource)
 
-	if err := m.init(); err != nil {
+	// register to be able routing messages to this meta process
+	if _, exist := p.metas.LoadOrStore(m.id, m); exist {
+		return alias, gen.ErrTaken
+	}
+	if err := p.node.registerAlias(m.id, p); err != nil {
+		p.metas.Delete(m.id)
 		return alias, err
 	}
 
-	// register to be able routing messages to this meta process
-	p.metas.Store(m.id, m)
-	p.node.aliases.Store(m.id, p)
+	if err := m.init(); err != nil {
+		p.node.unregisterAlias(m.id, p)
+		p.metas.Delete(m.id)
+		return alias, err
+	}
+
 	go m.start()
 
 	return m.id, nil

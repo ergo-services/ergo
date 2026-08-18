@@ -303,7 +303,7 @@ type Process interface {
 	// Other processes can send messages (using Send) or make requests (using Call) to this meta process.
 	// Meta processes are lightweight and handle messages in their own goroutine.
 	// Available in: Init, Running states.
-	// Returns ErrNotAllowed in other states.
+	// Returns ErrNotAllowed in other states, ErrTaken if the alias is already registered.
 	SpawnMeta(behavior MetaBehavior, options MetaOptions) (Alias, error)
 
 	// RemoteSpawn makes a request to a remote node to spawn a new process.

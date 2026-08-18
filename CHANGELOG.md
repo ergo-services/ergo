@@ -40,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * Fixed **`MarshalEDF` length-prefix corruption** - a custom `MarshalEDF` implementation that produced enough output to grow the encode buffer could have its length prefix written to the wrong location, corrupting the encoded value. Thanks to [@JeroenSoeters](https://github.com/JeroenSoeters) for the fix [#257](https://github.com/ergo-services/ergo/pull/257)
 * Fixed **message counters for meta processes** - meta process traffic now propagates to parent process counters, making `ProcessRangeShortInfo` aggregates balanced
 * Fixed **self-send message counter** - `messagesOut` now incremented for self-sends
+* Fixed **meta process alias collision** - `MakeRef` kept only the low 18 and the top 18 bits of its counter, dropping the 28 bits in between, so a ref repeated every 262144 allocations. Spawning a meta process registered its alias with no occupancy check, so on such a repeat it silently took over the entry of a live meta: messages addressed to the older one were delivered to the newer one, and once the newer one closed, its teardown removed the shared entry and left the older one unreachable with `ErrProcessUnknown` while its connection was still open. The counter is now carried in full and `SpawnMeta` returns `gen.ErrTaken` instead of overwriting. Thanks to [@bilus](https://github.com/bilus) for reporting [#265](https://github.com/ergo-services/ergo/issues/265)
 
 **Deprecated**
 

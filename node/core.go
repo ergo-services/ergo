@@ -1560,8 +1560,8 @@ func (n *node) MakeRef() gen.Ref {
 	ref.Node = n.name
 	ref.Creation = atomic.LoadInt64(&n.creation)
 	id := atomic.AddUint64(&n.uniqID, 1)
-	ref.ID[0] = id & ((2 << 17) - 1)
-	ref.ID[1] = id >> 46
+	ref.ID[0] = id & ((1 << 18) - 1)
+	ref.ID[1] = id >> 18
 	return ref
 }
 
