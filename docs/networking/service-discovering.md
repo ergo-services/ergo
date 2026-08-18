@@ -196,7 +196,7 @@ The response is a `gen.ApplicationRoutes` value (a slice of `gen.ApplicationRout
 Narrow the result by tag, state, or both:
 
 ```go
-routes, _ := resolver.ResolveApplication("workers")
+routes, _ := node.Network().ResolveApplication("workers")
 ready := routes.
     WithTags("ready").
     WithoutTags("draining").
@@ -212,7 +212,7 @@ Weights enable intelligent load distribution across application instances.
 When multiple nodes run the same application, each registration includes a weight. Higher weights indicate preference - nodes with more resources, better performance, or strategic positioning get higher weights. When you resolve an application, you get all instances with their weights:
 
 ```go
-routes, _ := resolver.ResolveApplication("workers")
+routes, _ := node.Network().ResolveApplication("workers")
 // routes = gen.ApplicationRoutes{
 //   {Name: "workers", Node: "worker1@host1", Weight: 100, Mode: Permanent, State: Running},
 //   {Name: "workers", Node: "worker2@host2", Weight: 50,  Mode: Permanent, State: Running},

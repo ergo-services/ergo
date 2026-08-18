@@ -701,8 +701,7 @@ Applications discover each other through application names, not node names:
 // apps/api/handler.go
 func (h *Handler) processRequest(req Request) error {
     // Discover worker application
-    registrar, _ := h.Node().Network().Registrar()
-    routes, _ := registrar.Resolver().ResolveApplication("worker")
+    routes, _ := h.Node().Network().ResolveApplication("worker")
 
     if len(routes) == 0 {
         return errors.New("no workers available")

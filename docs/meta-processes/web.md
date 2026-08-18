@@ -121,14 +121,7 @@ For dynamic topology where nodes join and leave unpredictably, use application d
 func (a *APIServer) handleRequest(w http.ResponseWriter, r *http.Request) {
     // Application discovery requires central registrar (etcd or Saturn)
     // See: networking/service-discovering.md
-    registrar, err := a.node.Network().Registrar()
-    if err != nil {
-        http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
-        return
-    }
-
-    resolver := registrar.Resolver()
-    routes, err := resolver.ResolveApplication("user-service")
+    routes, err := a.node.Network().ResolveApplication("user-service")
     if err != nil || len(routes) == 0 {
         http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
         return

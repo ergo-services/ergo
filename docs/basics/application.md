@@ -245,11 +245,11 @@ Mutations push an updated route to the registrar so other nodes see the change o
 
 The embedded in-memory registrar does not support application route registration, so tags in single-node or statically-routed deployments are only accessible via direct `ApplicationInfo()` calls, not through resolver queries.
 
-In clusters with centralized registrars, query the resolver and chain filter methods on the result:
+In clusters with centralized registrars, resolve the application and chain filter methods on the result:
 
 ```go
-// Query registrar for all instances
-routes, err := resolver.ResolveApplication("api_service")
+// Query the registrar for all instances
+routes, err := network.ResolveApplication("api_service")
 // routes is gen.ApplicationRoutes: a slice of ApplicationRoute with
 // chainable filter methods.
 

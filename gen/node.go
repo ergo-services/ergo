@@ -938,6 +938,29 @@ type NodeInfo struct {
 	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
 	MemoryAlloc uint64
 
+	// MemoryLimit is the soft memory limit set via GOMEMLIMIT, in bytes.
+	// MaxInt64 means no limit is set.
+	MemoryLimit uint64
+
+	// HeapLive is the heap memory occupied as of the last garbage collection, in bytes.
+	HeapLive uint64
+
+	// HeapGoal is the heap size that triggers the next garbage collection, in bytes.
+	HeapGoal uint64
+
+	// Goroutines is the current number of goroutines.
+	Goroutines int64
+
+	// GCCycles is the cumulative number of completed garbage collection cycles.
+	GCCycles uint64
+
+	// CPUTimeGC is the cumulative CPU time spent in garbage collection, in seconds.
+	CPUTimeGC float64
+
+	// CPUTimeTotal is the cumulative CPU time available to the process, in seconds,
+	// as defined by GOMAXPROCS. Includes idle time.
+	CPUTimeTotal float64
+
 	// UserTime is the user CPU time in nanoseconds.
 	UserTime int64
 
@@ -1039,8 +1062,12 @@ type NodeShortInfo struct {
 	// GCCycles is the cumulative number of completed garbage collection cycles.
 	GCCycles uint64
 
-	// GCCPUFraction is the share of total CPU time spent in garbage collection.
-	GCCPUFraction float64
+	// CPUTimeGC is the cumulative CPU time spent in garbage collection, in seconds.
+	CPUTimeGC float64
+
+	// CPUTimeTotal is the cumulative CPU time available to the process, in seconds,
+	// as defined by GOMAXPROCS. Includes idle time.
+	CPUTimeTotal float64
 
 	// UserTime is the user CPU time in nanoseconds.
 	UserTime int64

@@ -194,10 +194,7 @@ The registrar now knows: application "api" is running on this node with weight 1
 Other nodes can discover where applications run:
 
 ```go
-registrar, _ := node.Network().Registrar()
-resolver := registrar.Resolver()
-
-routes, _ := resolver.ResolveApplication("api")
+routes, _ := node.Network().ResolveApplication("api")
 for _, route := range routes {
     fmt.Printf("api on %s (weight: %d, state: %s)\n",
         route.Node, route.Weight, route.State)
@@ -325,8 +322,7 @@ On coordinator/client nodes:
 
 ```go
 func (c *Coordinator) distributeWork(job Job) error {
-    registrar, _ := c.Node().Network().Registrar()
-    routes, _ := registrar.Resolver().ResolveApplication("worker")
+    routes, _ := c.Node().Network().ResolveApplication("worker")
 
     // Select node based on weights
     targetNode := c.selectNode(routes)
@@ -951,8 +947,7 @@ func (c *Coordinator) HandleEvent(event gen.MessageEvent) error {
 }
 
 func (c *Coordinator) refreshWorkers() {
-    reg, _ := c.Node().Network().Registrar()
-    c.workers, _ = reg.Resolver().ResolveApplication("worker")
+    c.workers, _ = c.Node().Network().ResolveApplication("worker")
 }
 
 func main() {

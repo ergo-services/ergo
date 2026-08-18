@@ -44,6 +44,13 @@ type RuntimeMetrics struct {
 
 	// GCCPUFraction is the share of total CPU time spent in garbage collection.
 	GCCPUFraction float64
+
+	// CPUTimeGC is the cumulative CPU time spent in garbage collection, in seconds.
+	CPUTimeGC float64
+
+	// CPUTimeTotal is the cumulative CPU time available to the process, in seconds,
+	// as defined by GOMAXPROCS. Includes idle time.
+	CPUTimeTotal float64
 }
 
 var runtimeMetrics = []string{
@@ -120,6 +127,8 @@ func ReadRuntimeMetrics() RuntimeMetrics {
 		}
 	}
 
+	rm.CPUTimeGC = cpuGC
+	rm.CPUTimeTotal = cpuTotal
 	if cpuTotal > 0 {
 		rm.GCCPUFraction = cpuGC / cpuTotal
 	}
