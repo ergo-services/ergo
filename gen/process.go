@@ -179,6 +179,34 @@ func (p ProcessState) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + p.String() + "\""), nil
 }
 
+func (p *ProcessState) UnmarshalJSON(data []byte) error {
+	s, err := unmarshalName(data)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "init":
+		*p = ProcessStateInit
+	case "sleep":
+		*p = ProcessStateSleep
+	case "running":
+		*p = ProcessStateRunning
+	case "wait response":
+		*p = ProcessStateWaitResponse
+	case "terminated":
+		*p = ProcessStateTerminated
+	case "zombee":
+		*p = ProcessStateZombee
+	default:
+		n, ok := unmarshalNumbered(s, "state#")
+		if ok == false {
+			return fmt.Errorf("unknown process state %q", s)
+		}
+		*p = ProcessState(n)
+	}
+	return nil
+}
+
 const (
 	// ProcessStateInit indicates process is initializing in ProcessInit() callback.
 	// Process is NOT yet registered in node - cannot be found by PID lookup.
@@ -980,6 +1008,24 @@ func (mp MessagePriority) String() string {
 
 func (mp MessagePriority) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + mp.String() + "\""), nil
+}
+
+func (mp *MessagePriority) UnmarshalJSON(data []byte) error {
+	s, err := unmarshalName(data)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "normal":
+		*mp = MessagePriorityNormal
+	case "high":
+		*mp = MessagePriorityHigh
+	case "max":
+		*mp = MessagePriorityMax
+	default:
+		return fmt.Errorf("unknown message priority %q", s)
+	}
+	return nil
 }
 
 const MessagePriorityNormal MessagePriority = 0 // default

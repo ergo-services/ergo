@@ -100,6 +100,10 @@ type NodeOptions struct {
 	// application counts; set this only when the test needs system services.
 	EnableSystemApp bool
 
+	// DisableSystemManage keeps the mutating plane of the system application down,
+	// modelling a node where nothing can change the state through it.
+	DisableSystemManage bool
+
 	// Distributed network options (pass-through to gen.NodeOptions.Network).
 	// Zero values keep the framework defaults.
 	MaxMessageSize int
@@ -153,7 +157,8 @@ func (s *Stage) StartNode(prefix string, opts ...NodeOptions) *Node {
 	no.Security = o.Security
 	no.Env = o.Env
 	if o.EnableSystemApp {
-		no.Applications = append([]gen.ApplicationBehavior{system.CreateApp()}, o.Applications...)
+		sysapp := system.CreateApp(system.Options{DisableManage: o.DisableSystemManage})
+		no.Applications = append([]gen.ApplicationBehavior{sysapp}, o.Applications...)
 	} else {
 		no.Applications = o.Applications
 	}

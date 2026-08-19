@@ -120,6 +120,30 @@ func (tp TracingPoint) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + tp.String() + `"`), nil
 }
 
+func (tp *TracingPoint) UnmarshalJSON(data []byte) error {
+	s, err := unmarshalName(data)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "sent":
+		*tp = TracingPointSent
+	case "delivered":
+		*tp = TracingPointDelivered
+	case "processed":
+		*tp = TracingPointProcessed
+	case "span":
+		*tp = TracingPointSpan
+	default:
+		n, ok := unmarshalNumbered(s, "point#")
+		if ok == false {
+			return fmt.Errorf("unknown tracing point %q", s)
+		}
+		*tp = TracingPoint(n)
+	}
+	return nil
+}
+
 // TracingKind identifies the type of operation being traced.
 type TracingKind int
 
@@ -152,6 +176,35 @@ func (tk TracingKind) String() string {
 
 func (tk TracingKind) MarshalJSON() ([]byte, error) {
 	return []byte(`"` + tk.String() + `"`), nil
+}
+
+func (tk *TracingKind) UnmarshalJSON(data []byte) error {
+	s, err := unmarshalName(data)
+	if err != nil {
+		return err
+	}
+	switch s {
+	// a business span carries no message kind
+	case "":
+		*tk = 0
+	case "send":
+		*tk = TracingKindSend
+	case "request":
+		*tk = TracingKindRequest
+	case "response":
+		*tk = TracingKindResponse
+	case "spawn":
+		*tk = TracingKindSpawn
+	case "terminate":
+		*tk = TracingKindTerminate
+	default:
+		n, ok := unmarshalNumbered(s, "kind#")
+		if ok == false {
+			return fmt.Errorf("unknown tracing kind %q", s)
+		}
+		*tk = TracingKind(n)
+	}
+	return nil
 }
 
 // TracingInfo contains tracing configuration for a process or node.

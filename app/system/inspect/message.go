@@ -179,187 +179,45 @@ type MessageInspectMeta struct {
 	Info gen.MetaInfo
 }
 
-// do send
+// one-shot process and meta state
 
-type RequestDoSend struct {
-	PID      gen.PID
-	Priority gen.MessagePriority
-	Message  any
-}
-
-type ResponseDoSend struct {
-	Error error
-}
-
-type RequestDoSendMeta struct {
-	Meta    gen.Alias
-	Message any
-}
-type ResponseDoSendMeta struct {
-	Error error
-}
-
-// do send exit
-
-type RequestDoSendExit struct {
-	PID    gen.PID
-	Reason error
-}
-type ResponseDoSendExit struct {
-	Error error
-}
-
-type RequestDoSendExitMeta struct {
-	Meta   gen.Alias
-	Reason error
-}
-type ResponseDoSendExitMeta struct {
-	Error error
-}
-
-// do kill
-
-type RequestDoKill struct {
-	PID gen.PID
-}
-type ResponseDoKill struct {
-	Error error
-}
-
-// do set log level
-
-// node
-type RequestDoSetLogLevel struct {
-	Level gen.LogLevel
-}
-type ResponseDoSetLogLevel struct {
-	Error error
-}
-
-// do set tracing sampler and flags (node-level)
-
-type RequestDoSetNodeTracingSampler struct {
-	Type  string  // "always", "disable", "ratio", "rate_limit"
-	Rate  float64 // for ratio
-	Limit int     // for rate_limit
-}
-
-type RequestDoSetProcessTracingSampler struct {
+type RequestGetProcessState struct {
 	PID   gen.PID
-	Type  string
-	Rate  float64
-	Limit int
+	Items []string
+}
+type ResponseGetProcessState struct {
+	State map[string]string
+	Error error
 }
 
-// process
-type RequestDoSetProcessLogLevel struct {
-	PID   gen.PID
-	Level gen.LogLevel
-}
-
-// meta
-type RequestDoSetMetaLogLevel struct {
+type RequestGetMetaState struct {
 	Meta  gen.Alias
-	Level gen.LogLevel
+	Items []string
+}
+type ResponseGetMetaState struct {
+	State map[string]string
+	Error error
 }
 
-// do set process settings
+// process lookup
 
-type RequestDoSetProcessSendPriority struct {
-	PID      gen.PID
-	Priority gen.MessagePriority
-}
-
-type RequestDoSetProcessCompression struct {
-	PID     gen.PID
-	Enabled bool
-}
-
-type RequestDoSetProcessCompressionType struct {
+// RequestGetProcessLookup resolves a process either way: set Name to look it up
+// by its registered name, or PID to get the name it is registered under.
+type RequestGetProcessLookup struct {
+	Name gen.Atom
 	PID  gen.PID
-	Type gen.CompressionType
 }
 
-type RequestDoSetProcessCompressionLevel struct {
+type ResponseGetProcessLookup struct {
 	PID   gen.PID
-	Level gen.CompressionLevel
-}
-
-type RequestDoSetProcessCompressionThreshold struct {
-	PID       gen.PID
-	Threshold int
-}
-
-type RequestDoSetProcessKeepNetworkOrder struct {
-	PID   gen.PID
-	Order bool
-}
-
-type RequestDoSetProcessImportantDelivery struct {
-	PID       gen.PID
-	Important bool
-}
-
-// do set meta settings
-
-type RequestDoSetMetaSendPriority struct {
-	Meta     gen.Alias
-	Priority gen.MessagePriority
-}
-
-// generic response for do-set operations
-type ResponseDoSet struct {
-	Error error
-}
-
-// do app lifecycle
-
-type RequestDoAppStart struct {
-	Name gen.Atom
-	Mode gen.ApplicationMode
-}
-type ResponseDoAppStart struct {
-	Error error
-}
-
-type RequestDoAppStop struct {
-	Name  gen.Atom
-	Force bool
-}
-type ResponseDoAppStop struct {
-	Error error
-}
-
-type RequestDoAppUnload struct {
-	Name gen.Atom
-}
-type ResponseDoAppUnload struct {
-	Error error
-}
-
-// do one-shot inspect
-
-type RequestDoInspect struct {
-	PID   gen.PID
-	Items []string
-}
-type ResponseDoInspect struct {
-	State map[string]string
-	Error error
-}
-
-type RequestDoInspectMeta struct {
-	Meta  gen.Alias
-	Items []string
-}
-type ResponseDoInspectMeta struct {
-	State map[string]string
+	Name  gen.Atom // empty when the process is not registered under a name
+	State gen.ProcessState
 	Error error
 }
 
 // goroutine dump
 
-type RequestDoGoroutines struct {
+type RequestGetGoroutines struct {
 	Stack   string // substring match in stack text
 	State   string // exact state match (running, chan receive, etc.)
 	MinWait int64  // minimum wait duration in seconds (0 = any)
@@ -383,7 +241,7 @@ type GoroutineGroup struct {
 	IDs     []int
 }
 
-type ResponseDoGoroutines struct {
+type ResponseGetGoroutines struct {
 	Groups   []GoroutineGroup
 	Total    int
 	Filtered int
@@ -392,7 +250,7 @@ type ResponseDoGoroutines struct {
 
 // heap profile
 
-type RequestDoHeapProfile struct {
+type RequestGetHeapProfile struct {
 	MinBytes int64
 }
 
@@ -412,7 +270,7 @@ type HeapStats struct {
 	TotalFree    int64
 }
 
-type ResponseDoHeapProfile struct {
+type ResponseGetHeapProfile struct {
 	Records      []HeapRecord
 	TotalInuse   int64
 	TotalAlloc   int64
@@ -533,11 +391,11 @@ type MessageInspectApplicationList struct {
 
 // application tree
 
-type RequestDoAppTree struct {
+type RequestGetAppTree struct {
 	Application gen.Atom
 	Limit       int
 }
-type ResponseDoAppTree struct {
+type ResponseGetAppTree struct {
 	Node        gen.Atom
 	Application gen.Atom
 	Processes   []gen.ProcessShortInfo
@@ -549,16 +407,89 @@ type ResponseDoAppTree struct {
 
 // subtree rooted at a process
 
-type RequestDoSubtree struct {
+type RequestGetSubtree struct {
 	PID   gen.PID
 	Limit int
 }
-type ResponseDoSubtree struct {
+type ResponseGetSubtree struct {
 	Node      gen.Atom
 	PID       gen.PID
 	Processes []gen.ProcessShortInfo
 	Truncated bool
 	Error     error
+}
+
+// cron
+
+// RequestGetCronSchedule previews the upcoming firings. Only the node can compute
+// them: the schedule is evaluated against its clock and each job's timezone.
+type RequestGetCronSchedule struct {
+	// Job narrows the preview to one job. Empty covers every job.
+	Job gen.Atom
+
+	// Since is where the preview starts. Zero means the node's current time.
+	Since time.Time
+
+	// Duration is how far ahead to look. Zero applies 24h.
+	Duration time.Duration
+
+	// Limit caps the returned entries. Zero applies 1000: a per-minute job over a
+	// long window would otherwise answer with thousands of timestamps.
+	Limit int
+}
+
+type ResponseGetCronSchedule struct {
+	Schedule  []gen.CronSchedule
+	Truncated bool
+	Error     error
+}
+
+// RequestGetCronInfo reads the scheduler, or one job when Job is set. The same
+// data is part of the node snapshot, but a caller after a single job should not
+// have to pull the whole of it.
+type RequestGetCronInfo struct {
+	Job gen.Atom
+}
+
+type ResponseGetCronInfo struct {
+	// Next and Spool are filled for the whole scheduler only.
+	Next  time.Time
+	Spool []gen.Atom
+
+	Jobs  []gen.CronJobInfo
+	Error error
+}
+
+// registrar
+
+type RequestGetRegistrarNodes struct{}
+type ResponseGetRegistrarNodes struct {
+	Nodes []gen.Atom
+	Error error
+}
+
+type RequestGetRegistrarRoutes struct {
+	Node gen.Atom
+}
+type ResponseGetRegistrarRoutes struct {
+	Routes []gen.Route
+	Error  error
+}
+
+type RequestGetRegistrarProxyRoutes struct {
+	Node gen.Atom
+}
+type ResponseGetRegistrarProxyRoutes struct {
+	Routes []gen.ProxyRoute
+	Error  error
+}
+
+type RequestGetRegistrarApplicationRoutes struct {
+	Name gen.Atom
+}
+type ResponseGetRegistrarApplicationRoutes struct {
+	Routes []gen.ApplicationRoute
+	Error  error
 }
 
 // tracing
@@ -584,9 +515,9 @@ type MessageInspectTracing struct {
 
 // types
 
-type RequestDoTypes struct{}
+type RequestGetTypes struct{}
 
-type ResponseDoTypes struct {
+type ResponseGetTypes struct {
 	Types []gen.RegisteredTypeInfo
 	Error error
 }

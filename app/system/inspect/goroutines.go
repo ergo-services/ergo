@@ -29,7 +29,7 @@ func goroutineDumpSize() int {
 	return size
 }
 
-func captureGoroutines(req RequestDoGoroutines) ResponseDoGoroutines {
+func captureGoroutines(req RequestGetGoroutines) ResponseGetGoroutines {
 	buf := make([]byte, goroutineDumpSize())
 	for {
 		n := runtime.Stack(buf, true)
@@ -120,7 +120,7 @@ func captureGoroutines(req RequestDoGoroutines) ResponseDoGoroutines {
 		return groups[i].Count > groups[j].Count
 	})
 
-	return ResponseDoGoroutines{
+	return ResponseGetGoroutines{
 		Groups:   groups,
 		Total:    total,
 		Filtered: len(matched),

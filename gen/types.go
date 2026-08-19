@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/crc32"
 	"strconv"
@@ -67,10 +68,6 @@ func (p PID) String() string {
 	return string(buf)
 }
 
-func (p PID) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + p.String() + "\""), nil
-}
-
 // ProcessID long notation of registered process {process_name, node_name}
 type ProcessID struct {
 	Name Atom
@@ -86,9 +83,6 @@ func (p ProcessID) String() string {
 	buf = append(buf, p.Name...)
 	buf = append(buf, '>')
 	return string(buf)
-}
-func (p ProcessID) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + p.String() + "\""), nil
 }
 
 // Ref
@@ -133,10 +127,6 @@ func (r Ref) IsAlive() bool {
 	return true
 }
 
-func (r Ref) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + r.String() + "\""), nil
-}
-
 // Alias
 type Alias Ref
 
@@ -153,10 +143,6 @@ func (a Alias) String() string {
 	buf = strconv.AppendUint(buf, a.ID[2], 10)
 	buf = append(buf, '>')
 	return string(buf)
-}
-
-func (a Alias) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + a.String() + "\""), nil
 }
 
 // Event
@@ -195,9 +181,6 @@ func (e Event) String() string {
 	buf = append(buf, e.Name...)
 	buf = append(buf, '>')
 	return string(buf)
-}
-func (e Event) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + e.String() + "\""), nil
 }
 
 // RegisteredTypeInfo describes a type registered with a wire-format proto.
@@ -242,9 +225,6 @@ type Env string
 
 func (e Env) String() string {
 	return strings.ToUpper(string(e))
-}
-func (e Env) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + e.String() + "\""), nil
 }
 
 // Version
@@ -300,6 +280,56 @@ func (l LogLevel) String() string {
 
 func (l LogLevel) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + l.String() + "\""), nil
+}
+
+func (l *LogLevel) UnmarshalJSON(data []byte) error {
+	s, err := unmarshalName(data)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "trace":
+		*l = LogLevelTrace
+	case "debug":
+		*l = LogLevelDebug
+	case "info":
+		*l = LogLevelInfo
+	case "warning":
+		*l = LogLevelWarning
+	case "error":
+		*l = LogLevelError
+	case "panic":
+		*l = LogLevelPanic
+	case "disabled":
+		*l = LogLevelDisabled
+	case "system":
+		*l = LogLevelSystem
+	// String never emits this one, but it is a real level meaning "inherit"
+	case "default":
+		*l = LogLevelDefault
+	default:
+		return fmt.Errorf("unknown log level %q", s)
+	}
+	return nil
+}
+
+func unmarshalName(data []byte) (string, error) {
+	var s string
+	err := json.Unmarshal(data, &s)
+	return s, err
+}
+
+// unmarshalNumbered reads back the "prefix#number" form String falls back to for
+// a value outside the named set.
+func unmarshalNumbered(s string, prefix string) (int, bool) {
+	if strings.HasPrefix(s, prefix) == false {
+		return 0, false
+	}
+	n, err := strconv.Atoi(s[len(prefix):])
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 const (

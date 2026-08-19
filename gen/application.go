@@ -1,6 +1,9 @@
 package gen
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 type ApplicationMode int
 type ApplicationState int32
@@ -33,6 +36,24 @@ func (am ApplicationMode) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + am.String() + "\""), nil
 }
 
+func (am *ApplicationMode) UnmarshalJSON(data []byte) error {
+	s, err := unmarshalName(data)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "permanent":
+		*am = ApplicationModePermanent
+	case "transient":
+		*am = ApplicationModeTransient
+	case "temporary":
+		*am = ApplicationModeTemporary
+	default:
+		return fmt.Errorf("unknown application mode %q", s)
+	}
+	return nil
+}
+
 func (as ApplicationState) String() string {
 	switch as {
 	case ApplicationStateInitializing:
@@ -48,6 +69,26 @@ func (as ApplicationState) String() string {
 
 func (as ApplicationState) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + as.String() + "\""), nil
+}
+
+func (as *ApplicationState) UnmarshalJSON(data []byte) error {
+	s, err := unmarshalName(data)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "loaded":
+		*as = ApplicationStateLoaded
+	case "initializing":
+		*as = ApplicationStateInitializing
+	case "running":
+		*as = ApplicationStateRunning
+	case "stopping":
+		*as = ApplicationStateStopping
+	default:
+		return fmt.Errorf("unknown application state %q", s)
+	}
+	return nil
 }
 
 // Application is the runtime view of a loaded application on a node.

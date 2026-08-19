@@ -107,27 +107,21 @@ func Types() []any {
 		RequestInspectHeap{}, ResponseInspectHeap{}, MessageInspectHeap{},
 		RequestInspectTracing{}, ResponseInspectTracing{}, MessageInspectTracing{},
 
-		RequestDoSend{}, ResponseDoSend{},
-		RequestDoSendMeta{}, ResponseDoSendMeta{},
-		RequestDoSendExit{}, ResponseDoSendExit{},
-		RequestDoSendExitMeta{}, ResponseDoSendExitMeta{},
-		RequestDoKill{}, ResponseDoKill{},
-		RequestDoSetLogLevel{}, RequestDoSetProcessLogLevel{}, RequestDoSetMetaLogLevel{}, ResponseDoSetLogLevel{},
-		RequestDoSetProcessSendPriority{}, RequestDoSetProcessCompression{},
-		RequestDoSetProcessCompressionType{}, RequestDoSetProcessCompressionLevel{},
-		RequestDoSetProcessCompressionThreshold{}, RequestDoSetProcessKeepNetworkOrder{},
-		RequestDoSetProcessImportantDelivery{}, RequestDoSetMetaSendPriority{}, ResponseDoSet{},
-		RequestDoSetNodeTracingSampler{}, RequestDoSetProcessTracingSampler{},
-		RequestDoAppStart{}, ResponseDoAppStart{},
-		RequestDoAppStop{}, ResponseDoAppStop{},
-		RequestDoAppUnload{}, ResponseDoAppUnload{},
-		RequestDoAppTree{}, ResponseDoAppTree{},
-		RequestDoSubtree{}, ResponseDoSubtree{},
-		RequestDoInspect{}, ResponseDoInspect{},
-		RequestDoInspectMeta{}, ResponseDoInspectMeta{},
-		RequestDoGoroutines{}, GoroutineGroup{}, ResponseDoGoroutines{},
-		RequestDoHeapProfile{}, HeapRecord{}, ResponseDoHeapProfile{},
-		RequestDoTypes{}, ResponseDoTypes{},
+		RequestGetCapabilities{}, ResponseGetCapabilities{},
+		RequestGetAppTree{}, ResponseGetAppTree{},
+		RequestGetSubtree{}, ResponseGetSubtree{},
+		RequestGetProcessState{}, ResponseGetProcessState{},
+		RequestGetProcessLookup{}, ResponseGetProcessLookup{},
+		RequestGetCronInfo{}, ResponseGetCronInfo{},
+		RequestGetCronSchedule{}, ResponseGetCronSchedule{},
+		RequestGetRegistrarNodes{}, ResponseGetRegistrarNodes{},
+		RequestGetRegistrarRoutes{}, ResponseGetRegistrarRoutes{},
+		RequestGetRegistrarProxyRoutes{}, ResponseGetRegistrarProxyRoutes{},
+		RequestGetRegistrarApplicationRoutes{}, ResponseGetRegistrarApplicationRoutes{},
+		RequestGetMetaState{}, ResponseGetMetaState{},
+		RequestGetGoroutines{}, GoroutineGroup{}, ResponseGetGoroutines{},
+		RequestGetHeapProfile{}, HeapRecord{}, ResponseGetHeapProfile{},
+		RequestGetTypes{}, ResponseGetTypes{},
 	}
 }
 
@@ -148,6 +142,10 @@ func (p *inspectPool) Init(args ...any) (act.PoolOptions, error) {
 
 type inspect struct {
 	act.Actor
+
+	caps          ResponseGetCapabilities
+	manageProcess gen.Atom
+	manageCaps    []string
 }
 
 type requestInspect struct {
@@ -165,6 +163,8 @@ func (i *inspect) Init(args ...any) error {
 	i.Log().SetLogger("default")
 	i.Log().Debug("%s started", i.Name())
 	i.SetCompression(true)
+	i.caps = i.capabilities()
+	i.manageProcess, i.manageCaps = i.manageCapabilities()
 	return nil
 }
 
@@ -524,128 +524,18 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		i.Send(pname, forward)
 		return nil, nil
 
-	// do commands
+	// one-shot reads
 
-	case RequestDoSend:
-		response := ResponseDoSend{
-			Error: i.SendWithPriority(r.PID, r.Message, r.Priority),
-		}
-		return response, nil
+	case RequestGetCapabilities:
+		return i.responseCapabilities(), nil
 
-	case RequestDoSendMeta:
-		response := ResponseDoSendMeta{
-			Error: i.SendAlias(r.Meta, r.Message),
-		}
-		return response, nil
-
-	case RequestDoSendExit:
-		response := ResponseDoSendExit{
-			Error: i.SendExit(r.PID, r.Reason),
-		}
-		return response, nil
-
-	case RequestDoSendExitMeta:
-		response := ResponseDoSendExit{
-			Error: i.SendExitMeta(r.Meta, r.Reason),
-		}
-		return response, nil
-
-	case RequestDoKill:
-		response := ResponseDoKill{
-			Error: i.Node().Kill(r.PID),
-		}
-		return response, nil
-
-	case RequestDoSetLogLevel:
-		response := ResponseDoSetLogLevel{
-			Error: i.Node().Log().SetLevel(r.Level),
-		}
-		return response, nil
-
-	case RequestDoSetNodeTracingSampler:
-		sampler := makeSampler(r.Type, r.Rate, r.Limit)
-		return ResponseDoSet{Error: i.Node().SetTracingSampler(sampler)}, nil
-
-	case RequestDoSetProcessTracingSampler:
-		sampler := makeSampler(r.Type, r.Rate, r.Limit)
-		return ResponseDoSet{Error: i.Node().SetProcessTracingSampler(r.PID, sampler)}, nil
-
-	case RequestDoSetProcessLogLevel:
-		response := ResponseDoSetLogLevel{
-			Error: i.Node().SetProcessLogLevel(r.PID, r.Level),
-		}
-		return response, nil
-
-	case RequestDoSetMetaLogLevel:
-		response := ResponseDoSetLogLevel{
-			Error: i.Node().SetMetaLogLevel(r.Meta, r.Level),
-		}
-		return response, nil
-
-	// process settings
-
-	case RequestDoSetProcessSendPriority:
-		return ResponseDoSet{Error: i.Node().SetProcessSendPriority(r.PID, r.Priority)}, nil
-
-	case RequestDoSetProcessCompression:
-		return ResponseDoSet{Error: i.Node().SetProcessCompression(r.PID, r.Enabled)}, nil
-
-	case RequestDoSetProcessCompressionType:
-		return ResponseDoSet{Error: i.Node().SetProcessCompressionType(r.PID, r.Type)}, nil
-
-	case RequestDoSetProcessCompressionLevel:
-		return ResponseDoSet{Error: i.Node().SetProcessCompressionLevel(r.PID, r.Level)}, nil
-
-	case RequestDoSetProcessCompressionThreshold:
-		return ResponseDoSet{Error: i.Node().SetProcessCompressionThreshold(r.PID, r.Threshold)}, nil
-
-	case RequestDoSetProcessKeepNetworkOrder:
-		return ResponseDoSet{Error: i.Node().SetProcessKeepNetworkOrder(r.PID, r.Order)}, nil
-
-	case RequestDoSetProcessImportantDelivery:
-		return ResponseDoSet{Error: i.Node().SetProcessImportantDelivery(r.PID, r.Important)}, nil
-
-	// meta settings
-
-	case RequestDoSetMetaSendPriority:
-		return ResponseDoSet{Error: i.Node().SetMetaSendPriority(r.Meta, r.Priority)}, nil
-
-	// app lifecycle
-
-	case RequestDoAppStart:
-		opts := gen.ApplicationOptions{}
-		var err error
-		switch r.Mode {
-		case gen.ApplicationModeTemporary:
-			err = i.Node().ApplicationStartTemporary(r.Name, opts)
-		case gen.ApplicationModeTransient:
-			err = i.Node().ApplicationStartTransient(r.Name, opts)
-		case gen.ApplicationModePermanent:
-			err = i.Node().ApplicationStartPermanent(r.Name, opts)
-		default:
-			err = i.Node().ApplicationStart(r.Name, opts)
-		}
-		return ResponseDoAppStart{Error: err}, nil
-
-	case RequestDoAppStop:
-		var err error
-		if r.Force {
-			err = i.Node().ApplicationStopForce(r.Name)
-		} else {
-			err = i.Node().ApplicationStop(r.Name)
-		}
-		return ResponseDoAppStop{Error: err}, nil
-
-	case RequestDoAppUnload:
-		return ResponseDoAppUnload{Error: i.Node().ApplicationUnload(r.Name)}, nil
-
-	case RequestDoAppTree:
+	case RequestGetAppTree:
 		limit := r.Limit
 		if limit < 1 {
 			limit = 1000
 		}
 		list, omitted, err := i.Node().ApplicationProcessListShortInfo(r.Application, limit)
-		return ResponseDoAppTree{
+		return ResponseGetAppTree{
 			Node:        i.Node().Name(),
 			Application: r.Application,
 			Processes:   list,
@@ -653,13 +543,13 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			Error:       err,
 		}, nil
 
-	case RequestDoSubtree:
+	case RequestGetSubtree:
 		limit := r.Limit
 		if limit < 1 {
 			limit = 1000
 		}
 		list, truncated, err := i.subtree(r.PID, limit)
-		return ResponseDoSubtree{
+		return ResponseGetSubtree{
 			Node:      i.Node().Name(),
 			PID:       r.PID,
 			Processes: list,
@@ -667,27 +557,46 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			Error:     err,
 		}, nil
 
-	// one-shot inspect
-
-	case RequestDoInspect:
+	case RequestGetProcessState:
 		if r.PID == i.PID() {
-			return ResponseDoInspect{State: i.HandleInspect(i.PID(), r.Items...)}, nil
+			return ResponseGetProcessState{State: i.HandleInspect(i.PID(), r.Items...)}, nil
 		}
 		state, err := i.Inspect(r.PID, r.Items...)
-		return ResponseDoInspect{State: state, Error: err}, nil
+		return ResponseGetProcessState{State: state, Error: err}, nil
 
-	case RequestDoInspectMeta:
+	case RequestGetMetaState:
 		state, err := i.InspectMeta(r.Meta, r.Items...)
-		return ResponseDoInspectMeta{State: state, Error: err}, nil
+		return ResponseGetMetaState{State: state, Error: err}, nil
 
-	case RequestDoGoroutines:
+	case RequestGetProcessLookup:
+		return i.responseProcessLookup(r), nil
+
+	case RequestGetCronInfo:
+		return i.responseCronInfo(r), nil
+
+	case RequestGetCronSchedule:
+		return i.responseCronSchedule(r), nil
+
+	case RequestGetRegistrarNodes:
+		return i.responseRegistrarNodes(), nil
+
+	case RequestGetRegistrarRoutes:
+		return i.responseRegistrarRoutes(r), nil
+
+	case RequestGetRegistrarProxyRoutes:
+		return i.responseRegistrarProxyRoutes(r), nil
+
+	case RequestGetRegistrarApplicationRoutes:
+		return i.responseRegistrarApplicationRoutes(r), nil
+
+	case RequestGetGoroutines:
 		return captureGoroutines(r), nil
 
-	case RequestDoHeapProfile:
+	case RequestGetHeapProfile:
 		return captureHeapProfile(r), nil
 
-	case RequestDoTypes:
-		return ResponseDoTypes{Types: i.Node().Network().RegisteredTypes()}, nil
+	case RequestGetTypes:
+		return ResponseGetTypes{Types: i.Node().Network().RegisteredTypes()}, nil
 	}
 
 	i.Log().Error("unsupported request: %#v", request)
@@ -715,16 +624,4 @@ func (i *inspect) subtree(pid gen.PID, limit int) ([]gen.ProcessShortInfo, bool,
 		return nil, false, gen.ErrProcessUnknown
 	}
 	return list, len(list) >= limit, nil
-}
-
-func makeSampler(typ string, rate float64, limit int) gen.TracingSampler {
-	switch typ {
-	case "always":
-		return gen.TracingSamplerAlways
-	case "ratio":
-		return gen.TracingSamplerRatio(rate)
-	case "rate_limit":
-		return gen.TracingSamplerRateLimit(limit)
-	}
-	return gen.TracingSamplerDisable
 }

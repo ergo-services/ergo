@@ -5,7 +5,7 @@ import (
 	"sort"
 )
 
-func captureHeapProfile(req RequestDoHeapProfile) ResponseDoHeapProfile {
+func captureHeapProfile(req RequestGetHeapProfile) ResponseGetHeapProfile {
 	// force up-to-date stats
 	runtime.GC()
 
@@ -53,7 +53,7 @@ func captureHeapProfile(req RequestDoHeapProfile) ResponseDoHeapProfile {
 		return records[i].InuseBytes > records[j].InuseBytes
 	})
 
-	return ResponseDoHeapProfile{
+	return ResponseGetHeapProfile{
 		Records:      records,
 		TotalInuse:   totalInuse,
 		TotalAlloc:   totalAlloc,

@@ -364,6 +364,24 @@ func (nm NetworkMode) MarshalJSON() ([]byte, error) {
 	return []byte("\"" + nm.String() + "\""), nil
 }
 
+func (nm *NetworkMode) UnmarshalJSON(data []byte) error {
+	s, err := unmarshalName(data)
+	if err != nil {
+		return err
+	}
+	switch s {
+	case "enabled":
+		*nm = NetworkModeEnabled
+	case "hidden":
+		*nm = NetworkModeHidden
+	case "disabled":
+		*nm = NetworkModeDisabled
+	default:
+		return fmt.Errorf("unknown network mode %q", s)
+	}
+	return nil
+}
+
 // NetworkOptions configures network settings for the node.
 // Part of NodeOptions. Defines how the node communicates with other nodes.
 type NetworkOptions struct {
