@@ -321,15 +321,16 @@ func unmarshalName(data []byte) (string, error) {
 
 // unmarshalNumbered reads back the "prefix#number" form String falls back to for
 // a value outside the named set.
-func unmarshalNumbered(s string, prefix string) (int, bool) {
+// Parsed as 32-bit so an out-of-range number is rejected, not truncated.
+func unmarshalNumbered(s string, prefix string) (int32, bool) {
 	if strings.HasPrefix(s, prefix) == false {
 		return 0, false
 	}
-	n, err := strconv.Atoi(s[len(prefix):])
+	n, err := strconv.ParseInt(s[len(prefix):], 10, 32)
 	if err != nil {
 		return 0, false
 	}
-	return n, true
+	return int32(n), true
 }
 
 const (

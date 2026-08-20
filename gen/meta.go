@@ -100,31 +100,22 @@ type MetaProcess interface {
 	// Sleep allowed for external code integration.
 	SendWithPriority(to any, message any, priority MessagePriority) error
 
-	// SendAfter starts a timer. When the timer expires, sends the message to the target.
-	// Returns a cancel function to discard the scheduled send.
-	// CancelFunc returns false if the timer already expired and the message was sent.
-	// The scheduled send is dropped if the meta process or its parent terminated
-	// before the timer expired.
-	// Available in: Sleep, Running states.
-	// Sleep allowed because the Start() goroutine arms timers outside the callbacks.
-	// Returns ErrNotAllowed in Terminated state.
+	// SendAfter sends the message to the target once the delay elapses. The cancel
+	// function discards the scheduled send and reports false if it already fired.
+	// Dropped if the meta process or its parent terminates before the timer expires.
+	// Available in: Sleep, Running states. Returns ErrNotAllowed in Terminated state.
 	SendAfter(to any, message any, after time.Duration) (CancelFunc, error)
 
 	// SendWithPriorityAfter is SendAfter with the specified priority.
-	// Available in: Sleep, Running states.
-	// Returns ErrNotAllowed in Terminated state.
 	SendWithPriorityAfter(to any, message any, priority MessagePriority, after time.Duration) (CancelFunc, error)
 
-	// SendEvery starts a periodic timer. On each period it sends the message to the
-	// target, until the returned cancel function is called or the meta process (or
-	// its parent) terminates. Reuses a single timer, so it does not allocate per period.
-	// Available in: Sleep, Running states.
-	// Returns ErrNotAllowed in Terminated state, ErrIncorrect on a non-positive period.
+	// SendEvery sends the message to the target on every period, until the cancel
+	// function is called or the meta process or its parent terminates.
+	// Available in: Sleep, Running states. Returns ErrNotAllowed in Terminated state,
+	// ErrIncorrect on a non-positive period.
 	SendEvery(to any, message any, period time.Duration) (CancelFunc, error)
 
 	// SendWithPriorityEvery is SendEvery with the specified priority.
-	// Available in: Sleep, Running states.
-	// Returns ErrNotAllowed in Terminated state, ErrIncorrect on a non-positive period.
 	SendWithPriorityEvery(to any, message any, priority MessagePriority, period time.Duration) (CancelFunc, error)
 
 	// SendResponse sends a response to a Call request.

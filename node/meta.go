@@ -185,7 +185,6 @@ func (m *meta) sendDeferred(to any, message any, priority gen.MessagePriority, d
 	if repeat && d <= 0 {
 		return nil, gen.ErrIncorrect
 	}
-	// reject an unroutable target at schedule time, not on the timer goroutine
 	switch to.(type) {
 	case gen.PID, gen.ProcessID, gen.Alias, gen.Atom:
 	default:
@@ -206,7 +205,7 @@ func (m *meta) sendDeferred(to any, message any, priority gen.MessagePriority, d
 
 	var stopped atomic.Bool
 	var t *time.Timer
-	// arm far out first, then Reset, so the callback can't read t before it is set
+	// armed far out first so the callback can't read t before it is set
 	t = time.AfterFunc(time.Hour, func() {
 		if stopped.Load() || m.alive() == false {
 			t.Stop()
@@ -227,7 +226,6 @@ func (m *meta) sendDeferred(to any, message any, priority gen.MessagePriority, d
 	}, nil
 }
 
-// alive reports whether the meta process and its parent can still send.
 func (m *meta) alive() bool {
 	if gen.MetaState(atomic.LoadInt32(&m.state)) == gen.MetaStateTerminated {
 		return false

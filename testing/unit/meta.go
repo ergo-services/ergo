@@ -168,11 +168,9 @@ func (m *MetaSubject) Inspect(from gen.PID, items ...string) map[string]string {
 	return result
 }
 
-// FireTimers delivers every scheduled (and not cancelled) timer message this meta
-// addressed to its own alias into HandleMessage, in scheduling order, and returns
-// the number of timers fired. Timers addressed elsewhere (the parent actor, another
-// process) belong to the parent Subject's FireTimers. Stops early if a delivery
-// terminates the meta.
+// FireTimers delivers the scheduled (and not cancelled) timers this meta addressed
+// to its own alias into HandleMessage, in scheduling order, and returns how many
+// fired. Timers addressed elsewhere belong to the parent Subject's FireTimers.
 func (m *MetaSubject) FireTimers() int {
 	m.t.Helper()
 	m.requireInited("FireTimers")

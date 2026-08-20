@@ -252,8 +252,7 @@ func (n *mockNode) schedule(from gen.PID, to any, message any, after time.Durati
 	return n.armTimer(from, to, message)
 }
 
-// scheduleEvery records a periodic send and returns a CancelFunc; the harness
-// delivers it once when the test fires timers.
+// scheduleEvery records a periodic send; the harness delivers it once on FireTimers.
 func (n *mockNode) scheduleEvery(from gen.PID, to any, message any, period time.Duration, options gen.MessageOptions) gen.CancelFunc {
 	n.rec.Put(check.SendEvery{From: from, To: to, Message: message, Period: period, Options: options})
 	return n.armTimer(from, to, message)
