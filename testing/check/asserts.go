@@ -993,6 +993,39 @@ type SendEveryAssert struct{ *Assertion[SendEvery] }
 func (a *Asserter) ShouldSendEvery() *SendEveryAssert {
 	return &SendEveryAssert{For[SendEvery](a.t, a.rec)}
 }
+func (x *SendEveryAssert) From(p gen.PID) *SendEveryAssert {
+	x.Where(func(r SendEvery) bool { return r.From == p })
+	return x
+}
+func (x *SendEveryAssert) To(to any) *SendEveryAssert {
+	x.Where(func(r SendEvery) bool { return reflect.DeepEqual(r.To, to) })
+	return x
+}
+func (x *SendEveryAssert) Message(v any) *SendEveryAssert {
+	x.Where(func(r SendEvery) bool { return reflect.DeepEqual(r.Message, v) })
+	return x
+}
+func (x *SendEveryAssert) Period(period time.Duration) *SendEveryAssert {
+	x.Where(func(r SendEvery) bool { return r.Period == period })
+	return x
+}
+func (x *SendEveryAssert) Priority(p gen.MessagePriority) *SendEveryAssert {
+	x.Where(func(r SendEvery) bool { return r.Options.Priority == p })
+	return x
+}
+func (x *SendEveryAssert) KeepNetworkOrder(keep bool) *SendEveryAssert {
+	x.Where(func(r SendEvery) bool { return r.Options.KeepNetworkOrder == keep })
+	return x
+}
+func (x *SendEveryAssert) Error(target error) *SendEveryAssert {
+	x.Where(func(r SendEvery) bool { return r.Error == target })
+	return x
+}
+func (x *SendEveryAssert) ErrorIs(target error) *SendEveryAssert {
+	x.Where(func(r SendEvery) bool { return errors.Is(r.Error, target) })
+	return x
+}
+
 func (x *SendAfterAssert) From(p gen.PID) *SendAfterAssert {
 	x.Where(func(r SendAfter) bool { return r.From == p })
 	return x

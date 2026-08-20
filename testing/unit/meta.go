@@ -2,6 +2,7 @@ package unit
 
 import (
 	"testing"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
@@ -167,6 +168,33 @@ func (m *MetaSubject) Inspect(from gen.PID, items ...string) map[string]string {
 	return result
 }
 
+// FireTimers delivers every scheduled (and not cancelled) timer message this meta
+// addressed to its own alias into HandleMessage, in scheduling order, and returns
+// the number of timers fired. Timers addressed elsewhere (the parent actor, another
+// process) belong to the parent Subject's FireTimers. Stops early if a delivery
+// terminates the meta.
+func (m *MetaSubject) FireTimers() int {
+	m.t.Helper()
+	m.requireInited("FireTimers")
+	fired := 0
+	for _, tm := range m.meta.node.timers {
+		if tm.fired || tm.cancelled {
+			continue
+		}
+		alias, ok := tm.to.(gen.Alias)
+		if ok == false || alias != m.meta.id {
+			continue
+		}
+		if m.meta.state == gen.MetaStateTerminated {
+			break
+		}
+		tm.fired = true
+		fired++
+		m.DeliverMessage(tm.from, tm.message)
+	}
+	return fired
+}
+
 // Start runs the behavior's Start() synchronously and then terminates the meta
 // with its result (TerminateReasonNormal if nil), mirroring the runtime where a
 // returning Start() ends the meta. Only for non-blocking Start() implementations;
@@ -242,6 +270,44 @@ func (m *mockMeta) SendWithPriority(to any, message any, priority gen.MessagePri
 	opts := m.options()
 	opts.Priority = priority
 	return m.node.routeSend(m.stubs, m.parent, to, message, opts)
+}
+
+func (m *mockMeta) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
+	if m.state == gen.MetaStateTerminated {
+		return nil, gen.ErrNotAllowed
+	}
+	return m.node.schedule(m.parent, to, message, after, m.options()), nil
+}
+
+func (m *mockMeta) SendWithPriorityAfter(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error) {
+	if m.state == gen.MetaStateTerminated {
+		return nil, gen.ErrNotAllowed
+	}
+	opts := m.options()
+	opts.Priority = priority
+	return m.node.schedule(m.parent, to, message, after, opts), nil
+}
+
+func (m *mockMeta) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+	if m.state == gen.MetaStateTerminated {
+		return nil, gen.ErrNotAllowed
+	}
+	if period <= 0 {
+		return nil, gen.ErrIncorrect
+	}
+	return m.node.scheduleEvery(m.parent, to, message, period, m.options()), nil
+}
+
+func (m *mockMeta) SendWithPriorityEvery(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error) {
+	if m.state == gen.MetaStateTerminated {
+		return nil, gen.ErrNotAllowed
+	}
+	if period <= 0 {
+		return nil, gen.ErrIncorrect
+	}
+	opts := m.options()
+	opts.Priority = priority
+	return m.node.scheduleEvery(m.parent, to, message, period, opts), nil
 }
 
 func (m *mockMeta) SendResponse(to gen.PID, ref gen.Ref, message any) error {

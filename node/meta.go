@@ -3,6 +3,7 @@ package node
 import (
 	"runtime"
 	"sync/atomic"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -61,6 +62,32 @@ func (m *meta) Send(to any, message any) error {
 
 func (m *meta) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
 	return m.send(to, message, priority)
+}
+
+func (m *meta) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
+	return m.sendDeferred(to, message, gen.MessagePriority(m.priority.Load()), after, false)
+}
+
+func (m *meta) SendWithPriorityAfter(
+	to any,
+	message any,
+	priority gen.MessagePriority,
+	after time.Duration,
+) (gen.CancelFunc, error) {
+	return m.sendDeferred(to, message, priority, after, false)
+}
+
+func (m *meta) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+	return m.sendDeferred(to, message, gen.MessagePriority(m.priority.Load()), period, true)
+}
+
+func (m *meta) SendWithPriorityEvery(
+	to any,
+	message any,
+	priority gen.MessagePriority,
+	period time.Duration,
+) (gen.CancelFunc, error) {
+	return m.sendDeferred(to, message, priority, period, true)
 }
 
 func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
@@ -148,6 +175,64 @@ func (m *meta) SetCompression(enabled bool) error {
 	}
 	m.compression.Store(enabled)
 	return nil
+}
+
+// sendDeferred schedules a delayed send: once after d (repeat=false) or every d (repeat=true).
+func (m *meta) sendDeferred(to any, message any, priority gen.MessagePriority, d time.Duration, repeat bool) (gen.CancelFunc, error) {
+	if gen.MetaState(atomic.LoadInt32(&m.state)) == gen.MetaStateTerminated {
+		return nil, gen.ErrNotAllowed
+	}
+	if repeat && d <= 0 {
+		return nil, gen.ErrIncorrect
+	}
+	// reject an unroutable target at schedule time, not on the timer goroutine
+	switch to.(type) {
+	case gen.PID, gen.ProcessID, gen.Alias, gen.Atom:
+	default:
+		return nil, gen.ErrIncorrect
+	}
+
+	if repeat == false {
+		return time.AfterFunc(d, func() {
+			if m.alive() == false {
+				return
+			}
+			if lib.Verbose() {
+				m.log.Trace("send after %s to %s (priority %s)", d, to, priority)
+			}
+			m.send(to, message, priority)
+		}).Stop, nil
+	}
+
+	var stopped atomic.Bool
+	var t *time.Timer
+	// arm far out first, then Reset, so the callback can't read t before it is set
+	t = time.AfterFunc(time.Hour, func() {
+		if stopped.Load() || m.alive() == false {
+			t.Stop()
+			return
+		}
+		if lib.Verbose() {
+			m.log.Trace("send every %s to %s (priority %s)", d, to, priority)
+		}
+		m.send(to, message, priority)
+		if stopped.Load() == false {
+			t.Reset(d)
+		}
+	})
+	t.Reset(d)
+	return func() bool {
+		t.Stop()
+		return stopped.Swap(true) == false
+	}, nil
+}
+
+// alive reports whether the meta process and its parent can still send.
+func (m *meta) alive() bool {
+	if gen.MetaState(atomic.LoadInt32(&m.state)) == gen.MetaStateTerminated {
+		return false
+	}
+	return m.p.isAlive()
 }
 
 func (m *meta) send(to any, message any, priority gen.MessagePriority) error {

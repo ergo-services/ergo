@@ -2,6 +2,7 @@ package mock
 
 import (
 	"sync/atomic"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
@@ -22,21 +23,25 @@ type Meta struct {
 }
 
 type metaOverrides struct {
-	id                func() gen.Alias
-	parent            func() gen.PID
-	send              func(to any, message any) error
-	sendWithPriority  func(to any, message any, priority gen.MessagePriority) error
-	sendResponse      func(to gen.PID, ref gen.Ref, message any) error
-	sendResponseError func(to gen.PID, ref gen.Ref, err error) error
-	spawn             func(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error)
-	sendPriority      func() gen.MessagePriority
-	setSendPriority   func(priority gen.MessagePriority) error
-	env               func(name gen.Env) (any, bool)
-	envList           func() map[gen.Env]any
-	envDefault        func(name gen.Env, def any) any
-	log               func() gen.Log
-	compression       func() bool
-	setCompression    func(enabled bool) error
+	id                    func() gen.Alias
+	parent                func() gen.PID
+	send                  func(to any, message any) error
+	sendWithPriority      func(to any, message any, priority gen.MessagePriority) error
+	sendAfter             func(to any, message any, after time.Duration) (gen.CancelFunc, error)
+	sendWithPriorityAfter func(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error)
+	sendEvery             func(to any, message any, period time.Duration) (gen.CancelFunc, error)
+	sendWithPriorityEvery func(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error)
+	sendResponse          func(to gen.PID, ref gen.Ref, message any) error
+	sendResponseError     func(to gen.PID, ref gen.Ref, err error) error
+	spawn                 func(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error)
+	sendPriority          func() gen.MessagePriority
+	setSendPriority       func(priority gen.MessagePriority) error
+	env                   func(name gen.Env) (any, bool)
+	envList               func() map[gen.Env]any
+	envDefault            func(name gen.Env, def any) any
+	log                   func() gen.Log
+	compression           func() bool
+	setCompression        func(enabled bool) error
 }
 
 var _ gen.MetaProcess = (*Meta)(nil)
@@ -64,6 +69,18 @@ func (m *Meta) OnParent(fn func() gen.PID)                { m.ov.parent = fn }
 func (m *Meta) OnSend(fn func(to any, message any) error) { m.ov.send = fn }
 func (m *Meta) OnSendWithPriority(fn func(to any, message any, priority gen.MessagePriority) error) {
 	m.ov.sendWithPriority = fn
+}
+func (m *Meta) OnSendAfter(fn func(to any, message any, after time.Duration) (gen.CancelFunc, error)) {
+	m.ov.sendAfter = fn
+}
+func (m *Meta) OnSendWithPriorityAfter(fn func(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error)) {
+	m.ov.sendWithPriorityAfter = fn
+}
+func (m *Meta) OnSendEvery(fn func(to any, message any, period time.Duration) (gen.CancelFunc, error)) {
+	m.ov.sendEvery = fn
+}
+func (m *Meta) OnSendWithPriorityEvery(fn func(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error)) {
+	m.ov.sendWithPriorityEvery = fn
 }
 func (m *Meta) OnSendResponse(fn func(to gen.PID, ref gen.Ref, message any) error) {
 	m.ov.sendResponse = fn
@@ -117,6 +134,42 @@ func (m *Meta) SendWithPriority(to any, message any, priority gen.MessagePriorit
 	}
 	m.put(check.Send{From: m.parent, To: to, Message: message, Options: gen.MessageOptions{Priority: priority}, Error: err})
 	return err
+}
+
+func (m *Meta) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
+	cancel, err := gen.CancelFunc(func() bool { return true }), error(nil)
+	if m.ov.sendAfter != nil {
+		cancel, err = m.ov.sendAfter(to, message, after)
+	}
+	m.put(check.SendAfter{From: m.parent, To: to, Message: message, After: after, Error: err})
+	return cancel, err
+}
+
+func (m *Meta) SendWithPriorityAfter(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error) {
+	cancel, err := gen.CancelFunc(func() bool { return true }), error(nil)
+	if m.ov.sendWithPriorityAfter != nil {
+		cancel, err = m.ov.sendWithPriorityAfter(to, message, priority, after)
+	}
+	m.put(check.SendAfter{From: m.parent, To: to, Message: message, After: after, Options: gen.MessageOptions{Priority: priority}, Error: err})
+	return cancel, err
+}
+
+func (m *Meta) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+	cancel, err := gen.CancelFunc(func() bool { return true }), error(nil)
+	if m.ov.sendEvery != nil {
+		cancel, err = m.ov.sendEvery(to, message, period)
+	}
+	m.put(check.SendEvery{From: m.parent, To: to, Message: message, Period: period, Error: err})
+	return cancel, err
+}
+
+func (m *Meta) SendWithPriorityEvery(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error) {
+	cancel, err := gen.CancelFunc(func() bool { return true }), error(nil)
+	if m.ov.sendWithPriorityEvery != nil {
+		cancel, err = m.ov.sendWithPriorityEvery(to, message, priority, period)
+	}
+	m.put(check.SendEvery{From: m.parent, To: to, Message: message, Period: period, Options: gen.MessageOptions{Priority: priority}, Error: err})
+	return cancel, err
 }
 
 func (m *Meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {

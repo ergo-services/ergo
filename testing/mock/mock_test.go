@@ -164,3 +164,30 @@ func TestProcessTSendAfterError(t *testing.T) {
 	check.ErrorIs(t, err, gen.ErrProcessTerminated)
 	p.ShouldSendAfter().To(gen.Atom("x")).ErrorIs(gen.ErrProcessTerminated).Once().Assert()
 }
+
+// The Meta mock records timed sends and honors the SendAfter/SendEvery overrides.
+func TestMetaTTimedSends(t *testing.T) {
+	m := mock.NewMetaT(t)
+	m.OnSendEvery(func(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+		return nil, gen.ErrNotAllowed
+	})
+
+	if _, err := m.SendAfter(gen.Atom("dest"), "late", time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SendWithPriorityAfter(gen.Atom("dest"), "late", gen.MessagePriorityMax, time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.SendEvery(gen.Atom("dest"), "tick", time.Minute); err != gen.ErrNotAllowed {
+		t.Fatalf("SendEvery: got %v, want the override error", err)
+	}
+	if _, err := m.SendWithPriorityEvery(gen.Atom("dest"), "tick", gen.MessagePriorityHigh, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+
+	m.ShouldSendAfter().To(gen.Atom("dest")).Message("late").After(time.Second).Times(2).Assert()
+	m.ShouldSendAfter().Priority(gen.MessagePriorityMax).Once().Assert()
+	m.ShouldSendEvery().To(gen.Atom("dest")).Message("tick").Period(time.Minute).Times(2).Assert()
+	m.ShouldSendEvery().ErrorIs(gen.ErrNotAllowed).Once().Assert()
+	m.ShouldSendEvery().Priority(gen.MessagePriorityHigh).Once().Assert()
+}

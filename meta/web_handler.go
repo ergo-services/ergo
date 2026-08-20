@@ -36,6 +36,14 @@ type webhandler struct {
 	to         atomic.Value // target (PID/ProcessID/Alias); set once in Init
 	terminated atomic.Bool
 	ch         chan error
+
+	// counted on the http server goroutines, read by HandleInspect on the mailbox one
+	requests    atomic.Int64
+	inFlight    atomic.Int64
+	timeouts    atomic.Int64
+	sendFailed  atomic.Int64
+	unavailable atomic.Int64
+	lastRequest atomic.Int64 // unix nano
 }
 
 //
@@ -70,12 +78,55 @@ func (w *webhandler) Terminate(reason error) {
 	close(w.ch)
 }
 
+const webHandlerInspectHelp = "summary keys: state, worker, request_timeout, requests, in_flight, " +
+	"timeouts, send_failed, unavailable, last_request"
+
 func (w *webhandler) HandleInspect(from gen.PID, item ...string) map[string]string {
-	if w.MetaProcess != nil {
-		return nil
+	if len(item) == 0 {
+		return w.inspectSummary()
 	}
+
+	result := map[string]string{}
+	for _, q := range item {
+		if q == "help" {
+			result["help"] = webHandlerInspectHelp
+			continue
+		}
+		result[q] = "<unknown item>"
+	}
+	return result
+}
+
+func (w *webhandler) inspectSummary() map[string]string {
+	state := "running"
+	switch {
+	case w.MetaProcess == nil:
+		state = "not initialized"
+	case w.terminated.Load():
+		state = "terminated"
+	}
+
+	worker := "not set"
+	if to := w.to.Load(); to != nil {
+		worker = fmt.Sprintf("%s", to)
+	}
+
+	last := "never"
+	if at := w.lastRequest.Load(); at > 0 {
+		last = time.Since(time.Unix(0, at)).Round(time.Second).String()
+	}
+
 	return map[string]string{
-		"worker process": fmt.Sprintf("%s", w.to.Load()),
+		"state":           state,
+		"worker":          worker,
+		"request_timeout": w.options.RequestTimeout.String(),
+		"requests":        fmt.Sprintf("%d", w.requests.Load()),
+		"in_flight":       fmt.Sprintf("%d", w.inFlight.Load()),
+		"timeouts":        fmt.Sprintf("%d", w.timeouts.Load()),
+		"send_failed":     fmt.Sprintf("%d", w.sendFailed.Load()),
+		"unavailable":     fmt.Sprintf("%d", w.unavailable.Load()),
+		"last_request":    last,
+		"items":           "help",
 	}
 }
 
@@ -85,20 +136,28 @@ func (w *webhandler) HandleInspect(from gen.PID, item ...string) map[string]stri
 
 func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if w.MetaProcess == nil {
+		w.unavailable.Add(1)
 		http.Error(writer, "Handler is not initialized", http.StatusServiceUnavailable)
 		return
 	}
 
 	if w.terminated.Load() {
+		w.unavailable.Add(1)
 		http.Error(writer, "Handler terminated", http.StatusServiceUnavailable)
 		return
 	}
 
 	to := w.to.Load()
 	if to == nil {
+		w.unavailable.Add(1)
 		http.Error(writer, "Handler is not ready", http.StatusServiceUnavailable)
 		return
 	}
+
+	w.requests.Add(1)
+	w.lastRequest.Store(time.Now().UnixNano())
+	w.inFlight.Add(1)
+	defer w.inFlight.Add(-1)
 
 	ctx, cancel := context.WithTimeout(context.Background(), w.options.RequestTimeout)
 
@@ -113,6 +172,7 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 		Done:     cancel,
 	}
 	if err := w.Send(to, message); err != nil {
+		w.sendFailed.Add(1)
 		w.Log().Error("can not handle HTTP request: %s", err)
 		http.Error(writer, "Bad gateway", http.StatusBadGateway)
 		cancel()
@@ -127,6 +187,7 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 		rw.commitHeader()
 		return
 	case context.DeadlineExceeded:
+		w.timeouts.Add(1)
 		w.Log().Error("handling HTTP-request timed out")
 		rw.timeout()
 	default:

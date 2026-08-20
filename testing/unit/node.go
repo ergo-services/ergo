@@ -248,9 +248,20 @@ func (n *mockNode) routeUnregisterEvent(from gen.PID, name gen.Atom, err error) 
 // schedule records a delayed send and returns a CancelFunc; the harness delivers
 // it when the test fires timers.
 func (n *mockNode) schedule(from gen.PID, to any, message any, after time.Duration, options gen.MessageOptions) gen.CancelFunc {
+	n.rec.Put(check.SendAfter{From: from, To: to, Message: message, After: after, Options: options})
+	return n.armTimer(from, to, message)
+}
+
+// scheduleEvery records a periodic send and returns a CancelFunc; the harness
+// delivers it once when the test fires timers.
+func (n *mockNode) scheduleEvery(from gen.PID, to any, message any, period time.Duration, options gen.MessageOptions) gen.CancelFunc {
+	n.rec.Put(check.SendEvery{From: from, To: to, Message: message, Period: period, Options: options})
+	return n.armTimer(from, to, message)
+}
+
+func (n *mockNode) armTimer(from gen.PID, to any, message any) gen.CancelFunc {
 	tm := &timer{from: from, to: to, message: message}
 	n.timers = append(n.timers, tm)
-	n.rec.Put(check.SendAfter{From: from, To: to, Message: message, After: after, Options: options})
 	return func() bool {
 		if tm.fired || tm.cancelled {
 			return false

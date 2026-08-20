@@ -42,13 +42,32 @@ func TestWebServerLifecycle(t *testing.T) {
 	if _, err := ws.HandleCall(gen.PID{}, gen.Ref{}, "x"); err != nil {
 		t.Fatal(err)
 	}
-	if insp := ws.HandleInspect(gen.PID{}); insp["listener"] == "" {
+	insp := ws.HandleInspect(gen.PID{})
+	if insp["listener"] == "" {
 		t.Fatalf("inspect missing listener: %v", insp)
+	}
+	if insp["state"] != "serving" || insp["tls"] != "false" || insp["handler"] == "" {
+		t.Fatalf("inspect = %v", insp)
+	}
+	if insp["accepted"] == "0" || insp["requests"] == "0" || insp["last_request"] == "never" {
+		t.Fatalf("the served request was not counted: %v", insp)
+	}
+	if insp["errors"] != "0" || insp["last_error"] != "none" {
+		t.Fatalf("a healthy server reports errors: %v", insp)
 	}
 
 	// the http.Server ErrorLog adapter trims the trailing CRLF and logs
 	if n, err := ws.Write([]byte("boom\r\n")); err != nil || n != 6 {
 		t.Fatalf("Write = (%d, %v), want (6, nil)", n, err)
+	}
+	insp = ws.HandleInspect(gen.PID{})
+	if insp["errors"] != "1" || insp["last_error"] != "boom" {
+		t.Fatalf("the error line was not kept: %v", insp)
+	}
+
+	queried := ws.HandleInspect(gen.PID{}, "help", "nonsense")
+	if queried["help"] == "" || queried["nonsense"] != "<unknown item>" {
+		t.Fatalf("queries came out as %v", queried)
 	}
 }
 
@@ -61,9 +80,13 @@ func TestWebHandlerNotInitialized(t *testing.T) {
 		t.Fatalf("code = %d, want 503", rec.Code)
 	}
 
-	// before Init the inspect reports the (unset) worker, message/call are inert
-	if insp := h.HandleInspect(gen.PID{}); insp == nil {
-		t.Fatal("inspect before Init must return a map")
+	// before Init the inspect says so and counts the refusal, message/call are inert
+	insp := h.HandleInspect(gen.PID{})
+	if insp["state"] != "not initialized" {
+		t.Fatalf("inspect before Init = %v", insp)
+	}
+	if insp["worker"] != "not set" || insp["unavailable"] != "1" {
+		t.Fatalf("inspect before Init = %v", insp)
 	}
 	if err := h.HandleMessage(gen.PID{}, "x"); err != nil {
 		t.Fatal(err)
@@ -84,15 +107,27 @@ func TestWebHandlerServeForwardsRequest(t *testing.T) {
 	h := CreateWebHandler(WebHandlerOptions{RequestTimeout: time.Second}).(*webhandler)
 	h.Init(mp)
 
-	// after Init the inspect reports nil (it is wired to a process)
-	if insp := h.HandleInspect(gen.PID{}); insp != nil {
-		t.Fatalf("inspect after Init = %v, want nil", insp)
+	if insp := h.HandleInspect(gen.PID{}); insp["state"] != "running" || insp["requests"] != "0" {
+		t.Fatalf("inspect after Init = %v", insp)
 	}
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
+	}
+
+	// the request is counted, none of it is left in flight, and help names the keys
+	insp := h.HandleInspect(gen.PID{})
+	if insp["requests"] != "1" || insp["in_flight"] != "0" || insp["last_request"] == "never" {
+		t.Fatalf("inspect after a request = %v", insp)
+	}
+	if insp["timeouts"] != "0" || insp["send_failed"] != "0" {
+		t.Fatalf("a served request was counted as a failure: %v", insp)
+	}
+	queried := h.HandleInspect(gen.PID{}, "help", "nonsense")
+	if queried["help"] == "" || queried["nonsense"] != "<unknown item>" {
+		t.Fatalf("queries came out as %v", queried)
 	}
 }
 
@@ -107,6 +142,9 @@ func TestWebHandlerTimeout(t *testing.T) {
 	h.ServeHTTP(rec, httptest.NewRequest("GET", "/", nil))
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("code = %d, want 504", rec.Code)
+	}
+	if insp := h.HandleInspect(gen.PID{}); insp["timeouts"] != "1" {
+		t.Errorf("the timeout was not counted: %v", insp)
 	}
 }
 
