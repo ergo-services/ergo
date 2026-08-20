@@ -191,3 +191,19 @@ func TestMetaTTimedSends(t *testing.T) {
 	m.ShouldSendEvery().ErrorIs(gen.ErrNotAllowed).Once().Assert()
 	m.ShouldSendEvery().Priority(gen.MessagePriorityHigh).Once().Assert()
 }
+
+// The Process and Node mocks record the options RegisterEvent was called with.
+func TestRegisterEventRecordsOptions(t *testing.T) {
+	p := mock.NewProcessT(t)
+	if _, err := p.RegisterEvent("metrics", gen.EventOptions{Notify: true, Buffer: 5}); err != nil {
+		t.Fatal(err)
+	}
+	p.ShouldRegisterEvent().Name("metrics").Notify(true).Buffer(5).Open(false).Once().Assert()
+	p.ShouldRegisterEvent().Notify(false).None().Assert()
+
+	n := mock.NewNodeT(t)
+	if _, err := n.RegisterEvent("commands", gen.EventOptions{Open: true}); err != nil {
+		t.Fatal(err)
+	}
+	n.ShouldRegisterEvent().Name("commands").Open(true).Notify(false).Once().Assert()
+}

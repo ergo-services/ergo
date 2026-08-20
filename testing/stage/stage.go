@@ -1023,7 +1023,7 @@ func (p *recordProcess) DeleteAlias(alias gen.Alias) error {
 
 func (p *recordProcess) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
 	ref, err := p.Process.RegisterEvent(name, options)
-	p.rec.Put(check.RegisterEvent{PID: p.Process.PID(), Name: name, Ref: ref, Error: err})
+	p.rec.Put(check.RegisterEvent{PID: p.Process.PID(), Name: name, Ref: ref, Options: options, Error: err})
 	return ref, err
 }
 

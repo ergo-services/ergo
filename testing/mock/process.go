@@ -926,7 +926,7 @@ func (p *Process) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Re
 	if p.ov.registerEvent != nil {
 		ref, err = p.ov.registerEvent(name, options)
 	}
-	p.put(check.RegisterEvent{PID: p.pid, Name: name, Ref: ref, Error: err})
+	p.put(check.RegisterEvent{PID: p.pid, Name: name, Ref: ref, Options: options, Error: err})
 	return ref, err
 }
 

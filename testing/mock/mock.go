@@ -52,10 +52,13 @@ func (m recorder) put(r check.Record) {
 // for synthesized PIDs/aliases/refs.
 const mockNode = gen.Atom("mock@localhost")
 
-func synthPID(id uint64) gen.PID { return gen.PID{Node: mockNode, ID: id, Creation: 1} }
+// mockCreation is the mock node epoch: timestamp-shaped, so a hand-written PID cannot collide with a minted one.
+const mockCreation int64 = 1700000000
+
+func synthPID(id uint64) gen.PID { return gen.PID{Node: mockNode, ID: id, Creation: mockCreation} }
 func synthAlias(id uint64) gen.Alias {
-	return gen.Alias{Node: mockNode, Creation: 1, ID: [3]uint64{id, 0, 0}}
+	return gen.Alias{Node: mockNode, Creation: mockCreation, ID: [3]uint64{id, 0, 0}}
 }
 func synthRef(id uint64) gen.Ref {
-	return gen.Ref{Node: mockNode, Creation: 1, ID: [3]uint64{id, 0, 0}}
+	return gen.Ref{Node: mockNode, Creation: mockCreation, ID: [3]uint64{id, 0, 0}}
 }

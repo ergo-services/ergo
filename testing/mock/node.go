@@ -835,7 +835,7 @@ func (n *Node) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, 
 	if n.ov.registerEvent != nil {
 		ref, err = n.ov.registerEvent(name, options)
 	}
-	n.put(check.RegisterEvent{PID: n.pid, Name: name, Ref: ref, Error: err})
+	n.put(check.RegisterEvent{PID: n.pid, Name: name, Ref: ref, Options: options, Error: err})
 	return ref, err
 }
 

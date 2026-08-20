@@ -41,7 +41,8 @@ Notice what did *not* happen after `SendMessage`: no wait. The handler ran inlin
 | `DeliverLog` | `HandleLog` (actor registered as a logger) |
 | `DeliverSpan` | `HandleSpan` (actor registered as a tracing exporter) |
 | `Inspect` | `HandleInspect`, returning the reported map |
-| `FireTimers` | scheduled `SendAfter` messages whose target is the actor |
+| `Drain` / `Step` | messages the actor sent to itself: the whole chain, or one hop |
+| `FireTimers` | scheduled `SendAfter` and `SendEvery` messages whose target is the actor |
 | `FireCron` | a registered cron job's `gen.MessageCron` |
 
 A request is the one driver that hands a value back: `Call` drives the actor's `HandleCall` and returns what it responded.
@@ -52,9 +53,20 @@ check.NoError(t, err)
 check.Equal(t, "ready", resp)
 ```
 
-Keep the direction straight here, because it is the most common source of confusion in unit tests: `Call` is you calling *into* the actor. Controlling what the actor's *own* outbound calls return is a different tool, `OnCall`, which comes up below. (One related subtlety: a message the actor sends to itself is recorded as an outgoing send, not looped back into its mailbox - to drive the reaction to it, deliver it yourself with `SendMessage`.)
+Keep the direction straight here, because it is the most common source of confusion in unit tests: `Call` is you calling *into* the actor. Controlling what the actor's *own* outbound calls return is a different tool, `OnCall`, which comes up below. (One related subtlety: a message the actor sends to itself is recorded as an outgoing send and does not loop back into its mailbox on its own. `Drain` delivers it, which comes up right after the drivers.)
 
-`FireTimers` is what makes time-driven behavior deterministic - a periodic tick, a timeout, a retry back-off, a TTL - so a test never sleeps to watch one elapse. Three things it deliberately does not do. It fires every pending timer at once rather than stepping to the next, and a timer the handler re-arms is left for the following call. A timer aimed at another process is marked fired but not delivered, because that message is outward work: assert it with `ShouldSendAfter`. And it advances no clock, so an actor comparing `time.Now()` against a stored timestamp still needs the wall time to have passed - give such a test a millisecond timeout rather than a mocked hour.
+`FireTimers` is what makes time-driven behavior deterministic - a periodic tick, a timeout, a retry back-off, a TTL - so a test never sleeps to watch one elapse. Three things it deliberately does not do. It fires every pending timer at once rather than stepping to the next, and a timer the handler re-arms is left for the following call. A timer aimed at another process is marked fired but not delivered, because that message is outward work: assert it with `ShouldSendAfter`, or `ShouldSendEvery` for a periodic one. And it advances no clock, so an actor comparing `time.Now()` against a stored timestamp still needs the wall time to have passed - give such a test a millisecond timeout rather than a mocked hour.
+
+The idiomatic actor does almost nothing in `Init`. `Call`, `Link`, `Monitor` and `RegisterName` are all unavailable in the Init state, so an actor that needs any of them posts a message to itself and does the real setup in the handler that receives it. A live node delivers that message, and the chain it starts, with no help. In unit nothing is delivered until the test asks, and `Drain` is the ask:
+
+```go
+sub, _ := unit.Spawn(t, factorySession, gen.ProcessOptions{})
+sub.Drain() // the Init chain has run, as it would on a live node
+
+check.Equal(t, "warm", sub.Behavior().(*session).state)
+```
+
+`Drain` returns how many messages it delivered and keeps going while handlers post further messages to themselves, so a chain of hops costs one call. `Step` delivers a single hop, for when the state in the middle of a chain is the thing under test. Self-addressed means by PID, by the actor's registered name, or by one of its aliases; anything the actor sent elsewhere is recorded and never looped back. Priority is honored the way a live mailbox honors it - an urgent self-send is handled before a normal one queued earlier - and draining stops if the actor terminates mid-chain. The self-send is still recorded, so "did it schedule its own startup" stays assertable with `ShouldSend`.
 
 ## Setting Up the Actor's World
 
@@ -94,6 +106,14 @@ sub.OnSend("svc").FailFunc(func() error {
     return nil
 })
 ```
+
+Subscribing to an event carries a return value that is easy to overlook. `LinkEvent` and `MonitorEvent` hand back the producer's buffered events, the catch-up a new subscriber receives (see [Events](../basics/events.md)). An actor that answers a client from that catch-up instead of waiting for the next publish has a branch reachable only by deciding what the subscription returned:
+
+```go
+sub.OnMonitorEvent(gen.Event{Name: "metrics"}).Return([]gen.MessageEvent{{Message: 42}})
+```
+
+Whether the actor registered its own event as notifying, and with what buffer, is a question for the records rather than the stubs: `ShouldRegisterEvent` filters on `Notify`, `Buffer` and `Open`, so "it asked to be told when the first subscriber arrives" is assertable on its own.
 
 Two things hold for every stub. Whatever it decides, the action is still recorded - the stub shapes the return value, it does not hide the send from `ShouldSend`. And a stub you never set is permissive: an unstubbed `Call` returns `(nil, nil)`, a value-producing operation returns a synthetic value, an error-only one succeeds. The single loud exception is an unstubbed *resolve* through the mock network, because a forgotten discovery stub is almost always a bug, not an intended default.
 
@@ -145,7 +165,7 @@ The node's type registry is modelled rather than stubbed away: `RegisterTypes` s
 
 With the world set up and an input driven, you assert on the result. Beyond the record assertions you already know from [check](check.md), two things are worth calling out.
 
-The PIDs `unit` hands back are honest. Every spawn gets a distinct, well-formed `gen.PID` under the node's name - spawn a hundred children and you get a hundred different PIDs, as a real node would. So you can capture a generated value and assert it flows correctly through later behavior:
+The PIDs `unit` hands back are honest. Every spawn gets a distinct, well-formed `gen.PID` under the node's name - spawn a hundred children and you get a hundred different PIDs, as a real node would. They carry a timestamp-shaped creation the way a live node's do, so a PID a test writes by hand to stand for something foreign stays foreign instead of quietly matching one the harness minted. So you can capture a generated value and assert it flows correctly through later behavior:
 
 ```go
 sub.SendMessage(client, "spawn-worker")
@@ -178,6 +198,8 @@ m.ShouldSend().To("client").Message("got:hello").Once().Assert()
 ```
 
 A meta shares its parent's journal and its egress is observed as coming from the parent PID, exactly how the runtime routes it. `DeliverMessage`, `Request`, `Inspect`, and `Terminate` drive the matching callbacks, and the state gates apply - `SendResponse` is rejected outside a running callback, just as in production.
+
+A meta that schedules work with [`SendAfter` or `SendEvery`](../basics/meta-process.md) records the schedule like any other egress, and firing it splits along the same line the runtime draws. A tick the meta addressed to itself is delivered by `m.FireTimers()`, into its own `HandleMessage`. A heartbeat it addressed to the parent actor belongs to the parent, so `sub.FireTimers()` delivers that one, and `sub.Drain()` carries anything the meta sent the parent outright.
 
 The meta's outbound calls are stubbed on its own scope, not the parent's: `m.OnSend` and `m.OnSpawnMeta` configure only this meta, and the parent actor's stubs do not reach it. As with the actor, a stub must be set before the egress happens, so to shape what the meta does in its own `Init`, prepare it first: `sub.PrepareMeta(...)` builds the meta without running `Init`, you set its stubs, then `m.Run()` runs `Init`. `SpawnMeta` is `PrepareMeta` followed by `Run`.
 

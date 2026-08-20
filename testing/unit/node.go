@@ -26,6 +26,7 @@ type mockNode struct {
 	rec        *check.Recorder
 	stubs      *stubs
 	timers     []*timer
+	sends      []*pendingSend
 	nodeName   gen.Atom
 	creation   int64
 	logLevel   gen.LogLevel
@@ -57,6 +58,19 @@ type procEntry struct {
 	state  gen.ProcessState
 }
 
+// mockCreation is the harness node epoch: timestamp-shaped, so a hand-written PID cannot collide with a minted one.
+const mockCreation int64 = 1700000000
+
+// pendingSend is a message the actor sent; a self-addressed one is delivered when
+// the test steps or drains.
+type pendingSend struct {
+	from      gen.PID
+	to        any
+	message   any
+	priority  gen.MessagePriority
+	delivered bool
+}
+
 type timer struct {
 	from      gen.PID
 	to        any
@@ -79,7 +93,7 @@ func newMockNode(t testing.TB, name gen.Atom, o gen.NodeOptions) *mockNode {
 		rec:      check.NewRecorder(),
 		stubs:    newStubs(),
 		nodeName: name,
-		creation: 1,
+		creation: mockCreation,
 		logLevel: level,
 		nextID:   1000,
 		env:      env,
@@ -114,6 +128,9 @@ func (n *mockNode) synthRef() gen.Ref {
 func (n *mockNode) routeSend(st *stubs, from gen.PID, to any, message any, options gen.MessageOptions) error {
 	err, _ := resolveFail(st.send, to)
 	n.rec.Put(check.Send{From: from, To: to, Message: message, Options: options, Error: err})
+	if err == nil {
+		n.sends = append(n.sends, &pendingSend{from: from, to: to, message: message, priority: options.Priority})
+	}
 	return err
 }
 
@@ -197,6 +214,35 @@ func (n *mockNode) routeLink(st *stubs, from gen.PID, target any) error {
 	n.rec.Put(check.Link{From: from, Target: target, Error: err})
 	return err
 }
+
+// routeLinkEvent is routeLink for an event subscription, which also returns the
+// buffered events the producer replays.
+func (n *mockNode) routeLinkEvent(st *stubs, from gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+	buffer, err, ok := resolveEventSubscribe(st.linkev, event)
+	if ok == false {
+		err, _ = resolveFail(st.link, event)
+	}
+	n.rec.Put(check.Link{From: from, Target: event, Error: err})
+	if err != nil {
+		return nil, err
+	}
+	return buffer, nil
+}
+
+// routeMonitorEvent is routeMonitor for an event subscription, which also returns
+// the buffered events the producer replays.
+func (n *mockNode) routeMonitorEvent(st *stubs, from gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+	buffer, err, ok := resolveEventSubscribe(st.monev, event)
+	if ok == false {
+		err, _ = resolveFail(st.monitor, event)
+	}
+	n.rec.Put(check.Monitor{From: from, Target: event, Error: err})
+	if err != nil {
+		return nil, err
+	}
+	return buffer, nil
+}
+
 func (n *mockNode) routeUnlink(st *stubs, from gen.PID, target any) error {
 	err, _ := resolveFail(st.unlink, target)
 	n.rec.Put(check.Unlink{From: from, Target: target, Error: err})
@@ -232,12 +278,12 @@ func (n *mockNode) routeDeleteAlias(from gen.PID, alias gen.Alias, err error) er
 	return err
 }
 
-func (n *mockNode) routeRegisterEvent(st *stubs, from gen.PID, name gen.Atom) (gen.Ref, error) {
+func (n *mockNode) routeRegisterEvent(st *stubs, from gen.PID, name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
 	ref, err, ok := st.resolveRegisterEvent(name)
 	if ok == false {
 		ref = n.synthRef()
 	}
-	n.rec.Put(check.RegisterEvent{PID: from, Name: name, Ref: ref, Error: err})
+	n.rec.Put(check.RegisterEvent{PID: from, Name: name, Ref: ref, Options: options, Error: err})
 	return ref, err
 }
 func (n *mockNode) routeUnregisterEvent(from gen.PID, name gen.Atom, err error) error {
@@ -519,7 +565,7 @@ func (n *mockNode) UnregisterName(name gen.Atom) (gen.PID, error) {
 // events
 
 func (n *mockNode) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
-	return n.routeRegisterEvent(n.stubs, n.nodePID(), name)
+	return n.routeRegisterEvent(n.stubs, n.nodePID(), name, options)
 }
 func (n *mockNode) UnregisterEvent(name gen.Atom) error {
 	var err error

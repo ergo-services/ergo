@@ -305,6 +305,18 @@ func (a *RegisterEventAssert) Ref(ref gen.Ref) *RegisterEventAssert {
 	a.Where(func(r RegisterEvent) bool { return r.Ref == ref })
 	return a
 }
+func (a *RegisterEventAssert) Notify(notify bool) *RegisterEventAssert {
+	a.Where(func(r RegisterEvent) bool { return r.Options.Notify == notify })
+	return a
+}
+func (a *RegisterEventAssert) Buffer(size int) *RegisterEventAssert {
+	a.Where(func(r RegisterEvent) bool { return r.Options.Buffer == size })
+	return a
+}
+func (a *RegisterEventAssert) Open(open bool) *RegisterEventAssert {
+	a.Where(func(r RegisterEvent) bool { return r.Options.Open == open })
+	return a
+}
 func (a *RegisterEventAssert) Error(target error) *RegisterEventAssert {
 	a.Where(func(r RegisterEvent) bool { return r.Error == target })
 	return a
@@ -737,6 +749,10 @@ func (a *SendEventAssert) From(p gen.PID) *SendEventAssert {
 }
 func (a *SendEventAssert) Name(name gen.Atom) *SendEventAssert {
 	a.Where(func(r SendEvent) bool { return r.Name == name })
+	return a
+}
+func (a *SendEventAssert) Message(v any) *SendEventAssert {
+	a.Where(func(r SendEvent) bool { return reflect.DeepEqual(r.Message, v) })
 	return a
 }
 func (a *SendEventAssert) Token(token gen.Ref) *SendEventAssert {

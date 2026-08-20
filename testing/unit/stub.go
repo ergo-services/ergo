@@ -20,6 +20,8 @@ type stubs struct {
 	remote    []*RemoteSpawnStub
 	alias     []*CreateAliasStub
 	regev     []*RegisterEventStub
+	linkev    []*EventSubscribeStub
+	monev     []*EventSubscribeStub
 	send      []*FailStub
 	link      []*FailStub
 	unlink    []*FailStub
@@ -245,6 +247,52 @@ func (st *stubs) resolveRegisterEvent(name gen.Atom) (gen.Ref, error, bool) {
 		}
 	}
 	return gen.Ref{}, nil, false
+}
+
+// LinkEvent / MonitorEvent
+
+// EventSubscribeStub stubs LinkEvent/MonitorEvent (matched by event): it sets the
+// buffered events the subscription replays, or makes the subscription fail. A stub
+// event with an empty Node matches the event of that name on any node.
+type EventSubscribeStub struct {
+	event  gen.Event
+	buffer []gen.MessageEvent
+	err    error
+}
+
+// OnLinkEvent stubs LinkEvent of the given event.
+func (a *Subject) OnLinkEvent(event gen.Event) *EventSubscribeStub {
+	s := &EventSubscribeStub{event: event}
+	a.stubs.linkev = append(a.stubs.linkev, s)
+	return s
+}
+
+// OnMonitorEvent stubs MonitorEvent of the given event.
+func (a *Subject) OnMonitorEvent(event gen.Event) *EventSubscribeStub {
+	s := &EventSubscribeStub{event: event}
+	a.stubs.monev = append(a.stubs.monev, s)
+	return s
+}
+
+// Return makes the subscription return buffer, as a live producer replays its
+// ring buffer to a new subscriber.
+func (s *EventSubscribeStub) Return(buffer []gen.MessageEvent) { s.buffer = buffer }
+
+// Fail makes the subscription return err.
+func (s *EventSubscribeStub) Fail(err error) { s.err = err }
+
+func resolveEventSubscribe(list []*EventSubscribeStub, event gen.Event) ([]gen.MessageEvent, error, bool) {
+	for i := len(list) - 1; i >= 0; i-- {
+		st := list[i]
+		if st.event.Name != event.Name {
+			continue
+		}
+		if st.event.Node != "" && st.event.Node != event.Node {
+			continue
+		}
+		return st.buffer, st.err, true
+	}
+	return nil, nil, false
 }
 
 // error-only operations (Send / Link / Monitor / SendExit)

@@ -455,7 +455,7 @@ func (p *mockProcess) RegisterEvent(name gen.Atom, opts gen.EventOptions) (gen.R
 	if p.stateIR() == false {
 		return gen.Ref{}, gen.ErrNotAllowed
 	}
-	ref, err := p.node.routeRegisterEvent(p.stubs, p.pid, name)
+	ref, err := p.node.routeRegisterEvent(p.stubs, p.pid, name, opts)
 	if err == nil {
 		p.events = append(p.events, name)
 	}
@@ -755,7 +755,7 @@ func (p *mockProcess) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return nil, p.node.routeLink(p.stubs, p.pid, target)
+	return p.node.routeLinkEvent(p.stubs, p.pid, target)
 }
 func (p *mockProcess) UnlinkEvent(target gen.Event) error {
 	if p.stateIR() == false {
@@ -828,7 +828,7 @@ func (p *mockProcess) MonitorEvent(event gen.Event) ([]gen.MessageEvent, error) 
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return nil, p.node.routeMonitor(p.stubs, p.pid, event)
+	return p.node.routeMonitorEvent(p.stubs, p.pid, event)
 }
 func (p *mockProcess) DemonitorEvent(event gen.Event) error {
 	if p.stateIR() == false {

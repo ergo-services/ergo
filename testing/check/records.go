@@ -139,15 +139,17 @@ func (r DeleteAlias) String() string {
 // RegisterEvent is an event producer registered (or attempted) by a process via
 // RegisterEvent (egress). Ref is the producer token returned on success.
 type RegisterEvent struct {
-	PID   gen.PID
-	Name  gen.Atom
-	Ref   gen.Ref
-	Error error
+	PID     gen.PID
+	Name    gen.Atom
+	Ref     gen.Ref
+	Options gen.EventOptions
+	Error   error
 }
 
 func (RegisterEvent) Kind() string { return "event_registered" }
 func (r RegisterEvent) String() string {
-	return fmt.Sprintf("RegisterEvent(pid=%s name=%s err=%v)", r.PID, r.Name, r.Error)
+	return fmt.Sprintf("RegisterEvent(pid=%s name=%s notify=%v buffer=%d open=%v err=%v)",
+		r.PID, r.Name, r.Options.Notify, r.Options.Buffer, r.Options.Open, r.Error)
 }
 
 // UnregisterEvent is an event producer removed (or attempted) by a process via

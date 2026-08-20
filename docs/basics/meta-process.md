@@ -227,8 +227,30 @@ Different operations are available in different states:
 
 **Sleep and Running** (not Terminated):
 - `Spawn()` - Both goroutines can spawn child meta-processes
+- `SendAfter()`, `SendEvery()` - Timers are armed from `Init()` and from the External Reader
 
 The External Reader operates in Sleep state and has minimal capabilities - just sending messages and spawning children. The Actor Handler operates in Running state and has full capabilities for processing requests.
+
+## Timed and Periodic Messages
+
+A meta-process often needs a heartbeat, a flush on an interval, or a deadline for a handshake that never completed. The tempting fix inside `Start()` is a `time.Ticker` in one more goroutine, and it is wrong for the same reason it is wrong in a process: that goroutine belongs to neither the External Reader nor the Actor Handler, so whatever it touches escapes the two-goroutine discipline the meta-process exists to preserve.
+
+Let the meta-process message instead. `SendAfter` schedules one message after a delay, `SendEvery` repeats it on a period reusing a single timer, and both deliver through a mailbox. Addressed to `Parent()` the tick lands in the parent actor's `HandleMessage`; addressed to `ID()` it wakes the meta-process's own Actor Handler, one message at a time, like any other message.
+
+Both are available while the meta-process is asleep, which is what makes them usable at all: `Init()` and the External Reader arm them without being inside a callback.
+
+```go
+func (h *Handler) Init(process gen.MetaProcess) error {
+    h.MetaProcess = process
+    cancel, err := h.SendEvery(h.Parent(), Heartbeat{ID: h.ID()}, 5*time.Second)
+    h.stopHeartbeat = cancel
+    return err
+}
+```
+
+Keeping the returned cancel function is optional for shutdown. A scheduled message is dropped once the meta-process or its parent terminates, so a heartbeat stops on its own when the connection behind it closes and `Terminate()` has nothing to unwind. Cancel explicitly when a schedule should end while the meta-process keeps running: the handshake beat its own deadline, the resource being polled went away. The cancel function reports whether it actually cancelled anything, so a one-shot that already fired answers false.
+
+Targets are the ones `Send()` accepts: a PID, a `gen.ProcessID`, an alias, or a registered name as a `gen.Atom`. A period of zero or less is rejected instead of becoming a busy loop.
 
 ## Shared State
 

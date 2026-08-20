@@ -517,22 +517,128 @@ func (s *Subject) FireTimers() int {
 		}
 		tm.fired = true
 		fired++
-		if toSelf(tm.to, s.process.pid, s.process.name) {
+		if s.addressesSelf(tm.to) {
 			s.deliver(tm.from, tm.message, gen.MailboxMessageTypeRegular, gen.Ref{})
 		}
 	}
 	return fired
 }
 
-// toSelf reports whether a SendAfter target addresses the process under test.
-func toSelf(to any, pid gen.PID, name gen.Atom) bool {
+// addressesSelf reports whether a send target addresses the process under test,
+// by PID, registered name, or one of its aliases.
+func (s *Subject) addressesSelf(to any) bool {
 	switch t := to.(type) {
 	case gen.PID:
-		return t == pid
+		return t == s.process.pid
 	case gen.Atom:
-		return name != "" && t == name
+		return s.process.name != "" && t == s.process.name
+	case string:
+		return s.process.name != "" && gen.Atom(t) == s.process.name
 	case gen.ProcessID:
-		return name != "" && t.Name == name
+		return s.process.name != "" && t.Name == s.process.name
+	case gen.Alias:
+		for _, alias := range s.process.aliases {
+			if alias == t {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+// selfTarget normalizes a send target into the Target a delivered mailbox message
+// carries, so an actor in split-handler mode dispatches as the runtime would.
+func selfTarget(to any) any {
+	switch t := to.(type) {
+	case string:
+		return gen.Atom(t)
+	case gen.ProcessID:
+		return t.Name
+	}
+	return to
+}
+
+// drainLimit bounds Drain so an actor that keeps sending to itself fails loudly
+// instead of hanging the test.
+const drainLimit = 1000
+
+// Step delivers one message the actor sent to itself and has not received yet, the
+// highest-priority one first, and reports whether it delivered one. Messages the
+// actor sent elsewhere are left alone: the harness only records those.
+func (s *Subject) Step() bool {
+	s.t.Helper()
+	s.requireInited("Step")
+	if s.terminated {
+		return false
+	}
+	var next *pendingSend
+	for _, ps := range s.node.sends {
+		if ps.delivered || s.addressesSelf(ps.to) == false {
+			continue
+		}
+		if next == nil || ps.priority > next.priority {
+			next = ps
+		}
+	}
+	if next == nil {
+		return false
+	}
+	next.delivered = true
+	s.pushSelf(next.from, selfTarget(next.to), next.message, next.priority)
+	s.run()
+	return true
+}
+
+// Drain delivers every message the actor sent to itself, including the ones
+// produced while draining, and returns how many it delivered. This is what a live
+// node does on its own for the idiomatic "Init only posts to itself" actor.
+//
+// Each round pushes the whole undelivered batch into the mailbox before running the
+// process, so priority ordering works out as it does on a live node: an urgent
+// self-send handled before a normal one queued earlier.
+func (s *Subject) Drain() int {
+	s.t.Helper()
+	s.requireInited("Drain")
+	hops := 0
+	for {
+		pushed := 0
+		for _, ps := range s.node.sends {
+			if ps.delivered || s.addressesSelf(ps.to) == false {
+				continue
+			}
+			ps.delivered = true
+			s.pushSelf(ps.from, selfTarget(ps.to), ps.message, ps.priority)
+			pushed++
+		}
+		if pushed == 0 {
+			return hops
+		}
+		hops += pushed
+		if hops > drainLimit {
+			s.t.Fatalf("unit: Drain ran %d hops; the actor keeps sending to itself", drainLimit)
+			return hops
+		}
+		s.run()
+		if s.terminated {
+			return hops
+		}
+	}
+}
+
+// pushSelf queues a self-addressed message on the queue for its priority, keeping
+// the Target that drives split-handler dispatch. The caller runs the process.
+func (s *Subject) pushSelf(from gen.PID, target any, message any, priority gen.MessagePriority) {
+	mm := gen.TakeMailboxMessage()
+	mm.From = from
+	mm.Type = gen.MailboxMessageTypeRegular
+	mm.Target = target
+	mm.Message = message
+	switch priority {
+	case gen.MessagePriorityMax:
+		s.process.mailbox.Urgent.Push(mm)
+	case gen.MessagePriorityHigh:
+		s.process.mailbox.System.Push(mm)
+	default:
+		s.process.mailbox.Main.Push(mm)
+	}
 }
