@@ -1167,7 +1167,7 @@ type ProcessInfo struct {
 
 	// MailboxSize is the maximum mailbox queue length.
 	// Zero means unlimited.
-	MailboxSize int64
+	MailboxSize int64 `sentinel:"0 = unlimited"`
 
 	// MailboxQueues shows current message counts in each mailbox queue.
 	MailboxQueues MailboxQueues
@@ -1179,10 +1179,10 @@ type ProcessInfo struct {
 	MessagesOut uint64
 
 	// RunningTime is the cumulative time spent in Running state (nanoseconds).
-	RunningTime uint64
+	RunningTime uint64 `unit:"ns"`
 
 	// InitTime is the time spent in ProcessInit callback (nanoseconds).
-	InitTime uint64
+	InitTime uint64 `unit:"ns"`
 
 	// Wakeups is the cumulative number of times the process transitioned
 	// from Sleep to Running state to handle messages.
@@ -1195,13 +1195,13 @@ type ProcessInfo struct {
 	MessagePriority MessagePriority
 
 	// Uptime is the process uptime in seconds since creation.
-	Uptime int64
+	Uptime int64 `unit:"sec"`
 
 	// State is the current process state (Init, Sleep, Running, WaitResponse, Terminated, Zombee).
 	State ProcessState
 
 	// StateTime is the elapsed time since the process entered its current state (nanoseconds).
-	StateTime int64
+	StateTime int64 `unit:"ns"`
 
 	// Parent is the PID of the parent process that spawned this process.
 	Parent PID
@@ -1217,7 +1217,7 @@ type ProcessInfo struct {
 
 	// Env contains process environment variables.
 	// Only populated if NodeOptions.Security.ExposeEnvInfo is enabled.
-	Env map[Env]any
+	Env map[Env]any `sentinel:"empty unless NodeOptions.Security.ExposeEnvInfo is enabled"`
 
 	// Aliases is the list of aliases associated with this process.
 	Aliases []Alias
@@ -1303,26 +1303,26 @@ type ProcessShortInfo struct {
 	// MailboxLatency is the maximum latency across all mailbox queues (nanoseconds).
 	// Returns -1 if built without -tags=latency (measurement disabled).
 	// Returns 0 if all queues are empty.
-	MailboxLatency int64
+	MailboxLatency int64 `unit:"ns" sentinel:"-1 = built without -tags=latency, 0 = all queues empty"`
 
 	// RunningTime is the cumulative time spent in Running state (nanoseconds).
-	RunningTime uint64
+	RunningTime uint64 `unit:"ns"`
 
 	// InitTime is the time spent in ProcessInit callback (nanoseconds).
-	InitTime uint64
+	InitTime uint64 `unit:"ns"`
 
 	// Wakeups is the cumulative number of times the process transitioned
 	// from Sleep to Running state to handle messages.
 	Wakeups uint64
 
 	// Uptime is the process uptime in seconds since creation.
-	Uptime int64
+	Uptime int64 `unit:"sec"`
 
 	// State is the current process state (Init, Sleep, Running, WaitResponse, Terminated, Zombee).
 	State ProcessState
 
 	// StateTime is the elapsed time since the process entered its current state (nanoseconds).
-	StateTime int64
+	StateTime int64 `unit:"ns"`
 
 	// Parent is the PID of the parent process that spawned this process.
 	Parent PID
@@ -1423,14 +1423,17 @@ type MailboxQueues struct {
 
 	// LatencyMain is the latency of the oldest message in the Main queue (nanoseconds).
 	// Returns -1 if built without -tags=latency.
-	LatencyMain int64
+	LatencyMain int64 `unit:"ns" sentinel:"-1 = built without -tags=latency"`
 
 	// LatencySystem is the latency of the oldest message in the System queue (nanoseconds).
-	LatencySystem int64
+	// Returns -1 if built without -tags=latency.
+	LatencySystem int64 `unit:"ns" sentinel:"-1 = built without -tags=latency"`
 
 	// LatencyUrgent is the latency of the oldest message in the Urgent queue (nanoseconds).
-	LatencyUrgent int64
+	// Returns -1 if built without -tags=latency.
+	LatencyUrgent int64 `unit:"ns" sentinel:"-1 = built without -tags=latency"`
 
 	// LatencyLog is the latency of the oldest message in the Log queue (nanoseconds).
-	LatencyLog int64
+	// Returns -1 if built without -tags=latency.
+	LatencyLog int64 `unit:"ns" sentinel:"-1 = built without -tags=latency"`
 }

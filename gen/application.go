@@ -323,7 +323,7 @@ type ApplicationInfo struct {
 
 	// Env is the application's effective environment (see Application.Env).
 	// Only populated if NodeOptions.Security.ExposeEnvInfo is enabled.
-	Env map[Env]any
+	Env map[Env]any `sentinel:"empty unless NodeOptions.Security.ExposeEnvInfo is enabled"`
 
 	// Depends lists application dependencies.
 	Depends ApplicationDepends

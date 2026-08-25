@@ -241,7 +241,7 @@ type AcceptorInfo struct {
 	Interface string
 
 	// MaxMessageSize is the message size limit for this acceptor (bytes).
-	MaxMessageSize int
+	MaxMessageSize int `unit:"bytes"`
 
 	// Flags shows network capabilities for this acceptor.
 	Flags NetworkFlags

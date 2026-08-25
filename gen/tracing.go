@@ -23,6 +23,51 @@ const (
 	TracingFlagInherit TracingFlags = 1 << 3 // children inherit tracing
 )
 
+// Names lists the flags that are set, in declaration order. A bit this build does not know is
+// reported as flag#N rather than dropped, so reading a newer node loses nothing.
+func (tf TracingFlags) Names() []string {
+	out := []string{}
+	rest := tf
+	for _, known := range []struct {
+		flag TracingFlags
+		name string
+	}{
+		{TracingFlagSend, "send"},
+		{TracingFlagReceive, "receive"},
+		{TracingFlagProcs, "procs"},
+		{TracingFlagInherit, "inherit"},
+	} {
+		if tf&known.flag != 0 {
+			out = append(out, known.name)
+			rest &^= known.flag
+		}
+	}
+	for bit := 0; bit < 32; bit++ {
+		if rest&(TracingFlags(1)<<uint(bit)) != 0 {
+			out = append(out, fmt.Sprintf("flag#%d", bit))
+		}
+	}
+	return out
+}
+
+// String joins the set flags, so a log line reads "send|procs" instead of a number.
+func (tf TracingFlags) String() string {
+	names := tf.Names()
+	if len(names) == 0 {
+		return ""
+	}
+	out := names[0]
+	for _, name := range names[1:] {
+		out += "|" + name
+	}
+	return out
+}
+
+// MarshalJSON answers with the set of names: a bitmask as a bare number tells a reader nothing.
+func (tf TracingFlags) MarshalJSON() ([]byte, error) {
+	return json.Marshal(tf.Names())
+}
+
 // TracingSpan represents a single observation point
 // in the message lifecycle.
 type TracingSpan struct {
