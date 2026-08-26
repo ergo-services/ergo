@@ -163,6 +163,7 @@ type RequestGetProcessList struct {
 type ResponseGetProcessList struct {
 	Node      gen.Atom
 	Processes []gen.ProcessShortInfo
+	Truncated bool
 	Error     error
 }
 
@@ -320,6 +321,7 @@ type ResponseGetGoroutines struct {
 
 type RequestGetHeapProfile struct {
 	MinBytes int64
+	Limit    int
 }
 
 type HeapRecord struct {
@@ -343,6 +345,7 @@ type ResponseGetHeapProfile struct {
 	TotalInuse   int64
 	TotalAlloc   int64
 	TotalObjects int64
+	Truncated    int
 	Error        error
 }
 
@@ -388,6 +391,7 @@ type RequestGetProcessRange struct {
 type ResponseGetProcessRange struct {
 	Node      gen.Atom
 	Processes []gen.ProcessShortInfo
+	Truncated bool
 	Error     error
 }
 type ResponseInspectProcessRange struct {
@@ -528,7 +532,7 @@ type ResponseGetSubtree struct {
 	Node      gen.Atom
 	PID       gen.PID
 	Processes []gen.ProcessShortInfo
-	Truncated bool
+	Truncated int
 	Error     error
 }
 
@@ -628,9 +632,14 @@ type MessageInspectTracing struct {
 
 // types
 
-type RequestGetTypes struct{}
+type RequestGetTypes struct {
+	Name  string
+	Kind  string
+	Limit int
+}
 
 type ResponseGetTypes struct {
-	Types []gen.RegisteredTypeInfo
-	Error error
+	Types     []gen.RegisteredTypeInfo
+	Truncated int
+	Error     error
 }

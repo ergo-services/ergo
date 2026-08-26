@@ -109,6 +109,10 @@ func captureGoroutines(req RequestGetGoroutines) ResponseGetGoroutines {
 		}
 		g.Count++
 		g.IDs = append(g.IDs, p.id)
+
+		if p.waitSec > g.WaitSec {
+			g.WaitSec = p.waitSec
+		}
 	}
 
 	groups := make([]GoroutineGroup, 0, len(order))
@@ -183,9 +187,21 @@ func parseFuncLines(block string) []string {
 		if len(lines[i]) > 0 && lines[i][0] != '\t' {
 			f := strings.TrimSpace(lines[i])
 			if f != "" {
-				funcs = append(funcs, f)
+				funcs = append(funcs, normalizeFuncLine(f))
 			}
 		}
 	}
 	return funcs
+}
+
+func normalizeFuncLine(line string) string {
+	if strings.HasSuffix(line, ")") {
+		if open := strings.LastIndexByte(line, '('); open >= 0 && open < len(line)-2 {
+			line = line[:open] + "(...)"
+		}
+	}
+	if at := strings.LastIndex(line, " in goroutine "); at > 0 {
+		line = line[:at]
+	}
+	return line
 }

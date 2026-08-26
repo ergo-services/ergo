@@ -1089,7 +1089,9 @@ func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.Process
 	psi := []gen.ProcessShortInfo{}
 	pid := n.corePID
 
-	for id := from; id != to && limit > 0; id += step {
+	// the bound is compared by direction, not by equality: a start beyond the newest id would
+	// never reach it going up, and the walk would run to the end of int64
+	for id := from; limit > 0 && ((step > 0 && id < to) || (step < 0 && id > to)); id += step {
 		pid.ID = uint64(id)
 		v, found := n.processes.Load(pid)
 		if found == false {

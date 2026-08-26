@@ -153,10 +153,14 @@ func (i *inspect) responseProcessList(r RequestGetProcessList) ResponseGetProces
 		predicate = append(predicate, filter.match)
 	}
 
-	list, err := i.Node().ProcessListShortInfo(start, limit, predicate...)
+	list, err := i.Node().ProcessListShortInfo(start, limit+1, predicate...)
 	if err != nil {
 		out.Error = err
 		return out
+	}
+	if len(list) > limit {
+		out.Truncated = true
+		list = list[:limit]
 	}
 
 	slices.SortStableFunc(list, func(a, b gen.ProcessShortInfo) int {
@@ -184,8 +188,12 @@ func (i *inspect) responseProcessRange(r RequestGetProcessRange) ResponseGetProc
 		if filter.match(info) == false {
 			return true
 		}
+		if len(list) == limit {
+			out.Truncated = true
+			return false
+		}
 		list = append(list, info)
-		return len(list) < limit
+		return true
 	})
 	if err != nil {
 		out.Error = err
@@ -207,6 +215,32 @@ func (i *inspect) responseProcess(r RequestGetProcess) ResponseGetProcess {
 func (i *inspect) responseMeta(r RequestGetMeta) ResponseGetMeta {
 	info, err := i.MetaInfo(r.Meta)
 	return ResponseGetMeta{Node: i.Node().Name(), Info: info, Error: err}
+}
+
+func (i *inspect) responseTypes(r RequestGetTypes) ResponseGetTypes {
+	registered := i.Node().Network().RegisteredTypes()
+
+	types := registered
+	if r.Name != "" || r.Kind != "" {
+		types = []gen.RegisteredTypeInfo{}
+		for _, t := range registered {
+			if r.Name != "" &&
+				strings.Contains(strings.ToLower(t.Name), strings.ToLower(r.Name)) == false {
+				continue
+			}
+			if r.Kind != "" && strings.EqualFold(t.Kind, r.Kind) == false {
+				continue
+			}
+			types = append(types, t)
+		}
+	}
+
+	out := ResponseGetTypes{Types: types}
+	if r.Limit > 0 && len(types) > r.Limit {
+		out.Truncated = len(types) - r.Limit
+		out.Types = types[:r.Limit]
+	}
+	return out
 }
 
 func (i *inspect) responseApplicationList() ResponseGetApplicationList {

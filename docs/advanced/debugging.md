@@ -188,6 +188,43 @@ The output shows:
 - The identifier label (PID for actors, Alias for meta processes)
 - The exact location in your code where the goroutine is currently executing
 
+### Labels In A Plain Goroutine Dump
+
+The `?debug=1` profile above groups goroutines by stack and prints the labels as `# labels:`
+lines. A plain dump - `?debug=2`, `runtime.Stack`, or the traceback of an unrecovered panic -
+is a different format, and until Go 1.27 it carried no labels at all.
+
+Since Go 1.27 the labels are printed in the header line of every goroutine, after the state:
+
+```
+goroutine 38669 [chan receive] {pid: "<ABC123.0.1041>"}:
+ergo.services/ergo/act.(*Actor).ProcessRun(0x140003c2000)
+	/path/act/actor.go:259 +0x758
+...
+
+goroutine 24812 [IO wait] {meta: "Alias#<ABC123.107118.6819740677833.0>", role: reader}:
+internal/poll.runtime_pollWait(0x112aec600, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0xa0
+...
+```
+
+The runtime gates this on the `tracebacklabels` setting, whose default follows the `go` version
+your module declares: a module on `go 1.21` gets the pre-1.27 behaviour and no labels. Ask for
+them either with a directive in the main package:
+
+```go
+//go:debug tracebacklabels=1
+
+package main
+```
+
+or with `GODEBUG=tracebacklabels=1` in the environment. The build tag is still required - it is
+what attaches the labels in the first place; the setting only decides whether a plain dump
+prints them.
+
+This is what makes the next section work: a dump taken with `?debug=2` can be searched by PID
+only when the labels are in it.
+
 ### Debugging Stuck Processes
 
 During graceful shutdown, Ergo Framework logs processes that are taking too long to terminate. These logs include PIDs that can be matched against profiler output.

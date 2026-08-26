@@ -242,6 +242,26 @@ Output:
 
 This helps identify stuck processes during shutdown by matching PIDs/Aliases from the shutdown log with goroutine stack traces.
 
+Since Go 1.27 the labels also appear in a plain goroutine dump - `?debug=2`, `runtime.Stack` and
+the traceback of an unrecovered panic - in the header line of every goroutine:
+
+```
+goroutine 38669 [chan receive] {pid: "<ABC123.0.1041>"}:
+goroutine 24812 [IO wait] {meta: "Alias#<ABC123.107118.6819740677833.0>", role: reader}:
+```
+
+The runtime keeps this off for a module that declares an older Go version, so a module on
+`go 1.21` has to ask for it. Either put the directive in the main package:
+
+```go
+//go:debug tracebacklabels=1
+
+package main
+```
+
+or set `GODEBUG=tracebacklabels=1` in the environment. Without it the `?debug=1` profile still
+carries the labels and a plain dump does not.
+
 To disable panic recovery use `--tags norecover`.
 
 To enable mailbox latency measurement use `--tags latency`. This adds a monotonic timestamp to every message pushed into the MPSC queue, allowing `QueueMPSC.Latency()` and `ProcessMailbox.Latency()` to report the age of the oldest unprocessed message. Overhead is approximately 10-25% on micro-benchmarks (LOCAL 1-1 scenario). Without the tag, `Latency()` returns -1 and there is zero overhead.

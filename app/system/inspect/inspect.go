@@ -2,6 +2,7 @@ package inspect
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -608,7 +609,7 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		return captureHeapProfile(r), nil
 
 	case RequestGetTypes:
-		return ResponseGetTypes{Types: i.Node().Network().RegisteredTypes()}, nil
+		return i.responseTypes(r), nil
 
 	case RequestGetNode:
 		return i.responseNode(), nil
@@ -653,20 +654,22 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 // appTree: starting from pid's id and walking ids upward, a process belongs to
 // the subtree iff its parent is already known to belong (the root, or a process
 // added earlier in the walk). Connectivity holds under truncation.
-func (i *inspect) subtree(pid gen.PID, limit int) ([]gen.ProcessShortInfo, bool, error) {
+func (i *inspect) subtree(pid gen.PID, limit int) ([]gen.ProcessShortInfo, int, error) {
 	inSub := map[gen.PID]bool{pid: true}
-	list, err := i.Node().ProcessListShortInfo(int(pid.ID), limit, func(p gen.ProcessShortInfo) bool {
-		if p.PID == pid || inSub[p.Parent] {
-			inSub[p.PID] = true
-			return true
+	matched := 0
+	list, err := i.Node().ProcessListShortInfo(int(pid.ID), math.MaxInt, func(p gen.ProcessShortInfo) bool {
+		if p.PID != pid && inSub[p.Parent] == false {
+			return false
 		}
-		return false
+		inSub[p.PID] = true
+		matched++
+		return matched <= limit
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, 0, err
 	}
 	if len(list) == 0 {
-		return nil, false, gen.ErrProcessUnknown
+		return nil, 0, gen.ErrProcessUnknown
 	}
-	return list, len(list) >= limit, nil
+	return list, matched - len(list), nil
 }

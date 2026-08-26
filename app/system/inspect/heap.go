@@ -11,8 +11,15 @@ func captureHeapProfile(req RequestGetHeapProfile) ResponseGetHeapProfile {
 
 	var p []runtime.MemProfileRecord
 	n, _ := runtime.MemProfile(nil, true)
-	p = make([]runtime.MemProfileRecord, n)
-	runtime.MemProfile(p, true)
+	for {
+		p = make([]runtime.MemProfileRecord, n+64)
+		var ok bool
+		n, ok = runtime.MemProfile(p, true)
+		if ok {
+			p = p[:n]
+			break
+		}
+	}
 
 	var records []HeapRecord
 	var totalInuse, totalAlloc, totalObjects int64
@@ -53,10 +60,17 @@ func captureHeapProfile(req RequestGetHeapProfile) ResponseGetHeapProfile {
 		return records[i].InuseBytes > records[j].InuseBytes
 	})
 
+	truncated := 0
+	if req.Limit > 0 && len(records) > req.Limit {
+		truncated = len(records) - req.Limit
+		records = records[:req.Limit]
+	}
+
 	return ResponseGetHeapProfile{
 		Records:      records,
 		TotalInuse:   totalInuse,
 		TotalAlloc:   totalAlloc,
 		TotalObjects: totalObjects,
+		Truncated:    truncated,
 	}
 }
