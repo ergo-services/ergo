@@ -62,9 +62,6 @@ func TestNormalizeFuncLine(t *testing.T) {
 	}
 }
 
-// Two goroutines of the same call differ only in the addresses of their arguments and in who
-// created them. Both are one goroutine's own, so the two belong to one group: without that a
-// node of a thousand actors answers with a thousand groups.
 func TestParseFuncLinesGroupsIdenticalCalls(t *testing.T) {
 	first := strings.Join([]string{
 		"goroutine 100 [chan receive, 5 minutes]:",
@@ -95,8 +92,6 @@ func TestParseFuncLinesGroupsIdenticalCalls(t *testing.T) {
 }
 
 func TestParseHeaderReadsLabelledGoroutine(t *testing.T) {
-	// since Go 1.27 the pprof labels are printed after the state, and the header still has to
-	// parse: the state stops at the bracket and the wait is inside it
 	block := strings.Join([]string{
 		`goroutine 38669 [chan receive, 42 minutes] {pid: "<8B9E362E.0.1041>"}:`,
 		"main.(*worker).loop(...)",
@@ -131,9 +126,6 @@ func TestParseWaitDuration(t *testing.T) {
 	}
 }
 
-// A dump of this process must come back grouped and counted: Total counts every goroutine and
-// Filtered counts what passed the filters, so a caller can tell an empty answer from a narrow
-// one. And a wait filter above zero keeps only goroutines that are waiting.
 func TestCaptureGoroutines(t *testing.T) {
 	all := captureGoroutines(RequestGetGoroutines{})
 	if all.Error != nil {
@@ -166,7 +158,6 @@ func TestCaptureGoroutines(t *testing.T) {
 		t.Errorf("groups hold %d goroutines, Filtered says %d", counted, all.Filtered)
 	}
 
-	// this test's own goroutine is running, not waiting, so a wait filter must drop it
 	waiting := captureGoroutines(RequestGetGoroutines{MinWait: 1})
 	if waiting.Total != 0 && waiting.Filtered >= waiting.Total {
 		t.Errorf("a wait filter kept everything: %d of %d", waiting.Filtered, waiting.Total)
@@ -177,7 +168,6 @@ func TestCaptureGoroutines(t *testing.T) {
 		}
 	}
 
-	// a filter nothing matches is an empty answer, not a full one
 	none := captureGoroutines(RequestGetGoroutines{Stack: "no.such.function.anywhere"})
 	if none.Filtered != 0 || len(none.Groups) != 0 {
 		t.Errorf("a filter matching nothing returned %d goroutines in %d groups",

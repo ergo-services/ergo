@@ -5,18 +5,15 @@ import (
 	"testing"
 )
 
-// The first profile of a process must already carry data. MemProfile leaves the slice untouched
-// and returns false when the number of records grew since it was asked for one, and allocating
-// the slice can itself add a record: without the retry the answer is a full set of zero records
-// that reads as "nothing is allocated on this node".
 func TestCaptureHeapProfileFirstCallCarriesData(t *testing.T) {
-	sink := make([][]byte, 0, 4096)
-	for i := 0; i < 4096; i++ {
-		sink = append(sink, make([]byte, 1024))
+	sink := make([][]byte, 0, 8)
+	for i := 0; i < 8; i++ {
+		sink = append(sink, make([]byte, 1<<20))
 	}
-	runtime.KeepAlive(sink)
 
 	out := captureHeapProfile(RequestGetHeapProfile{})
+	runtime.KeepAlive(sink)
+
 	if out.Error != nil {
 		t.Fatalf("profile failed: %s", out.Error)
 	}
@@ -65,8 +62,6 @@ func TestCaptureHeapProfileOrderAndPage(t *testing.T) {
 			len(page.Records), page.Truncated, len(full.Records))
 	}
 
-	// the totals are of the whole profile, not of the page: a page is a page and the sum
-	// stays the truth
 	if page.TotalInuse < page.Records[0].InuseBytes {
 		t.Error("TotalInuse is smaller than the largest record of the page")
 	}
