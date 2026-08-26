@@ -2,7 +2,6 @@ package inspect
 
 import (
 	"fmt"
-	"strings"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
@@ -124,33 +123,10 @@ func (iel *event_list) HandleMessage(from gen.PID, message any) error {
 }
 
 func (iel *event_list) filterEvent(info gen.EventInfo) bool {
-	if iel.name != "" {
-		if strings.Contains(strings.ToLower(string(info.Event.Name)), strings.ToLower(iel.name)) == false {
-			return false
-		}
-	}
-	if iel.notify == 1 && info.Notify == false {
-		return false
-	}
-	if iel.notify == -1 && info.Notify == true {
-		return false
-	}
-	if iel.buffered == 1 && info.BufferSize == 0 {
-		return false
-	}
-	if iel.buffered == -1 && info.BufferSize > 0 {
-		return false
-	}
-	if iel.open == 1 && info.Open == false {
-		return false
-	}
-	if iel.open == -1 && info.Open == true {
-		return false
-	}
-	if iel.minSubscribers > 0 && info.Subscribers < iel.minSubscribers {
-		return false
-	}
-	return true
+	return eventFilter{
+		Name: iel.name, Notify: iel.notify, Buffered: iel.buffered,
+		Open: iel.open, MinSubscribers: iel.minSubscribers,
+	}.match(info)
 }
 
 func (iel *event_list) Terminate(reason error) {

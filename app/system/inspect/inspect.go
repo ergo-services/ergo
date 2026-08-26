@@ -122,6 +122,18 @@ func Types() []any {
 		RequestGetGoroutines{}, GoroutineGroup{}, ResponseGetGoroutines{},
 		RequestGetHeapProfile{}, HeapRecord{}, ResponseGetHeapProfile{},
 		RequestGetTypes{}, ResponseGetTypes{},
+
+		RequestGetNode{}, ResponseGetNode{},
+		RequestGetNetwork{}, ResponseGetNetwork{},
+		RequestGetConnection{}, ResponseGetConnection{},
+		RequestGetConnectionList{}, ResponseGetConnectionList{},
+		RequestGetProcessList{}, ResponseGetProcessList{},
+		RequestGetProcessRange{}, ResponseGetProcessRange{},
+		RequestGetProcess{}, ResponseGetProcess{},
+		RequestGetMeta{}, ResponseGetMeta{},
+		RequestGetApplicationList{}, ResponseGetApplicationList{},
+		RequestGetEventList{}, ResponseGetEventList{},
+		RequestGetEvent{}, ResponseGetEvent{},
 	}
 }
 
@@ -597,6 +609,39 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	case RequestGetTypes:
 		return ResponseGetTypes{Types: i.Node().Network().RegisteredTypes()}, nil
+
+	case RequestGetNode:
+		return i.responseNode(), nil
+
+	case RequestGetNetwork:
+		return i.responseNetwork(), nil
+
+	case RequestGetConnection:
+		return i.responseConnection(r), nil
+
+	case RequestGetConnectionList:
+		return i.responseConnectionList(r), nil
+
+	case RequestGetProcessList:
+		return i.responseProcessList(r), nil
+
+	case RequestGetProcessRange:
+		return i.responseProcessRange(r), nil
+
+	case RequestGetProcess:
+		return i.responseProcess(r), nil
+
+	case RequestGetMeta:
+		return i.responseMeta(r), nil
+
+	case RequestGetApplicationList:
+		return i.responseApplicationList(), nil
+
+	case RequestGetEventList:
+		return i.responseEventList(r), nil
+
+	case RequestGetEvent:
+		return i.responseEvent(r), nil
 	}
 
 	i.Log().Error("unsupported request: %#v", request)

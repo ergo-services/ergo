@@ -32,6 +32,13 @@ type MessageInspectNode struct {
 	Info gen.NodeInfo
 }
 
+type RequestGetNode struct{}
+type ResponseGetNode struct {
+	Node  gen.Atom
+	Info  gen.NodeInfo
+	Error error
+}
+
 // node short
 
 type RequestInspectNodeShort struct {
@@ -66,6 +73,13 @@ type MessageInspectNetwork struct {
 	Info    gen.NetworkInfo
 }
 
+type RequestGetNetwork struct{}
+type ResponseGetNetwork struct {
+	Node  gen.Atom
+	Info  gen.NetworkInfo
+	Error error
+}
+
 type RequestInspectConnection struct {
 	RemoteNode gen.Atom
 }
@@ -81,6 +95,15 @@ type MessageInspectConnection struct {
 	Info         gen.RemoteNodeInfo
 }
 
+type RequestGetConnection struct {
+	RemoteNode gen.Atom
+}
+type ResponseGetConnection struct {
+	Node  gen.Atom
+	Info  gen.RemoteNodeInfo
+	Error error
+}
+
 // connection list (scoped)
 
 type RequestInspectConnectionList struct {
@@ -94,6 +117,16 @@ type ResponseInspectConnectionList struct {
 type MessageInspectConnectionList struct {
 	Node        gen.Atom
 	Connections []gen.RemoteNodeInfo
+}
+
+type RequestGetConnectionList struct {
+	Limit int
+	Name  string
+}
+type ResponseGetConnectionList struct {
+	Node        gen.Atom
+	Connections []gen.RemoteNodeInfo
+	Error       error
 }
 
 // process list
@@ -114,6 +147,23 @@ type ResponseInspectProcessList struct {
 type MessageInspectProcessList struct {
 	Node      gen.Atom
 	Processes []gen.ProcessShortInfo
+}
+
+// Start walks forward from that process id, negative walks back from the newest. Zero applies
+// the default of 1000, the lowest id a request may name.
+type RequestGetProcessList struct {
+	Start       int
+	Limit       int
+	Name        string
+	Behavior    string
+	Application string
+	State       string
+	MinMailbox  uint64
+}
+type ResponseGetProcessList struct {
+	Node      gen.Atom
+	Processes []gen.ProcessShortInfo
+	Error     error
 }
 
 // node logs
@@ -164,6 +214,15 @@ type MessageInspectProcess struct {
 	Info gen.ProcessInfo
 }
 
+type RequestGetProcess struct {
+	PID gen.PID
+}
+type ResponseGetProcess struct {
+	Node  gen.Atom
+	Info  gen.ProcessInfo
+	Error error
+}
+
 // meta
 
 type RequestInspectMeta struct {
@@ -177,6 +236,15 @@ type ResponseInspectMeta struct {
 type MessageInspectMeta struct {
 	Node gen.Atom
 	Info gen.MetaInfo
+}
+
+type RequestGetMeta struct {
+	Meta gen.Alias
+}
+type ResponseGetMeta struct {
+	Node  gen.Atom
+	Info  gen.MetaInfo
+	Error error
 }
 
 // one-shot process and meta state
@@ -308,6 +376,20 @@ type RequestInspectProcessRange struct {
 	MinMailbox  uint64
 	Limit       int
 }
+
+type RequestGetProcessRange struct {
+	Name        string
+	Behavior    string
+	Application string
+	State       string
+	MinMailbox  uint64
+	Limit       int
+}
+type ResponseGetProcessRange struct {
+	Node      gen.Atom
+	Processes []gen.ProcessShortInfo
+	Error     error
+}
 type ResponseInspectProcessRange struct {
 	Event gen.Event
 }
@@ -330,6 +412,21 @@ type ResponseInspectEventList struct {
 type MessageInspectEventList struct {
 	Node   gen.Atom
 	Events []gen.EventInfo
+}
+
+type RequestGetEventList struct {
+	Timestamp      int64
+	Limit          int
+	Name           string
+	Notify         int
+	Buffered       int
+	Open           int
+	MinSubscribers int64
+}
+type ResponseGetEventList struct {
+	Node   gen.Atom
+	Events []gen.EventInfo
+	Error  error
 }
 
 // event
@@ -377,6 +474,15 @@ type MessageInspectEvent struct {
 	WatchReason string
 }
 
+type RequestGetEvent struct {
+	Name gen.Atom
+}
+type ResponseGetEvent struct {
+	Node  gen.Atom
+	Info  gen.EventInfo
+	Error error
+}
+
 // application list
 
 type RequestInspectApplicationList struct{}
@@ -387,6 +493,13 @@ type ResponseInspectApplicationList struct {
 type MessageInspectApplicationList struct {
 	Node         gen.Atom
 	Applications map[gen.Atom]gen.ApplicationInfo
+}
+
+type RequestGetApplicationList struct{}
+type ResponseGetApplicationList struct {
+	Node         gen.Atom
+	Applications map[gen.Atom]gen.ApplicationInfo
+	Error        error
 }
 
 // application tree

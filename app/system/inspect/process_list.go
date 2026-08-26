@@ -3,7 +3,6 @@ package inspect
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
@@ -73,8 +72,8 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 		ipl.Log().Debug("generating event")
 
 		var filter []func(gen.ProcessShortInfo) bool
-		if ipl.hasFilters() {
-			filter = append(filter, ipl.matchFilter)
+		if f := ipl.filter(); f.set() {
+			filter = append(filter, f.match)
 		}
 
 		list, err := ipl.Node().ProcessListShortInfo(ipl.start, ipl.limit, filter...)
@@ -139,25 +138,9 @@ func (ipl *process_list) Terminate(reason error) {
 	ipl.Log().Debug("process list inspector terminated: %s", reason)
 }
 
-func (ipl *process_list) hasFilters() bool {
-	return ipl.name != "" || ipl.behavior != "" || ipl.application != "" || ipl.state != "" || ipl.minMailbox > 0
-}
-
-func (ipl *process_list) matchFilter(info gen.ProcessShortInfo) bool {
-	if ipl.name != "" && strings.Contains(strings.ToLower(string(info.Name)), strings.ToLower(ipl.name)) == false {
-		return false
+func (ipl *process_list) filter() processFilter {
+	return processFilter{
+		Name: ipl.name, Behavior: ipl.behavior, Application: ipl.application,
+		State: ipl.state, MinMailbox: ipl.minMailbox,
 	}
-	if ipl.behavior != "" && strings.Contains(strings.ToLower(info.Behavior), strings.ToLower(ipl.behavior)) == false {
-		return false
-	}
-	if ipl.application != "" && strings.Contains(strings.ToLower(string(info.Application)), strings.ToLower(ipl.application)) == false {
-		return false
-	}
-	if ipl.state != "" && strings.EqualFold(info.State.String(), ipl.state) == false {
-		return false
-	}
-	if ipl.minMailbox > 0 && info.MessagesMailbox < ipl.minMailbox {
-		return false
-	}
-	return true
 }
