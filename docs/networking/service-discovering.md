@@ -191,7 +191,16 @@ When you only need the routes, `node.Network().ResolveApplication(name)` is a sh
 routes, err := node.Network().ResolveApplication("workers")
 ```
 
-The response is a `gen.ApplicationRoutes` value (a slice of `gen.ApplicationRoute` with chainable filter methods). It includes the node name, application state, running mode, weight, and tags for each instance. Multiple nodes can run the same application; the resolver returns all of them.
+The response is a `gen.ApplicationRoutes` value (a slice of `gen.ApplicationRoute` with chainable filter methods). It includes the node name, application state, running mode, weight, tags, and the application version for each instance. Multiple nodes can run the same application; the resolver returns all of them.
+
+The version comes from `Version` in the application's `gen.ApplicationSpec` and is registered with the route automatically, so during a rolling upgrade the two releases of the same application are distinguishable at resolve time without tagging them by hand:
+
+```go
+routes, _ := node.Network().ResolveApplication("workers")
+for _, route := range routes {
+    node.Log().Info("%s runs %s %s", route.Node, route.Name, route.Version.Release)
+}
+```
 
 Narrow the result by tag, state, or both:
 

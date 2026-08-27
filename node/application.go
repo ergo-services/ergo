@@ -615,12 +615,13 @@ func (a *application) registerAppRoute() {
 	mode := a.mode
 	a.mu.RUnlock()
 	appRoute := gen.ApplicationRoute{
-		Node:   a.node.name,
-		Name:   a.spec.Name,
-		Weight: weight,
-		Tags:   tags,
-		Mode:   mode,
-		State:  gen.ApplicationState(atomic.LoadInt32(&a.state)),
+		Node:    a.node.name,
+		Name:    a.spec.Name,
+		Weight:  weight,
+		Tags:    tags,
+		Mode:    mode,
+		State:   gen.ApplicationState(atomic.LoadInt32(&a.state)),
+		Version: a.spec.Version,
 	}
 	network := a.node.Network()
 	if network.Mode() != gen.NetworkModeEnabled {

@@ -349,6 +349,11 @@ type ApplicationRoute struct {
 
 	// State is the current application state (Loaded, Initializing, Running, Stopping).
 	State ApplicationState
+
+	// Version is the application version taken from its ApplicationSpec.
+	// Lets a resolver tell instances of the same application apart during a
+	// rolling upgrade, alongside Tags.
+	Version Version
 }
 
 // StaticRoutes contains static route configuration received from registrar.

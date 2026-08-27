@@ -1390,11 +1390,12 @@ func (n *network) start(options gen.NetworkOptions) error {
 			continue
 		}
 		r := gen.ApplicationRoute{
-			Node:   n.node.Name(),
-			Name:   info.Name,
-			Weight: info.Weight,
-			Tags:   info.Tags,
-			Mode:   info.Mode,
+			Node:    n.node.Name(),
+			Name:    info.Name,
+			Weight:  info.Weight,
+			Tags:    info.Tags,
+			Mode:    info.Mode,
+			Version: info.Version,
 		}
 		appRoutes = append(appRoutes, r)
 	}

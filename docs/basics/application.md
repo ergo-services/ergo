@@ -272,7 +272,8 @@ Common tag patterns:
 - **Blue/green deployment**: "blue", "green"
 - **Canary rollout**: "canary", "stable"
 - **Maintenance state**: "maintenance", "active", "draining"
-- **Version tracking**: "v1.0.0", "v2.0.0"
+
+The release itself needs no tag: every route carries `Version` from the application's spec, so `route.Version` already tells one rollout from another. Tags express the role an instance plays in a deployment, which is a different question from which build it runs.
 - **Geographic region**: "us-east", "eu-west"
 
 Tags separate deployment strategy from application code. Your application doesn't know it's the "blue" deployment - that's configuration. The routing logic queries tags and makes decisions based on current cluster state.

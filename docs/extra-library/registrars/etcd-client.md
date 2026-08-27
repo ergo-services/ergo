@@ -171,11 +171,13 @@ To get information about available applications in the cluster, use the `Resolve
 
 ```go
 type ApplicationRoute struct {
-    Node   Atom
-    Name   Atom
-    Weight int
-    Mode   ApplicationMode
-    State  ApplicationState
+    Node    Atom
+    Name    Atom
+    Weight  int
+    Mode    ApplicationMode
+    Tags    []Atom
+    State   ApplicationState
+    Version Version
 }
 ```
 
@@ -183,7 +185,9 @@ type ApplicationRoute struct {
 * `Node` - The name of the node where the application is loaded or running
 * `Weight` - The weight assigned to the application in `gen.ApplicationSpec`
 * `Mode` - The application's startup mode (`gen.ApplicationModeTemporary`, `gen.ApplicationModePermanent`, `gen.ApplicationModeTransient`)
+* `Tags` - The labels assigned to this instance, for selecting between deployments (blue/green, canary, maintenance)
 * `State` - The current state of the application (`gen.ApplicationStateLoaded`, `gen.ApplicationStateInitializing`, `gen.ApplicationStateRunning`, `gen.ApplicationStateStopping`)
+* `Version` - The version from the application's `gen.ApplicationSpec`, so instances running different releases are distinguishable
 
 You can access the `gen.Resolver` interface using the `Resolver` method from the `gen.Registrar` interface:
 
