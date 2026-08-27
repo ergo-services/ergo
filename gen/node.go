@@ -763,7 +763,7 @@ type Compression struct {
 	// Messages smaller than this are sent uncompressed.
 	// Default: DefaultCompressionThreshold (1024 bytes).
 	// Set higher to avoid compressing small messages (compression overhead not worth it).
-	Threshold int `unit:"bytes"`
+	Threshold int
 }
 
 // CompressionLevel represents compression speed vs size trade-off.
@@ -853,7 +853,7 @@ type NodeInfo struct {
 	Name Atom
 
 	// Uptime is the node uptime in seconds since start.
-	Uptime int64 `unit:"sec"`
+	Uptime int64
 
 	// Version is the node version information.
 	Version Version
@@ -866,7 +866,7 @@ type NodeInfo struct {
 
 	// Env contains node environment variables.
 	// Only populated if SecurityOptions.ExposeEnvInfo is enabled.
-	Env map[Env]any `sentinel:"empty unless SecurityOptions.ExposeEnvInfo is enabled"`
+	Env map[Env]any
 
 	// LogLevel is the default logging level for the node.
 	LogLevel LogLevel
@@ -882,11 +882,11 @@ type NodeInfo struct {
 
 	// LogMessages contains cumulative log message counts by level.
 	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
-	LogMessages [6]uint64 `axis:"trace,debug,info,warning,error,panic"`
+	LogMessages [6]uint64
 
 	// TracingSpans contains cumulative tracing span counts by kind.
 	// Indexed as: [0]=Send, [1]=Request, [2]=Response, [3]=Spawn, [4]=Terminate
-	TracingSpans [5]uint64 `axis:"send,request,response,spawn,terminate"`
+	TracingSpans [5]uint64
 
 	// Cron contains cron scheduler information (jobs, schedule, next run).
 	Cron CronInfo
@@ -952,20 +952,20 @@ type NodeInfo struct {
 	ApplicationsRunning int64
 
 	// MemoryUsed is the total memory obtained from the OS, in bytes.
-	MemoryUsed uint64 `unit:"bytes"`
+	MemoryUsed uint64
 
 	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
-	MemoryAlloc uint64 `unit:"bytes"`
+	MemoryAlloc uint64
 
 	// MemoryLimit is the soft memory limit set via GOMEMLIMIT, in bytes.
 	// MaxInt64 means no limit is set.
-	MemoryLimit uint64 `unit:"bytes" sentinel:"MaxInt64 = no limit set"`
+	MemoryLimit uint64
 
 	// HeapLive is the heap memory occupied as of the last garbage collection, in bytes.
-	HeapLive uint64 `unit:"bytes"`
+	HeapLive uint64
 
 	// HeapGoal is the heap size that triggers the next garbage collection, in bytes.
-	HeapGoal uint64 `unit:"bytes"`
+	HeapGoal uint64
 
 	// Goroutines is the current number of goroutines.
 	Goroutines int64
@@ -974,17 +974,17 @@ type NodeInfo struct {
 	GCCycles uint64
 
 	// CPUTimeGC is the cumulative CPU time spent in garbage collection, in seconds.
-	CPUTimeGC float64 `unit:"sec"`
+	CPUTimeGC float64
 
 	// CPUTimeTotal is the cumulative CPU time available to the process, in seconds,
 	// as defined by GOMAXPROCS. Includes idle time.
-	CPUTimeTotal float64 `unit:"sec"`
+	CPUTimeTotal float64
 
 	// UserTime is the user CPU time in nanoseconds.
-	UserTime int64 `unit:"ns"`
+	UserTime int64
 
 	// SystemTime is the system CPU time in nanoseconds.
-	SystemTime int64 `unit:"ns"`
+	SystemTime int64
 
 	// ServerTime is the current server time with timezone.
 	// Useful in Observer and MCP for correlating logs across nodes in different timezones.
@@ -1002,7 +1002,7 @@ type NodeShortInfo struct {
 	Creation int64
 
 	// Uptime is the node uptime in seconds since start.
-	Uptime int64 `unit:"sec"`
+	Uptime int64
 
 	// Version is the node version information.
 	Version Version
@@ -1057,23 +1057,23 @@ type NodeShortInfo struct {
 
 	// LogMessages contains cumulative log message counts by level.
 	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
-	LogMessages [6]uint64 `axis:"trace,debug,info,warning,error,panic"`
+	LogMessages [6]uint64
 
 	// MemoryUsed is the total memory obtained from the OS, in bytes.
-	MemoryUsed uint64 `unit:"bytes"`
+	MemoryUsed uint64
 
 	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
-	MemoryAlloc uint64 `unit:"bytes"`
+	MemoryAlloc uint64
 
 	// MemoryLimit is the soft memory limit set via GOMEMLIMIT, in bytes.
 	// MaxInt64 means no limit is set.
-	MemoryLimit uint64 `unit:"bytes" sentinel:"MaxInt64 = no limit set"`
+	MemoryLimit uint64
 
 	// HeapLive is the heap memory occupied as of the last garbage collection, in bytes.
-	HeapLive uint64 `unit:"bytes"`
+	HeapLive uint64
 
 	// HeapGoal is the heap size that triggers the next garbage collection, in bytes.
-	HeapGoal uint64 `unit:"bytes"`
+	HeapGoal uint64
 
 	// Goroutines is the current number of goroutines.
 	Goroutines int64
@@ -1082,17 +1082,17 @@ type NodeShortInfo struct {
 	GCCycles uint64
 
 	// CPUTimeGC is the cumulative CPU time spent in garbage collection, in seconds.
-	CPUTimeGC float64 `unit:"sec"`
+	CPUTimeGC float64
 
 	// CPUTimeTotal is the cumulative CPU time available to the process, in seconds,
 	// as defined by GOMAXPROCS. Includes idle time.
-	CPUTimeTotal float64 `unit:"sec"`
+	CPUTimeTotal float64
 
 	// UserTime is the user CPU time in nanoseconds.
-	UserTime int64 `unit:"ns"`
+	UserTime int64
 
 	// SystemTime is the system CPU time in nanoseconds.
-	SystemTime int64 `unit:"ns"`
+	SystemTime int64
 
 	// Applications lists the applications loaded on this node. The set of
 	// applications is what makes a node's role, so it groups nodes the way

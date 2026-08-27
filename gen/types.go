@@ -198,7 +198,7 @@ type RegisteredTypeInfo struct {
 	// MinSize is the wire-format size in bytes of a zero-value of this type
 	// when sent as a top-level message (including the type-tag prefix).
 	// Real values may be larger if SizeVariable is true.
-	MinSize uint32 `unit:"bytes"`
+	MinSize uint32
 	// SizeVariable is true if the type contains string/slice/map/pointer/
 	// interface fields whose encoded size depends on the actual value.
 	SizeVariable bool

@@ -511,7 +511,7 @@ type NetworkFlags struct {
 	EnableTracing bool
 	// EnableSoftwareKeepAlive enables application-level keepalive with the given period in seconds.
 	// Zero disables keepalive. Max 255.
-	EnableSoftwareKeepAlive int `unit:"sec" sentinel:"0 = keepalive disabled"`
+	EnableSoftwareKeepAlive int
 	// EnableWrappedErrors enables *gen.Error structured wire format with
 	// preserved wrap chain. Both nodes must enable it; otherwise *gen.Error
 	// is sent as a flat .Error() string.
@@ -662,11 +662,11 @@ type RemoteNodeInfo struct {
 
 	// Uptime is the remote node uptime in seconds.
 	// Reported by remote during handshake.
-	Uptime int64 `unit:"sec"`
+	Uptime int64
 
 	// ConnectionUptime is the connection age in seconds.
 	// Time since this connection was established.
-	ConnectionUptime int64 `unit:"sec"`
+	ConnectionUptime int64
 
 	// Version is the remote node version information.
 	// Includes Name, Release, License details.
@@ -697,7 +697,7 @@ type RemoteNodeInfo struct {
 
 	// MaxMessageSize is the remote node's message size limit (in bytes).
 	// Reported during handshake. Messages exceeding this are rejected.
-	MaxMessageSize int `unit:"bytes"`
+	MaxMessageSize int
 
 	// TLS indicates whether this connection uses TLS encryption.
 	TLS bool
@@ -757,7 +757,7 @@ type RemoteNodeInfo struct {
 
 	// ClockSkew is the estimated clock offset relative to the remote node (nanoseconds).
 	// Positive value means remote clock is ahead. Zero if not yet measured.
-	ClockSkew int64 `unit:"ns" sentinel:"0 = not measured yet"`
+	ClockSkew int64
 }
 
 // RemoteNodeShortInfo is the essential information about a connection to a
@@ -767,7 +767,7 @@ type RemoteNodeShortInfo struct {
 	Node Atom
 
 	// ConnectionUptime is the connection age in seconds.
-	ConnectionUptime int64 `unit:"sec"`
+	ConnectionUptime int64
 
 	// MessagesIn is the total number of messages received from this remote node.
 	MessagesIn uint64
@@ -998,7 +998,7 @@ type NetworkInfo struct {
 
 	// MaxMessageSize is the global message size limit (in bytes).
 	// Zero means unlimited.
-	MaxMessageSize int `unit:"bytes" sentinel:"0 = unlimited"`
+	MaxMessageSize int
 
 	// HandshakeVersion is the default handshake protocol version.
 	HandshakeVersion Version
