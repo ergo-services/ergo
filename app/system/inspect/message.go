@@ -458,6 +458,7 @@ type ResponseInspectEventStream struct {
 	Buffer      []InspectEventEntry // backlog snapshot returned to every subscriber
 	Watching    bool
 	WatchReason string
+	Error       error
 }
 
 type InspectEventEntry struct {

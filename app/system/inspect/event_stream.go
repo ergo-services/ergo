@@ -110,9 +110,15 @@ func (ie *eventStream) HandleMessage(from gen.PID, message any) error {
 		ie.SendAfter(ie.PID(), flushEvent{id: ie.loopID}, inspectEventPeriod)
 
 	case requestInspect:
-		if info, err := ie.Node().EventInfo(ie.target); err == nil {
-			ie.evaluate(info)
+		info, err := ie.Node().EventInfo(ie.target)
+		if err != nil {
+			ie.SendResponse(m.pid, m.ref, ResponseInspectEventStream{
+				Target: ie.target,
+				Error:  err,
+			})
+			return gen.TerminateReasonNormal
 		}
+		ie.evaluate(info)
 		ie.SendResponse(m.pid, m.ref, ResponseInspectEventStream{
 			Event:       gen.Event{Name: ie.event, Node: ie.Node().Name()},
 			Target:      ie.target,
