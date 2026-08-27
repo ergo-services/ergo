@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"fmt"
 	"time"
 )
 
@@ -783,28 +782,6 @@ func (cl CompressionLevel) String() string {
 	default:
 		return "unknown compression level"
 	}
-}
-
-func (cl CompressionLevel) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + cl.String() + "\""), nil
-}
-
-func (cl *CompressionLevel) UnmarshalJSON(data []byte) error {
-	s, err := unmarshalName(data)
-	if err != nil {
-		return err
-	}
-	switch s {
-	case "best size":
-		*cl = CompressionBestSize
-	case "best speed":
-		*cl = CompressionBestSpeed
-	case "default":
-		*cl = CompressionDefault
-	default:
-		return fmt.Errorf("unknown compression level %q", s)
-	}
-	return nil
 }
 
 func (ct CompressionType) ID() uint8 {

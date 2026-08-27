@@ -24,31 +24,6 @@ func (p MetaState) String() string {
 	}
 	return fmt.Sprintf("state#%d", int32(p))
 }
-func (p MetaState) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + p.String() + "\""), nil
-}
-
-func (p *MetaState) UnmarshalJSON(data []byte) error {
-	s, err := unmarshalName(data)
-	if err != nil {
-		return err
-	}
-	switch s {
-	case "sleep":
-		*p = MetaStateSleep
-	case "running":
-		*p = MetaStateRunning
-	case "terminated":
-		*p = MetaStateTerminated
-	default:
-		n, ok := unmarshalNumbered(s, "state#")
-		if ok == false {
-			return fmt.Errorf("unknown meta state %q", s)
-		}
-		*p = MetaState(n)
-	}
-	return nil
-}
 
 type MetaBehavior interface {
 	Init(process MetaProcess) error

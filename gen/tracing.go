@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"encoding/json"
 	"fmt"
 )
 
@@ -63,11 +62,6 @@ func (tf TracingFlags) String() string {
 	return out
 }
 
-// MarshalJSON answers with the set of names: a bitmask as a bare number tells a reader nothing.
-func (tf TracingFlags) MarshalJSON() ([]byte, error) {
-	return json.Marshal(tf.Names())
-}
-
 // TracingSpan represents a single observation point
 // in the message lifecycle.
 type TracingSpan struct {
@@ -95,48 +89,6 @@ type TracingAttribute struct {
 	Value string
 }
 
-func (ts TracingSpan) MarshalJSON() ([]byte, error) {
-	type alias struct {
-		TraceID      string             `json:"TraceID"`
-		SpanID       string             `json:"SpanID"`
-		ParentSpanID string             `json:"ParentSpanID,omitempty"`
-		ParentPoint  TracingPoint       `json:"ParentPoint,omitempty"`
-		Point        TracingPoint       `json:"Point"`
-		Kind         TracingKind        `json:"Kind"`
-		Timestamp    int64              `json:"Timestamp"`
-		EndTimestamp int64              `json:"EndTimestamp,omitempty"`
-		Node         Atom               `json:"Node"`
-		From         PID                `json:"From"`
-		To           any                `json:"To"`
-		Ref          Ref                `json:"Ref"`
-		Behavior     string             `json:"Behavior,omitempty"`
-		Message      string             `json:"Message"`
-		Error        string             `json:"Error,omitempty"`
-		Attributes   []TracingAttribute `json:"Attributes,omitempty"`
-	}
-	a := alias{
-		TraceID:      fmt.Sprintf("%016x%016x", ts.TraceID[0], ts.TraceID[1]),
-		SpanID:       fmt.Sprintf("%016x", ts.SpanID),
-		ParentPoint:  ts.ParentPoint,
-		Point:        ts.Point,
-		Kind:         ts.Kind,
-		Timestamp:    ts.Timestamp,
-		EndTimestamp: ts.EndTimestamp,
-		Node:         ts.Node,
-		From:         ts.From,
-		To:           ts.To,
-		Ref:          ts.Ref,
-		Behavior:     ts.Behavior,
-		Message:      ts.Message,
-		Error:        ts.Error,
-		Attributes:   ts.Attributes,
-	}
-	if ts.ParentSpanID != 0 {
-		a.ParentSpanID = fmt.Sprintf("%016x", ts.ParentSpanID)
-	}
-	return json.Marshal(a)
-}
-
 // TracingPoint identifies where in the lifecycle the observation occurred.
 type TracingPoint int
 
@@ -159,34 +111,6 @@ func (tp TracingPoint) String() string {
 		return "span"
 	}
 	return fmt.Sprintf("point#%d", int(tp))
-}
-
-func (tp TracingPoint) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + tp.String() + `"`), nil
-}
-
-func (tp *TracingPoint) UnmarshalJSON(data []byte) error {
-	s, err := unmarshalName(data)
-	if err != nil {
-		return err
-	}
-	switch s {
-	case "sent":
-		*tp = TracingPointSent
-	case "delivered":
-		*tp = TracingPointDelivered
-	case "processed":
-		*tp = TracingPointProcessed
-	case "span":
-		*tp = TracingPointSpan
-	default:
-		n, ok := unmarshalNumbered(s, "point#")
-		if ok == false {
-			return fmt.Errorf("unknown tracing point %q", s)
-		}
-		*tp = TracingPoint(n)
-	}
-	return nil
 }
 
 // TracingKind identifies the type of operation being traced.
@@ -217,39 +141,6 @@ func (tk TracingKind) String() string {
 		return "" // business span - no message kind
 	}
 	return fmt.Sprintf("kind#%d", int(tk))
-}
-
-func (tk TracingKind) MarshalJSON() ([]byte, error) {
-	return []byte(`"` + tk.String() + `"`), nil
-}
-
-func (tk *TracingKind) UnmarshalJSON(data []byte) error {
-	s, err := unmarshalName(data)
-	if err != nil {
-		return err
-	}
-	switch s {
-	// a business span carries no message kind
-	case "":
-		*tk = 0
-	case "send":
-		*tk = TracingKindSend
-	case "request":
-		*tk = TracingKindRequest
-	case "response":
-		*tk = TracingKindResponse
-	case "spawn":
-		*tk = TracingKindSpawn
-	case "terminate":
-		*tk = TracingKindTerminate
-	default:
-		n, ok := unmarshalNumbered(s, "kind#")
-		if ok == false {
-			return fmt.Errorf("unknown tracing kind %q", s)
-		}
-		*tk = TracingKind(n)
-	}
-	return nil
 }
 
 // TracingInfo contains tracing configuration for a process or node.

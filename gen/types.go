@@ -1,7 +1,6 @@
 package gen
 
 import (
-	"encoding/json"
 	"fmt"
 	"hash/crc32"
 	"strconv"
@@ -276,61 +275,6 @@ func (l LogLevel) String() string {
 		return "system"
 	}
 	return "unknown log level"
-}
-
-func (l LogLevel) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + l.String() + "\""), nil
-}
-
-func (l *LogLevel) UnmarshalJSON(data []byte) error {
-	s, err := unmarshalName(data)
-	if err != nil {
-		return err
-	}
-	switch s {
-	case "trace":
-		*l = LogLevelTrace
-	case "debug":
-		*l = LogLevelDebug
-	case "info":
-		*l = LogLevelInfo
-	case "warning":
-		*l = LogLevelWarning
-	case "error":
-		*l = LogLevelError
-	case "panic":
-		*l = LogLevelPanic
-	case "disabled":
-		*l = LogLevelDisabled
-	case "system":
-		*l = LogLevelSystem
-	// String never emits this one, but it is a real level meaning "inherit"
-	case "default":
-		*l = LogLevelDefault
-	default:
-		return fmt.Errorf("unknown log level %q", s)
-	}
-	return nil
-}
-
-func unmarshalName(data []byte) (string, error) {
-	var s string
-	err := json.Unmarshal(data, &s)
-	return s, err
-}
-
-// unmarshalNumbered reads back the "prefix#number" form String falls back to for
-// a value outside the named set.
-// Parsed as 32-bit so an out-of-range number is rejected, not truncated.
-func unmarshalNumbered(s string, prefix string) (int32, bool) {
-	if strings.HasPrefix(s, prefix) == false {
-		return 0, false
-	}
-	n, err := strconv.ParseInt(s[len(prefix):], 10, 32)
-	if err != nil {
-		return 0, false
-	}
-	return int32(n), true
 }
 
 const (
