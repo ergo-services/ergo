@@ -12,6 +12,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"ergo.services/ergo/app/system"
 	"ergo.services/ergo/gen"
@@ -164,6 +166,36 @@ type NodeOptionsExtra struct {
 	WrapCoreTargetManager func(gen.CoreTargetManager) gen.CoreTargetManager
 }
 
+// the host is checked by the acceptor that binds it
+const nodeNameReserved = ":/?#%"
+
+func validNodeName(name gen.Atom) error {
+	parts := strings.Split(string(name), "@")
+	if len(parts) != 2 {
+		return fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
+	}
+	if len(parts[0]) < 1 {
+		return fmt.Errorf("too short node name")
+	}
+	if len(parts[1]) < 1 {
+		return fmt.Errorf("too short host name")
+	}
+
+	id := parts[0]
+	if utf8.ValidString(id) == false {
+		return fmt.Errorf("node name is not valid UTF-8")
+	}
+	if i := strings.IndexAny(id, nodeNameReserved); i >= 0 {
+		return fmt.Errorf("%q is not allowed in a node name", id[i])
+	}
+	if strings.IndexFunc(id, func(r rune) bool {
+		return r == ' ' || unicode.IsPrint(r) == false
+	}) >= 0 {
+		return fmt.Errorf("a space or a non-printable character is not allowed in a node name")
+	}
+	return nil
+}
+
 func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 	options := extra.NodeOptions
 	frameworkVersion := extra.FrameworkVersion
@@ -171,15 +203,8 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 		return nil, gen.ErrAtomTooLong
 	}
 
-	if s := strings.Split(string(name), "@"); len(s) != 2 {
-		return nil, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
-	} else {
-		if len(s[0]) < 1 {
-			return nil, fmt.Errorf("too short node name")
-		}
-		if len(s[1]) < 1 {
-			return nil, fmt.Errorf("too short host name")
-		}
+	if err := validNodeName(name); err != nil {
+		return nil, err
 	}
 
 	creation := time.Now().Unix()
