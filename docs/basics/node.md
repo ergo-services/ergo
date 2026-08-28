@@ -78,7 +78,7 @@ Environment variables are case-insensitive. Whether you set "database_url" or "D
 
 Stopping a node can be graceful or forced.
 
-Graceful shutdown sends exit signals to all processes and waits for them to clean up. Processes receive `gen.TerminateReasonShutdown` and can save state, close connections, or send final messages before terminating. Once all processes have stopped, the network stack shuts down, and the node exits.
+Graceful shutdown stops the running applications first, each one through its own `Stop` and `Terminate` callbacks, then sends exit signals to whatever processes are left. Processes receive `gen.TerminateReasonShutdown` and can save state, close connections, or send final messages before terminating, and the node waits for their `ProcessTerminate` callbacks to return rather than only for them to leave the process table. Once everything has stopped, the network stack shuts down, the loggers are closed, and the node exits.
 
 Forced shutdown kills all processes immediately without waiting for cleanup. This is useful when you need to stop quickly, but processes don't get a chance to clean up properly.
 

@@ -32,7 +32,7 @@ After initialization succeeds, the process enters Sleep and is ready to receive 
 
 If the process makes a synchronous call, it enters WaitResponse while waiting for the reply. Once the response arrives, it returns to Running and continues processing.
 
-Eventually the process terminates. This can happen in several ways: it returns an error from its message handler, it receives an exit signal, the node kills it, or a panic occurs. The ProcessTerminate callback runs, allowing cleanup. Then the process is removed from the node, and its resources are freed.
+Eventually the process terminates. This can happen in several ways: it returns an error from its message handler, it receives an exit signal, the node kills it, or a panic occurs. The process is removed from the node first, so everything linked to or monitoring it is notified, and then the ProcessTerminate callback runs for cleanup. The process is fully gone once that callback returns.
 
 ## Starting Processes
 
@@ -104,7 +104,7 @@ Use `SetEnv` to modify variables during Init or Running states. Pass `nil` as th
 
 ## Termination
 
-Processes typically terminate themselves by returning an error from `ProcessRun`. In `act.Actor`, this manifests as returning an error from `HandleMessage`, `HandleCall`, or other handler callbacks. Return `gen.TerminateReasonNormal` for clean shutdown, or any other error to indicate why termination occurred. The process transitions to Terminated, runs its `ProcessTerminate` callback for cleanup, and is removed from the node.
+Processes typically terminate themselves by returning an error from `ProcessRun`. In `act.Actor`, this manifests as returning an error from `HandleMessage`, `HandleCall`, or other handler callbacks. Return `gen.TerminateReasonNormal` for clean shutdown, or any other error to indicate why termination occurred. The process transitions to Terminated, is removed from the node, and then runs its `ProcessTerminate` callback for cleanup.
 
 If a panic occurs during message handling, the framework catches it, logs the stack trace, and terminates the process with `gen.TerminateReasonPanic`. The `ProcessTerminate` callback still runs, giving the process a chance to clean up despite the panic.
 

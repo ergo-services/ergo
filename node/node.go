@@ -1267,6 +1267,7 @@ func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 
 	if force == false {
 		n.waitProcessesWithEscalation(shutdownTimeout)
+		n.waitApplications(5 * time.Second)
 	}
 
 	n.NetworkStop()
@@ -1288,6 +1289,30 @@ func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 
 	n.once.Do(func() {
 		close(n.wait)
+	})
+}
+
+// waitApplications lets the applications that are still tearing down reach their
+// Terminate callback before the node takes the network and the loggers away from them.
+func (n *node) waitApplications(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	n.applications.Range(func(_, v any) bool {
+		app := v.(*application)
+		if app.spec.Name == system.Name {
+			return true
+		}
+		app.mu.RLock()
+		stopped := app.stopped
+		app.mu.RUnlock()
+		if stopped == nil {
+			return true
+		}
+		select {
+		case <-stopped:
+		case <-time.After(time.Until(deadline)):
+			n.log.Warning("application %s has not finished its teardown", app.spec.Name)
+		}
+		return true
 	})
 }
 
@@ -1953,20 +1978,10 @@ func (n *node) Kill(pid gen.PID) error {
 	// a non-running (e.g. sleeping) process captures its mailbox just like the
 	// run-loop kill path does, keeping the exit reason consistent and not losing a
 	// message that raced into the mailbox before the kill.
-	n.unregisterProcess(p, p.wrapPreserveMailbox(gen.TerminateReasonKill))
+	reason := p.wrapPreserveMailbox(gen.TerminateReasonKill)
+	n.unregisterProcess(p, reason)
 
-	go func() {
-		if lib.Recover() {
-			defer func() {
-				if rcv := recover(); rcv != nil {
-					pc, fn, line, _ := runtime.Caller(2)
-					p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
-						p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
-				}
-			}()
-		}
-		p.behavior.ProcessTerminate(gen.TerminateReasonKill)
-	}()
+	go n.finishProcess(p, reason, gen.TerminateReasonKill)
 
 	return nil
 }
@@ -2959,6 +2974,19 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	// early registration - allows using Link/Monitor/RegisterEvent/RegisterName in Init
 	n.processes.Store(p.pid, p)
 
+	// join the application before Init runs: a process using what the application
+	// opened must be accounted for by its teardown
+	if app, ok := p.application.(*application); ok {
+		if app.registerProcess(p.pid, options.ApplicationGroupMember) == false {
+			n.processes.Delete(p.pid)
+			if p.registered.Load() {
+				n.names.Delete(p.name)
+			}
+			atomic.AddUint64(&n.processesSpawnFailed, 1)
+			return p.pid, gen.ErrApplicationStopping
+		}
+	}
+
 	tracingActive := options.Tracing.ID != [2]uint64{}
 	var spawnSpanID uint64
 	var parentSpanID uint64
@@ -2992,6 +3020,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			if p.registered.Load() {
 				n.names.Delete(p.name)
 			}
+			if app, ok := p.application.(*application); ok {
+				app.removeProcess(p.pid)
+			}
 			atomic.AddUint64(&n.processesSpawnFailed, 1)
 			return p.pid, gen.ErrTimeout
 		}
@@ -3018,6 +3049,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			atomic.StoreInt32(&p.state, int32(gen.ProcessStateTerminated))
 			atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 			n.cleanupProcess(p, gen.TerminateReasonKill)
+			if app, ok := p.application.(*application); ok {
+				app.removeProcess(p.pid)
+			}
 			if lib.Recover() {
 				defer func() {
 					if rcv := recover(); rcv != nil {
@@ -3067,6 +3101,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			})
 		}
 		n.cleanupProcess(p, initErr)
+		if app, ok := p.application.(*application); ok {
+			app.removeProcess(p.pid)
+		}
 		go func() {
 			if lib.Recover() {
 				defer func() {
@@ -3105,13 +3142,6 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	// do not count system app processes
 	if appName(p.application) != system.Name {
 		n.waitprocesses.Add(1)
-	}
-
-	// register a direct application group member before it can run (and terminate)
-	if options.ApplicationGroupMember {
-		if app, ok := p.application.(*application); ok {
-			app.group.Store(p.pid, true)
-		}
 	}
 
 	// process could send a message to itself during initialization
@@ -3182,21 +3212,38 @@ func (n *node) unregisterProcess(p *process, reason error) {
 
 	atomic.AddUint64(&n.processesTerminated, 1)
 
-	if appName(p.application) != system.Name {
-		n.waitprocesses.Done()
-	}
 	n.log.Trace("...unregisterProcess %s", p.pid)
 
 	if p.loggername != "" {
 		n.LoggerDelete(p.loggername)
 		p.log.SetLevel(gen.LogLevelInfo)
 	}
+}
 
-	if p.application != nil {
+// finishProcess is the tail of the termination path: the behavior callback first, the
+// accounting after it. The application and the node shutdown barrier learn about the
+// termination only once the callback has returned, so neither of them can release what
+// the process is still using. Must be called after unregisterProcess.
+func (n *node) finishProcess(p *process, reason error, terminateReason error) {
+	defer func() {
 		if app, ok := p.application.(*application); ok {
-			app.terminate(p.pid, reason)
+			app.processTerminated(p.pid, reason)
 		}
+		if appName(p.application) != system.Name {
+			n.waitprocesses.Done()
+		}
+	}()
+
+	if lib.Recover() {
+		defer func() {
+			if rcv := recover(); rcv != nil {
+				pc, fn, line, _ := runtime.Caller(2)
+				p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
+					p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+			}
+		}()
 	}
+	p.behavior.ProcessTerminate(terminateReason)
 }
 
 func (n *node) isRunning() bool {

@@ -11,6 +11,14 @@ import (
 	"ergo.services/ergo/testing/mock"
 )
 
+// what the handler answers with when nothing was configured, so these tests read the response
+// the deadline used to write itself
+func plain504(writer http.ResponseWriter) func() {
+	return func() {
+		http.Error(writer, "Gateway timeout", http.StatusGatewayTimeout)
+	}
+}
+
 // TestWebResponseWriterWorkerWins: once the worker has written, a deadline timeout
 // must lose the claim and add no 504 to the response.
 func TestWebResponseWriterWorkerWins(t *testing.T) {
@@ -23,7 +31,7 @@ func TestWebResponseWriterWorkerWins(t *testing.T) {
 	if _, err := rw.Write([]byte("body")); err != nil {
 		t.Fatal(err)
 	}
-	rw.timeout() // must lose: the worker already owns the writer
+	rw.timeout(plain504(rec)) // must lose: the worker already owns the writer
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d, want 200", rec.Code)
@@ -41,7 +49,7 @@ func TestWebResponseWriterTimeoutWins(t *testing.T) {
 	defer cancel()
 	rw := &webResponseWriter{ResponseWriter: rec, ctx: ctx}
 
-	rw.timeout()
+	rw.timeout(plain504(rec))
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("code = %d, want 504", rec.Code)
 	}
@@ -74,7 +82,7 @@ func TestWebResponseWriterFlushGating(t *testing.T) {
 	if rec.Flushed {
 		t.Fatal("Flush reached the underlying flusher before any write")
 	}
-	rw.timeout() // must still be free to win
+	rw.timeout(plain504(rec)) // must still be free to win
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("code = %d, want 504 (Flush must not steal the claim)", rec.Code)
 	}
@@ -108,7 +116,7 @@ func TestWebResponseWriterMutualExclusion(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			rw.timeout()
+			rw.timeout(plain504(rec))
 		}()
 		wg.Wait()
 		cancel()
@@ -148,7 +156,7 @@ func TestWebResponseWriterHeaderDroppedOnTimeout(t *testing.T) {
 	rw := &webResponseWriter{ResponseWriter: rec, ctx: ctx}
 
 	rw.Header().Set("X-Worker", "1")
-	rw.timeout()
+	rw.timeout(plain504(rec))
 	if rec.Code != http.StatusGatewayTimeout {
 		t.Fatalf("code = %d, want 504", rec.Code)
 	}
@@ -215,7 +223,7 @@ func TestWebResponseWriterHeaderNoRace(t *testing.T) {
 		}()
 		go func() {
 			defer wg.Done()
-			rw.timeout()
+			rw.timeout(plain504(rec))
 		}()
 		wg.Wait()
 		cancel()

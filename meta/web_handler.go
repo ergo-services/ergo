@@ -137,20 +137,20 @@ func (w *webhandler) inspectSummary() map[string]string {
 func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	if w.MetaProcess == nil {
 		w.unavailable.Add(1)
-		http.Error(writer, "Handler is not initialized", http.StatusServiceUnavailable)
+		w.refuse(writer, request, http.StatusServiceUnavailable, ErrHandlerNotInitialized)
 		return
 	}
 
 	if w.terminated.Load() {
 		w.unavailable.Add(1)
-		http.Error(writer, "Handler terminated", http.StatusServiceUnavailable)
+		w.refuse(writer, request, http.StatusServiceUnavailable, ErrHandlerTerminated)
 		return
 	}
 
 	to := w.to.Load()
 	if to == nil {
 		w.unavailable.Add(1)
-		http.Error(writer, "Handler is not ready", http.StatusServiceUnavailable)
+		w.refuse(writer, request, http.StatusServiceUnavailable, ErrHandlerNotReady)
 		return
 	}
 
@@ -174,7 +174,7 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	if err := w.Send(to, message); err != nil {
 		w.sendFailed.Add(1)
 		w.Log().Error("can not handle HTTP request: %s", err)
-		http.Error(writer, "Bad gateway", http.StatusBadGateway)
+		w.refuse(writer, request, http.StatusBadGateway, ErrWorkerUnreachable)
 		cancel()
 		return
 	}
@@ -189,11 +189,23 @@ func (w *webhandler) ServeHTTP(writer http.ResponseWriter, request *http.Request
 	case context.DeadlineExceeded:
 		w.timeouts.Add(1)
 		w.Log().Error("handling HTTP-request timed out")
-		rw.timeout()
+		rw.timeout(func() {
+			w.refuse(writer, request, http.StatusGatewayTimeout, ErrWorkerTimeout)
+		})
 	default:
 		cancel()
 		w.Log().Error("got context error: %s", err)
 	}
+}
+
+func (w *webhandler) refuse(writer http.ResponseWriter, request *http.Request,
+	status int, reason error) {
+
+	if w.options.Refusal == nil {
+		http.Error(writer, reason.Error(), status)
+		return
+	}
+	w.options.Refusal(writer, request, status, reason)
 }
 
 const (
@@ -222,10 +234,10 @@ func (w *webResponseWriter) claim() bool {
 	return w.state.Load() == webWriterWorker
 }
 
-// timeout writes the gateway-timeout response unless the worker already owns the writer.
-func (w *webResponseWriter) timeout() {
+// timeout answers with refuse unless the worker already owns the writer.
+func (w *webResponseWriter) timeout(refuse func()) {
 	if w.state.CompareAndSwap(webWriterUnclaimed, webWriterTimeout) {
-		http.Error(w.ResponseWriter, "Gateway timeout", http.StatusGatewayTimeout)
+		refuse()
 	}
 }
 

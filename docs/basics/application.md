@@ -92,13 +92,15 @@ Application names and process names exist in separate namespaces. An application
 
 ## Application Modes
 
-The mode determines what happens when a process in the application terminates.
+The mode determines what happens when a member of the `Group` terminates. It watches the members you listed, not every process of the application: a process spawned deeper in the tree is the concern of the supervisor above it, and reaches the application's attention only if its death takes a member down.
 
-**Temporary Mode** - The application continues running despite individual process terminations. Only when all processes have stopped does the application itself terminate. This mode is for applications where components can fail and restart independently (typically via supervisors) without stopping the whole application.
+**Temporary Mode** - A member terminating never stops the application by itself. The application stops when the last member is gone, with reason `gen.TerminateReasonNormal`. This mode is for applications where components can fail and restart independently (typically via supervisors) without stopping the whole application.
 
-**Transient Mode** - The application stops if any process terminates abnormally (crashes, panics, errors). Normal termination doesn't trigger shutdown. When an abnormal termination occurs, all remaining processes receive exit signals and the application shuts down. Use this mode when abnormal failures indicate a systemic problem that requires stopping the entire service.
+**Transient Mode** - The application stops if a member terminates abnormally (crashes, panics, errors), and the member's reason becomes the application's. Normal termination doesn't trigger shutdown; as in temporary mode, the application stops once the last member is gone. Use this mode when abnormal failures indicate a systemic problem that requires stopping the entire service.
 
-**Permanent Mode** - The application stops if any process terminates, regardless of reason. Even normal termination of one process triggers shutdown of all others and the application itself. This mode is for applications where all components must run together - if one stops, the whole application is incomplete.
+**Permanent Mode** - The application stops if any member terminates, regardless of reason, again with that member's reason. Even normal termination of one member triggers shutdown of all the others and the application itself. This mode is for applications where all components must run together - if one stops, the whole application is incomplete.
+
+The rules apply while the application is still starting. A permanent application whose member dies before the rest of the group has spawned never reaches `Running`: the start unwinds and returns an error.
 
 ## Lifecycle Callbacks
 
@@ -107,8 +109,8 @@ Each callback has a clear responsibility in the application lifecycle:
 - **`Load`**: declarative. Validate configuration, return the spec. Avoid side effects.
 - **`Init`**: pre-start. Open external resources the `Group` processes will need: database connection pools, caches, message queues. Returning an error aborts the start; `Terminate` is **not** called.
 - **`Start`**: post-start. The `Group` is running. Register health checks, export metrics, notify the load balancer that the instance is ready.
-- **`Stop`**: pre-stop. The `Group` is still running. Drain in-flight work, deregister health checks, mark unhealthy in the load balancer so traffic stops being routed here.
-- **`Terminate`**: post-stop. The `Group` has finished. Close resources opened in `Init`.
+- **`Stop`**: pre-stop. Everything is still running and every resource is still open. Drain in-flight work, deregister health checks, mark unhealthy in the load balancer so traffic stops being routed here.
+- **`Terminate`**: post-stop. Every process of the application has terminated, its own `Terminate` callback included. Close resources opened in `Init`.
 
 Each of `Init`, `Start`, `Stop` receives a `gen.Ref` carrying a deadline. Check `ref.IsAlive()` to detect when your callback has exceeded its timeout budget. If it has, the framework has already moved on; unwind gracefully and return.
 
@@ -124,6 +126,51 @@ gen.ApplicationSpec{
 
 Default is 15 seconds for each.
 
+## Owning Resources
+
+A connection pool shared by several actors outlives any one of them. An actor restarts under its supervisor, and reopening the pool on every restart would be both slow and wrong. The owner is therefore the application, not the actor: `Init` opens the resource, `Terminate` closes it, and a field on the application struct holds it in between.
+
+```go
+type MyApp struct {
+    app.Application
+    db *sql.DB
+}
+
+func (a *MyApp) Init(ref gen.Ref, mode gen.ApplicationMode) error {
+    db, err := sql.Open("postgres", dsn)
+    if err != nil {
+        return err // the start aborts and Terminate is not called
+    }
+    if err := db.Ping(); err != nil {
+        db.Close()
+        return err
+    }
+    a.db = db
+    return nil
+}
+
+func (a *MyApp) DB() *sql.DB { return a.db }
+
+func (a *MyApp) Terminate(reason error) {
+    a.db.Close()
+}
+```
+
+A process of the application reaches the owner through its runtime application:
+
+```go
+func (w *Worker) Init(args ...any) error {
+    w.db = w.Application().Behavior().(*MyApp).DB()
+    return nil
+}
+```
+
+`Init` finishes before the first member spawns, so every process finds the resource ready. `Terminate` runs only after the last of them is gone, so a worker may use the pool right to the end of its own `Terminate` callback: flush a batch, release a lock, write a closing row.
+
+Keep live handles out of the environment. `Env` values are copied into every process at spawn, and with `Security.ExposeEnvInfo` enabled they are also serialized into `ApplicationInfo` for other nodes to read, which a database handle cannot survive. The DSN, the pool size and the timeouts belong there; the object itself belongs on the application.
+
+An application is not an actor. It has no mailbox and no supervisor, so it cannot restart a connection that dropped. Clients that carry their own pool and reconnect logic (`database/sql`, `go-redis`) fit this ownership naturally. A resource without that, a raw socket or a session that has to be re-established by hand, belongs to an actor under a supervisor instead, with the handle never leaving it: callers send it messages, and losing the connection becomes an ordinary supervision event.
+
 ## Loading and Starting
 
 Applications go through two phases: loading and starting.
@@ -134,9 +181,11 @@ Starting follows this sequence:
 
 1. State transitions from `Loaded` to `Initializing`.
 2. `Init` callback runs (within `InitTimeout`). On error or timeout the state reverts to `Loaded` and `Terminate` is **not** called.
-3. The framework spawns each process in `Group` in order. If any spawn fails after `Init` succeeded, the state transitions to `Stopping`, already-spawned members are killed, and `Terminate` runs to release resources opened in `Init`.
+3. The framework spawns each process in `Group` in order. If a spawn fails after `Init` succeeded, the application unwinds: the members already spawned are stopped, and once they are gone `Terminate` runs to release what `Init` opened. `ApplicationStart` returns the spawn error.
 4. State transitions from `Initializing` to `Running`.
 5. `Start` callback runs (within `StartTimeout`). A timeout here is non-fatal; the application stays in `Running` state.
+
+A stop requested while the application is starting, either through `ApplicationStop` or by the mode reacting to a member that died, interrupts the sequence: no further members are spawned, the ones already running are stopped, and `ApplicationStart` returns `gen.ErrApplicationStopping`.
 
 Per-process `gen.ProcessOptions.InitTimeout` has a hard cap of 15 seconds inside an application context. Setting a higher value returns `gen.ErrNotAllowed` and prevents the application from starting.
 
@@ -165,13 +214,22 @@ Entries are processed during `ApplicationLoad`, before any process in the applic
 
 ## Stopping Applications
 
-Applications stop in three ways.
+Applications stop in three ways: `ApplicationStop`, `ApplicationStopForce`, or the mode reacting to a member that terminated. All three run the same teardown, in this order:
 
-`ApplicationStop` triggers a graceful shutdown: state transitions to `Stopping`, the `Stop` callback runs (within `StopTimeout`), exit signals are sent to all Group processes, and once the last process has terminated the `Terminate` callback runs and the application transitions back to `Loaded` state.
+1. The state becomes `Stopping`. From here the application takes no new processes: a spawn into it fails with `gen.ErrApplicationStopping`.
+2. The `Stop` callback runs, within `StopTimeout`, while everything is still up.
+3. Every group member receives an exit signal. A member that is a supervisor takes its subtree down with it.
+4. The application waits for every process it owns to terminate, the `Terminate` callback of each of them included.
+5. The `Terminate` callback of the application runs and releases what `Init` opened.
+6. The state becomes `Loaded`. The application can be started again, or unloaded.
 
-`ApplicationStopForce` skips the `Stop` callback and immediately kills all processes. `Terminate` still runs after the last process is gone. Less graceful, but guaranteed to stop quickly.
+`ApplicationStop` returns when all of that is done, so by the time the call comes back the resources are closed and the application is already `Loaded`. It waits up to five seconds; use `ApplicationStopWithTimeout` when a teardown legitimately takes longer. Running out of that wait returns `gen.ErrApplicationStopping` and does not cancel anything: the teardown continues.
 
-The application can also stop itself based on its mode. In Transient or Permanent mode, process failures trigger automatic shutdown according to the mode's rules. The same `Stop` then `Terminate` callback flow runs, dispatched from a coordinator goroutine so the process termination path is not blocked.
+`ApplicationStopForce` skips the `Stop` callback, kills the processes instead of asking them to stop, and returns without waiting. `Terminate` still runs, once the last process is gone. Less graceful, but it does not depend on processes cooperating.
+
+Step 4 covers the whole application, not just the members. A process that a member spawned without a supervisor above it has nothing left to stop it once its parent is gone, so the application sends it an exit signal itself and logs which processes those were. Anything that still does not stop is killed after `StopTimeout`, again named in the log. Both lines are worth reading: they name the processes that escaped supervision.
+
+Stopping by mode goes through the same steps, so the `Stop` callback runs there too. In temporary mode it happens when the last member is gone, in transient and permanent mode when a member terminates in a way the mode does not tolerate.
 
 A stop is not a restart. The node does not bring a stopped application back; recovery is left to you. The application could announce its own death from `Terminate` by sending a message somewhere, but it is better left to the bus: hand-wiring notifications couples the application to whoever cares and reinvents what events already do. The node publishes the stop for you as a `gen.MessageCoreApplicationStopped` carrying the application name and the reason it stopped; interested processes subscribe and the application never tracks who is watching. Subscribe to `gen.CoreEvent` to act on it, locally or, since events cross nodes, from one observer watching every node in the cluster. See [The Node's Own Event Bus](events.md#the-nodes-own-event-bus).
 
@@ -201,6 +259,8 @@ func (w *Worker) HandleMessage(from gen.PID, msg any) error {
 ```
 
 `Process.Application()` returns `nil` for processes spawned outside any application (directly via `node.Spawn`).
+
+Both views of the membership are available from `node.ApplicationInfo()`: `Group` lists the PIDs of the members you declared, and `ProcessesTotal` counts everything the application owns, those members and every process they spawned. The two differ by exactly the depth of the tree below the group, and `ProcessesTotal` is what the teardown waits for: it reaches zero the moment before `Terminate` runs. `node.ApplicationProcessList()` enumerates that same full set.
 
 ## Application Logging
 

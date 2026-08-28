@@ -187,38 +187,42 @@ type Node interface {
 	ApplicationStart(name Atom, options ApplicationOptions) error
 
 	// ApplicationStartTemporary starts the application in temporary mode.
-	// Overrides ApplicationSpec.Mode. Temporary: stops when any child terminates abnormally.
+	// Overrides ApplicationSpec.Mode. Temporary: stops when the last group member terminates.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationStartTemporary(name Atom, options ApplicationOptions) error
 
 	// ApplicationStartTransient starts the application in transient mode.
-	// Overrides ApplicationSpec.Mode. Transient: stops only on abnormal child termination.
+	// Overrides ApplicationSpec.Mode. Transient: stops on abnormal termination of a group
+	// member, otherwise when the last member terminates.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationStartTransient(name Atom, options ApplicationOptions) error
 
 	// ApplicationStartPermanent starts the application in permanent mode.
-	// Overrides ApplicationSpec.Mode. Permanent: never stops on child termination.
+	// Overrides ApplicationSpec.Mode. Permanent: stops when any group member terminates,
+	// whatever the reason.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationStartPermanent(name Atom, options ApplicationOptions) error
 
-	// ApplicationStop stops the application gracefully.
-	// Waits for all children to terminate (default timeout: 5 seconds).
-	// Application can be unloaded after stopping.
+	// ApplicationStop stops the application gracefully: the Stop callback, the exit of the
+	// group members, the termination of every process the application owns, and finally the
+	// Terminate callback. Returns once that is done, so the application is already stopped
+	// and can be unloaded. Waits up to 5 seconds; use ApplicationStopWithTimeout for longer.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states, ErrApplicationStopping if still stopping.
 	ApplicationStop(name Atom) error
 
-	// ApplicationStopForce forcefully kills all application children.
-	// Does not wait for graceful termination.
+	// ApplicationStopForce kills the processes of the application instead of asking them to
+	// stop, and skips the Stop callback. Returns without waiting; the Terminate callback
+	// still runs, once the last process of the application is gone.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationStopForce(name Atom) error
 
-	// ApplicationStopWithTimeout stops the application with custom timeout.
-	// Waits for all children to terminate within the specified duration.
+	// ApplicationStopWithTimeout stops the application as ApplicationStop does, waiting the
+	// given duration for the teardown to complete.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states, ErrApplicationStopping on timeout.
 	ApplicationStopWithTimeout(name Atom, timeout time.Duration) error

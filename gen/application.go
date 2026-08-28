@@ -75,8 +75,10 @@ type Application interface {
 	// weight restores it.
 	SetWeight(w int) error
 
-	// Behavior returns the application behavior implementation.
-	// Used by app.Application.PreLoad to dispatch the user's Load callback.
+	// Behavior returns the application behavior implementation. Used by
+	// app.Application.PreLoad to dispatch the user's Load callback, and by the
+	// processes of the application to reach what their application owns:
+	// process.Application().Behavior().(*MyApp).
 	Behavior() ApplicationBehavior
 }
 
@@ -104,10 +106,14 @@ type ApplicationBehavior interface {
 	Start(ref Ref, mode ApplicationMode)
 
 	// Stop runs pre-stop: drain, deregister, flush. Blocks subsequent
-	// Group exit until return or StopTimeout expiry.
+	// Group exit until return or StopTimeout expiry. Skipped if the
+	// application never reached the running state, and on a forced stop.
 	Stop(ref Ref, reason error)
 
-	// Terminate runs post-stop: close resources opened in Init.
+	// Terminate runs post-stop: close resources opened in Init. It runs
+	// once every process of the application has terminated, including
+	// their own termination callbacks, so a process may use these
+	// resources until it is gone. Not called if Init returned an error.
 	Terminate(reason error)
 }
 
@@ -295,6 +301,14 @@ type ApplicationInfo struct {
 	// Uptime is the number of seconds since application started.
 	Uptime int64
 
-	// Group lists all process PIDs belonging to this application.
+	// Group lists the PIDs of the direct group members declared in
+	// ApplicationSpec.Group. Processes spawned deeper in the tree belong to
+	// the application too, but are not listed here: use
+	// Node.ApplicationProcessList for all of them.
 	Group []PID
+
+	// ProcessesTotal is the number of processes belonging to this application:
+	// the group members plus everything they spawned. The application is fully
+	// stopped only when it reaches zero, which is when Terminate runs.
+	ProcessesTotal int
 }

@@ -35,8 +35,9 @@ func (p *process) run() {
 							return
 						}
 						atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
-						p.node.unregisterProcess(p, p.wrapPreserveMailbox(gen.TerminateReasonPanic))
-						p.behavior.ProcessTerminate(gen.TerminateReasonPanic)
+						reason := p.wrapPreserveMailbox(gen.TerminateReasonPanic)
+						p.node.unregisterProcess(p, reason)
+						p.node.finishProcess(p, reason, gen.TerminateReasonPanic)
 					}
 				}()
 			}
@@ -58,8 +59,9 @@ func (p *process) run() {
 					return
 				}
 				atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
-				p.node.unregisterProcess(p, p.wrapPreserveMailbox(e))
-				p.behavior.ProcessTerminate(err)
+				reason := p.wrapPreserveMailbox(e)
+				p.node.unregisterProcess(p, reason)
+				p.node.finishProcess(p, reason, err)
 				return
 			}
 
@@ -78,8 +80,9 @@ func (p *process) run() {
 					return
 				}
 				atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
-				p.node.unregisterProcess(p, p.wrapPreserveMailbox(gen.TerminateReasonKill))
-				p.behavior.ProcessTerminate(gen.TerminateReasonKill)
+				reason := p.wrapPreserveMailbox(gen.TerminateReasonKill)
+				p.node.unregisterProcess(p, reason)
+				p.node.finishProcess(p, reason, gen.TerminateReasonKill)
 				return
 			}
 			atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
