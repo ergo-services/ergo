@@ -246,14 +246,19 @@ func TestSystemInspectGetGoroutines(t *testing.T) {
 	s := stage.New(t)
 	n := s.StartNode("n", stage.NodeOptions{EnableSystemApp: true})
 
-	// a meta process parks a goroutine of its own in Start, so several of them are several
-	// goroutines standing in one place
+	// A meta process parks a goroutine of its own in Start, so several of them are several
+	// goroutines standing in one place. SpawnMeta returns once that goroutine is launched,
+	// not once it has reached Start, and one that has not got there yet is not in the dump:
+	// each meta closes the channel it is handed from inside Start, and that is what is
+	// waited for here.
 	const metas = 4
 	for i := 0; i < metas; i++ {
+		parked := make(chan struct{})
 		owner := n.Spawn(factoryMetaActor, gen.ProcessOptions{})
-		if _, err := n.Call(owner, "spawnmeta"); err != nil {
+		if _, err := n.Call(owner, parked); err != nil {
 			t.Fatalf("spawn meta: %s", err)
 		}
+		<-parked
 	}
 
 	out, ok := inspectGet(t, n, inspect.RequestGetGoroutines{

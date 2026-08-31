@@ -31,20 +31,36 @@ type metaActor struct{ act.Actor }
 
 func factoryMetaActor() gen.ProcessBehavior { return &metaActor{} }
 
+// A caller that hands over a channel gets it closed once the meta's goroutine is parked,
+// which SpawnMeta returning does not say anything about.
 func (a *metaActor) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-	return a.SpawnMeta(factoryInspectMeta(), gen.MetaOptions{})
+	parked, _ := request.(chan struct{})
+	return a.SpawnMeta(factoryInspectMeta(parked), gen.MetaOptions{})
 }
 
 // inspectMeta is a meta process exposing data via HandleInspect.
 type inspectMeta struct {
 	gen.MetaProcess
-	stop chan struct{}
+	stop   chan struct{}
+	parked chan struct{}
 }
 
-func factoryInspectMeta() gen.MetaBehavior { return &inspectMeta{stop: make(chan struct{})} }
+func factoryInspectMeta(parked chan struct{}) gen.MetaBehavior {
+	return &inspectMeta{stop: make(chan struct{}), parked: parked}
+}
 
 func (m *inspectMeta) Init(meta gen.MetaProcess) error { m.MetaProcess = meta; return nil }
-func (m *inspectMeta) Start() error                    { <-m.stop; return nil }
+
+// Start parks this meta's own goroutine until the meta is terminated. The channel is
+// closed from inside it, so whoever waits on it knows the goroutine stands in this frame
+// rather than having merely been launched.
+func (m *inspectMeta) Start() error {
+	if m.parked != nil {
+		close(m.parked)
+	}
+	<-m.stop
+	return nil
+}
 func (m *inspectMeta) HandleMessage(from gen.PID, message any) error {
 	return nil
 }
