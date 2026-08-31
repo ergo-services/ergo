@@ -349,26 +349,6 @@ type ResponseGetHeapProfile struct {
 	Error        error
 }
 
-// heap inspector (event-based)
-
-type RequestInspectHeap struct {
-	Limit int
-	Name  string
-}
-type ResponseInspectHeap struct {
-	Event gen.Event
-}
-
-type MessageInspectHeap struct {
-	Node          gen.Atom
-	Records       []HeapRecord
-	TotalInuse    int64
-	TotalObjects  int64
-	TotalAlloc    int64
-	TotalFree     int64
-	GCCPUFraction float64
-}
-
 // process range (full scan with filters)
 
 type RequestInspectProcessRange struct {

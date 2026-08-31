@@ -38,7 +38,6 @@ const (
 	CapEventStream     = "inspect.event_stream"
 	CapLog             = "inspect.log"
 	CapTracing         = "inspect.tracing"
-	CapHeap            = "inspect.heap"
 
 	CapGetProcessState  = "inspect.process_state"
 	CapGetProcessLookup = "inspect.process_lookup"
@@ -102,7 +101,6 @@ func Capabilities() []string {
 		CapEventStream,
 		CapLog,
 		CapTracing,
-		CapHeap,
 		CapGetProcessState,
 		CapGetProcessLookup,
 		CapGetMetaState,

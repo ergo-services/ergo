@@ -67,10 +67,6 @@ const (
 	inspectConnectionList           = "inspect_connection_list"
 	inspectConnectionListPeriod     = time.Second
 	inspectConnectionListIdlePeriod = 5 * time.Second
-
-	inspectHeap           = "inspect_heap"
-	inspectHeapPeriod     = time.Second
-	inspectHeapIdlePeriod = 5 * time.Second
 )
 
 var (
@@ -105,7 +101,6 @@ func Types() []any {
 		RequestInspectProcess{}, ResponseInspectProcess{}, MessageInspectProcess{},
 		RequestInspectMeta{}, ResponseInspectMeta{}, MessageInspectMeta{},
 		RequestInspectApplicationList{}, ResponseInspectApplicationList{}, MessageInspectApplicationList{},
-		RequestInspectHeap{}, ResponseInspectHeap{}, MessageInspectHeap{},
 		RequestInspectTracing{}, ResponseInspectTracing{}, MessageInspectTracing{},
 
 		RequestGetCapabilities{}, ResponseGetCapabilities{},
@@ -521,21 +516,6 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 		}
 		i.Send(inspectApplicationList, forward)
 		return nil, nil // no reply
-
-	case RequestInspectHeap:
-		opts := gen.ProcessOptions{LinkParent: true}
-		if r.Limit < 1 {
-			r.Limit = 100
-		}
-		hash := filterHash(r.Name, "", "", "", 0, r.Limit)
-		pname := gen.Atom(fmt.Sprintf("%s_%s", inspectHeap, hash))
-		_, err := i.SpawnRegister(pname, factory_heap, opts, r.Limit, r.Name)
-		if err != nil && err != gen.ErrTaken {
-			return err, nil
-		}
-		forward := requestInspect{pid: from, ref: ref}
-		i.Send(pname, forward)
-		return nil, nil
 
 	// one-shot reads
 
