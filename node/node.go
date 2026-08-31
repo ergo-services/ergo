@@ -993,6 +993,8 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.HeapGoal = rm.HeapGoal
 	info.Goroutines = rm.Goroutines
 	info.GCCycles = rm.GCCycles
+	info.HeapAllocObjects = rm.HeapAllocObjects
+	info.HeapFreeObjects = rm.HeapFreeObjects
 	info.CPUTimeGC = rm.CPUTimeGC
 	info.CPUTimeTotal = rm.CPUTimeTotal
 

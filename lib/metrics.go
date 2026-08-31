@@ -13,6 +13,8 @@ const (
 	metricHeapGoal    = "/gc/heap/goal:bytes"
 	metricGoroutines  = "/sched/goroutines:goroutines"
 	metricGCCycles    = "/gc/cycles/total:gc-cycles"
+	metricHeapAllocs  = "/gc/heap/allocs:objects"
+	metricHeapFrees   = "/gc/heap/frees:objects"
 	metricCPUGC       = "/cpu/classes/gc/total:cpu-seconds"
 	metricCPUTotal    = "/cpu/classes/total:cpu-seconds"
 )
@@ -42,6 +44,13 @@ type RuntimeMetrics struct {
 	// GCCycles is the cumulative number of completed garbage collection cycles.
 	GCCycles uint64
 
+	// HeapAllocObjects is the cumulative number of heap objects allocated.
+	HeapAllocObjects uint64
+
+	// HeapFreeObjects is the cumulative number of heap objects freed. The difference
+	// with HeapAllocObjects is the number of objects currently alive.
+	HeapFreeObjects uint64
+
 	// GCCPUFraction is the share of total CPU time spent in garbage collection.
 	GCCPUFraction float64
 
@@ -61,6 +70,8 @@ var runtimeMetrics = []string{
 	metricHeapGoal,
 	metricGoroutines,
 	metricGCCycles,
+	metricHeapAllocs,
+	metricHeapFrees,
 	metricCPUGC,
 	metricCPUTotal,
 }
@@ -115,6 +126,10 @@ func ReadRuntimeMetrics() RuntimeMetrics {
 				rm.Goroutines = int64(value)
 			case metricGCCycles:
 				rm.GCCycles = value
+			case metricHeapAllocs:
+				rm.HeapAllocObjects = value
+			case metricHeapFrees:
+				rm.HeapFreeObjects = value
 			}
 
 		case metrics.KindFloat64:

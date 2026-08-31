@@ -970,6 +970,14 @@ type NodeInfo struct {
 	// ServerTime is the current server time with timezone.
 	// Useful in Observer and MCP for correlating logs across nodes in different timezones.
 	ServerTime time.Time
+
+	// HeapAllocObjects is the cumulative number of heap objects allocated. Sampling it
+	// twice gives the allocation rate over the interval; the counter itself only grows.
+	HeapAllocObjects uint64
+
+	// HeapFreeObjects is the cumulative number of heap objects freed. The difference
+	// with HeapAllocObjects is the number of objects currently alive.
+	HeapFreeObjects uint64
 }
 
 // NodeShortInfo contains essential information about a node.

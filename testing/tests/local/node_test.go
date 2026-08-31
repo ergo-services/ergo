@@ -38,6 +38,11 @@ func TestLocalNode(t *testing.T) {
 	check.Equal(t, 0, int(info.RegisteredAliases))
 	check.Equal(t, 0, int(info.RegisteredNames))
 
+	// the runtime counters the observer draws its GC pressure from: cumulative, and
+	// nothing can have been freed that was not allocated first
+	check.True(t, info.HeapAllocObjects > 0)
+	check.True(t, info.HeapFreeObjects <= info.HeapAllocObjects)
+
 	// env: list / get (case-insensitive) / remove / set
 	check.Equal(t, env, nd.EnvList())
 	v, exist := nd.Env("a")
