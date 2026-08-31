@@ -22,6 +22,7 @@ type nodeOverrides struct {
 	frameworkVersion func() gen.Version
 	pid              func() gen.PID
 	creation         func() int64
+	peers            func() []gen.Atom
 	log              func() gen.Log
 	commercial       func() []gen.Version
 
@@ -125,6 +126,7 @@ func (n *mockNode) OnVersion(fn func() gen.Version)          { n.ov.version = fn
 func (n *mockNode) OnFrameworkVersion(fn func() gen.Version) { n.ov.frameworkVersion = fn }
 func (n *mockNode) OnPID(fn func() gen.PID)                  { n.ov.pid = fn }
 func (n *mockNode) OnCreation(fn func() int64)               { n.ov.creation = fn }
+func (n *mockNode) OnPeers(fn func() []gen.Atom)             { n.ov.peers = fn }
 func (n *mockNode) OnLog(fn func() gen.Log)                  { n.ov.log = fn }
 func (n *mockNode) OnCommercial(fn func() []gen.Version)     { n.ov.commercial = fn }
 

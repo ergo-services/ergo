@@ -47,7 +47,11 @@ type mockNode struct {
 	ov nodeOverrides
 }
 
-var _ gen.Node = (*mockNode)(nil)
+var (
+	_ gen.Node          = (*mockNode)(nil)
+	_ gen.NodeRegistrar = (*mockNode)(nil)
+	_ gen.NodeHandshake = (*mockNode)(nil)
+)
 
 // procEntry is a process the mock node knows about.
 type procEntry struct {
@@ -366,6 +370,12 @@ func (n *mockNode) Creation() int64 {
 		return n.ov.creation()
 	}
 	return n.creation
+}
+func (n *mockNode) Peers() []gen.Atom {
+	if n.ov.peers != nil {
+		return n.ov.peers()
+	}
+	return n.Network().Nodes()
 }
 func (n *mockNode) Log() gen.Log {
 	if n.ov.log != nil {

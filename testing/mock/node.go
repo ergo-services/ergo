@@ -124,10 +124,15 @@ type nodeOverrides struct {
 	commercial                      func() []gen.Version
 	pidFn                           func() gen.PID
 	creation                        func() int64
+	peers                           func() []gen.Atom
 	setCTRLC                        func(enable bool)
 }
 
-var _ gen.Node = (*Node)(nil)
+var (
+	_ gen.Node          = (*Node)(nil)
+	_ gen.NodeRegistrar = (*Node)(nil)
+	_ gen.NodeHandshake = (*Node)(nil)
+)
 
 // NewNode returns a dumb gen.Node mock (no recording; use NewNodeT for Should*).
 func NewNode() *Node { return newNode(recorder{}) }
@@ -457,6 +462,7 @@ func (n *Node) OnMakeRefWithDeadline(fn func(deadline int64) (gen.Ref, error)) {
 func (n *Node) OnCommercial(fn func() []gen.Version) { n.ov.commercial = fn }
 func (n *Node) OnPID(fn func() gen.PID)              { n.ov.pidFn = fn }
 func (n *Node) OnCreation(fn func() int64)           { n.ov.creation = fn }
+func (n *Node) OnPeers(fn func() []gen.Atom)         { n.ov.peers = fn }
 func (n *Node) OnSetCTRLC(fn func(enable bool))      { n.ov.setCTRLC = fn }
 
 // gen.Node
@@ -1185,6 +1191,13 @@ func (n *Node) Creation() int64 {
 		return n.ov.creation()
 	}
 	return 1
+}
+
+func (n *Node) Peers() []gen.Atom {
+	if n.ov.peers != nil {
+		return n.ov.peers()
+	}
+	return n.Network().Nodes()
 }
 
 func (n *Node) SetCTRLC(enable bool) {
