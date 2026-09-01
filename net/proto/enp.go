@@ -279,6 +279,24 @@ func (e *enp) RegisteredTypes() []gen.RegisteredTypeInfo {
 	return list
 }
 
+func (e *enp) RegisteredErrors() []gen.RegisteredErrorInfo {
+	list := edf.RegisteredErrors()
+	ver := e.Version().Str()
+	for i := range list {
+		list[i].Proto = ver
+	}
+	return list
+}
+
+func (e *enp) RegisteredAtoms() []gen.RegisteredAtomInfo {
+	list := edf.RegisteredAtoms()
+	ver := e.Version().Str()
+	for i := range list {
+		list[i].Proto = ver
+	}
+	return list
+}
+
 func (e *enp) LookupType(name string) (reflect.Type, bool) {
 	return edf.LookupType(name)
 }

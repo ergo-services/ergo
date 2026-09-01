@@ -169,6 +169,14 @@ type Network interface {
 	// One Go type may appear once per proto; entries carry Proto field set.
 	RegisteredTypes() []RegisteredTypeInfo
 
+	// RegisteredErrors aggregates the sentinel errors registered for wire
+	// transport by every TypeRegistry-capable proto. Entries carry Proto set.
+	RegisteredErrors() []RegisteredErrorInfo
+
+	// RegisteredAtoms aggregates the atom cache entries of every
+	// TypeRegistry-capable proto. Entries carry Proto set.
+	RegisteredAtoms() []RegisteredAtomInfo
+
 	// LookupType resolves a registered type name to its reflect.Type via the
 	// active wire-format protos. Returns the first match across protos.
 	// Accepts either the canonical name ("#pkgpath/Type") or a short name ("Type").
@@ -187,6 +195,8 @@ type TypeRegistry interface {
 	RegisterAtom(a Atom) error
 	RegisterAtoms(atoms []Atom) error
 	RegisteredTypes() []RegisteredTypeInfo
+	RegisteredErrors() []RegisteredErrorInfo
+	RegisteredAtoms() []RegisteredAtomInfo
 	LookupType(name string) (reflect.Type, bool)
 }
 

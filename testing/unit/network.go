@@ -3,6 +3,7 @@ package unit
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 
 	"ergo.services/ergo/gen"
@@ -27,7 +28,9 @@ type mockNetwork struct {
 	eventErr   error
 	regErr     error // when set, Registrar() returns this error
 	types      map[string]reflect.Type
-	typesErr   error // when set, RegisterType/RegisterTypes return this error
+	typesErr   error      // when set, RegisterType/RegisterTypes return this error
+	errors     []error    // registered sentinels, in registration order
+	atoms      []gen.Atom // registered atoms, in registration order
 }
 
 type resolveResult struct {
@@ -110,10 +113,31 @@ func (mn *mockNetwork) DisableApplicationStart(gen.Atom, ...gen.Atom) error     
 func (mn *mockNetwork) Info() (gen.NetworkInfo, error)                              { return gen.NetworkInfo{}, nil }
 func (mn *mockNetwork) Mode() gen.NetworkMode                                       { return gen.NetworkModeEnabled }
 func (mn *mockNetwork) Protos() []gen.NetworkProto                                  { return nil }
-func (mn *mockNetwork) RegisterError(error) error                                   { return nil }
-func (mn *mockNetwork) RegisterErrors([]error) error                                { return nil }
-func (mn *mockNetwork) RegisterAtom(gen.Atom) error                                 { return nil }
-func (mn *mockNetwork) RegisterAtoms([]gen.Atom) error                              { return nil }
+func (mn *mockNetwork) RegisterError(e error) error                                 { return mn.RegisterErrors([]error{e}) }
+func (mn *mockNetwork) RegisterAtom(a gen.Atom) error                               { return mn.RegisterAtoms([]gen.Atom{a}) }
+
+// RegisterErrors records the sentinels so RegisteredErrors can report them.
+// Re-registering one is ignored, mirroring gen.ErrTaken being benign.
+func (mn *mockNetwork) RegisterErrors(errs []error) error {
+	for _, e := range errs {
+		if e == nil || slices.Contains(mn.errors, e) {
+			continue
+		}
+		mn.errors = append(mn.errors, e)
+	}
+	return nil
+}
+
+// RegisterAtoms records the atoms so RegisteredAtoms can report them.
+func (mn *mockNetwork) RegisterAtoms(atoms []gen.Atom) error {
+	for _, a := range atoms {
+		if slices.Contains(mn.atoms, a) {
+			continue
+		}
+		mn.atoms = append(mn.atoms, a)
+	}
+	return nil
+}
 
 // The type registry is recorded rather than dropped: "did this app register its wire
 // surface" is a real failure mode, and a stub that always answers "not registered"
@@ -155,6 +179,34 @@ func (mn *mockNetwork) RegisteredTypes() []gen.RegisteredTypeInfo {
 			Kind:   t.Kind().String(),
 			Schema: t.String(),
 			Proto:  "unit",
+		})
+	}
+	return out
+}
+
+// RegisteredErrors reports what the actor under test registered, in
+// registration order. IDs are positional, as in RegisteredTypes.
+func (mn *mockNetwork) RegisteredErrors() []gen.RegisteredErrorInfo {
+	out := make([]gen.RegisteredErrorInfo, 0, len(mn.errors))
+	for i, e := range mn.errors {
+		out = append(out, gen.RegisteredErrorInfo{
+			ID:    uint16(i + 1),
+			Text:  e.Error(),
+			Proto: "unit",
+		})
+	}
+	return out
+}
+
+// RegisteredAtoms reports what the actor under test registered, in
+// registration order.
+func (mn *mockNetwork) RegisteredAtoms() []gen.RegisteredAtomInfo {
+	out := make([]gen.RegisteredAtomInfo, 0, len(mn.atoms))
+	for i, a := range mn.atoms {
+		out = append(out, gen.RegisteredAtomInfo{
+			ID:    uint16(i + 1),
+			Name:  a,
+			Proto: "unit",
 		})
 	}
 	return out
@@ -257,6 +309,11 @@ func (m *MockNetwork) FailRegisterTypes(err error) { m.net.typesErr = err }
 // actor under test registered.
 func (m *MockNetwork) LookupType(name string) (reflect.Type, bool) { return m.net.LookupType(name) }
 func (m *MockNetwork) RegisteredTypes() []gen.RegisteredTypeInfo   { return m.net.RegisteredTypes() }
+
+// RegisteredErrors and RegisteredAtoms report what the actor registered, so a
+// test can assert that its cross-node sentinels and atoms are in the registry.
+func (m *MockNetwork) RegisteredErrors() []gen.RegisteredErrorInfo { return m.net.RegisteredErrors() }
+func (m *MockNetwork) RegisteredAtoms() []gen.RegisteredAtomInfo   { return m.net.RegisteredAtoms() }
 
 // MockRegistrar is the test-config handle for Network().Registrar().
 type MockRegistrar struct{ net *mockNetwork }

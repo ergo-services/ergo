@@ -719,6 +719,22 @@ func (n *network) RegisteredTypes() []gen.RegisteredTypeInfo {
 	return all
 }
 
+func (n *network) RegisteredErrors() []gen.RegisteredErrorInfo {
+	var all []gen.RegisteredErrorInfo
+	for _, r := range n.typeRegistries() {
+		all = append(all, r.registry.RegisteredErrors()...)
+	}
+	return all
+}
+
+func (n *network) RegisteredAtoms() []gen.RegisteredAtomInfo {
+	var all []gen.RegisteredAtomInfo
+	for _, r := range n.typeRegistries() {
+		all = append(all, r.registry.RegisteredAtoms()...)
+	}
+	return all
+}
+
 // LookupType resolves a canonical type name across the registries. The name is globally
 // unique, so two registries disagreeing is a conflict, not a preference: report it and
 // pick by registry order.

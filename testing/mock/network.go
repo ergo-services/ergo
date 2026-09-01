@@ -53,6 +53,8 @@ type networkOverrides struct {
 	registerAtom            func(a gen.Atom) error
 	registerAtoms           func(atoms []gen.Atom) error
 	registeredTypes         func() []gen.RegisteredTypeInfo
+	registeredErrors        func() []gen.RegisteredErrorInfo
+	registeredAtoms         func() []gen.RegisteredAtomInfo
 	lookupType              func(name string) (reflect.Type, bool)
 }
 
@@ -137,6 +139,12 @@ func (n *Network) OnRegisterAtoms(fn func(atoms []gen.Atom) error) {
 }
 func (n *Network) OnRegisteredTypes(fn func() []gen.RegisteredTypeInfo) {
 	n.ov.registeredTypes = fn
+}
+func (n *Network) OnRegisteredErrors(fn func() []gen.RegisteredErrorInfo) {
+	n.ov.registeredErrors = fn
+}
+func (n *Network) OnRegisteredAtoms(fn func() []gen.RegisteredAtomInfo) {
+	n.ov.registeredAtoms = fn
 }
 func (n *Network) OnLookupType(fn func(name string) (reflect.Type, bool)) {
 	n.ov.lookupType = fn
@@ -382,6 +390,20 @@ func (n *Network) RegisterAtoms(atoms []gen.Atom) error {
 func (n *Network) RegisteredTypes() []gen.RegisteredTypeInfo {
 	if n.ov.registeredTypes != nil {
 		return n.ov.registeredTypes()
+	}
+	return nil
+}
+
+func (n *Network) RegisteredErrors() []gen.RegisteredErrorInfo {
+	if n.ov.registeredErrors != nil {
+		return n.ov.registeredErrors()
+	}
+	return nil
+}
+
+func (n *Network) RegisteredAtoms() []gen.RegisteredAtomInfo {
+	if n.ov.registeredAtoms != nil {
+		return n.ov.registeredAtoms()
 	}
 	return nil
 }

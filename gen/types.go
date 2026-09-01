@@ -219,6 +219,36 @@ type RegisteredTypeStats struct {
 	DecodedBytes int64
 }
 
+// RegisteredErrorInfo describes one sentinel error in a proto's wire-format
+// error registry. Enumerated via Network.RegisteredErrors, whose main use is
+// answering "is this sentinel registered here" - the question behind an
+// errors.Is that stopped matching after a node hop.
+type RegisteredErrorInfo struct {
+	// ID is the local wire-format cache id. It is NOT comparable between
+	// nodes: the actual per-connection mapping is negotiated at handshake, so
+	// two nodes may hold different ids for the same sentinel. Compare Text.
+	ID uint16
+	// Text is the sentinel's Error() string - the only identifier stable
+	// across nodes.
+	Text string
+	// Proto is the proto version owning this entry, set by the aggregator.
+	Proto string
+}
+
+// RegisteredAtomInfo describes one atom in a proto's wire-format atom cache.
+// Enumerated via Network.RegisteredAtoms. Unlike errors, an unregistered atom
+// never breaks correctness - it is encoded in full every time - so this
+// answers whether a wire-size optimization actually took effect.
+type RegisteredAtomInfo struct {
+	// ID is the local wire-format cache id, not comparable between nodes for
+	// the same reason as RegisteredErrorInfo.ID.
+	ID uint16
+	// Name is the atom itself.
+	Name Atom
+	// Proto is the proto version owning this entry, set by the aggregator.
+	Proto string
+}
+
 // Env
 type Env string
 

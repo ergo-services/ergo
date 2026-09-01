@@ -1158,6 +1158,33 @@ func GetErrCache() map[uint16]error {
 	return cache
 }
 
+// RegisteredErrors lists the sentinel errors in the wire-format error cache,
+// ordered by cache id. Framework sentinels pre-registered at init are
+// included, so the result is the whole dictionary this process would offer at
+// handshake - not only what the caller registered.
+//
+// The cache is process-global, not per-node: two nodes in one process report
+// the same list.
+func RegisteredErrors() []gen.RegisteredErrorInfo {
+	var list []gen.RegisteredErrorInfo
+	errCache.Range(func(k, v any) bool {
+		id, ok := v.(uint16)
+		if ok == false {
+			return true
+		}
+		e, ok := k.(error)
+		if ok == false {
+			return true
+		}
+		list = append(list, gen.RegisteredErrorInfo{ID: id, Text: e.Error()})
+		return true
+	})
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ID < list[j].ID
+	})
+	return list
+}
+
 func addErrCache(e error) error {
 	if _, ok := e.(*gen.Error); ok {
 		return fmt.Errorf("cannot register *gen.Error: register markers (errors.New) and construct wrap chains via gen.Errorf")
@@ -1175,6 +1202,33 @@ func addErrCache(e error) error {
 
 var atomCacheID uint32 = 255 // 0..255 - reserved (used as a length)
 var atomCache sync.Map
+
+// RegisteredAtoms lists the atom cache entries, ordered by cache id. An
+// unregistered atom is absent here and encoded in full on every hop, so an
+// atom missing from this list is a wire-size cost, never a correctness
+// problem.
+//
+// The cache is process-global, not per-node: two nodes in one process report
+// the same list.
+func RegisteredAtoms() []gen.RegisteredAtomInfo {
+	var list []gen.RegisteredAtomInfo
+	atomCache.Range(func(k, v any) bool {
+		id, ok := v.(uint16)
+		if ok == false {
+			return true
+		}
+		a, ok := k.(gen.Atom)
+		if ok == false {
+			return true
+		}
+		list = append(list, gen.RegisteredAtomInfo{ID: id, Name: a})
+		return true
+	})
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].ID < list[j].ID
+	})
+	return list
+}
 
 func GetAtomCache() map[uint16]gen.Atom {
 	cache := make(map[uint16]gen.Atom)
