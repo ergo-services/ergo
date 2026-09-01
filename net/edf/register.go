@@ -64,7 +64,14 @@ func RegisterTypeOf(v any) error {
 	}
 
 	switch v.(type) {
-	case bool, string, error,
+	case error:
+		// Caught before the regular-type case below, which would answer with a
+		// message that reads as "your type is too simple". A concrete error type
+		// has no structural encoding on the wire at all: register sentinel
+		// markers instead, and carry per-instance data outside the error.
+		return fmt.Errorf("error types cannot be registered: register sentinel markers (errors.New) with RegisterError, and carry structured data in a typed field beside the error field")
+
+	case bool, string,
 		int, int8, int16, int32, int64,
 		uint, uint8, uint16, uint32, uint64,
 		[]byte,

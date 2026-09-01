@@ -398,6 +398,10 @@ Imperative equivalents are `Network().RegisterError` (single) and `Network().Reg
 
 If both peers have a sentinel registered, the receiver decodes it to its own local instance, so `errors.Is(err, ErrInvalidOrder)` returns true across the network. If the sender has not registered it, the error arrives with the correct text but a fresh identity, and `errors.Is` against the original sentinel returns false. Code that branches on identity needs the sentinel registered on the sender side.
 
+Sentinels have to be `errors.New` values. `gen.Errorf` produces a `*gen.Error`, which the error cache refuses to register: the encoder has a dedicated branch for `*gen.Error` and takes it before it consults the cache, so a registered chain would still be encoded field by field and rebuilt as a new value on the receiver, leaving `errors.Is` false against the original. The text arrives intact, which is what makes this mistake invisible in logs and in single-node tests.
+
+Structure is the other limit. In a field declared as `error`, two things keep it: a sentinel value registered on both peers, and `*gen.Error`. A concrete error type of your own keeps nothing - `RegisterType` refuses any type that implements `error`, and the error encoder consults neither the type registry nor a custom `MarshalEDF`, so such a value goes on the wire as its `Error()` text and arrives as a plain error. Anything structured that the receiver has to compute with belongs in a typed field beside the error rather than inside it.
+
 ### Preserving Wrap Chains Across the Network
 
 `fmt.Errorf("...: %w", err)` is the standard Go idiom for wrapping. Locally it works as expected: `errors.Is` and `errors.Unwrap` follow the chain. Across the network, the chain collapses to a flat string: the receiver sees the correct `err.Error()` text, but `errors.Is(err, originalMarker)` returns false and `errors.Unwrap(err)` returns nil.
@@ -409,16 +413,58 @@ return gen.Errorf("user %d: %w", userID, ErrPaymentDeclined)
 // on the receiver:
 //   err.Error()                        // "user 42: payment declined"
 //   errors.Is(err, ErrPaymentDeclined) // true
-//   errors.Unwrap(err)                 // []error{ErrPaymentDeclined}
+//   errors.As(err, &target)            // finds a typed cause at any depth
 ```
+
+Reading such an error on the receiver is no different from reading it locally; the shapes a chain can take and the rules for inspecting them are described under [gen.Error](../basics/generic-types.md#errors).
 
 Multiple `%w` (Go 1.20+) work the same way: `gen.Errorf("%w and %w", a, b)` makes both `a` and `b` reachable via `errors.Is`.
 
-For wrapped markers to keep identity, the same registration rule applies: each `%w` marker must be registered on both peers. Otherwise the message text is intact but the wrapped sentinel arrives as a fresh instance.
+For wrapped markers to keep identity, the same registration rule applies as for a bare sentinel: each `%w` marker must be registered on both peers. Otherwise the message text is intact but the wrapped sentinel arrives as a fresh instance.
+
+All the shapes a wrap chain can take survive the trip - one cause, several at one level, nesting to any depth. The encoder walks `Wrapped` recursively and encodes each cause the way it would encode a top-level one: by cache id when it is a registered marker, structurally when it is itself a `*gen.Error`. Depth is bounded by `Options.MaxDepth`.
+
+What does not survive is the identity of an intermediate `*gen.Error`. Only registered markers keep identity, and a nested chain is rebuilt on the receiver as a new value, so `errors.Is` against a package-level `*gen.Error` is false on the far side while being true locally. An error contract therefore has to be exercised across a real connection or an `edf.Encode`/`edf.Decode` round-trip: a single-node test passes either way.
 
 Cross-network preservation of the chain is gated by `NetworkFlags.EnableWrappedErrors`, which is on by default. When either peer has it disabled (typically an older node), `gen.Errorf` falls back to flat-text behavior just like `fmt.Errorf` would.
 
+Three different losses look identical on the receiver - the text is intact and `errors.Is` returns false: a sentinel the sender never registered, a peer with `EnableWrappedErrors` disabled, and an error the encoder cannot represent structurally. When identity stops matching, check registration on both sides before anything else.
+
 `errors.Join(a, b)` is not preserved across the network. Use `gen.Errorf("%w\n%w", a, b)` if you need identity for multiple causes.
+
+### Error Classification Across Nodes
+
+A wrap chain does not describe causality, it describes membership. Every `%w` marker states that this failure belongs to that group, and `errors.Is` is the membership test. The set is flat - the wire carries markers, not a hierarchy - so the sender has to state every membership the receiver is going to test.
+
+That makes two levels the natural shape for an error contract: a narrow marker for the specific failure, and a broader one shared by everything of that kind.
+
+```go
+var (
+    ErrCodeInvalidArgument = errors.New("code:1234")     // the group
+    ErrInvalidArgA         = errors.New("invalid arg A") // a member
+    ErrInvalidArgB         = errors.New("invalid arg B") // a member
+)
+
+return gen.Errorf("unable to perform request %s: %w %w",
+    target, ErrInvalidArgB, ErrCodeInvalidArgument)
+```
+
+The receiver tests whichever level it cares about, with no string handling either way:
+
+```go
+if errors.Is(err, ErrCodeInvalidArgument) {
+    // anything of this kind, including members added later
+}
+if errors.Is(err, ErrInvalidArgB) {
+    // this exact failure
+}
+```
+
+ The property worth having is what happens when the two sides drift apart: the group marker is registered independently of its members, so a receiver that knows only the group correctly classifies failures it has never heard of. The sender can add a member without a coordinated release, and the specific text is still in the message for whoever reads the log. Only a new group marker needs both sides to agree.
+
+Expressing the hierarchy in the data instead does not work. A group marker built as `gen.Errorf("code:1234: %w", ErrInvalidArgument)` cannot be registered, so it arrives as a freshly built value: the marker at the bottom of the chain still matches, the group itself no longer does. Wrap both markers at the call site, or keep the member-to-group mapping as a table on the receiving side.
+
+Two consequences follow from the set being flat. A membership the sender forgot to state is simply absent, and the receiver's coarse test returns false with nothing to say why. And a receiver that walks a list of markers and takes the first match has to order that list deliberately, most specific first, because the wire can carry a member and its group side by side.
 
 ## Type Registration Timing
 

@@ -219,7 +219,7 @@ The supervisor tracks restart timestamps (in milliseconds). When a child termina
 When the intensity is exceeded the supervisor stops all running children and terminates itself:
 - Each child receives `gen.ErrExceeded` as its exit reason.
 - The supervisor itself exits with `*gen.Error{Msg: "supervisor restart intensity exceeded (max N in Ms): ...", Wrapped: [gen.ErrExceeded, originalChildReason]}`.
-- A parent supervisor or monitor can call `errors.Is(reason, gen.ErrExceeded)` to detect the cause, and walk `Unwrap()` to recover the original child reason.
+- A parent supervisor or monitor can call `errors.Is(reason, gen.ErrExceeded)` to detect the cause. The original child reason is the second wrapped cause: match it with `errors.Is` or `errors.As` on the reason itself, or read the `Wrapped` field. `errors.Unwrap` does not help here - `gen.Error` carries several causes and implements `Unwrap() []error`, which the standard `errors.Unwrap` does not follow.
 
 Old restarts outside the period window are discarded from tracking. This is a sliding window: if your child crashes 5 times in 10 seconds, then runs stable for 11 seconds, then crashes again, the counter resets. It is 1 restart in the window, not 6 total.
 
@@ -775,7 +775,7 @@ The supervisor maintains a list of restart timestamps in milliseconds. When a ch
 1. Append current timestamp to the list.
 2. Remove timestamps older than `Period` seconds.
 3. If list length > `Intensity`, intensity is exceeded.
-4. If exceeded: stop all running children with `gen.ErrExceeded` as their exit reason. The supervisor itself terminates with `*gen.Error{Msg: "supervisor restart intensity exceeded (max N in Ms): ...", Wrapped: [gen.ErrExceeded, originalChildReason]}`. Both `gen.ErrExceeded` and the original failure cause are preserved via the wrap chain so a parent supervisor or monitor can detect the cause via `errors.Is` and recover the original reason via `Unwrap`.
+4. If exceeded: stop all running children with `gen.ErrExceeded` as their exit reason. The supervisor itself terminates with `*gen.Error{Msg: "supervisor restart intensity exceeded (max N in Ms): ...", Wrapped: [gen.ErrExceeded, originalChildReason]}`. Both `gen.ErrExceeded` and the original failure cause are preserved via the wrap chain, so a parent supervisor or monitor can detect the cause with `errors.Is` and match the original reason with `errors.Is` or `errors.As`, which visit both causes.
 5. If not exceeded: proceed with restart.
 
 When a per-child counter is configured, the same algorithm runs against the child's own restart history using the child's own `Intensity` and `Period`. With `OnExceed: OnExceedDisable`, step 4 changes: instead of terminating the supervisor, the child is disabled (One For One) or the offending instance is dropped (Simple One For One), and the supervisor stays alive. With `OnExceedTerminateSupervisor` (the default), step 4 produces the same `*gen.Error` wrap as the global path.
@@ -874,7 +874,7 @@ Simple One For One ignores `DisableAutoShutdown` - the supervisor never auto-shu
 
 **Per-child `Intensity` is rejected for All For One and Rest For One**. Group-restart strategies have no use for per-child thresholds: when one child fails, the supervisor restarts the whole group, so charging a per-child counter has no defined meaning.
 
-**Use `errors.Is` and `errors.Unwrap` to inspect failures**. When a supervisor terminates due to a restart-intensity overflow, its exit reason is `*gen.Error{Msg: "supervisor restart intensity exceeded (max N in Ms): ...", Wrapped: [gen.ErrExceeded, originalChildReason]}`. A parent supervisor or monitor can match the structural cause with `errors.Is(reason, gen.ErrExceeded)` and recover the underlying child failure by traversing `Unwrap()`.
+**Use `errors.Is` and `errors.As` to inspect failures**. When a supervisor terminates due to a restart-intensity overflow, its exit reason is `*gen.Error{Msg: "supervisor restart intensity exceeded (max N in Ms): ...", Wrapped: [gen.ErrExceeded, originalChildReason]}`. A parent supervisor or monitor can match the structural cause with `errors.Is(reason, gen.ErrExceeded)` and the underlying child failure with `errors.Is` or `errors.As` on the same reason - both visit every wrapped cause, so no manual traversal is needed.
 
 ## Behavior Cookbook
 

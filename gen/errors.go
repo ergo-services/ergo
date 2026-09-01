@@ -6,11 +6,13 @@ import (
 )
 
 // Error carries a process exit reason with optional wrapped causes and an
-// optional captured mailbox. Msg holds the formatted message text (as if
-// produced by fmt.Errorf). Wrapped holds errors corresponding to %w
-// substitutions, preserving identity through errors.Is/errors.Unwrap.
-// Mailbox, when non-nil, holds the captured mailbox of a panicked process
-// for replay on supervisor restart; it is excluded from EDF wire encoding.
+// optional captured mailbox. Msg holds the message text; Errorf fills it with
+// fmt.Errorf output, which means the causes' own text ends up inside it as
+// well. Wrapped holds errors corresponding to %w substitutions, preserving
+// identity through errors.Is and errors.As - not errors.Unwrap, see the
+// Unwrap method below. Mailbox, when non-nil, holds the captured mailbox of a
+// panicked process for replay on supervisor restart; it is excluded from EDF
+// wire encoding.
 //
 // User code typically constructs *Error through gen.Errorf. The framework
 // constructs it directly when capturing a mailbox or wrapping supervisor
@@ -21,6 +23,7 @@ type Error struct {
 	Mailbox *ProcessMailbox `edf:"-"`
 }
 
+// Error returns Msg, or the first cause's text when Msg is empty.
 func (e *Error) Error() string {
 	if e == nil {
 		return ""
@@ -31,6 +34,14 @@ func (e *Error) Error() string {
 	return e.Msg
 }
 
+// Unwrap returns the wrapped causes. This is the multi-error form, which the
+// standard errors.Unwrap does not follow: it calls only Unwrap() error, so
+// errors.Unwrap on *Error returns nil - with a single cause as well as with
+// several. errors.Join behaves the same way. Use errors.Is to test identity
+// and errors.As to extract a type; both traverse every cause depth-first.
+// Read Wrapped directly when the cause objects themselves are needed, and
+// check its length rather than indexing it: Errorf leaves it empty whenever a
+// %w argument was nil or was not an error.
 func (e *Error) Unwrap() []error {
 	if e == nil {
 		return nil
@@ -40,9 +51,15 @@ func (e *Error) Unwrap() []error {
 
 // Errorf mirrors fmt.Errorf: formats according to format and args, and
 // supports %w (single or multiple) for wrapping errors with preserved
-// identity. The wrapped errors are stored in Wrapped so that errors.Is
-// and errors.Unwrap traverse them, and so EDF wire encoding preserves
-// the chain across the network when peer capability allows.
+// identity. The wrapped errors are stored in Wrapped so that errors.Is and
+// errors.As traverse them, and so EDF wire encoding preserves the chain
+// across the network when peer capability allows.
+//
+// Errorf composes a value at the point of failure. It is not a way to declare
+// a sentinel: package-level markers must be errors.New values, because an
+// *Error cannot be registered in the network error cache and is rebuilt as a
+// new value on the receiving node, which leaves errors.Is false against the
+// original while the text still looks correct.
 func Errorf(format string, args ...any) error {
 	w := fmt.Errorf(format, args...)
 	e := &Error{Msg: w.Error()}

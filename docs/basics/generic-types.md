@@ -97,7 +97,7 @@ This allows processes to inherit environment variables from parents, leaders, an
 
 ### gen.Error
 
-`gen.Error` is a wrapping error type used as a process exit reason. It carries a formatted message, the wrapped causes for identity preservation via `errors.Is`/`errors.Unwrap`, and an optional captured mailbox.
+`gen.Error` is a wrapping error type used as a process exit reason. It carries a message, the causes it wraps - whose identity is observable through `errors.Is` and survives a trip across the network - and an optional captured mailbox.
 
 ```go
 type Error struct {
@@ -107,11 +107,44 @@ type Error struct {
 }
 ```
 
-- `Msg` is the formatted message text (as produced by `fmt.Errorf`).
-- `Wrapped` holds errors corresponding to `%w` substitutions. Identity is preserved through `errors.Is` (which walks `Unwrap() []error`) and across the network via the EDF errCache when those markers are registered.
+- `Msg` is the message text. `gen.Errorf` fills it with `fmt.Errorf` output, which means the causes' own text ends up inside it as well.
+- `Wrapped` holds the errors the `%w` substitutions referred to, in argument order. Reading them is described below.
 - `Mailbox` carries the captured mailbox of a panicked process for replay on supervisor restart. Excluded from network encoding via `edf:"-"`, so it never crosses the wire.
 
-The type implements `Error()` and `Unwrap() []error`, so it works transparently with the standard `errors` package:
+Most user code never constructs `*gen.Error` directly. Use `gen.Errorf` instead, which mirrors `fmt.Errorf` and produces a `*gen.Error` with the wrap chain preserved:
+
+```go
+return gen.Errorf("user %d: %w", userID, ErrPaymentDeclined)
+```
+
+`gen.Errorf` composes a value at the point of failure. It is not a way to declare a sentinel: package-level markers must be `errors.New` values, because a `*gen.Error` cannot be registered for the wire and loses its identity across a node hop. See [Encoding Errors](../networking/network-transparency.md#encoding-errors).
+
+`Wrapped` is what tells apart the three basic shapes `gen.Errorf` can produce. A single cause is the common one:
+
+```go
+err := gen.Errorf("unable to update user %s: %w", id, ErrInvalidArgument)
+// Msg     = "unable to update user u42: invalid argument"
+// Wrapped = [ErrInvalidArgument]
+```
+
+Several causes at one level state independent facts about the same failure. This is a set rather than a chain: `Wrapped[0]` carries no special meaning, and the order follows the order of the arguments, not the position of the verbs in the format string:
+
+```go
+err := gen.Errorf("request refused: %w %w", ErrInvalidArgument, ErrRetryable)
+// Msg     = "request refused: invalid argument retryable"
+// Wrapped = [ErrInvalidArgument, ErrRetryable]
+```
+
+Nesting happens when a `*gen.Error` is itself wrapped. Every level renders the inner text into its own `Msg`, so the text accumulates as the chain grows:
+
+```go
+inner := gen.Errorf("unable to update user %s: %w", id, ErrInvalidArgument)
+outer := gen.Errorf("request %d failed: %w", reqID, inner)
+// outer.Msg     = "request 7 failed: unable to update user u42: invalid argument"
+// outer.Wrapped = [inner]
+```
+
+The shapes mix freely - a nested error may carry several causes of its own, at any depth - and the way to read them does not depend on which one you got. To ask whether a failure is of a given kind, use `errors.Is`. To pull out a value of a known type, use `errors.As`. Both visit every cause depth-first:
 
 ```go
 if errors.Is(reason, gen.ErrExceeded) {
@@ -122,11 +155,16 @@ if errors.Is(reason, ErrPaymentDeclined) {
 }
 ```
 
-Most user code never constructs `*gen.Error` directly. Use `gen.Errorf` instead, which mirrors `fmt.Errorf` and produces a `*gen.Error` with preserved wrap chain:
+`errors.Unwrap` is not on that list. It calls only the `Unwrap() error` form, and `gen.Error` implements `Unwrap() []error` in order to carry several causes, so `errors.Unwrap` returns nil for every shape above - including a single cause, where nothing at the call site hints at the multi-error form. `errors.Join` behaves the same way for the same reason.
+
+When the cause objects themselves are needed, assert to `*gen.Error` and read `Wrapped`, checking its length rather than indexing it straight away. `gen.Errorf` leaves the list empty whenever a `%w` argument was nil or was not an error, and in both cases the message still reads plausibly:
 
 ```go
-return gen.Errorf("user %d: %w", userID, ErrPaymentDeclined)
+gen.Errorf("failed: %w", nil)   // Msg = "failed: %!w(<nil>)", Wrapped = []
+gen.Errorf("failed: %s", cause) // %s instead of %w: text is fine, Wrapped = []
 ```
+
+One thing not to do is recover a single level's own text by subtracting an inner error's text from the outer `Msg`. The wrap chain preserves identity, not the boundaries between the pieces of the message, and the format string those pieces were glued with is not part of any contract. When a receiver needs a value separately from the message, that value has to travel as a value: a registered marker if it is one of an enumerable set, a typed field beside the error for anything else.
 
 The framework uses `gen.Error` in two places today:
 
