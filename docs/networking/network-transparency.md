@@ -460,9 +460,9 @@ if errors.Is(err, ErrInvalidArgB) {
 }
 ```
 
- The property worth having is what happens when the two sides drift apart: the group marker is registered independently of its members, so a receiver that knows only the group correctly classifies failures it has never heard of. The sender can add a member without a coordinated release, and the specific text is still in the message for whoever reads the log. Only a new group marker needs both sides to agree.
+The property worth having is what happens when the two sides drift apart: the group marker is registered independently of its members, so a receiver that knows only the group correctly classifies failures it has never heard of. The sender can add a member without a coordinated release, and the specific text is still in the message for whoever reads the log. Only a new group marker needs both sides to agree.
 
-Expressing the hierarchy in the data instead does not work. A group marker built as `gen.Errorf("code:1234: %w", ErrInvalidArgument)` cannot be registered, so it arrives as a freshly built value: the marker at the bottom of the chain still matches, the group itself no longer does. Wrap both markers at the call site, or keep the member-to-group mapping as a table on the receiving side.
+Expressing the hierarchy in the data instead does not work. A group marker built as `gen.Errorf("code:1234: %w", ErrInvalidArgB)` cannot be registered, so it arrives as a freshly built value: the marker at the bottom of the chain still matches, the group itself no longer does. Wrap both markers at the call site, or keep the member-to-group mapping as a table on the receiving side.
 
 Two consequences follow from the set being flat. A membership the sender forgot to state is simply absent, and the receiver's coarse test returns false with nothing to say why. And a receiver that walks a list of markers and takes the first match has to order that list deliberately, most specific first, because the wire can carry a member and its group side by side.
 

@@ -900,6 +900,7 @@ var (
 	decoders sync.Map
 
 	registeredTypes sync.Map // reflect.Type -> *gen.RegisteredTypeInfo.
+	typesByName     sync.Map // registered name -> reflect.Type, for LookupType.
 	registerOrder   atomic.Uint64
 )
 
@@ -919,6 +920,7 @@ func registerInfo(t reflect.Type, kind, schema string) *gen.RegisteredTypeInfo {
 	if actual, loaded := registeredTypes.LoadOrStore(t, info); loaded {
 		return actual.(*gen.RegisteredTypeInfo)
 	}
+	typesByName.Store(info.Name, t)
 	return info
 }
 
@@ -1086,6 +1088,13 @@ func RegisterTypesOf(types []any) error {
 func LookupType(name string) (reflect.Type, bool) {
 	if v, ok := decoders.Load(name); ok {
 		return v.(*decoder).Type, true
+	}
+	// The types the framework seeds - the primitives, time.Time, time.Duration - are
+	// keyed by their wire tag and by their Go type, never by name: they are not framed
+	// with one. They are registered all the same, and a caller asking whether this node
+	// speaks a type is asking about that, not about the framing.
+	if v, ok := typesByName.Load(name); ok {
+		return v.(reflect.Type), true
 	}
 	return nil, false
 }

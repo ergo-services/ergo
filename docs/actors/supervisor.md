@@ -219,7 +219,7 @@ The supervisor tracks restart timestamps (in milliseconds). When a child termina
 When the intensity is exceeded the supervisor stops all running children and terminates itself:
 - Each child receives `gen.ErrExceeded` as its exit reason.
 - The supervisor itself exits with `*gen.Error{Msg: "supervisor restart intensity exceeded (max N in Ms): ...", Wrapped: [gen.ErrExceeded, originalChildReason]}`.
-- A parent supervisor or monitor can call `errors.Is(reason, gen.ErrExceeded)` to detect the cause. The original child reason is the second wrapped cause: match it with `errors.Is` or `errors.As` on the reason itself, or read the `Wrapped` field. `errors.Unwrap` does not help here - `gen.Error` carries several causes and implements `Unwrap() []error`, which the standard `errors.Unwrap` does not follow.
+- A parent supervisor or monitor can call `errors.Is(reason, gen.ErrExceeded)` to detect the cause. The original child reason is the second wrapped cause: match it with `errors.Is` or `errors.As` on the reason itself, or read the `Wrapped` field.
 
 Old restarts outside the period window are discarded from tracking. This is a sliding window: if your child crashes 5 times in 10 seconds, then runs stable for 11 seconds, then crashes again, the counter resets. It is 1 restart in the window, not 6 total.
 
