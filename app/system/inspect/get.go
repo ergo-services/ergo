@@ -243,6 +243,50 @@ func (i *inspect) responseTypes(r RequestGetTypes) ResponseGetTypes {
 	return out
 }
 
+func (i *inspect) responseErrors(r RequestGetErrors) ResponseGetErrors {
+	registered := i.Node().Network().RegisteredErrors()
+
+	errs := registered
+	if r.Text != "" {
+		errs = []gen.RegisteredErrorInfo{}
+		for _, e := range registered {
+			if strings.Contains(strings.ToLower(e.Text), strings.ToLower(r.Text)) == false {
+				continue
+			}
+			errs = append(errs, e)
+		}
+	}
+
+	out := ResponseGetErrors{Errors: errs}
+	if r.Limit > 0 && len(errs) > r.Limit {
+		out.Truncated = len(errs) - r.Limit
+		out.Errors = errs[:r.Limit]
+	}
+	return out
+}
+
+func (i *inspect) responseAtoms(r RequestGetAtoms) ResponseGetAtoms {
+	registered := i.Node().Network().RegisteredAtoms()
+
+	atoms := registered
+	if r.Name != "" {
+		atoms = []gen.RegisteredAtomInfo{}
+		for _, a := range registered {
+			if strings.Contains(strings.ToLower(string(a.Name)), strings.ToLower(r.Name)) == false {
+				continue
+			}
+			atoms = append(atoms, a)
+		}
+	}
+
+	out := ResponseGetAtoms{Atoms: atoms}
+	if r.Limit > 0 && len(atoms) > r.Limit {
+		out.Truncated = len(atoms) - r.Limit
+		out.Atoms = atoms[:r.Limit]
+	}
+	return out
+}
+
 func (i *inspect) responseApplicationList() ResponseGetApplicationList {
 	out := ResponseGetApplicationList{
 		Node:         i.Node().Name(),

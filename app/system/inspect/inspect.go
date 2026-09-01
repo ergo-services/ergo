@@ -118,6 +118,8 @@ func Types() []any {
 		RequestGetGoroutines{}, GoroutineGroup{}, ResponseGetGoroutines{},
 		RequestGetHeapProfile{}, HeapRecord{}, ResponseGetHeapProfile{},
 		RequestGetTypes{}, ResponseGetTypes{},
+		RequestGetErrors{}, ResponseGetErrors{},
+		RequestGetAtoms{}, ResponseGetAtoms{},
 
 		RequestGetNode{}, ResponseGetNode{},
 		RequestGetNetwork{}, ResponseGetNetwork{},
@@ -590,6 +592,12 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	case RequestGetTypes:
 		return i.responseTypes(r), nil
+
+	case RequestGetErrors:
+		return i.responseErrors(r), nil
+
+	case RequestGetAtoms:
+		return i.responseAtoms(r), nil
 
 	case RequestGetNode:
 		return i.responseNode(), nil

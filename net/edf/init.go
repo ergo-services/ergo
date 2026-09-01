@@ -99,6 +99,8 @@ var (
 
 		gen.RegisteredTypeStats{},
 		gen.RegisteredTypeInfo{},
+		gen.RegisteredErrorInfo{},
+		gen.RegisteredAtomInfo{},
 	}
 
 	// register standard errors of the Ergo Framework. Identity of these

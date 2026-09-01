@@ -1,6 +1,7 @@
 package local
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -94,6 +95,119 @@ func TestSystemInspectGetTypes(t *testing.T) {
 	if len(none.Types) != 0 || none.Truncated != 0 {
 		t.Errorf("a filter matching nothing returned %d types and %d omitted",
 			len(none.Types), none.Truncated)
+	}
+}
+
+func errorsOf(t *testing.T, n *stage.Node, request inspect.RequestGetErrors) inspect.ResponseGetErrors {
+	t.Helper()
+
+	response, ok := inspectGet(t, n, request).(inspect.ResponseGetErrors)
+	if ok == false {
+		t.Fatalf("unexpected response to %T", request)
+	}
+	check.NoError(t, response.Error)
+	return response
+}
+
+func atomsOf(t *testing.T, n *stage.Node, request inspect.RequestGetAtoms) inspect.ResponseGetAtoms {
+	t.Helper()
+
+	response, ok := inspectGet(t, n, request).(inspect.ResponseGetAtoms)
+	if ok == false {
+		t.Fatalf("unexpected response to %T", request)
+	}
+	check.NoError(t, response.Error)
+	return response
+}
+
+func TestSystemInspectGetErrors(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n", stage.NodeOptions{EnableSystemApp: true})
+
+	all := errorsOf(t, n, inspect.RequestGetErrors{})
+	if len(all.Errors) == 0 {
+		t.Fatal("the framework pre-registers its own sentinels, yet none came back")
+	}
+	if all.Truncated != 0 {
+		t.Errorf("an unfiltered answer reports %d omitted", all.Truncated)
+	}
+	for _, entry := range all.Errors {
+		if entry.Text == "" {
+			t.Error("an entry carries no text, so nothing can be compared against a peer")
+		}
+	}
+
+	sentinel := errors.New("inspect get errors: application sentinel")
+	if err := n.Native().Network().RegisterError(sentinel); err != nil {
+		t.Fatalf("RegisterError: %s", err)
+	}
+
+	mine := errorsOf(t, n, inspect.RequestGetErrors{Text: "application sentinel"})
+	if len(mine.Errors) != 1 {
+		t.Fatalf("a registered sentinel matched %d entries, expected 1", len(mine.Errors))
+	}
+	if mine.Errors[0].Text != sentinel.Error() {
+		t.Errorf("matched %q, expected %q", mine.Errors[0].Text, sentinel.Error())
+	}
+
+	byText := errorsOf(t, n, inspect.RequestGetErrors{Text: "process"})
+	if len(byText.Errors) == 0 {
+		t.Fatal("gen.ErrProcessUnknown is registered, so a text filter of process must match")
+	}
+	for _, entry := range byText.Errors {
+		if strings.Contains(strings.ToLower(entry.Text), "process") == false {
+			t.Errorf("%q passed a text filter of process", entry.Text)
+		}
+	}
+
+	total := len(errorsOf(t, n, inspect.RequestGetErrors{}).Errors)
+	page := errorsOf(t, n, inspect.RequestGetErrors{Limit: 3})
+	if len(page.Errors) != 3 {
+		t.Fatalf("a page of three returned %d errors", len(page.Errors))
+	}
+	if page.Truncated != total-3 {
+		t.Errorf("page omitted %d, expected %d", page.Truncated, total-3)
+	}
+
+	none := errorsOf(t, n, inspect.RequestGetErrors{Text: "no.such.sentinel.anywhere"})
+	if len(none.Errors) != 0 || none.Truncated != 0 {
+		t.Errorf("a filter matching nothing returned %d errors and %d omitted",
+			len(none.Errors), none.Truncated)
+	}
+}
+
+func TestSystemInspectGetAtoms(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n", stage.NodeOptions{EnableSystemApp: true})
+
+	atom := gen.Atom("inspect-get-atoms-probe")
+	if err := n.Native().Network().RegisterAtom(atom); err != nil {
+		t.Fatalf("RegisterAtom: %s", err)
+	}
+
+	all := atomsOf(t, n, inspect.RequestGetAtoms{})
+	if len(all.Atoms) == 0 {
+		t.Fatal("an atom was just registered, yet the cache came back empty")
+	}
+	if all.Truncated != 0 {
+		t.Errorf("an unfiltered answer reports %d omitted", all.Truncated)
+	}
+
+	mine := atomsOf(t, n, inspect.RequestGetAtoms{Name: "inspect-get-atoms-probe"})
+	if len(mine.Atoms) != 1 {
+		t.Fatalf("the registered atom matched %d entries, expected 1", len(mine.Atoms))
+	}
+	if mine.Atoms[0].Name != atom {
+		t.Errorf("matched %q, expected %q", mine.Atoms[0].Name, atom)
+	}
+	if mine.Atoms[0].ID == 0 {
+		t.Error("a cached atom carries id 0, which the encoder never uses")
+	}
+
+	none := atomsOf(t, n, inspect.RequestGetAtoms{Name: "no.such.atom.anywhere"})
+	if len(none.Atoms) != 0 || none.Truncated != 0 {
+		t.Errorf("a filter matching nothing returned %d atoms and %d omitted",
+			len(none.Atoms), none.Truncated)
 	}
 }
 

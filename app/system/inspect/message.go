@@ -624,3 +624,29 @@ type ResponseGetTypes struct {
 	Truncated int
 	Error     error
 }
+
+// errors
+
+type RequestGetErrors struct {
+	Text  string
+	Limit int
+}
+
+type ResponseGetErrors struct {
+	Errors    []gen.RegisteredErrorInfo
+	Truncated int
+	Error     error
+}
+
+// atoms
+
+type RequestGetAtoms struct {
+	Name  string
+	Limit int
+}
+
+type ResponseGetAtoms struct {
+	Atoms     []gen.RegisteredAtomInfo
+	Truncated int
+	Error     error
+}
