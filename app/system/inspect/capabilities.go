@@ -47,6 +47,8 @@ const (
 	CapGetGoroutines    = "inspect.goroutines"
 	CapGetHeapProfile   = "inspect.heap_profile"
 	CapGetTypes         = "inspect.types"
+	CapGetErrors        = "inspect.errors"
+	CapGetAtoms         = "inspect.atoms"
 
 	CapGetCronInfo     = "inspect.cron_info"
 	CapGetCronSchedule = "inspect.cron_schedule"
@@ -109,6 +111,8 @@ func Capabilities() []string {
 		CapGetGoroutines,
 		CapGetHeapProfile,
 		CapGetTypes,
+		CapGetErrors,
+		CapGetAtoms,
 		CapGetCronInfo,
 		CapGetCronSchedule,
 		CapGetRegistrarNodes,
