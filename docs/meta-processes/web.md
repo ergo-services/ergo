@@ -471,7 +471,7 @@ func (w *WebService) Init(args ...any) error {
 
 Pool distributes incoming requests across 20 workers. Each worker processes one request at a time. System handles 20 concurrent requests.
 
-**Capacity control**: `PoolSize × WorkerMailboxSize` is how much work the backend holds - with 20 workers and a mailbox of 10 that is 220 requests, 20 in progress and 200 queued. It is not an admission limit, and past it requests are not shed quickly.
+**Capacity control**: the backend holds `PoolSize` requests in flight plus `PoolSize × WorkerMailboxSize` queued behind them - with 20 workers and a mailbox of 10, that is 20 in progress and 200 queued, 220 in total. A message being handled has already been taken out of its mailbox, which is why the two terms add rather than one containing the other. It is not an admission limit, and past it requests are not shed quickly.
 
 What happens instead: the pool cannot place the message, so it drops and logs it. Nothing cancels the HTTP request waiting on that message, so the handler waits out `RequestTimeout` and answers **504 Gateway Timeout**. Every excess request therefore holds a connection for the whole timeout - five seconds by default. Under sustained overload that is worse than a fast rejection: keep `RequestTimeout` short on a public endpoint, watch the pool's `ergo:messages_unhandled`, and reject at the edge if you want a real 503.
 
@@ -520,6 +520,6 @@ Move to meta-processes when you specifically need:
 
 **WebSocket or long-lived connections**: Each connection must be an addressable actor that backend logic can push updates to. The simple approach cannot do this - it's request-response only. Meta-processes make each connection an independent actor with cluster-wide addressability.
 
-**Capacity control through mailbox limits**: Backend accepts exactly `PoolSize × WorkerMailboxSize` requests, no more. Beyond this, requests are rejected. This prevents memory exhaustion during overload. The simple approach queues unbounded requests in HTTP server.
+**Capacity control through mailbox limits**: the backend holds a bounded amount of work - `PoolSize` requests in flight plus `PoolSize × WorkerMailboxSize` queued behind them - instead of letting the HTTP server queue without limit. Note what "bounded" buys you: past that point the excess is dropped and each of those requests occupies a connection until `RequestTimeout` expires, as described above. It bounds memory, not latency.
 
 The simple approach handles thousands of requests per second with proper actor distribution. Use meta-processes only when the simple approach cannot provide required capabilities.

@@ -61,7 +61,7 @@ Workers are created using the `WorkerFactory`. This is the same factory pattern 
 
 ### Rate Limiting Through Pool Configuration
 
-The combination of `PoolSize` and `WorkerMailboxSize` provides a natural rate limiting mechanism. The pool can buffer at most `PoolSize × WorkerMailboxSize` messages. If all workers are busy and their mailboxes are full, new messages are rejected:
+The combination of `PoolSize` and `WorkerMailboxSize` bounds how much work the pool holds: `PoolSize` messages being handled, plus `PoolSize × WorkerMailboxSize` waiting in the workers' mailboxes. A message being handled has already left its mailbox, so the two add up. There is no buffer at the pool itself. Once every mailbox is full, further messages are **dropped** rather than rejected - the sender is not told, as the next section explains:
 
 ```go
 // Rate limit: 5 workers × 20 messages = 100 requests max in flight

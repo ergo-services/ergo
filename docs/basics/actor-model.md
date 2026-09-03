@@ -56,7 +56,7 @@ Ergo Framework brings actor model semantics to Go. Each process is an actor with
 
 One boundary the language cannot enforce for us, and it is worth knowing from the start: **memory isolation is a discipline the framework supports, not a constraint it imposes.** A message between two processes on the same node is handed over as the Go value it is, with no copy and no serialization. Send a map, a slice or a pointer and both processes then hold the same memory, and Go's race detector will say so. Only a message that crosses a node boundary is encoded, and the encoding is what makes the copy.
 
-So "no shared state" is yours to keep: send values rather than references, or treat a send as handing over ownership and stop touching what you sent. The framework ships a vet tool, `argus`, whose A1001 rule flags exactly this.
+So "no shared state" is yours to keep: send values rather than references, or treat a send as handing over ownership and stop touching what you sent. The framework ships a vet tool, [argus](../tools/argus.md), whose A1001 rule flags exactly this.
 
 The single-goroutine-per-actor constraint might seem limiting at first. In practice, it's liberating. You write sequential code within each actor, and concurrency emerges naturally from having many actors processing messages in parallel.
 

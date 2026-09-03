@@ -72,10 +72,10 @@ When encoding data in the _Erlang ETF format_:
 
 You can also use the functions `etf.TermIntoStruct` and `etf.TermProplistIntoStruct` for decoding data. These functions take into account `etf:` tags on struct fields, allowing the values to map correctly to the corresponding struct fields when decoding `proplist` data.
 
-To automatically decode data into a struct, you can register the struct type using `etf.RegisterTypeOf`. This function takes the object of the type being registered and decoding options `etf.RegisterTypeOption`. The options include:
+To automatically decode data into a struct, you can register the struct type using `etf.RegisterTypeOf`. This function takes the object of the type being registered and decoding options `etf.RegisterTypeOptions`. The options include:
 
-* `Name` - The name of the registered type. By default, the type name is taken using the `reflect` package in the format `#/pkg/path/TypeName`&#x20;
-* `Strict` - Determines whether the data must strictly match the struct. If disabled, non-matching data will be decoded into `any`.&#x20;
+* `Name` - The name of the registered type. By default it is taken from the `reflect` package as `#` followed by the package path and the type name, for example `#github.com/myorg/myapp/MyValue`&#x20;
+* `Strict` - Determines whether the data must match the struct. With `Strict: false` non-matching data is decoded into `any`. With `Strict: true` a mismatch **panics** during decoding - an overflow or a wrong destination type raises it - so do not enable it for input you do not control.&#x20;
 
 To be automatically decoded the data sent from Erlang must be a tuple, with the first element being an atom whose value matches the type name registered in Golang. For example:
 
@@ -173,7 +173,7 @@ func main() {
 
 Please note that if the list of acceptors is empty when starting the node, it will launch an acceptor with the network stack using `Registrar`, `Handshake`, and `Proto` from `gen.NetworkOptions`.&#x20;
 
-If you set the `options.Network.Acceptor`, you must explicitly define the parameters for all necessary acceptors. In the example, `acceptorErlang` is created with empty `gen.AcceptorOptions` (the Erlang stack from `gen.NetworkOptions` will be used), while for `acceptorErgo`, the Ergo Framework stack (`Registrar`, `Handshake`, and `Proto`) is explicitly defined.
+If you set `options.Network.Acceptors`, you must explicitly define the parameters for all necessary acceptors. In the example, `acceptorErlang` is created with empty `gen.AcceptorOptions` (the Erlang stack from `gen.NetworkOptions` will be used), while for `acceptorErgo`, the Ergo Framework stack (`Registrar`, `Handshake`, and `Proto`) is explicitly defined.
 
 In this example, you can establish incoming and outgoing connections using the Erlang network stack. However, the Ergo Framework network stack can only be used for incoming connections. To create outgoing network connections using the Ergo Framework stack, you need to configure a static route for a group of nodes by defining a match pattern:&#x20;
 
@@ -279,7 +279,7 @@ Example:
 ```go
 import "ergo.services/proto/erlang23"
 
-func factory_MyActor gen.ProcessBehavior {
+func factory_MyActor() gen.ProcessBehavior {
     return &MyActor{}
 }
 
@@ -288,7 +288,7 @@ type MyActor struct {
 }
 ```
 
-To send a cast message, use the `Cast` method of `erlnag23.GenServer`.
+To send a cast message, use the `Cast` method of `erlang23.GenServer`.
 
 ```go
 func (ma *MyActor) HandleInfo(message any) error {

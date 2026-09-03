@@ -129,6 +129,10 @@ The etcd registrar registers a `gen.Event` and generates messages based on chang
 * `etcd.EventApplicationStopping` - Triggered when an application begins stopping on a remote node
 * `etcd.EventApplicationStopped` - Triggered when an application is stopped on a remote node
 * `etcd.EventConfigUpdate` - The cluster configuration was updated
+* `etcd.EventRegistrarConnected` - This node's session with etcd is established, carrying `Info`. Also fired after a reconnect, so it is how you learn that discovery is working again
+* `etcd.EventRegistrarDisconnected` - The session was lost, carrying `Reason`. Existing node-to-node connections keep working; what stops is discovery of anything new
+
+The last two are about this node's own link to etcd rather than about the cluster, and they are the pair to watch if you care whether your view of the cluster is current. There is also an `etcd.EventApplicationUnloaded` type declared in the package, but nothing sends it - do not write a handler that waits for it.
 
 To receive such messages, you need to subscribe to etcd client events using the `LinkEvent` or `MonitorEvent` methods from the `gen.Process` interface. You can obtain the name of the registered event using the `Event` method from the `gen.Registrar` interface:
 

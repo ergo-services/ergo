@@ -447,7 +447,7 @@ func (c *coordinator) HandleBecomeFollower(leader gen.PID) error {
 The keys, grouped by what they answer:
 
 - **Role and term** - `ergo:state` (`leader`, `candidate`, `follower`, `unclustered`), `ergo:leader` (this node's own belief, as a boolean), `ergo:leader_pid`, `ergo:leader_node`, `ergo:term`, `ergo:voted_for`, `ergo:term_changed_at`
-- **Membership** - `ergo:view_size`, `ergo:quorum`, `ergo:min_cluster_size`, `ergo:peers`, `ergo:peers_list`, `ergo:declared`, `ergo:bootstrap`, `ergo:unreachable` (each member whose connection dropped, with how long ago), `ergo:ghost_ttl`
+- **Membership** - `ergo:cluster` (the cluster id this actor belongs to), `ergo:view_size`, `ergo:quorum`, `ergo:min_cluster_size`, `ergo:peers`, `ergo:peers_list`, `ergo:declared`, `ergo:bootstrap`, `ergo:unreachable` (each member whose connection dropped, with how long ago), `ergo:ghost_ttl`
 - **The current election** - `ergo:votes_granted`, `ergo:votes_count`
 - **Liveness** - `ergo:election_timer_armed`, `ergo:heartbeat_timer_armed`, `ergo:heartbeat_in_last`, `ergo:heartbeat_out_last`, `ergo:election_timeout_min`, `ergo:election_timeout_max`, `ergo:heartbeat_interval`
 - **Problems** - `ergo:dropped_by_reason` (per-reason counters for every message the actor discarded), `ergo:send_failing_peers`, `ergo:confirm_denied`, `ergo:last_denied_at`

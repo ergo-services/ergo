@@ -1,211 +1,184 @@
 ---
-description: Inspecting and managing a live cluster through an AI agent
+description: What your AI agent can do with a live Ergo cluster over MCP
 ---
 
 # Inspecting With an AI Agent
 
-[Observer](../extra-library/applications/observer.md) serves the same node to two very different readers. A person gets a web UI: pages laid out in advance, each answering questions somebody decided were the important ones. An agent gets something else, because it does not read layouts and does not know in advance which question matters.
+[Observer](../extra-library/applications/observer.md) serves an MCP endpoint beside its web UI. Point Claude Code, Cursor or any MCP-compatible client at it, and your agent can inspect and operate the running cluster directly.
 
-That difference is the whole design. A dashboard is a fixed set of answers; an agent needs the surface those answers were made from, so it can start at a symptom, enumerate what exists, read the state of whatever looks implicated, correlate across nodes, and narrow down. Point diagnosis becomes system diagnosis, because nothing has to be chosen up front.
+What that changes in practice: instead of opening a dashboard and deciding which panel to look at, you describe the symptom - "orders are slow since the deploy" - and the agent goes and looks. It lists the nodes, finds the processes with deep mailboxes, reads the one that looks implicated, asks it about itself, follows the message chain onto the next node, and comes back with a cause rather than a screenshot.
 
-This page is how that surface is shaped and how to work through it. For installing Observer and bounding what an agent may do, see [Observer](../extra-library/applications/observer.md).
+Three things make it worth wiring up:
 
-## How to read this page
-
-First the connection, then the two halves of the surface and why there are two. Then reading a single node, from the cluster down to one process, and how an answer explains its own numbers. Then the parts that exist because a cluster is not one node: one question put to many, and readings that accumulate instead of answering once. Then acting on a live system, what it costs the node, and finally a whole investigation from symptom to cause.
+- **One endpoint covers the whole cluster.** Only the node running Observer needs it. Every other node is already inspectable, because each runs the framework's built-in `system` application - nothing to install, no port to open, no agent to deploy.
+- **The agent reads the real thing.** The same counters, mailboxes, links, logs and profiles the framework maintains for itself, not a metrics summary sampled a minute ago.
+- **It can act, if you let it.** Set a log level, send a message, restart an application, retune a process on the fly. All of it behind a permission model you configure, and off by default on a read-only listener.
 
 ## Connecting
 
-The MCP surface is served on `/mcp` by any listener that has it enabled, which by default is the same one serving the UI:
+The endpoint is `/mcp` on any listener that serves it, which by default is the same one serving the UI:
 
 ```bash
 claude mcp add --transport http ergo http://localhost:9911/mcp
 ```
 
-With an authenticating proxy in front, pass what it expects:
+Behind a proxy that authenticates, pass what it expects:
 
 ```bash
 claude mcp add --transport http ergo http://localhost:9911/mcp \
   --header "Authorization: Bearer ${TOKEN}"
 ```
 
-The transport is POST-only and follows the 2026-07-28 revision of the protocol: every request carries the protocol version, states what the client can accept, and names its method in a header. A compliant client does all of that for you, which is the point of using one. If you are speaking to the endpoint by hand and it answers `-32020`, a header is either missing or disagrees with the body, and the message says which one.
+That is the whole setup. The surface tells the client where to start and what it may do, so there is no tool list to maintain on your side.
 
-The first thing the surface tells a client about itself is where to start, and a deployment can add to that. See `Instructions` in [The MCP surface](../extra-library/applications/observer.md#the-mcp-surface): it is the one place to write down what no amount of inspection reveals, such as which node runs which part of the business.
+Worth setting once: `Instructions` in [The MCP surface](../extra-library/applications/observer.md#the-mcp-surface). It is where you write down what no amount of inspection reveals - which node runs which part of the business, where a flow begins, what must not be touched. The agent is told this before it asks anything.
 
-## Two halves: resources and tools
+## What your agent can ask for
 
-Everything the surface offers is either a **resource** you read by URI or a **tool** you call by name. The split is not decoration.
+Thirty-eight tools. Twenty-nine read, nine change something. Every tool that asks about a node takes a `node` argument, so any question can be aimed at any node in the cluster. The four that are not about a single node are the exception: `cluster_query` takes a list of nodes, `cluster_batch` names a node per step, and `job_list` and `job_cancel` are about runs.
 
-A resource is a *reading*: it has an address, it can be read again, and reading it again can mean "only what has changed". That fits a node's state, a process, a log, a stream of events, a run in progress. An agent that holds a URI holds something it can come back to.
+**The node itself**
 
-A tool is an *act*: it takes arguments, does one thing, and answers once. That fits a dump, a lookup, a question put to many nodes, and everything that changes the node.
+| Tool | What it gives you |
+|------|-------------------|
+| `node` | What the node is right now: uptime, memory, process and application counts, version, environment |
+| `network` | The network as configured and as running: acceptors, flags, registrar, whether the stack is stopped |
+| `connections` | Every peer this node is connected to, what was negotiated with each, how much has crossed it |
+| `connection` | One peer in full: agreed flags, the connection pool, bytes and messages each way, whether it has since dropped |
+| `capabilities` | What this observer may do on that node - what the node offers, crossed with what the caller is allowed |
 
-Resource URIs are the `ergo://` scheme:
+**Processes**
 
-```
-ergo://cluster                                  every node this observer knows
-ergo://<node>                                   the node lens, the default
-ergo://<node>/<lens>                            one of the lenses below
-ergo://<node>/<lens>/<target>                   the ones that address something
-ergo://<node>/<lens>?<params>                   filters and paging
-ergo://<node>/watch/<key>/<lens>                the same lens, under a name of yours
-ergo://job/<key>                                a run started by cluster_query or cluster_batch
-```
+| Tool | What it gives you |
+|------|-------------------|
+| `processes` | Every process on the node: what it is, what it runs under, how much it has handled, what it is doing now |
+| `process_state` | What one process says about **itself** - the sections its behavior chooses to expose, such as a supervisor's restart count |
+| `process_lookup` | Whether a process is alive and what it is now, by registered name or by id |
+| `subtree` | The processes below one supervisor |
+| `meta_state` | The state of one meta process - a socket, a listener, a stream |
 
-`since=` is reserved on every URI: it is how a second read takes only what has landed since the first. No lens may be called `cluster`, `job` or `watch`.
+The full framework-level record of a single process is a reading rather than a tool: `ergo://<node>/process/<pid>`, with its mailbox depths and latencies, links, monitors, aliases and delivery settings.
 
-## Start at the cluster
+**Applications**
 
-`ergo://cluster` is the entry point, and the instructions say so for a reason. It names every node the observer knows, which is where every other URI and every tool argument gets its node name. It is also the answer about the cluster as a whole: which nodes are online, how long they have been up, and which ones fell out and why.
+| Tool | What it gives you |
+|------|-------------------|
+| `applications` | The applications on the node, running or merely loaded, with mode, weight, published roles and process count |
+| `app_tree` | Every process running under one application |
 
-Nothing else is addressable without a node name, and a name invented by an agent is refused rather than guessed at.
+**Events (pub/sub)**
 
-## The lenses of a node
+| Tool | What it gives you |
+|------|-------------------|
+| `events` | Every event on the node: who produces it, how many subscribe, whether it buffers, who may publish |
+| `event` | One event: its producer, its buffer, subscriber count, when it last published |
 
-| Lens | URI | What it answers |
-| ---- | --- | --------------- |
-| `node` | `ergo://<node>` | What the node is right now: uptime, memory, processes, applications, connections, version, environment. |
-| `processes` | `ergo://<node>/processes` | Every process: what it is, what it runs under, what it has handled, what it is doing now. |
-| `process` | `ergo://<node>/process/{pid}` | One process in full, as the framework sees it: mailbox depths and latencies, links, monitors, aliases, metas, compression and delivery settings. What the process says about *itself* is the separate `process_state` tool. |
-| `meta` | `ergo://<node>/meta/{alias}` | One meta process: a socket, a listener, a stream. |
-| `network` | `ergo://<node>/network` | The network as configured and as running. |
-| `connections` | `ergo://<node>/connections` | Every peer, with what was negotiated with each. |
-| `connection` | `ergo://<node>/connection/{peer}` | One peer in full: flags both sides agreed on, the pool behind it. |
-| `applications` | `ergo://<node>/applications` | Applications loaded, running or not, with their mode and group. |
-| `events` | `ergo://<node>/events` | Every event registered: producer, subscribers, publication counters. |
-| `event` | `ergo://<node>/event/{name}` | What one event is, not what flows through it. |
-| `stream` | `ergo://<node>/stream/{name}` | The messages flowing through one event, as they arrive. |
-| `log` | `ergo://<node>/log` | The lines the node logs, from the moment the lens is first read. |
-| `tracing` | `ergo://<node>/tracing` | The spans the node emits while tracing is on. |
+**Diagnostics that cost something**
 
-The first ten answer with the state at the moment of reading. The last three, `stream`, `log` and `tracing`, accumulate: they start collecting when the lens is first read and hold what arrived, so a second read with `since=` gives the new part rather than the whole thing again. That is the difference between asking what a process looks like and watching what a node says.
+| Tool | What it gives you |
+|------|-------------------|
+| `goroutines` | A goroutine dump, filterable by stack text, state or wait time |
+| `heap_profile` | What is allocated and by which call path |
 
-Filters and paging are query parameters, announced per lens in the resource templates the client already has. `processes` takes `namePattern`, `behavior`, `application`, `state`, `minMailbox`, `pidStart`, `pidLimit`; `log` takes `levels`, `limit`, `messagePattern`, `messageExclude`, `since`; and so on. Two of those deserve a note: `pidStart` with `pidLimit` walk the id space in order, which makes a page repeatable, while `pidLimit: -1` asks instead for whatever is alive now, in no order, at the cost of the living rather than of every id the node has ever used.
+Both stop the world on the node they run on for as long as the walk takes. Ask once, read carefully, never in a loop and never fanned out across a cluster.
 
-## Reading the same lens under your own name
+**Scheduling**
 
-`ergo://<node>/watch/<key>/<lens>` is the same lens with a cursor of its own, held under a name you choose. Two agents, or two investigations by the same agent, can follow one node's log without consuming each other's position.
+| Tool | What it gives you |
+|------|-------------------|
+| `cron` | The cron jobs: spec, timezone, when each last ran and what it left behind |
+| `cron_schedule` | What the node will run, and when |
 
-A key belongs to a caller, so a keyed reading needs an authorized listener: on an open one the surface answers that it needs a caller rather than silently sharing a cursor between everybody. Without a key the reading is shared, which is the right default for a question asked once.
+**Service discovery**
 
-## Every answer explains its own numbers
+| Tool | What it gives you |
+|------|-------------------|
+| `registrar_nodes` | Every node registered with the service registry this node uses |
+| `registrar_routes` | How to reach one node: host, port, TLS, the versions it speaks |
+| `registrar_application_routes` | Which nodes publish one application, with the mode and state each reports |
+| `registrar_proxy_routes` | Which node relays to another when it cannot be reached directly |
 
-An answer that carries a `services.ergo/legend` key says what its own fields mean. Each entry is the path to a field from the object holding the legend, with `[]` for a step into a list:
+**The wire**
 
-```json
-{
-  "Processes": [ ... ],
-  "services.ergo/legend": {
-    "units": {
-      "Processes[].Uptime": "sec",
-      "Processes[].MailboxLatency": "ns"
-    },
-    "sentinels": {
-      "Processes[].MailboxLatency": "-1 = built without -tags=latency, 0 = all queues empty"
-    },
-    "axes": {
-      "LogMessages": "trace,debug,info,warning,error,panic"
-    }
-  }
-}
-```
+| Tool | What it gives you |
+|------|-------------------|
+| `types` | The message types registered for the network, with per-type encode and decode counters |
+| `errors` | The sentinel errors that node can carry over the network |
+| `atoms` | The atoms it keeps in its wire cache, sent as an id instead of a string |
 
-Three kinds of thing get explained. **Units**, because a number called `Uptime` is meaningless until you know it is seconds. **Sentinels**, because `-1` in a latency field is not a fast mailbox, it is a node built without the [`latency` build tag](debugging.md). **Axes**, because a counter array is only readable if you know which cell is which level.
+These answer the question a distributed-systems bug eventually raises: can these two nodes actually understand each other.
 
-This exists so an agent does not have to carry a table of field meanings that drifts from the code. The legend is generated from the same declarations the values come from.
+## Readings it can return to
 
-## An absent thing says why
+Anything above that describes a whole thing is also addressable, as `ergo://<node>/<lens>` - the node, its processes, its network, one process, one event. The agent reads an address, and reads the same address again later to see what moved, which is how it watches a mailbox drain instead of guessing.
 
-A reading that cannot be taken is refused with a reason rather than answered with emptiness. An event that no longer exists, a process that terminated between two reads, a node that stopped publishing: each says which, and a `Refused` map names what could not be read and why.
+Three of those readings accumulate rather than answer once:
 
-That distinction matters more for an agent than for a person. A person seeing an empty list looks at the screen and knows something is off. An agent given an empty list concludes there is nothing there, and reasons on from a false premise.
+| Reading | What arrives |
+|---------|--------------|
+| `ergo://<node>/log` | The lines the node logs, filtered by level or pattern on the node itself |
+| `ergo://<node>/stream/{event}` | The actual messages flowing through one event |
+| `ergo://<node>/tracing` | The spans the node emits while tracing is on |
 
-## One question, many nodes
+They start collecting when first read, so the first answer is usually near-empty and the second one has what happened in between. This is what makes "watch it and tell me when it recovers" a thing an agent can actually do.
 
-A cluster is not one node, and asking thirty nodes one at a time is both slow and hard to read. Two tools do the fan-out:
+## One question across the cluster
 
-- `cluster_query` puts **one** question to many nodes.
-- `cluster_batch` puts **a different question to each node**: one step is a node, a tool and its arguments, and the steps run in parallel. It is for when you already know which node runs which application and want one business flow in a single go.
+| Tool | What it does |
+|------|--------------|
+| `cluster_query` | Asks one tool of many nodes at once, in parallel |
+| `cluster_batch` | Runs different questions on different nodes at once - each step names its own node, tool and arguments |
+| `job_list` | The runs you still hold |
+| `job_cancel` | Stops one |
 
-Both answer immediately with the URI of a run, `ergo://job/<key>`, rather than waiting for every node. You read that URI to see what has landed, and read it again with `since=` to take only what arrived after the previous read. A run that is still going says so; a slow or unreachable node does not hold up the others.
+Both answer immediately with the address of a run, and the answers land as nodes report. A slow node does not hold up the others, and an unreachable one comes back as refused rather than waited for. `ergo://cluster` is the cheaper question when all you need is who is up, how long they have been up, and who fell out and why.
 
-`job_list` shows the runs you have, `job_cancel` stops one. A run belongs to the caller that started it: with an authorized listener nobody else can read or cancel it. Runs are bounded by `JobLimit` and expire by `JobMaxRetention`, so an abandoned investigation does not leave work behind on the node.
+## Letting it act
 
-The key is yours to choose, and asking the same key the same question joins the run in progress instead of starting a second one. Asking the same key a *different* question is refused: joining it would hand you answers to something you did not ask.
+| Tool | What it does |
+|------|--------------|
+| `send` | Delivers one message to a process or a meta |
+| `send_exit` | Asks a process to stop, so it runs `Terminate` |
+| `kill` | Terminates a process at once, without letting it run `Terminate` |
+| `log_level_set` | Changes the log level of the node, one process or one meta |
+| `tracing_sampler_set` | Turns tracing on or off, for the node or for one process |
+| `process_tune` | Changes one delivery setting of a running process: send priority, compression, message ordering, important delivery |
+| `app_start` | Starts an application already loaded on the node |
+| `app_stop` | Stops a running application |
+| `app_unload` | Unloads it, so the node no longer knows it |
 
-## Following a node instead of polling it
+`process_tune` and `tracing_sampler_set` are the two that change the shape of an investigation: a hypothesis about compression or priority gets tested on the live system, and tracing gets switched on for the one process that matters, without a deploy.
 
-`subscriptions/listen` is a long-lived POST that follows a set of resources and delivers `notifications/resources/updated` as they change, instead of the agent re-reading on a timer.
+## Keeping it bounded
 
-The stream acknowledges what it accepted before anything else, with `notifications/subscriptions/acknowledged` naming the resources it is following. If a resource stops being available, the stream says so and re-acknowledges what is left, closing when nothing remains. Cancellation arrives as `notifications/cancelled`.
+The permission model is the listener's, not the agent's. Set `Ceiling: observer.Ceiling{ReadOnly: true}` and the nine tools above are not merely refused - they are not offered, so an agent never plans around them. A finer ceiling can deny individual operations, or restrict which nodes are reachable at all.
 
-Each open stream costs the listener one of its `MaxStreams`, and each subscription inside it costs a producer on the observed node, bounded by `MaxSubscriptions`.
+Two habits are worth asking of an agent operating production: call `capabilities` before planning anything that writes, and act on one thing at a time. A kill is not reversible, and fanning a mutating tool across the cluster is deliberately not offered.
 
-## The tools
-
-Thirty-eight of them. The read ones cover what the lenses do not: things that are acts rather than addressable readings.
-
-**About the node** — `node`, `network`, `connections`, `connection`, `applications`, `events`, `event`, `processes`, `capabilities`
-
-**About one thing** — `process_state`, `meta_state`, `process_lookup`, `app_tree`, `subtree`
-
-**About the wire** — `types`, `errors`, `atoms`
-
-**Expensive** — `goroutines`, `heap_profile`
-
-**Scheduling and discovery** — `cron`, `cron_schedule`, `registrar_nodes`, `registrar_routes`, `registrar_proxy_routes`, `registrar_application_routes`
-
-**Many nodes** — `cluster_query`, `cluster_batch`, `job_list`, `job_cancel`
-
-**Changing the node** — `send`, `send_exit`, `kill`, `log_level_set`, `tracing_sampler_set`, `process_tune`, `app_start`, `app_stop`, `app_unload`
-
-`capabilities` is the one to call before planning anything that writes. It answers what *this* node allows *this* caller, already narrowed by every ceiling between them, so an agent can decide what is possible instead of discovering it through refusals.
-
-The tool list is filtered the same way. A tool the caller may not use at all is not in `tools/list`, so on a read-only surface the mutating tools are simply not offered. A tool that needs several capabilities and has only some of them refused stays in the list with the refused ones named in its description, because it is still usable for everything else.
-
-## Acting on a live system
-
-The mutating tools do what their names say, and every one of them is a capability under `manage.` that a ceiling can refuse. Called anyway, on a surface that does not permit it, the refusal names the capability and points at the `capabilities` tool of that node rather than failing blankly.
-
-`process_tune` is the interesting one: it changes the per-process network knobs, send priority, compression, message ordering, important delivery, on a running process, which is how a hypothesis about a bottleneck gets tested without a deploy.
-
-Two rules are worth stating for an agent operating a production system. Ask `capabilities` first, and act on one thing at a time: a kill is not reversible, and a cluster-wide fan-out of a mutating tool is not offered at all, which is deliberate.
-
-## What it costs the node
-
-Most of this surface reads counters the framework already maintains, and costs nothing worth thinking about.
-
-Two tools do not. `goroutines` and `heap_profile` stop the world on the node they run on for as long as the walk takes. Ask for one once, read it carefully, and do not put either into a loop or a fan-out across a cluster.
-
-An accumulating lens (`stream`, `log`, `tracing`) holds what it gathered until it is read or expires, and it gathers only while it is being watched. A subscription costs a producer on the observed node. A run holds a pool of workers until it finishes.
-
-None of this is dangerous, and all of it is bounded by the listener's configuration. The reason to know it is that an agent asking the wrong thing in a loop is the one client capable of making the cost visible.
+For the full configuration - listeners, surfaces, ceilings, authorizers - see [Observer](../extra-library/applications/observer.md).
 
 ## An investigation, end to end
 
-A symptom, in plain words: orders are slow since the deploy. What follows is the shape of the work, not a transcript.
+A symptom in plain words: orders are slow since the deploy. What follows is the shape of the work.
 
-**Establish where you are.** Read `ergo://cluster`. Fifteen nodes, three named `orders@*`, one of them restarted four minutes ago. That restart is the first thing worth explaining, and the node name is now something every later URI can use.
+**Where are we.** `ergo://cluster`: fifteen nodes, three named `orders@*`, one restarted four minutes ago. That restart is the first thing worth explaining.
 
-**Ask the cluster one question.** `cluster_query` with `processes` over the three `orders@*` nodes, narrowed with `minMailbox` so only the backed-up ones come back. It answers with a run URI; read it, and read it again with `since=` until the nodes have reported. Two nodes look ordinary. The restarted one has a process with a mailbox in the thousands.
+**Ask all three at once.** `cluster_query` with `processes` over the `orders@*` nodes, narrowed to processes holding a real backlog. Two look ordinary. The restarted one has a process with a mailbox in the thousands.
 
-**Read that process.** `ergo://orders-2@host/process/<pid>`. The mailbox is deep and the state has been `running` for tens of seconds. The legend says the latency field is `-1`, so this node was built without the `latency` tag and mailbox latency is unavailable rather than zero.
+**Read that process.** `ergo://orders-2@host/process/<pid>`: the mailbox is deep and it has been running for tens of seconds.
 
-**Ask the process about itself.** `process_state` on the same pid. The resource above is what the framework knows; this is what the actor chose to expose, and it is where a supervisor's restart count or a worker's current upstream appears. Here it names the upstream it is waiting on.
+**Ask it about itself.** `process_state` on the same pid - and here the actor names the upstream it is waiting on, which no generic reading would have told you.
 
-**Follow what it says.** The upstream is a process on another node. Read it, then ask it about itself too: modest mailbox, high running time, and its own state points at an external call. Nothing is queueing there; it is simply slow, and everything behind it is queueing.
+**Follow it.** The upstream is a process on another node. Modest mailbox, high running time, its own state pointing at an external call. Nothing is queueing there; it is simply slow, and everything behind it is queueing.
 
-**Confirm rather than assume.** `goroutines` on that node, once, filtered. The stacks show the goroutines parked in the external call. That is the cause: not the node, not the framework, an external dependency that got slower.
+**Confirm.** `goroutines` on that node, once, filtered. The stacks are parked in the external call. That is the cause: not the node, not the framework, a dependency that got slower.
 
-**Watch the recovery.** Subscribe to `ergo://orders-2@host/processes` and to the log, and watch the mailbox drain as the dependency recovers, instead of re-reading on a timer.
+**Watch it recover.** Read the process listing and the log again as the dependency comes back, and watch the mailbox drain.
 
-Nothing in that sequence was decided in advance. Each step chose the next from what the previous one said, which is exactly what a page laid out ahead of time cannot do.
+Nothing in that sequence was decided in advance. Each step chose the next from what the previous one answered.
 
 ## See also
 
-- [Observer](../extra-library/applications/observer.md) - installing it, and bounding what an agent may do
+- [Observer](../extra-library/applications/observer.md) - adding it to a node, and bounding what an agent may do
 - [Inspecting With Observer](observer.md) - the same node through the web UI
-- [Inspecting Actor State](inspecting-state.md) - what your own actors expose to any of this
-- [Debugging](debugging.md) - the build tags that decide which numbers exist
-- [AI Agents](../ai-agents.md) - Ergo as the runtime for the agents themselves
+- [AI Agents](../ai-agents.md) - building agents with the framework, and diagnosing them

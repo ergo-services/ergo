@@ -673,8 +673,6 @@ func (w *PortWorker) HandleMessage(from gen.PID, message any) error {
 
 Two things to decide with this shape. A `ReadBufferPool` buffer must be returned by whoever finishes with it - that is now the worker, after `processData`, and never twice. And when every worker mailbox is full the pool **drops** the message rather than queueing it (see [Pool Actor](../actors/pool.md)), so size the pool for the port's real output rate and watch `ergo:messages_unhandled`.
 
-Limit memory usage by capping concurrent buffers. If processing is slow, the semaphore blocks, which blocks the actor's message loop, which applies backpressure to the Port.
-
 **Pitfall: Forgetting to return buffers**
 
 ```go

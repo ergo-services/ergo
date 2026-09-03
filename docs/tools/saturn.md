@@ -18,7 +18,7 @@ The source code of the  `saturn` tool is available on the project's page: [https
 To install `saturn`, use the following command:
 
 ```
-$ go install ergo.services/tools/saturn@latest
+$ go install ergo.tools/saturn@latest
 ```
 
 Available arguments:

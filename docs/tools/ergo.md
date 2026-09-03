@@ -44,7 +44,7 @@ User-owned files provide hooks that the generated code calls. The pattern is con
 | File          | Hook                                              | Purpose                              |
 | ------------- | ------------------------------------------------- | ------------------------------------ |
 | `mysup.go`    | `Tune(spec, args) (SupervisorSpec, error)`        | adjust supervisor spec before start  |
-| `myapp.go`    | `Tune(node, spec, args) (ApplicationSpec, error)` | adjust application spec before start |
+| `myapp.go`    | `Tune(spec, args) (ApplicationSpec, error)` | adjust application spec before start |
 | `messages.go` | `extraMessages() []any`                           | register custom EDF message types    |
 | `cmd/main.go` | `extraApps() []ApplicationBehavior`               | add external applications            |
 
@@ -274,7 +274,7 @@ Do not replace `spec.Children` in `Tune` unless you have a specific reason. The 
 `mynodeapp.go` contains `Tune`, called from the generated `Load`. The `Group` in `Load` is populated from `ergo.yaml`. Use `Tune` to set metadata, environment variables or dependencies:
 
 ```go
-func (app *MyApp) Tune(node gen.Node, spec gen.ApplicationSpec, args ...any) (gen.ApplicationSpec, error) {
+func (app *MyApp) Tune(spec gen.ApplicationSpec, args ...any) (gen.ApplicationSpec, error) {
     spec.Description = "main application"
     spec.Version = gen.Version{Release: "1.0.0"}
     spec.Env = map[gen.Env]any{

@@ -239,7 +239,11 @@ You choose which instance to use based on your load balancing strategy:
 
 **Geographic routing** - Set weights based on proximity. Same datacenter gets weight 100, same region gets 50, cross-region gets 10.
 
-The weight is advisory metadata, so you can implement any of the strategies above from the full list. But you usually don't need to: with the central registrars, `ResolveApplication` returns the instances ordered by smooth weighted round-robin, so the instance at index `[0]` is the weighted pick for that call. Take `routes[0]` on each call and traffic is distributed by weight automatically, with no extra code.
+The weight is advisory metadata, so you can implement any of the strategies above from the full list.
+
+With **etcd** you usually do not need to: its `ResolveApplication` orders the instances by smooth weighted round-robin, so the one at index `[0]` is the weighted pick for that call. Take `routes[0]` each time and traffic is distributed by weight with no extra code.
+
+**Saturn does not do this.** Its `ResolveApplication` filters out negative weights and returns the routes as it holds them, in no particular order and with no rotation state - so `routes[0]` is not a weighted pick there, and picking by weight is the caller's job. Do not write code that relies on the ordering unless you know which registrar is behind it.
 
 Weight controls how often an instance is picked:
 
@@ -482,12 +486,19 @@ For external registrars, configuration includes the service endpoint:
 ```go
 import "ergo.services/registrar/etcd"
 
+// etcd.Create returns (gen.Registrar, error) - unlike the embedded
+// registrar.Create above, which returns a single value
+registrar, err := etcd.Create(etcd.Options{
+    Endpoints: []string{"etcd1:2379", "etcd2:2379", "etcd3:2379"},
+    // ... authentication, TLS, etc
+})
+if err != nil {
+    panic(err)
+}
+
 node, err := ergo.StartNode("myapp@prod.example.com", gen.NodeOptions{
     Network: gen.NetworkOptions{
-        Registrar: etcd.Create(etcd.Options{
-            Endpoints: []string{"etcd1:2379", "etcd2:2379", "etcd3:2379"},
-            // ... authentication, TLS, etc
-        }),
+        Registrar: registrar,
     },
 })
 ```

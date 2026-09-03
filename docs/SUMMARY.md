@@ -94,4 +94,5 @@
 ## Tools
 
 * [Boilerplate Code Generation](tools/ergo.md)
+* [Actor Model Vet Tool](tools/argus.md)
 * [Saturn - Central Registrar](tools/saturn.md)

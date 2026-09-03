@@ -723,7 +723,7 @@ Open `http://localhost:9911` to see:
 
 There is no standalone observer binary. Observer is the embedded application above, and it does not need one: a single node running it reaches every other node in the cluster over the ordinary connection. Add it to one node - a dedicated one if you like - and inspect the others from there by name.
 
-The tools that do exist install as `ergo.tools/*`: `ergo` (the scaffolder), `saturn` (the registrar server) and `argus` (an actor-model vet tool).
+The tools that do exist install as `ergo.tools/*`: `ergo` (the scaffolder), `saturn` (the registrar server) and [`argus`](../tools/argus.md) (an actor-model vet tool).
 
 ### Process Inspection
 

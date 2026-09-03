@@ -232,11 +232,13 @@ During graceful shutdown, Ergo Framework logs processes that are taking too long
 Consider a shutdown scenario where the node reports:
 
 ```
-[warning] shutdown: waiting for 3 processes
-[warning]   <ABC123.0.1005> state=running queue=5
-[warning]   <ABC123.0.1012> state=running queue=0
-[warning]   <ABC123.0.1018> state=sleep queue=0
+[warning] node myapp@localhost is still waiting for process(es) to terminate:
+[warning]   <ABC123.0.1005> (worker, myapp.Worker) state: running, queue: 5
+[warning]   <ABC123.0.1012> (myapp.DBConn) state: running, queue: 0
+[warning]   <ABC123.0.1018> (myapp.Reporter) state: sleep, queue: 0
 ```
+
+A ticker repeats that snapshot every five seconds while the node waits, at most ten processes per snapshot plus an `...and N more` line. The parenthesis holds the registered name and behavior when the process has a name, and the behavior alone when it does not.
 
 To investigate why `<ABC123.0.1005>` is stuck:
 

@@ -46,7 +46,7 @@ Additionally, this library registers a `gen.Event` and generates messages based 
 * `saturn.EventApplicationLoaded` - An application was loaded on a remote node. Use `ResolveApplication` from the `gen.Resolver` interface to get application details
 * `saturn.EventApplicationStarted` - Triggered when an application starts on a remote node.
 * `saturn.EventApplicationStopping` - Triggered when an application begins stopping on a remote node.
-* `satrun.EventApplicationStopped` - Triggered when an application is stopped on a remote node.
+* `saturn.EventApplicationStopped` - Triggered when an application is stopped on a remote node.
 * `saturn.EventApplicationUnloaded` - Triggered when an application is unloaded on a remote node&#x20;
 * `saturn.EventConfigUpdate` - The node's configuration was updated&#x20;
 

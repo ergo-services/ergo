@@ -87,7 +87,7 @@ poolPID, _ := node.Spawn(factory_AgentPool, gen.ProcessOptions{})
 node.Send(poolPID, MessageResearchTask{Query: "Summarize Q3 report"})
 ```
 
-Pool size and worker mailbox size together form a natural rate limit: at most `PoolSize × WorkerMailboxSize` tasks in flight. See [Pool](actors/pool.md).
+Pool size and worker mailbox size together bound the work held: `PoolSize` tasks running, plus `PoolSize × WorkerMailboxSize` queued behind them. Beyond that the pool drops rather than queues, without telling the sender. See [Pool](actors/pool.md).
 
 ### Agent Router
 

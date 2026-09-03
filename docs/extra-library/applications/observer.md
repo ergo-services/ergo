@@ -54,13 +54,13 @@ The default configuration serves all three surfaces on `localhost:9911`. That is
 
 | Option | Default | Meaning |
 | ------ | ------- | ------- |
-| `Host` | `localhost` | Interface to bind. Ignored when `Listeners` is set. |
-| `Port` | `9911` | Port to bind. Ignored when `Listeners` is set. |
+| `Host` | `localhost` | Interface to bind. Belongs to a `Listener` once `Listeners` is set. |
+| `Port` | `9911` | Port to bind. Belongs to a `Listener` once `Listeners` is set. |
 | `PoolSize` | `25` | Workers handling POST requests. |
 | `Ceiling` | zero, everything permitted | The limit of the whole deployment. A listener, and then a caller, can only be given less. |
-| `Authorizer` | none, the listener is open | Identifies the caller. Ignored when `Listeners` is set. |
-| `RateLimit` | `0`, no limit | Requests per second one caller may make. Ignored when `Listeners` is set. |
-| `AllowedOrigins` | see [Origins](#origins) | Browser origins allowed on top of `DefaultAllowedOrigins`. Ignored when `Listeners` is set. |
+| `Authorizer` | none, the listener is open | Identifies the caller. Belongs to a `Listener` once `Listeners` is set. |
+| `RateLimit` | `0`, no limit | Requests per second one caller may make. Belongs to a `Listener` once `Listeners` is set. |
+| `AllowedOrigins` | see [Origins](#origins) | Browser origins allowed on top of `DefaultAllowedOrigins`. Belongs to a `Listener` once `Listeners` is set. |
 | `Listeners` | one listener from `Host:Port` | Runs one endpoint per entry, each with its own authorization. `Host` and `Port` must then be left unset. |
 | `Enrollment` | empty, `/api/enroll` is not served | The one-time secret the cloud presents to confirm this endpoint is this observer. |
 | `JobMaxRetention` | `5m` | The longest a finished cluster run may keep its result. |
@@ -68,7 +68,7 @@ The default configuration serves all three surfaces on `localhost:9911`. That is
 | `ClusterLens` | see [Cluster lens](#cluster-lens) | The map of the cluster and the watchers keeping it current. |
 | `LogLevel` | the node's | Log level of the observer's own processes. |
 
-The single-listener fields (`Host`, `Port`, `Authorizer`, `RateLimit`, `AllowedOrigins`) are a shorthand for one entry in `Listeners`. Setting both is refused at start rather than resolved silently.
+The single-listener fields (`Host`, `Port`, `Authorizer`, `RateLimit`, `AllowedOrigins`) are a shorthand for one entry in `Listeners`. Setting any of them **together with** `Listeners` is refused at start, with a message naming those five - they are not silently ignored, and not merged.
 
 ## Listeners
 
@@ -129,7 +129,7 @@ A ceiling is the limit of what a caller may ask for, written as capability names
 <pre class="language-go"><code class="lang-go">observer.Ceiling{
 	ReadOnly: true,                               // refuse every mutating capability
 	Allow:    []string{"inspect.process_list"},   // unset does not narrow; empty permits nothing
-	Deny:     []string{"manage.kill"},            // applied after Allow
+	Deny:     []string{"manage.kill"},            // wins over Allow
 	Nodes:    []string{"orders@host"},            // unset does not narrow; empty permits no node
 }
 </code></pre>
@@ -279,7 +279,7 @@ A cluster run holds a pool of workers until it finishes or expires, which is wha
 
 ## Inspecting the observer itself
 
-Every observer process answers `gen.Inspect`, so the observer is visible in the observer. The web process reports its listener name, address, TLS, surfaces, authorizer, ceiling, origins and how many were refused, rate limit, open streams against the limit, refusals by status code, whether enrollment is configured, and uptime. Read it from the UI, from another process with `process.Inspect`, or with the `process_state` tool over MCP.
+Every observer process implements `HandleInspect`, so the observer is visible in the observer. The web process reports its listener name, address, TLS, surfaces, authorizer, ceiling, origins and how many were refused, rate limit, open streams against the limit, refusals by status code, whether enrollment is configured, and uptime. Read it from the UI, from another process with `Inspect(pid)`, or with the `process_state` tool over MCP.
 
 ## Deployment recipes
 

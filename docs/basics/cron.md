@@ -118,18 +118,15 @@ This matters for distributed systems where jobs serve different regions. One nod
 
 Timezone transitions are handled carefully.
 
-When clocks spring forward, an hour disappears. A job scheduled for 2:00 AM doesn't run on the spring-forward date because 2:00 AM doesn't exist that day. The cron system detects the time adjustment and skips execution rather than running at the wrong time.
+When clocks spring forward, an hour disappears. A job scheduled for 02:30 simply does not run on that date: the spec is evaluated against local time, and that local minute never occurs, so nothing matches. It is skipped rather than run an hour early or late.
 
-When clocks fall back, an hour repeats - and a job scheduled inside that hour **runs twice**. The scheduler walks absolute minutes and evaluates the spec against local time, so a repeated local hour is matched on both passes. There is no de-duplication.
+Separately from the transitions, the scheduler checks that the minute it is firing for is really the current minute, and drops the job if the clock moved between scheduling and firing - an NTP step or a suspended process, rather than a timezone rule.
 
-You can see it before it happens, with `Cron().JobSchedule(name, since, period)`. A job on `30 1 * * *` in `America/New_York` over the 2026-11-01 transition reports both runs:
+When clocks fall back, an hour repeats, and a job scheduled inside it matches on both passes - `30 1 * * *` in `America/New_York` matches at 01:30 EDT and again an hour later at 01:30 EST. It runs **once**: before running, the scheduler compares the action's local wall clock minute against the last one it ran, and a repeat is skipped. Comparing instants would not catch this, since the two passes are a genuine hour apart.
 
-```
-2026-11-01T01:30:00-04:00   (05:30 UTC)
-2026-11-01T01:30:00-05:00   (06:30 UTC)
-```
+`Cron().JobSchedule(name, since, period)` previews the same decision, so a transition day reports one run rather than two, matching what the scheduler will actually do.
 
-If a double run is not acceptable - a billing job, a report that appends - make the action idempotent, key it by the UTC instant, or schedule it outside the transition hour. The action can tell the two passes apart: a message action receives `gen.MessageCron` with a `Time` field, and a spawn action gets the same instant in its environment as `gen.CronEnvJobActionTime`. The two passes differ in UTC even though their local times are identical.
+The action can still tell where it is in time: a message action receives `gen.MessageCron` with a `Time` field, and a spawn action gets the same instant in its environment as `gen.CronEnvJobActionTime`.
 
 ## Error Handling
 
