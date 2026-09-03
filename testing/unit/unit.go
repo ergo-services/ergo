@@ -532,8 +532,6 @@ func (s *Subject) addressesSelf(to any) bool {
 		return t == s.process.pid
 	case gen.Atom:
 		return s.process.name != "" && t == s.process.name
-	case string:
-		return s.process.name != "" && gen.Atom(t) == s.process.name
 	case gen.ProcessID:
 		return s.process.name != "" && t.Name == s.process.name
 	case gen.Alias:
@@ -550,8 +548,6 @@ func (s *Subject) addressesSelf(to any) bool {
 // carries, so an actor in split-handler mode dispatches as the runtime would.
 func selfTarget(to any) any {
 	switch t := to.(type) {
-	case string:
-		return gen.Atom(t)
 	case gen.ProcessID:
 		return t.Name
 	}

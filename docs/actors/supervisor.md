@@ -313,12 +313,12 @@ Restart: act.SupervisorChildRestart{
 ```
 
 Behavior on overflow:
-- For One For One: the child spec is marked `disabled` and the supervisor stays alive. Other children are unaffected. Re-enable later with `EnableChild`, which clears the child's local counter.
+- For One For One: the child spec is marked `disabled` and the supervisor stays alive while **any other child is still running**. Other children are unaffected, and `EnableChild` re-enables the disabled one later, clearing its local counter. If disabling it leaves no running children, auto-shutdown applies and the supervisor terminates with the intensity-exceeded reason after all - so a One For One supervisor with a single child and `OnExceedDisable` dies exactly where it looks like it would survive. Set `DisableAutoShutdown` if it should wait for an `EnableChild` instead.
 - For Simple One For One: the offending instance is dropped from the supervisor. The spec stays available for new `StartChild` calls. Other instances of the same spec are unaffected.
 
 `OnExceedDisable` requires `Intensity > 0`. Setting `OnExceedDisable` without a per-child counter is rejected at init (there is no counter to overflow).
 
-The default value `OnExceedTerminateSupervisor` mirrors the supervisor-level behavior. When a per-child counter with this setting overflows, the supervisor terminates with `*gen.Error{Msg: "restart intensity exceeded", Inner: <original child reason>}`, the same wrap as the global-counter overflow.
+The default value `OnExceedTerminateSupervisor` mirrors the supervisor-level behavior. When a per-child counter with this setting overflows, the supervisor terminates with the same wrap as the global-counter overflow described above: `*gen.Error{Msg: "supervisor restart intensity exceeded (max N in Ms): ...", Wrapped: [gen.ErrExceeded, originalChildReason]}`.
 
 ### Validation Rules
 
@@ -526,7 +526,7 @@ A live mailbox cannot cross the network. The `Mailbox` fields on `gen.Error` and
 
 ## Significant Children
 
-In All For One and Rest For One supervisors, the `Significant` flag marks children whose termination can trigger supervisor shutdown:
+In One For One, All For One and Rest For One supervisors, the `Significant` flag marks children whose termination can trigger supervisor shutdown:
 
 ```go
 Children: []act.SupervisorChildSpec{
@@ -556,7 +556,7 @@ With `SupervisorStrategyPermanent`:
 - `Significant` flag is ignored
 - All terminations trigger restart
 
-For One For One and Simple One For One, `Significant` is always ignored.
+Only Simple One For One ignores `Significant` entirely - its children are anonymous instances of one spec, so there is no particular child whose ending means anything. One For One honours the flag exactly as the two rules above describe.
 
 Use significant children when a specific child's clean termination means "mission accomplished, shut down the subtree." Example: a batch processor that finishes its work and terminates normally should stop the entire supervision tree, not get restarted.
 
@@ -634,6 +634,8 @@ for _, child := range children {
 ```
 
 **Critical**: These methods fail with `act.ErrSupervisorStrategyActive` if called while the supervisor is executing a restart strategy (stopping children, waiting for their exit signals, or starting replacements). You must wait for the strategy to finish before issuing management calls.
+
+There is a second gate in front of that one, and it catches the more common mistake: each of these methods first requires the supervisor to be in the **Running** state, and returns `gen.ErrNotAllowed` otherwise. `Init` runs in the Init state, so calling `StartChild` or `AddChild` from your own `Init` fails there. Declare the children in the returned spec, or post a message to yourself and add them from the handler that receives it.
 
 While a restart strategy is running, the supervisor processes only the Urgent queue (where exit signals arrive) and ignores System and Main queues. This guarantees exit signals are handled promptly without interference from management commands or regular messages.
 
@@ -839,7 +841,7 @@ for i := 0; i < 10; i++ {
 
 Each call spawns a new worker. The `args` passed to `StartChild` are stored for that specific instance. When the restart strategy triggers (child crashes, exceeds intensity, etc.), the child restarts with the same args it was originally started with, not the template args from the spec. This ensures each worker instance maintains its configuration across restarts.
 
-Workers are not registered by name (no `SpawnRegister`). You track them by PID from the return value or via `supervisor.Children()`.
+Workers are not registered by name (no `SpawnRegister`), and `StartChild` returns only an `error` - no PID. You learn the instance PIDs from `supervisor.Children()`, whose `SupervisorChild` entries carry `Spec`, `Name`, `PID`, `Significant` and `Disabled`, or from the `HandleChildStart` callback when `EnableHandleChild` is set.
 
 Disabling a child spec stops **all** running instances with that spec name:
 
@@ -860,7 +862,7 @@ Simple One For One ignores `DisableAutoShutdown` - the supervisor never auto-shu
 
 **Don't call management methods during restart**. `StartChild`, `AddChild`, `EnableChild`, `DisableChild` fail with `ErrSupervisorStrategyActive` if the supervisor is mid-restart. Wait for the restart to complete (check via `Inspect` or wait for `HandleChildStart` callback).
 
-**Disable auto shutdown for dynamic supervisors**. If your supervisor uses `AddChild` to add children at runtime, enable `DisableAutoShutdown`. Otherwise, it terminates when it starts with zero children or when all dynamically added children eventually stop.
+**Disable auto shutdown for dynamic supervisors**. If your supervisor uses `AddChild` to add children at runtime, enable `DisableAutoShutdown`. Otherwise it terminates once all its children have stopped. It cannot start empty and wait: `Init` rejects an empty `Children` list with "children list can not be empty", so a dynamic supervisor still declares at least one child.
 
 **Use HandleChildStart for integration, not validation**. By the time `HandleChildStart` is called, the child is already spawned and linked. Returning an error terminates the supervisor, but doesn't prevent the child from running. Use child's `Init` for validation instead.
 

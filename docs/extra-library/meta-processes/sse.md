@@ -74,7 +74,15 @@ Handler options:
 
 **ProcessPool**: List of process names that will receive messages from SSE connections. When connection is established, handler round-robins across this pool to select which process handles this connection. If empty, connection sends to parent process.
 
-**Heartbeat**: Interval for sending comment heartbeats to keep connection alive. Default 30 seconds. Heartbeats prevent proxies and load balancers from closing idle connections.
+**Heartbeat**: How long a stream may stay quiet before a keepalive is written, which is what stops proxies and load balancers from closing an idle connection. It is written only when nothing else was, and checked on a fixed tick, so a stream can stay silent for up to **twice** this value. Zero means 30 seconds; a **negative** value disables heartbeats.
+
+**HeartbeatEvent**: The event name to send the keepalive under. Empty - the default - sends an SSE comment, which no client sees at all; naming it makes the keepalive visible to the clients subscribed to that name, and to no one else. It must be a single line: a CR or LF is refused when the handler is created.
+
+**Compression**: Enables gzip for clients that advertise support for it. **CompressionLevel** is the trade-off when it is on, zero meaning the default level.
+
+**MetaOptions**: How the meta process of a single connection is spawned. `MailboxSize` is the field that matters here: the writer at the far end is a socket, so a slow client makes that mailbox grow, and a bound is what keeps one stalled reader from eating memory.
+
+**Refusal**: Answers a request the handler could not turn into a stream. Nil answers with plain text, which a caller speaking another protocol cannot read - set it if your endpoint has an error contract of its own.
 
 ## Connection Lifecycle
 

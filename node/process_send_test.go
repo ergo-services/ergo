@@ -20,7 +20,6 @@ func TestProcessSendRouting(t *testing.T) {
 		{"processid", gen.ProcessID{Name: "dest", Node: "n@localhost"}, kindProcessID},
 		{"alias", gen.Alias{Node: "n@localhost"}, kindAlias},
 		{"atom", gen.Atom("dest"), kindProcessID},
-		{"string", "dest", kindProcessID},
 	}
 	senders := []struct {
 		name          string
@@ -282,11 +281,17 @@ func TestProcessTypedEntryPoints(t *testing.T) {
 // TestProcessSendCallUnsupportedTarget: an unsupported target type is rejected by the
 // generic dispatch with gen.ErrUnsupported.
 func TestProcessSendCallUnsupportedTarget(t *testing.T) {
-	p := newEveryProcess(mock.NewCore())
-	if err := p.Send(123, "m"); err != gen.ErrUnsupported {
-		t.Fatalf("Send unsupported: got %v, want ErrUnsupported", err)
-	}
-	if _, err := p.Call(123, "m"); err != gen.ErrUnsupported {
-		t.Fatalf("Call unsupported: got %v, want ErrUnsupported", err)
+	// a process name must be a gen.Atom: a plain string is not a target
+	for _, to := range []any{123, "dest"} {
+		p := newEveryProcess(mock.NewCore())
+		if err := p.Send(to, "m"); err != gen.ErrUnsupported {
+			t.Fatalf("Send(%#v): got %v, want ErrUnsupported", to, err)
+		}
+		if err := p.SendImportant(to, "m"); err != gen.ErrUnsupported {
+			t.Fatalf("SendImportant(%#v): got %v, want ErrUnsupported", to, err)
+		}
+		if _, err := p.Call(to, "m"); err != gen.ErrUnsupported {
+			t.Fatalf("Call(%#v): got %v, want ErrUnsupported", to, err)
+		}
 	}
 }

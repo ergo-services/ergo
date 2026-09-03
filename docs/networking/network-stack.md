@@ -38,7 +38,7 @@ The embedded registrar provides basic discovery:
 - Automatic failover if the server node dies
 
 For production clusters, external registrars provide more features:
-- **etcd** - Centralized discovery, application routing, configuration storage, HTTP polling for registration
+- **etcd** - Centralized discovery, application routing, configuration storage; registration held by a lease, changes delivered by a prefix watch
 - **Saturn** - Purpose-built for Ergo, immediate event propagation, efficient at scale
 
 The embedded registrar works for development and small deployments. For larger clusters or dynamic topologies, use etcd or Saturn. The choice is transparent to your code - you specify the registrar at node startup, and everything else works identically.
@@ -66,7 +66,7 @@ Now when connecting to `prod-db@example.com`, the framework uses your route dire
 
 Static routes support pattern matching (`"prod-.*"`), multiple routes with failover weights, and hybrid approaches (use patterns for selection, resolvers for address lookup). You can configure per-route cookies, certificates, network flags, and atom mappings.
 
-The framework checks static routes first, always. If a static route exists, discovery is bypassed. If static routes fail or don't exist, the framework falls back to discovery.
+The framework checks static routes first, always. A matching static route takes that node out of discovery entirely: every matching route is tried, and when they all fail the attempt ends with `gen.ErrNoRoute` - the registrar is never consulted. Discovery is reached only when **no** static route matched the name.
 
 For details, see [Static Routes](static-routes.md).
 
@@ -145,7 +145,7 @@ EDF is a binary encoding specifically designed for the framework's communication
 
 Framework types like `gen.PID` and `gen.Ref` have optimized encodings. Structs are encoded field-by-field in declaration order (no field names on the wire). Custom types must be registered on both sides via `node.Network().RegisterType` (typically from an application's `Load` callback). During handshake, nodes exchange their type lists to agree on encoding.
 
-Compression is automatic. If a message exceeds the compression threshold (default 1024 bytes), it's compressed using GZIP, ZLIB, or LZW. The protocol frame indicates compression, so the receiver decompresses before decoding.
+Compression is opt-in, per process, and off until you ask for it. There is no node-level compression option: the switch is `ProcessOptions.Compression` at spawn, or `SetCompression` at runtime, and only `Enable: true` makes the wire path consider it. Once enabled, a message larger than the threshold (default 1024 bytes) is compressed with GZIP, ZLIB or LZW; the protocol frame says so, and the receiver decompresses before decoding. A process that never enables it sends everything uncompressed however large the message is.
 
 For details on EDF - type tags, struct encoding, registration requirements, compression, caching - see [Network Transparency](network-transparency.md).
 
@@ -243,6 +243,14 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 **MaxMessageSize** - Maximum incoming message size. Protects against memory exhaustion. Default unlimited (fine for trusted clusters).
 
 **Flags** - Control capabilities. Remote nodes learn your flags during handshake and can only use features you've enabled. `EnableRemoteSpawn` allows spawning (with explicit permission per process). `EnableImportantDelivery` enables delivery confirmation. `EnableFragmentation` enables message fragmentation for large messages (both sides must enable). `EnableSoftwareKeepAlive` sets the keepalive period in seconds (see [Software Keepalive](#software-keepalive)).
+
+The defaults are all-or-nothing, and this catches people. `gen.DefaultNetworkFlags` is substituted only while `Flags.Enable` is false - the moment you write `Flags: gen.NetworkFlags{Enable: true, ...}`, your literal stands exactly as written and every field you did not name is `false`. So enabling one flag silently turns off fragmentation, important delivery, tracing, clock skew, proxy accept, simultaneous connect, wrapped errors and the 15-second software keepalive. To change one thing, start from the defaults:
+
+```go
+flags := gen.DefaultNetworkFlags
+flags.EnableRemoteSpawn = false
+options.Network.Flags = flags
+```
 
 **Acceptors** - Define listeners for incoming connections. Multiple acceptors on different ports are supported. Each can have its own cookie, TLS, and protocol.
 

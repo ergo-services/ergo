@@ -135,7 +135,7 @@ What gets registered:
 - List of acceptors this node is running
 - For each acceptor: port number, handshake version, protocol version, TLS flag
 
-The TCP connection from client to server stays open. It serves two purposes: maintaining registration (if the connection drops, the node is considered dead) and enabling the server to push updates (though the current implementation doesn't use this capability).
+The TCP connection from client to server stays open, and it serves two purposes. It maintains the registration - if the connection drops, the node is considered dead. And the server pushes membership changes down it: when a node joins or leaves, every other registration link is told, and the receiving client re-emits that as `gen.MessageRegistrarNodeJoined` or `gen.MessageRegistrarNodeLeft` on the node's core event. Subscribe to those rather than polling if you want to react to a peer appearing or going away.
 
 If a node tries to register a name that's already taken, the registrar returns `gen.ErrTaken`. Node names must be unique within a host. Across hosts, the same name is fine - node names include the hostname for disambiguation.
 
@@ -149,7 +149,7 @@ The resolution mechanism depends on whether the querying node is running the reg
 
 **If the node is a registrar client**, resolution uses UDP regardless of whether the target is same-host or cross-host. The node extracts the hostname from the target node name (worker@otherhost becomes otherhost), sends a UDP packet to that host on port 4499, and waits for a response. For same-host queries, this means UDP to localhost:4499. For cross-host queries, it's UDP to the remote host. The registrar server (wherever it is) looks up the node and sends back the acceptor list via UDP reply.
 
-This UDP-based resolution is stateless. No connection is maintained. Each query is independent. This keeps it lightweight but means there's no push notification when remote nodes change - you only discover changes when you query again. The TCP connection between client and server is used only for registration and keepalive, not for resolution queries.
+This UDP-based resolution is stateless. No connection is maintained, and each query is independent, which keeps it lightweight. Resolution itself is pull-only: a UDP answer tells you where a node listens now and nothing about later. Membership changes do arrive without asking, but over the TCP registration link rather than this path - as the joined and left events described above.
 
 The resolution response includes everything needed to establish a connection:
 - Acceptor port number
@@ -445,9 +445,11 @@ External registrars replace the embedded implementation with centralized discove
 
 **etcd registrar** (`ergo.services/registrar/etcd`) uses etcd as the discovery backend. All nodes register their routes in etcd on startup. All discovery queries go to etcd. This centralizes cluster state: any node can discover any other node, applications can advertise their deployment locations, configuration can be stored in etcd's key-value store.
 
-The etcd registrar implementation maintains registration through HTTP polling - each node makes a registration request every second to keep its entry alive. This works well for small to medium clusters (50-70 nodes) but creates overhead at larger scales. The polling approach reflects etcd's design for web services rather than continuous cluster communication. Despite this limitation, etcd provides proven reliability, extensive tooling, and operational familiarity for teams already using etcd in their infrastructure.
+The etcd registrar does not poll. A node's registration is an etcd **lease**, renewed over the client's gRPC keep-alive stream, and cluster changes arrive on a **prefix watch** - so a peer appearing or leaving is pushed, not discovered on the next tick. The lease is what makes a dead node disappear on its own: stop renewing and the registration expires with the TTL.
 
-**Saturn registrar** (`ergo.services/registrar/saturn`) is purpose-built for Ergo clusters. It's an external Raft-based registry designed specifically for the framework's communication patterns. Instead of polling, Saturn maintains persistent connections and pushes updates immediately when cluster state changes. This makes it more efficient at scale - Saturn can handle clusters with thousands of nodes without the overhead of constant HTTP polling. The immediate event propagation means nodes learn about topology changes instantly rather than waiting for the next poll interval.
+What limits it at scale is etcd itself rather than a polling loop - the write load of many nodes renewing and watching the same prefix. It is a good fit up to roughly 50-70 nodes, and it brings proven reliability, extensive tooling and operational familiarity for teams already running etcd.
+
+**Saturn registrar** (`ergo.services/registrar/saturn`) is purpose-built for Ergo clusters. It's an external Raft-based registry designed specifically for the framework's communication patterns, holding one persistent connection per node and pushing updates as cluster state changes. Both registrars push rather than poll; the difference at scale is the cost per node of holding the registration, and Saturn is built for clusters of thousands where etcd's write load becomes the ceiling.
 
 Which registrar you choose depends on your deployment:
 - Small clusters (< 10 nodes), same host or trusted network: embedded registrar

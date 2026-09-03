@@ -65,7 +65,8 @@ type MetaProcess interface {
 	Parent() PID
 
 	// Send sends an asynchronous message to the target.
-	// Target can be: PID, ProcessID, Alias, Atom (process name), or string (process name).
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other type returns ErrUnsupported.
 	// Available in: Sleep, Running, Terminated states.
 	// Sleep allowed because external code (HTTP/TCP handlers) calls from non-actor goroutines.
 	Send(to any, message any) error

@@ -228,9 +228,11 @@ The caller's experience is unchanged - they call, they block, they get a result.
 
 **Worker resilience:**
 
-If a worker crashes or becomes unresponsive, the Pool automatically spawns a replacement worker. Worker failures don't affect the Pool's availability - other workers continue processing requests while the Pool restarts failed workers in the background.
+If a worker dies, the Pool replaces it - but lazily, when it next tries to forward to that worker and gets `ErrProcessUnknown` or `ErrProcessTerminated` back. Nothing notifies the Pool at the moment of death.
 
-If all workers are busy (mailboxes full), incoming requests queue up in the Pool's mailbox until a worker becomes available.
+If every worker's mailbox is full, the request is **dropped**, not queued. The Pool walks its workers once, pushing each full one back, and when the walk ends it logs "no available worker process. ignored message from ...", increments `ergo:messages_unhandled` and releases the message. There is no Pool-side buffer and no backpressure to the sender: a `Call` in this situation ends in the caller's timeout, and a `Send` disappears silently.
+
+`ProcessOptions.Fallback` does not catch these. `PoolOptions` offers no way to give workers a fallback, and the Pool delivers with `Forward`, which bypasses the fallback path entirely - see [Pool Actor](../actors/pool.md). Watch the counter through the inspect callback, and size `PoolSize` and `WorkerMailboxSize` for the peak rather than the average.
 
 For more details on Pool configuration and advanced patterns, see [Pool Actor](../actors/pool.md).
 
@@ -628,9 +630,14 @@ func (b *Batcher) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
     // Add to batch
     b.pending = append(b.pending, pendingRequest{from, ref, request})
     
-    // Start timer if this is the first request
+    // Start timer if this is the first request.
+    // SendAfter returns (gen.CancelFunc, error).
     if len(b.pending) == 1 {
-        b.timer = b.SendAfter(b.PID(), Flush{}, 100 * time.Millisecond)
+        cancel, err := b.SendAfter(b.PID(), Flush{}, 100*time.Millisecond)
+        if err != nil {
+            return nil, err
+        }
+        b.timer = cancel
     }
     
     // If batch is full, flush immediately

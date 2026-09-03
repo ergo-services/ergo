@@ -185,7 +185,7 @@ Pre-built agents and skills for [Claude Code](https://claude.com/claude-code) tu
 
 - **framework** - designing and implementing actor systems. An architect agent (DDD bounded contexts, supervision trees, cluster topology, load analysis) plus a skill with progressive-disclosure references covering actors, supervision, messages, applications, pool and routing, meta processes, node configuration, EDF, cluster, tracing, logging, testing, and every extension library.
 
-- **devops** - diagnosing running clusters via the built-in [MCP application](https://docs.ergo.services/extra-library/applications/mcp). An SRE agent that runs hypothesis-driven investigations (observe, hypothesize, test, confirm) plus a skill with the full 48-tool catalog, counters reference, 10 diagnostic playbooks, active/passive sampler recipes, and build-tag awareness.
+- **devops** - diagnosing running clusters over the [observer's MCP endpoint](https://docs.ergo.services/advanced/mcp). An SRE agent that runs hypothesis-driven investigations (observe, hypothesize, test, confirm) plus a skill with the full 38-tool catalog, counters reference, 10 diagnostic playbooks, active/passive sampler recipes, and build-tag awareness.
 
 Install directly from the Claude Code plugin marketplace - open the plugins section (`/plugin`), search for `ergo`, and install. Or add this repository as a marketplace:
 

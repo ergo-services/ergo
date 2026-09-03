@@ -34,7 +34,7 @@ Each record carries fields that describe the action - a `Send` has `From`, `To`,
 An assertion is a single chain with four parts: choose a record type, narrow it with filters, say how many should match, and run it.
 
 ```go
-sub.ShouldSend().To("db").Message(SaveUser{ID: 7}).Once().Assert()
+sub.ShouldSend().To(gen.Atom("db")).Message(SaveUser{ID: 7}).Once().Assert()
 ```
 
 Read left to right: of the recorded `Send` actions (`ShouldSend`), the ones addressed to `"db"` and carrying that message (the two filters), there should be exactly one (`Once`); evaluate it now and report a failure if not (`Assert`). There is one `Should...` builder per record type - `ShouldSend`, `ShouldSpawn`, `ShouldCall`, `ShouldLog`, and so on - and everything that follows on this page is a variation of one of those four parts. Learn the chain and you can read any assertion in the framework.
@@ -46,8 +46,8 @@ The third part answers "how many," and there are four ways to answer:
 ```go
 sub.ShouldSpawn().Once().Assert()                  // exactly one
 sub.ShouldSpawn().Times(3).Assert()                // exactly three
-sub.ShouldSend().To("metrics").AtLeast(1).Assert() // one or more
-sub.ShouldSend().To("audit").None().Assert()       // never
+sub.ShouldSend().To(gen.Atom("metrics")).AtLeast(1).Assert() // one or more
+sub.ShouldSend().To(gen.Atom("audit")).None().Assert()       // never
 ```
 
 `None` is how you assert a negative - that an action did *not* happen - so there is no separate "should not" builder; you expect a count of zero.
@@ -57,7 +57,7 @@ sub.ShouldSend().To("audit").None().Assert()       // never
 The filters are named after the record's fields, and they reach well past `To` and `Message`. You narrow on whatever distinguishes the action you mean:
 
 ```go
-sub.ShouldSend().To("worker").Priority(gen.MessagePriorityHigh).Once().Assert()
+sub.ShouldSend().To(gen.Atom("worker")).Priority(gen.MessagePriorityHigh).Once().Assert()
 sub.ShouldSpawn().Factory(factoryWorker).Times(3).Assert()
 sub.ShouldLog().Level(gen.LogLevelError).Containing("timeout").Once().Assert()
 ```
@@ -65,7 +65,7 @@ sub.ShouldLog().Level(gen.LogLevelError).Containing("timeout").Once().Assert()
 Where an action can fail, `Error` matches an exact error and `ErrorIs` matches a wrapped one:
 
 ```go
-sub.ShouldCall().To("db").ErrorIs(gen.ErrTimeout).Once().Assert()
+sub.ShouldCall().To(gen.Atom("db")).ErrorIs(gen.ErrTimeout).Once().Assert()
 ```
 
 And when no named filter fits - you need one field of a struct, a range, a computed condition - `Where` takes a typed predicate over the record itself:
@@ -132,7 +132,7 @@ childPID := spawn.Child
 `Collect` returns every matching record in the order observed, which is what you want when the order itself is under test - a round-robin distribution, say:
 
 ```go
-sends := sub.ShouldSend().To("worker").Collect() // []check.Send, in order
+sends := sub.ShouldSend().To(gen.Atom("worker")).Collect() // []check.Send, in order
 ```
 
 (`Records` returns the whole journal as a slice, for poking at it while you debug a test; the assertions themselves should use the grammar.)
@@ -159,7 +159,7 @@ The set also includes `False`, `NotEqual`, `Nil`, `NotNil`, `Error`, `Contains`,
 One last piece of vocabulary shows up not in assertions but in the stubbing APIs of [mock](mock.md) and [unit](unit.md), where you tell a dependency how to answer a particular call. A small set of matchers narrows a stub to the calls it should handle: `Anything`, `Equals`, `MatchedBy`, and `IsType`.
 
 ```go
-sub.OnCall("db").Where(check.IsType[Query]()).Respond(rows)
+sub.OnCall(gen.Atom("db")).Where(check.IsType[Query]()).Respond(rows)
 ```
 
 `IsType[V]` matches a value assignable to `V`: a concrete type matches its exact dynamic type, an interface matches any value that implements it. You will see these in context on the next pages.

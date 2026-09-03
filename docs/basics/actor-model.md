@@ -52,7 +52,11 @@ The actor model isn't just theory. It powers real production systems handling ma
 
 Go has goroutines and channels, which seem similar to actors and message passing. But there's a crucial difference: goroutines are not isolated. They can share memory, which means you still need locks and face the same concurrency challenges as traditional threading.
 
-Ergo Framework brings true actor model semantics to Go. Each process is an isolated actor. The framework enforces the constraint that actors don't share memory and communicate only through messages. This gives you the benefits of the actor model - no race conditions, simpler concurrent logic, natural distribution - while writing Go code.
+Ergo Framework brings actor model semantics to Go. Each process is an actor with its own goroutine and its own mailbox, and the only way in is a message. That buys you the benefits of the model - sequential logic inside an actor, concurrency between actors, natural distribution - while writing ordinary Go.
+
+One boundary the language cannot enforce for us, and it is worth knowing from the start: **memory isolation is a discipline the framework supports, not a constraint it imposes.** A message between two processes on the same node is handed over as the Go value it is, with no copy and no serialization. Send a map, a slice or a pointer and both processes then hold the same memory, and Go's race detector will say so. Only a message that crosses a node boundary is encoded, and the encoding is what makes the copy.
+
+So "no shared state" is yours to keep: send values rather than references, or treat a send as handing over ownership and stop touching what you sent. The framework ships a vet tool, `argus`, whose A1001 rule flags exactly this.
 
 The single-goroutine-per-actor constraint might seem limiting at first. In practice, it's liberating. You write sequential code within each actor, and concurrency emerges naturally from having many actors processing messages in parallel.
 

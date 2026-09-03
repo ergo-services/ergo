@@ -60,7 +60,7 @@ Two options deserve explanation: `LinkParent` and `LinkChild`. These options pro
 
 ## Message Handling
 
-Processes are defined by implementing the `gen.ProcessBehavior` interface. This is a low-level interface with three callbacks: `ProcessInit` for initialization, `ProcessRun` for the message processing loop, and `ProcessTerminate` for cleanup.
+Processes are defined by implementing the `gen.ProcessBehavior` interface. This is a low-level interface with four methods: `ProcessInit` for initialization, `ProcessRun` for the message processing loop, `ProcessTerminate` for cleanup, and `ProcessKind`, which classifies the process and is called unconditionally at spawn. All four are required - a type implementing only the first three does not satisfy the interface.
 
 In practice, you rarely implement `gen.ProcessBehavior` directly. Instead, you use `act.Actor`, which implements `gen.ProcessBehavior` and provides a more convenient abstraction. `act.Actor` gives you `HandleMessage` and `HandleCall` callbacks - straightforward methods where you write your message handling logic without worrying about the mailbox mechanics.
 
@@ -106,7 +106,7 @@ Use `SetEnv` to modify variables during Init or Running states. Pass `nil` as th
 
 Processes typically terminate themselves by returning an error from `ProcessRun`. In `act.Actor`, this manifests as returning an error from `HandleMessage`, `HandleCall`, or other handler callbacks. Return `gen.TerminateReasonNormal` for clean shutdown, or any other error to indicate why termination occurred. The process transitions to Terminated, is removed from the node, and then runs its `ProcessTerminate` callback for cleanup.
 
-If a panic occurs during message handling, the framework catches it, logs the stack trace, and terminates the process with `gen.TerminateReasonPanic`. The `ProcessTerminate` callback still runs, giving the process a chance to clean up despite the panic.
+If a panic occurs during message handling, the framework catches it and terminates the process with `gen.TerminateReasonPanic`. The `ProcessTerminate` callback still runs, giving the process a chance to clean up despite the panic. What is logged is the panic value plus the single frame the recovery saw, not a stack trace - see [Actors](../actors/actor.md#termination) for what to do when one frame is not enough.
 
 ### Mailbox Preservation
 

@@ -161,7 +161,11 @@ To test against a real backend, set `StageOptions.Registrar` to a factory - etcd
 
 ## Configuring Nodes and Clusters
 
-`stage.NodeOptions` carries what a real node needs: `Applications` to load, `Env`, a `Cookie`, the network knobs (`MaxMessageSize`, `FragmentSize`, `NetworkFlags`), and `Security`. Loading an application is how you test framework-spawned, supervised, name-registered processes end to end - the very processes a bare `Spawn` cannot give you:
+`stage.NodeOptions` carries what a real node needs: `Applications` to load, `Env`, a `Cookie`, the network knobs (`MaxMessageSize`, `FragmentSize`, `NetworkFlags`, `PoolSize`, `Mode`), and `Security`.
+
+Two of those model shapes you cannot reach otherwise. `Mode: gen.NetworkModeHidden` gives a node that dials out but runs no acceptor - a node behind NAT, which peers cannot dial back, and the only way to test that asymmetry. `PoolSize` sets the number of TCP connections per peer, which is what a test about per-sender ordering or a degraded pool needs. There is also `DisableSystemManage`, which keeps the system application's mutating plane down, modelling a node whose state nothing may change from outside.
+
+Loading an application is how you test framework-spawned, supervised, name-registered processes end to end - the very processes a bare `Spawn` cannot give you:
 
 ```go
 a := s.StartNode("a", stage.NodeOptions{Applications: []gen.ApplicationBehavior{createApp1()}})

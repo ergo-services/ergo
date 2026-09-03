@@ -97,6 +97,12 @@ func main() {
     node, _ := ergo.StartNode("mynode@localhost", gen.NodeOptions{})
     defer node.Stop()
 
+    // Required, and before the node carries any traffic. The actor refuses to
+    // start on a node that cannot decode its messages: a Register or Heartbeat
+    // lost in decoding is a signal silently missing from the probe answer.
+    node.Network().RegisterTypes(health.NetworkTypes())
+    node.Network().RegisterErrors(health.ErrorTypes())
+
     node.SpawnRegister(gen.Atom("health"), health.Factory, gen.ProcessOptions{},
         health.Options{Port: 8080})
 
@@ -216,7 +222,22 @@ If you prefer sending messages directly instead of using helpers:
 | `MessageSignalUp` | async (Send) | Mark a signal as up. Fields: `Signal gen.Atom` |
 | `MessageSignalDown` | async (Send) | Mark a signal as down. Fields: `Signal gen.Atom` |
 
-All types are registered with EDF for network transparency. Actors on remote nodes can register signals with a health actor on any node in the cluster.
+Registering these types with EDF is the caller's job, not the library's, and it has to happen before the node carries any traffic. Registration is node-scoped, so it cannot be done from a package `init()`, and doing it in the actor's own `Init` would already be too late on a node whose health process starts after a connection is up.
+
+Two places work. Declare them on the application that hosts the actor, which is processed during application load before any of its processes spawn:
+
+```go
+gen.ApplicationSpec{
+    Network: gen.ApplicationNetwork{
+        RegisterTypes:  health.NetworkTypes(),
+        RegisterErrors: health.ErrorTypes(),
+    },
+}
+```
+
+Or register them on the node directly, as the example above does. `Init` refuses to start otherwise. Once they are registered, actors on remote nodes can register signals with a health actor on any node in the cluster.
+
+If you run health through [radar](../applications/radar.md) rather than spawning it yourself, this is already done: radar declares both sets in its own `ApplicationSpec.Network`, and application load runs before any of its processes spawn.
 
 ## Heartbeat Pattern
 

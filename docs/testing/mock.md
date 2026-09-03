@@ -14,7 +14,7 @@ These fakes are deliberately dumb, and it helps to say plainly what they are not
 
 ```go
 func saveUser(db gen.Process, u User) error {
-    _, err := db.Call("users", Insert{Name: u.Name})
+    _, err := db.Call(gen.Atom("users"), Insert{Name: u.Name})
     return err
 }
 
@@ -37,7 +37,7 @@ A method you do not override still works; it just returns a safe default. A quer
 db := mock.NewProcess()
 db.OnCall(func(to, request any) (any, error) { return Row{ID: 7}, nil })
 
-check.NoError(t, db.Send("audit", "saved")) // Send was never overridden; it just succeeds
+check.NoError(t, db.Send(gen.Atom("audit"), "saved")) // Send was never overridden; it just succeeds
 ```
 
 This is the deliberate difference from [unit](unit.md), and it is worth understanding because it tells you which tool you are holding. The unit harness fails loudly when an actor takes an action you did not set up, because there the unexpected action is the bug under test. A mock makes no such judgment: it is a dependency you are injecting, not the subject of the test, so an unconfigured call is simply a no-op with a sensible result.
@@ -65,10 +65,10 @@ The two features compose, and in the order you would want. On a recording mock a
 p := mock.NewProcessT(t)
 p.OnSend(func(to, message any) error { return gen.ErrProcessUnknown })
 
-err := p.Send("dead", "hi")
+err := p.Send(gen.Atom("dead"), "hi")
 check.ErrorIs(t, err, gen.ErrProcessUnknown) // the override decided this
 
-p.ShouldSend().To("dead").Once().Assert()    // and it was still recorded
+p.ShouldSend().To(gen.Atom("dead")).Once().Assert()    // and it was still recorded
 ```
 
 The override runs first, because it is the behavior; the record is taken afterward. This mirrors stubbing in [unit](unit.md): setting a return value never hides the action from assertions.
@@ -81,10 +81,10 @@ The first is reading them, and it comes for free. A recording mock wires the sub
 
 ```go
 n := mock.NewNodeT(t)
-n.Send("peer", "ping")
+n.Send(gen.Atom("peer"), "ping")
 n.Log().Info("started %d workers", 3)
 
-n.ShouldSend().To("peer").Message("ping").Once().Assert()
+n.ShouldSend().To(gen.Atom("peer")).Message("ping").Once().Assert()
 n.ShouldLog().Containing("started 3 workers").Once().Assert()
 ```
 
@@ -118,6 +118,11 @@ There is one mock per interface, each with the dumb and recording constructor pa
 | `NewRemoteNode` / `NewRemoteNodeT` | `gen.RemoteNode` |
 | `NewRegistrar` / `NewRegistrarT` | `gen.Registrar` |
 | `NewResolver` / `NewResolverT` | `gen.Resolver` |
+| `NewConnection` / `NewConnectionT` | `gen.Connection` |
+| `NewCore` / `NewCoreT` | `gen.Core` |
+| `NewCoreTargetManager` / `NewCoreTargetManagerT` | the core's target manager |
+
+The last three are for testing the framework's own internals rather than application code - a custom `gen.NetworkProto`, or anything that routes through the core. Reach for them when you are writing a protocol, not a service.
 
 ## When to Reach for Mock
 

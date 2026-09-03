@@ -128,7 +128,7 @@ Use case: identify message types that dominate network traffic. The average byte
 Tags can be combined for comprehensive debugging:
 
 ```bash
-go run --tags "pprof,norecover,trace" ./cmd
+go run --tags "pprof,norecover,verbose" ./cmd
 ```
 
 or with latency measurement:
@@ -405,7 +405,7 @@ In production, `norecover` is not appropriate: the framework's panic recovery is
 
 ## Observer Integration
 
-The [Observer](https://docs.ergo.services/tools/observer) tool provides a web interface for inspecting running nodes. While not strictly a debugging tool, it complements profiler-based debugging by providing:
+The [Observer](../extra-library/applications/observer.md) application embeds into a node and provides a web interface for inspecting it and the rest of the cluster. While not strictly a debugging tool, it complements profiler-based debugging by providing:
 
 - Real-time process list with state and mailbox sizes
 - Application and supervision tree visualization

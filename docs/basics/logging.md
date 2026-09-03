@@ -54,7 +54,9 @@ The node starts at `gen.LogLevelInfo`. Processes inherit this unless their spawn
 
 ## Identifying Log Sources
 
-The logging subsystem differentiates between four source types: node, process, meta process, and network. Each carries its source information in a typed structure - `gen.MessageLogNode`, `gen.MessageLogProcess`, `gen.MessageLogMeta`, or `gen.MessageLogNetwork`. This typing allows custom loggers to handle different sources differently, perhaps routing network logs to one destination and process logs to another.
+The logging subsystem differentiates between five source types: node, process, meta process, network, and application. Each carries its source information in a typed structure - `gen.MessageLogNode`, `gen.MessageLogProcess`, `gen.MessageLogMeta`, `gen.MessageLogNetwork` or `gen.MessageLogApplication`. This typing allows custom loggers to handle different sources differently, perhaps routing network logs to one destination and process logs to another.
+
+A custom logger's type switch has to cover all five: application lines are what you see as `App#<hash.'name'>` in default output, and they arrive as `gen.MessageLogApplication{Node, Name, Mode, Behavior}`.
 
 The default logger formats each source type distinctly in its output:
 
@@ -121,7 +123,16 @@ With `IncludeFields` enabled in the logger configuration, output shows:
                     fields order_id:12345 customer_id:67890
 ```
 
-Fields appear on a separate line below the message, prefixed with "fields" and aligned with the timestamp. Multiple fields are space-separated, each formatted as `key:value`. In JSON output, fields become separate JSON properties at the message's top level.
+Fields appear on a separate line below the message, prefixed with "fields" and aligned with the timestamp. Multiple fields are space-separated, each formatted as `key:value`.
+
+In JSON output they are not promoted to the top level. They go into a nested `fields` object, and every value is written as a string - numbers and booleans included:
+
+```json
+{"time":1788430075197809000,"level":"info","source":{"type":"node","node":"B6473ECD"},
+ "message":"processing order","fields":{"order_id":"12345","paid":"true"}}
+```
+
+Worth knowing before writing a query against these logs: `paid` is `"true"` and not `true`, `order_id` is `"12345"` and not a number.
 
 Fields only appear in output if the logger is configured to include them. The default logger requires `gen.NodeOptions.Log.DefaultLogger.IncludeFields = true`. Without this, fields are tracked internally but not displayed - useful if some loggers need fields while others don't.
 
@@ -256,6 +267,8 @@ This queuing prevents blocking. If the logger process is busy or the logging log
 
 One detail matters: when a logger process terminates, it's automatically removed from the logging system. No need to call `LoggerDeletePID` explicitly.
 
+Two more that surprise people. Registering a process as a logger **silences that process's own logging**: `LoggerAddPID` saves its current level and sets it to `gen.LogLevelDisabled`, so a logger actor that also calls `Log().Error(...)` for its own diagnostics writes nothing. This prevents a logger from logging its way into a loop; `LoggerDeletePID` restores the saved level. And registering the same PID twice returns `gen.ErrNotAllowed` rather than replacing the first registration.
+
 ## Using Multiple Loggers
 
 The fan-out architecture supports multiple loggers operating simultaneously with different purposes.
@@ -311,7 +324,7 @@ The framework provides three logger implementations in separate packages for com
 
 **Colored** (`ergo.services/logger/colored`) - Terminal output with ANSI colors. Highlights Ergo types (PIDs, Atoms, Refs) and colorizes log levels (yellow for warnings, red for errors, etc.). Visual clarity for development, but has performance overhead. Not suitable for high-volume production logging.
 
-**Rotate** (`ergo.services/logger/rotate`) - File logging with automatic rotation. Supports size-based and time-based rotation. Compresses old logs with gzip. Configurable retention policies. Production-ready for long-running systems generating substantial logs.
+**Rotate** (`ergo.services/logger/rotate`) - File logging with automatic rotation. Rotation is **time-based only**: `Period` decides when a new file starts, floored to one minute, and there is no size trigger. `Depth` caps how many files are kept and `Compress` gzips the retired ones. Production-ready for long-running systems generating substantial logs.
 
 **Sentry** (`ergo.services/logger/sentry`) - Forwards panics and errors to a Sentry project. Captures the panic origin stack and tags events by ergo subsystem. Centralized error tracking and alerting for production deployments. Operates alongside your console or file logger rather than replacing them.
 

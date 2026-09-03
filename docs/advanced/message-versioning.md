@@ -355,7 +355,7 @@ company.com/
 
 ### Registration Helper
 
-All message types must be registered with the network stack before connection establishment. During handshake, nodes exchange their registered type lists which become the encoding dictionaries. Registration happens from an application's `Load(node)` callback, which runs after the network stack is initialized but before any traffic. There are two approaches: a centralized helper exported by the shared module, or manual registration per client.
+All message types must be registered with the network stack before connection establishment. During handshake, nodes exchange their registered type lists which become the encoding dictionaries. Registration happens from an application's `Load` callback, which runs after the network stack is initialized but before any traffic. Its signature is `Load(args ...any) (gen.ApplicationSpec, error)` - the node is not an argument, it comes from the embedded `app.Application` as `a.Node()`, which is what the example below does. There are two approaches: a centralized helper exported by the shared module, or manual registration per client.
 
 **Centralized helper** exposes a single function that the consumer's application calls from `Load`:
 
@@ -571,20 +571,22 @@ With version handling and ACL in place, how do you verify it actually works? [Co
 
 ```go
 func TestPaymentActorAcceptsBothVersions(t *testing.T) {
-    tc := unit.NewTestCase(t, "test@localhost")
-    defer tc.Stop()
+    sub, err := unit.Spawn(t, createPaymentActor, gen.ProcessOptions{})
+    check.NoError(t, err)
 
-    actor := tc.Spawn(createPaymentActor)
+    client := gen.PID{Node: "test@localhost", ID: 100, Creation: 1}
 
     // V1 works
-    actor.Send(ChargeRequestV1{OrderID: 1, Amount: 100})
-    actor.ShouldSend().Message(ChargeResponseV1{}).Once().Assert()
+    sub.SendMessage(client, ChargeRequestV1{OrderID: 1, Amount: 100})
+    sub.ShouldSend().Message(ChargeResponseV1{}).Once().Assert()
 
     // V2 works
-    actor.Send(ChargeRequestV2{OrderID: 2, Amount: 200, Currency: "EUR"})
-    actor.ShouldSend().Message(ChargeResponseV2{}).Once().Assert()
+    sub.SendMessage(client, ChargeRequestV2{OrderID: 2, Amount: 200, Currency: "EUR"})
+    sub.ShouldSend().Message(ChargeResponseV2{}).Once().Assert()
 }
 ```
+
+`unit.Spawn` puts the actor on a mock node and hands back a `*unit.Subject`: `SendMessage` delivers into it from a sender you name, and the `Should*` family asserts on what it did. Reach for `unit.StartNode(t, "test@localhost", gen.NodeOptions{})` first when the node name or its options matter to the test. See [Unit Testing](../testing/unit.md).
 
 Test ACL conversion:
 

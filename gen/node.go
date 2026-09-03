@@ -300,7 +300,8 @@ type Node interface {
 	Kill(pid PID) error
 
 	// Send sends an asynchronous message to the target.
-	// Sender is the node's core PID. Target can be: PID, ProcessID, Alias, Atom, or string.
+	// Sender is the node's core PID. Target can be: PID, ProcessID, Alias, Atom
+	// (local registered name). Any other type returns ErrUnsupported.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	Send(to any, message any) error

@@ -67,7 +67,9 @@ type MetaBehavior interface {
 
 `HandleMessage()` processes regular messages sent by actors. Runs in the Actor Handler. Return `nil` to continue, return an error to terminate.
 
-`HandleCall()` processes synchronous requests from actors. Return `(result, nil)` to send the result back. Return `(nil, error)` to send an error. The framework handles the response automatically.
+`HandleCall()` processes synchronous requests from actors. Return `(result, nil)` and the result is sent back.
+
+The second value is a **termination reason**, not an error to hand to the caller. Any non-nil reason other than `gen.TerminateReasonNormal` sends no response at all: the meta terminates, its alias is deleted, and the caller sits until its own timeout expires. To report a failure, return the error as the **result**, the way the stock metas do - `return gen.ErrUnsupported, nil` - so the caller receives it as the response value.
 
 `Terminate()` runs during shutdown regardless of how termination occurred. Close resources, flush buffers, clean up. Do not block or panic here.
 

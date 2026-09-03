@@ -49,6 +49,11 @@ func main() {
     node, _ := ergo.StartNode("mynode@localhost", gen.NodeOptions{})
     defer node.Stop()
 
+    // Required. ProcessInit refuses to start on a node that cannot decode the
+    // registration and update messages this actor accepts.
+    node.Network().RegisterTypes(metrics.NetworkTypes())
+    node.Network().RegisterErrors(metrics.ErrorTypes())
+
     node.Spawn(metrics.Factory, gen.ProcessOptions{}, metrics.Options{})
 
     // Metrics available at http://localhost:3000/metrics
@@ -56,12 +61,18 @@ func main() {
 }
 ```
 
+Registering the wire types is the caller's job, not the library's. Spawn the actor on a node that does not know them and `ProcessInit` fails with "metrics.MetricType is not registered on this node". Besides registering on the node as above, they can be declared on the application that hosts the actor, in `gen.ApplicationSpec.Network` - `RegisterTypes: metrics.NetworkTypes()` and `RegisterErrors: metrics.ErrorTypes()` - which is processed before any of its processes spawn.
+
+If you run the metrics actor through [radar](../applications/radar.md) instead of spawning it yourself, this is already handled: radar declares both sets in its own `ApplicationSpec.Network`, and application load runs before any of its processes spawn.
+
 Default configuration:
-- **Host**: `localhost`
-- **Port**: `3000`
+- **Host**: `localhost` - standalone mode only
+- **Port**: `3000` - standalone mode only
 - **Path**: `/metrics`
 - **CollectInterval**: `10 seconds`
 - **TopN**: `50`
+
+`Host` and `Port` are defaulted **only in standalone mode**, which is when `Options.Shared` is nil. In shared mode the primary still starts the HTTP server and passes `Host` through as given - so an empty `Host` there is not `localhost`, it is every interface. Set it explicitly on a shared-mode primary unless exposing the endpoint publicly is what you want. `Path`, `CollectInterval` and `TopN` are defaulted in both modes.
 
 ## Configuration
 
@@ -178,6 +189,7 @@ type AppMetrics struct {
     metrics.Actor
 
     activeUsers prometheus.Gauge
+    registered  bool
 }
 
 func (m *AppMetrics) Init(args ...any) (metrics.Options, error) {
@@ -186,8 +198,6 @@ func (m *AppMetrics) Init(args ...any) (metrics.Options, error) {
         Help: "Current number of active users",
     })
 
-    m.Registry().MustRegister(m.activeUsers)
-
     return metrics.Options{
         Port:            9090,
         CollectInterval: 5 * time.Second,
@@ -195,6 +205,13 @@ func (m *AppMetrics) Init(args ...any) (metrics.Options, error) {
 }
 
 func (m *AppMetrics) CollectMetrics() error {
+    if m.registered == false {
+        if err := m.Registry().Register(m.activeUsers); err != nil {
+            return err
+        }
+        m.registered = true
+    }
+
     count, err := m.Call(userService, getActiveUsersMessage{})
     if err != nil {
         m.Log().Warning("failed to get user count: %s", err)
@@ -204,6 +221,8 @@ func (m *AppMetrics) CollectMetrics() error {
     return nil
 }
 ```
+
+`Registry()` returns nil until `Init` has returned. The actor builds the registry afterwards, because whether it is a private registry or a `Shared` one is decided by the `Options` that `Init` hands back - so `m.Registry().MustRegister(...)` inside `Init` panics on a nil pointer. Build the collectors in `Init` and register them on the first `CollectMetrics`, which runs later on the actor's own goroutine.
 
 For event-driven updates, implement `HandleMessage()` instead of `CollectMetrics()`:
 

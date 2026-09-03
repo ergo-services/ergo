@@ -87,11 +87,13 @@ To get information about available applications in the cluster, use the `Resolve
 
 ```go
 type ApplicationRoute struct {
-	Node   Atom
-	Name   Atom
-	Weight int
-	Mode   ApplicationMode
-	State  ApplicationState
+	Node    Atom
+	Name    Atom
+	Weight  int
+	Mode    ApplicationMode
+	Tags    []Atom
+	State   ApplicationState
+	Version Version
 }
 ```
 
@@ -100,5 +102,7 @@ type ApplicationRoute struct {
 * `Weight` The weight assigned to the application in `gen.ApplicationSpec`
 * `Mode` The application's startup mode (`gen.ApplicationModeTemporary`, `gen.ApplicationModePermanent`, `gen.ApplicationModeTransient`)..&#x20;
 * `State` The current state of the application (`gen.ApplicationStateLoaded`, `gen.ApplicationStateInitializing`, `gen.ApplicationStateRunning`, `gen.ApplicationStateStopping`)&#x20;
+* `Tags` Labels for filtering and selecting instances - the field a blue/green, canary or maintenance selection is made on
+* `Version` Lets a resolver tell instances of the same application apart during a rolling upgrade
 
 You can access the `gen.Resolver` interface using the `Resolver` method from the `gen.Registrar` interface.

@@ -22,7 +22,7 @@ This starts a multi-node cluster with Observer, tracing, health probes, Promethe
 
 ## How to read this page
 
-The tour goes from the outside in. First the node at a glance, then its applications, then finding the one process that matters among thousands, then everything about that process and how to act on it. After that come the specialized views, each answering a specific question: how messages flow, how the node is connected, what the logs say, where memory and time go, and how a single request travels across the system. The last section shows how to point any of these views at any node in the cluster.
+The tour goes from the outside in. First the node at a glance, then its applications, then finding the one process that matters among thousands, then everything about that process and how to act on it. After that come the specialized views, each answering a specific question: how messages flow, how the node is connected, what the logs say, where memory and time go, and how a single request travels across the system. Then how to point any of these views at any node in the cluster, and last, the same data read by an AI agent rather than by you.
 
 ## The node at a glance: Info
 
@@ -272,3 +272,11 @@ Everything above applies to one node, but you rarely run just one. The sidebar h
 You can also reach a node that Observer is not yet connected to. If the registrar knows it, selecting it is enough; otherwise you provide its address (host, port, and cookie, optionally over TLS) and Observer establishes the connection. The "Switch observer to this node" button on a connection detail window does the same for a peer you are already looking at. From a single browser tab, you move freely across the entire cluster.
 
 <figure><img src="../.gitbook/assets/placeholder.svg" alt="Screenshot needed"><figcaption>Screenshot needed: the sidebar node selector listing cluster nodes, alongside the connect-to-node dialog for reaching a node by address.</figcaption></figure>
+
+The map of the whole cluster, every node at once with the traffic between them, is not part of this UI. It belongs to the cloud interface at [ergo.observer](https://ergo.observer), which reads the same observer over the same API. What the embedded UI gives you is one node at a time, with free movement between them.
+
+## The same node, read by an agent
+
+Every view on this page is a layout somebody decided on in advance, which is what makes it fast to read and useless for a question nobody anticipated. The same observer serves a second surface for exactly those questions: an [MCP](mcp.md) endpoint where an AI agent reads the node as addressable resources and calls tools on demand.
+
+It is the same data, the same node, and the same authorization: a read-only ceiling refuses an agent's kill for the same reason it hides yours. What differs is who chooses the next question. See [Inspecting With an AI Agent](mcp.md).

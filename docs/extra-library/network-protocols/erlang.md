@@ -8,7 +8,7 @@ This package implements the Erlang network stack, including the DIST protocol, E
 
 It is compatible with OTP-23 to OTP-27. The source code is available on the project's GitHub page at [https://github.com/ergo-services/proto](https://github.com/ergo-services/proto) in the `erlang23` directory.&#x20;
 
-Note that the source code is distributed under the _Business Source License 1.1_ and cannot be used for production or commercial purposes without a license, which can be purchased on the project's sponsor page.
+The source code is distributed under the MIT License, like the rest of the framework, and is free to use in commercial projects without restrictions.
 
 ### EPMD
 
@@ -31,11 +31,11 @@ To use this package, include `ergo.services/proto/erlang23/handshake`.
 
 ### DIST protocol
 
-The `ergo.services/proto/erlang/dist` package implements the `gen.NetworkProto` and `gen.Connection` interfaces. To create it, use the `dist.Create` function and provide `dist.Options` as an argument, where you can specify the `FragmentationUnit` size in bytes. This value is used for fragmenting large messages. The default size is set to `65000` bytes.
+The `ergo.services/proto/erlang23/dist` package implements the `gen.NetworkProto` and `gen.Connection` interfaces. To create it, use the `dist.Create` function and provide `dist.Options` as an argument, where you can specify the `FragmentationUnit` size in bytes. This value is used for fragmenting large messages. `65000` bytes is both the default and the **floor**: a smaller value is silently raised to it, with no error and no log line, so asking for 8000 gets you 65000.
 
 The Erlang DIST proto deliberately does **not** implement `gen.TypeRegistry`, because the Erlang external term format (ETF) carries primitives, atoms, lists, tuples, and binaries directly on the wire without a separate type-registration step. In a multi-proto setup, calls to `node.Network().RegisterType` skip the Erlang proto and register only in TypeRegistry-capable protos like the default ENP/EDF stack. Use `etf.RegisterTypeOf` (described below) to teach the Erlang decoder how to map incoming tuples or atoms to your Go types.
 
-To use this package, include `ergo.services/proto/erlang/dist`.&#x20;
+To use this package, include `ergo.services/proto/erlang23/dist`.&#x20;
 
 ### ETF data format&#x20;
 
@@ -50,7 +50,7 @@ Erlang uses the _ETF (Erlang Term Format)_ for encoding messages transmitted ove
 * `tuple` -> `etf.Tuple` (`[]any`) or a registered struct type
 * `string` -> `[]any`.  convert to string using `etf.TermToString`
 * `atom` -> `gen.Atom`
-* `pid` -> `gen.Pid`
+* `pid` -> `gen.PID`
 * `ref` -> `gen.Ref`
 * `ref` (alias) -> `gen.Alias`
 * `atom` = true/false -> `bool`
@@ -65,7 +65,7 @@ When encoding data in the _Erlang ETF format_:
 * `int*`/`float*`/`big.Int` -> `number`
 * `string` -> `string`
 * `gen.Atom` -> `atom`
-* `gen.Pid` -> `pid`
+* `gen.PID` -> `pid`
 * `gen.Ref` -> `ref`
 * `gen.Alias -> ref` (alias)
 * `bool` -> `atom` true/false

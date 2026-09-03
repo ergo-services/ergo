@@ -728,8 +728,6 @@ func (p *process) sendTo(to any, message any, priority gen.MessagePriority, impo
 		return p.sendAlias(t, message, priority, important)
 	case gen.Atom:
 		return p.sendProcessID(gen.ProcessID{Name: t, Node: p.node.name}, message, priority, important)
-	case string:
-		return p.sendProcessID(gen.ProcessID{Name: gen.Atom(t), Node: p.node.name}, message, priority, important)
 	}
 
 	return gen.ErrUnsupported
@@ -880,9 +878,6 @@ func (p *process) sendHelper(to any, options gen.MessageOptions, message any) fu
 		return func() error { return p.core.RouteSendAlias(p.pid, t, options, message) }
 	case gen.Atom:
 		dst := gen.ProcessID{Name: t, Node: p.node.name}
-		return func() error { return p.core.RouteSendProcessID(p.pid, dst, options, message) }
-	case string:
-		dst := gen.ProcessID{Name: gen.Atom(t), Node: p.node.name}
 		return func() error { return p.core.RouteSendProcessID(p.pid, dst, options, message) }
 	}
 	return nil

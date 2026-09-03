@@ -94,6 +94,8 @@ Application names and process names exist in separate namespaces. An application
 
 The mode determines what happens when a member of the `Group` terminates. It watches the members you listed, not every process of the application: a process spawned deeper in the tree is the concern of the supervisor above it, and reaches the application's attention only if its death takes a member down.
 
+Leaving `Mode` unset means **Temporary**. The zero value is not one of the three modes - `ApplicationModeTemporary` is 1 - so load substitutes it, which is worth knowing because Temporary is the most permissive of the three. Two further checks happen at load and have no defaults: a spec with an empty `Group` is refused with `gen.ErrApplicationEmpty`, and one with an empty `Name` with `gen.ErrApplicationName`.
+
 **Temporary Mode** - A member terminating never stops the application by itself. The application stops when the last member is gone, with reason `gen.TerminateReasonNormal`. This mode is for applications where components can fail and restart independently (typically via supervisors) without stopping the whole application.
 
 **Transient Mode** - The application stops if a member terminates abnormally (crashes, panics, errors), and the member's reason becomes the application's. Normal termination doesn't trigger shutdown; as in temporary mode, the application stops once the last member is gone. Use this mode when abnormal failures indicate a systemic problem that requires stopping the entire service.

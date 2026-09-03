@@ -327,11 +327,12 @@ func (c *Coordinator) distributeWork(job Job) error {
     // Select node based on weights
     targetNode := c.selectNode(routes)
 
-    // Get connection and send work
-    remote, _ := c.Network().GetNode(targetNode)
-    return remote.Send("worker_handler", job)
+    // Messaging needs no connection handle: address the process by name and node
+    return c.Send(gen.ProcessID{Name: "worker_handler", Node: targetNode}, job)
 }
 ```
+
+`gen.RemoteNode`, which is what `GetNode` returns, describes the peer rather than talks to it: it offers `Spawn`, `ApplicationStart` and `Info`, and has no `Send` or `Call`. Ordinary messaging goes through the process's own `Send`/`Call` with a `gen.ProcessID`, and the framework opens the connection if there is not one already.
 
 ### Scaling Operations
 
@@ -610,6 +611,7 @@ type AppMetrics struct {
     requestsTotal  prometheus.Counter
     requestLatency prometheus.Histogram
     activeJobs     prometheus.Gauge
+    registered     bool
 }
 
 func (m *AppMetrics) Init(args ...any) (metrics.Options, error) {
@@ -628,9 +630,20 @@ func (m *AppMetrics) Init(args ...any) (metrics.Options, error) {
         Help: "Currently processing jobs",
     })
 
-    m.Registry().MustRegister(m.requestsTotal, m.requestLatency, m.activeJobs)
-
     return metrics.Options{Port: 9090}, nil
+}
+
+func (m *AppMetrics) CollectMetrics() error {
+    // Registry() is nil during Init - the actor creates the registry from the
+    // Options that Init returns. Register on the first collection instead.
+    if m.registered == false {
+        if err := m.Registry().Register(m.requestsTotal); err != nil {
+            return err
+        }
+        m.Registry().MustRegister(m.requestLatency, m.activeJobs)
+        m.registered = true
+    }
+    return nil
 }
 ```
 
@@ -706,16 +719,11 @@ Open `http://localhost:9911` to see:
 - **Process details**: Links, monitors, aliases, environment
 - **Logs**: Real-time log stream with filtering
 
-### Standalone Observer Tool
+### Inspecting the rest of the cluster
 
-For inspecting remote nodes without embedding:
+There is no standalone observer binary. Observer is the embedded application above, and it does not need one: a single node running it reaches every other node in the cluster over the ordinary connection. Add it to one node - a dedicated one if you like - and inspect the others from there by name.
 
-```bash
-go install ergo.services/tools/observer@latest
-observer -cookie "your-cluster-cookie"
-```
-
-Connect to any node in your cluster and inspect its state remotely.
+The tools that do exist install as `ergo.tools/*`: `ergo` (the scaffolder), `saturn` (the registrar server) and `argus` (an actor-model vet tool).
 
 ### Process Inspection
 
@@ -1055,7 +1063,7 @@ Ergo provides integrated technologies for building production clusters:
 | **Applications** | Deployment units with weights | Core framework |
 | **Leader Actor** | Failover via leader election | `ergo.services/actor/leader` |
 | **Metrics Actor** | Prometheus observability | `ergo.services/actor/metrics` |
-| **Observer** | Web UI for inspection | `ergo.services/application/observer`, `tools/observer` |
+| **Observer** | Web UI, API and MCP surface for inspection | `ergo.services/application/observer` |
 | **Remote Spawn** | Dynamic process creation | Core framework |
 | **Remote App Start** | Dynamic application deployment | Core framework |
 | **Configuration** | Hierarchical config management | Registrar feature |

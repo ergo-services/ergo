@@ -60,16 +60,9 @@ type ProcessFactory func() ProcessBehavior
 // Returns true if successfully cancelled, false if timer already expired.
 type CancelFunc func() bool
 
-// ProcessKind classifies a process by its role. It is resolved at spawn time
-// via the optional interface { ProcessKind() ProcessKind }: the base behaviors
-// (act.Actor, act.Supervisor, act.Pool, act.Router, act.WebWorker) and the
-// extension libraries report their own kind, while a process built directly on
-// gen.ProcessBehavior reports ProcessKindCustom by default.
-//
-// The constants below form a shared classifier vocabulary so user actors can
-// self-describe by returning a well-known kind (e.g. ProcessKindCache). The
-// type is a free string: any value not listed here is still valid and is
-// treated as a custom kind by tooling.
+// ProcessKind classifies a process by its role. Reported by the required
+// ProcessBehavior.ProcessKind method, called at spawn. Free string: the
+// constants below are a shared vocabulary, any other value is valid too.
 type ProcessKind string
 
 const (
@@ -480,7 +473,8 @@ type Process interface {
 	Events() []Atom
 
 	// Send sends an asynchronous message to the target.
-	// Target can be: PID, ProcessID, Alias, Atom (process name), or string (process name).
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other type returns ErrUnsupported.
 	// Available in: Init, Running, Terminated states.
 	// Returns ErrNotAllowed in other states.
 	Send(to any, message any) error
@@ -658,7 +652,8 @@ type Process interface {
 
 	// Call makes a synchronous request with default timeout (5 seconds).
 	// Blocks the actor goroutine until response arrives or timeout occurs.
-	// Target can be: PID, ProcessID, Alias, Atom (process name), or string (process name).
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other type returns ErrUnsupported (a plain string is not accepted).
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout.
 	Call(to any, message any) (any, error)
@@ -740,12 +735,14 @@ type Process interface {
 	// message (and terminates too, unless trapping exit) when the target terminates.
 	// The link is one-directional - it does not notify the target when this
 	// process terminates. For parent/child links use ProcessOptions.LinkParent / LinkChild.
-	// Target can be: PID, ProcessID, Alias, Event, or Atom (node name).
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other returns ErrUnsupported; use LinkEvent / LinkNode for those.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Link(target any) error
 
 	// Unlink removes a directed link to the target.
+	// Takes the same target types as Link.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Unlink(target any) error
@@ -807,12 +804,14 @@ type Process interface {
 
 	// Monitor creates a unidirectional monitor to the target.
 	// If the target terminates, this process receives a down message (non-fatal).
-	// Target can be: PID, ProcessID, Alias, Event, or Atom (node name).
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other returns ErrUnsupported; use MonitorEvent / MonitorNode for those.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Monitor(target any) error
 
 	// Demonitor removes a unidirectional monitor to the target.
+	// Takes the same target types as Monitor.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Demonitor(target any) error
@@ -1112,8 +1111,8 @@ type ProcessInfo struct {
 	// pool, router, web) or custom for raw gen.ProcessBehavior implementations.
 	Kind ProcessKind
 
-	// MailboxSize is the maximum mailbox queue length.
-	// Zero means unlimited.
+	// MailboxSize is the configured maximum mailbox queue length, -1 if unlimited
+	// (ProcessOptions.MailboxSize asks for unlimited with zero).
 	MailboxSize int64
 
 	// MailboxQueues shows current message counts in each mailbox queue.

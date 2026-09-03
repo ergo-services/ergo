@@ -320,6 +320,14 @@ func (w *WebService) Init(args ...any) error {
     handler := meta.CreateWebHandler(meta.WebHandlerOptions{
         Worker:         "web-worker",
         RequestTimeout: 5 * time.Second,
+
+        // Own the response for a request that never reached a worker.
+        // Nil answers plain text, which a JSON client cannot read.
+        Refusal: func(w http.ResponseWriter, r *http.Request, status int, reason error) {
+            w.Header().Set("Content-Type", "application/json")
+            w.WriteHeader(status)
+            json.NewEncoder(w).Encode(map[string]string{"error": reason.Error()})
+        },
     })
 
     // Spawn handler meta-process
@@ -367,6 +375,22 @@ When a request arrives:
 9. `ServeHTTP()` returns, connection goroutine completes
 
 Critical: `ServeHTTP()` executes in `http.Server` goroutines, not in meta-process goroutines. WebHandler's External Reader remains blocked in `Start()` waiting for termination. WebHandler's Actor Handler never spawns because no messages arrive in its mailbox.
+
+### When the request never reaches a worker
+
+Four of those steps can fail, and each has its own status. The handler answers them itself - your worker is never involved:
+
+| Status | Reason | When |
+|--------|--------|------|
+| 503 | `ErrHandlerNotInitialized` | a request arrived before the meta finished starting |
+| 503 | `ErrHandlerTerminated` | the handler meta is gone |
+| 503 | `ErrHandlerNotReady` | the handler is up but not yet serving |
+| 502 | `ErrWorkerUnreachable` | the `Send` to the worker failed - wrong name, or the worker is not running |
+| 504 | `ErrWorkerTimeout` | the message was accepted but nothing answered within `RequestTimeout` |
+
+`RequestTimeout` defaults to **5 seconds** when left at zero.
+
+How the body is written is your choice. `WebHandlerOptions.Refusal` takes over the whole response, and leaving it nil answers with `http.Error` - plain text, which a client expecting JSON or gRPC cannot read. If your endpoint has an error contract of its own, set `Refusal`.
 
 ### Worker Implementation
 
@@ -447,7 +471,9 @@ func (w *WebService) Init(args ...any) error {
 
 Pool distributes incoming requests across 20 workers. Each worker processes one request at a time. System handles 20 concurrent requests.
 
-**Capacity control**: `PoolSize × WorkerMailboxSize` defines maximum requests the backend accepts. With 20 workers and 10 mailbox size, system capacity is 220 requests (20 processing + 200 queued). Beyond this, requests are shed - pool cannot forward to workers with full mailboxes.
+**Capacity control**: `PoolSize × WorkerMailboxSize` is how much work the backend holds - with 20 workers and a mailbox of 10 that is 220 requests, 20 in progress and 200 queued. It is not an admission limit, and past it requests are not shed quickly.
+
+What happens instead: the pool cannot place the message, so it drops and logs it. Nothing cancels the HTTP request waiting on that message, so the handler waits out `RequestTimeout` and answers **504 Gateway Timeout**. Every excess request therefore holds a connection for the whole timeout - five seconds by default. Under sustained overload that is worse than a fast rejection: keep `RequestTimeout` short on a public endpoint, watch the pool's `ergo:messages_unhandled`, and reject at the edge if you want a real 503.
 
 This limits load on backend systems. Database handles 20 concurrent queries maximum. External API gets 20 parallel requests maximum. Worker mailboxes buffer bursts without overwhelming downstream services.
 

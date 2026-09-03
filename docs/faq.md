@@ -12,7 +12,7 @@ Ergo is an open-source Go framework for building concurrent and distributed syst
 
 ### Is Ergo production-ready?
 
-Yes. Ergo is used in production systems. It supports [mTLS](networking/mutual-tls.md), [NAT traversal](networking/behind-the-nat.md), graceful shutdown, panic recovery with stack traces, and has a comprehensive test suite. The framework has been in active development since 2019.
+Yes. Ergo is used in production systems. It supports [mTLS](networking/mutual-tls.md), [NAT traversal](networking/behind-the-nat.md), graceful shutdown, panic recovery, and has a comprehensive test suite. The framework has been in active development since 2019.
 
 ### What license is Ergo distributed under?
 
@@ -26,19 +26,21 @@ Go 1.21 or higher. No other dependencies.
 
 ### What is the actor model and why use it in Go?
 
-The actor model is a concurrency paradigm where independent units (actors, also called processes) communicate exclusively through message passing. Each actor has private state and processes messages one at a time. No shared memory, no mutexes, no race conditions.
+The actor model is a concurrency paradigm where independent units (actors, also called processes) communicate exclusively through message passing. Each actor has private state and processes messages one at a time, so nothing inside one actor needs a mutex.
 
-Go's goroutines and channels are powerful but don't enforce isolation. Goroutines can share memory, which requires manual synchronization. Ergo enforces the actor model guarantees: isolated state, message-only communication, and sequential processing per actor. See [Actor Model](basics/actor-model.md).
+Go's goroutines and channels are powerful but give you no structure for that: identity, supervision, and addressing across nodes are all yours to build. Ergo provides them - one goroutine and one mailbox per process, message-only communication, sequential handling.
+
+What it does not do is take memory isolation out of your hands. A message between two processes on the same node is handed over as the Go value it is, with no copy: send a map, a slice or a pointer and both processes hold the same memory. Only crossing a node boundary encodes, and that is what copies. Send values, or treat a send as handing over ownership. See [Actor Model](basics/actor-model.md).
 
 ### How is an Ergo process different from a goroutine?
 
 | | Goroutine | Ergo Process |
 |---|---|---|
 | Identity | No stable address | Has PID, addressable locally and remotely |
-| State | Can share memory | Strictly private |
+| State | Shared by default | Private by discipline: nothing else reaches it unless you send a reference |
 | Failure recovery | Manual | Automatic via supervision |
 | Cross-node messaging | Not built in | Same API, transparent |
-| Race conditions | Possible | Impossible within a process |
+| Race conditions | Possible | None inside one actor - it handles one message at a time |
 
 See [Process](basics/process.md) for details.
 
@@ -65,11 +67,11 @@ Supervision trees are hierarchical. A failed subtree is isolated and recovered w
 
 ### Do I need to write retry logic?
 
-No. Supervision handles process recovery automatically. For message delivery, use the [Important Delivery](advanced/important-delivery.md) flag for guaranteed delivery semantics. The sender receives an immediate error if the target doesn't exist, rather than a timeout.
+No. Supervision handles process recovery automatically. For message delivery, use the [Important Delivery](advanced/important-delivery.md) flag: the sender learns that the target was unknown, terminated or full instead of guessing from a timeout. Same node, that error comes back synchronously; across nodes it is the remote's own routing error, forwarded after the remote enqueued or refused the message - which needs `EnableImportantDelivery` in the network flags of **both** nodes.
 
 ### What happens if a remote node disconnects?
 
-All processes that were monitoring or linked to processes on the disconnected node receive a notification (`MessageDownNode` or exit signal). Your actors handle this notification and decide how to respond: retry, failover, or graceful degradation. See [Links and Monitors](basics/links-and-monitors.md).
+Everyone who was watching something over that connection is told, and the message matches what they were watching, not the fact that a node went away. A monitor on a remote **process** yields `MessageDownPID` or `MessageDownProcessID` with a reason; a link yields the corresponding exit signal. `MessageDownNode` and `MessageExitNode` arrive only for those who monitored or linked the **node itself** through `MonitorNode` / `LinkNode`, and they carry a name and no reason. Your actors handle the notification and decide how to respond: retry, failover, or graceful degradation. See [Links and Monitors](basics/links-and-monitors.md).
 
 ## Distributed Systems
 
@@ -137,7 +139,7 @@ Result: 2.9M messages/second delivery rate to 1,000,000 subscribers across 10 no
 
 ### What's the difference between Links, Monitors, and Events?
 
-All three use the same underlying pub/sub mechanism internally. All three are unidirectional: the notification flows from the target to the watcher, not the other way around. Note this differs from Erlang, where links are bidirectional.
+All three are relations held by the same target manager inside the node, which is why they behave alike and why a link, a monitor and an event subscription are all torn down the same way. All three are unidirectional: the notification flows from the target to the watcher, not the other way around. Note this differs from Erlang, where links are bidirectional.
 
 - **Link**: when the target terminates, the watcher receives an exit signal on its Urgent queue. The default behavior is to terminate the watcher. Actors can enable exit trapping to receive the signal as a `gen.MessageExit*` message and decide how to react.
 - **Monitor**: when the target terminates, the watcher receives a `gen.MessageDown*` notification on its System queue. The watcher continues running.
@@ -158,7 +160,7 @@ Full benchmarks: [benchmarks repository](https://github.com/ergo-services/benchm
 
 ### How does Ergo serialization compare to Protobuf?
 
-Ergo uses EDF (Ergo Data Format) with type caching. For repeated message types, type metadata is cached after the first transmission. Subsequent messages of the same type skip type information entirely. This makes EDF significantly faster than Protobuf for encoding and decoding in high-throughput scenarios.
+Ergo uses EDF (Ergo Data Format) with type caching. The two sides exchange their registered type lists during the handshake and agree on a compact id per type, so a message carries a two-byte reference instead of a type name - from the first message onward, not after a warm-up. A type registered later than the handshake still works: it falls back to sending its full canonical name until the next handshake, and that is the only case where type information travels with each message. Together with no reflection on the hot path, this makes EDF significantly faster than Protobuf for encoding and decoding in high-throughput scenarios.
 
 ## Observability
 
@@ -208,7 +210,7 @@ The harness has four layers that share one fluent assertion grammar:
 ```go
 sub, _ := unit.Spawn(t, factoryWorker, gen.ProcessOptions{})
 sub.SendMessage(client, StartJob{ID: "42"})
-sub.ShouldSend().To("scheduler").Message(JobQueued{ID: "42"}).Once().Assert()
+sub.ShouldSend().To(gen.Atom("scheduler")).Message(JobQueued{ID: "42"}).Once().Assert()
 ```
 
 See [Testing Overview](testing/overview.md).
@@ -241,10 +243,9 @@ Yes, and it is particularly well-suited. Each AI agent runs as an isolated proce
 
 Ergo has built-in support for the Model Context Protocol (MCP), an emerging standard for AI tool integration. The [Observer](extra-library/applications/observer.md) application serves it beside its web UI: the running cluster reaches AI assistants (Claude Code, Cursor, and any MCP-compatible client) as resources to read and tools to call. The AI inspects processes, queries events, captures goroutine dumps, reads logs, and asks the same question of every node, through natural language.
 
-Two deployment modes:
+There is one deployment shape, and only one node needs anything installed. Add the observer to a single node - that node serves `/mcp` and is what your AI client connects to. Every other node is reachable through it as it is, because each already runs the built-in `system` application the observer asks: a resource is addressed as `ergo://<node>/<lens>`, and every tool takes a `node` argument. Nothing has to be opened on the nodes being inspected, and the observer's own node holds no privileged position - name it explicitly like any other.
 
-- **Entry point**: the node runs an HTTP listener that accepts MCP requests. This is the node your AI client connects to.
-- **Agent**: no HTTP listener. Accessible via cluster proxy from the entry point node. Use this for internal nodes that should be inspectable without exposing an HTTP port.
+What a listener exposes is configurable per listener: the UI, the API and the MCP surface can each be disabled, and a read-only ceiling refuses the mutating tools. See [Observer Application](extra-library/applications/observer.md).
 
 ## Getting Started
 

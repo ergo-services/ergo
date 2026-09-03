@@ -12,7 +12,9 @@ But remote spawning isn't automatic. Security matters. You don't want arbitrary 
 
 ## Security Model
 
-Remote spawning is disabled by default at the framework level. To enable it, set the `EnableRemoteSpawn` flag in your node's network configuration:
+The gate is the factory registry, not the flag. `EnableRemoteSpawn` is **on** in `gen.DefaultNetworkFlags`, and a node that configures no flags of its own is given those defaults, so on an ordinary node the flag is already true. What actually stops a peer is that nothing is spawnable until `network.EnableSpawn(name, factory)` has registered it: with no matching name the request fails regardless of the flag.
+
+Set the flag when you want the transport-level door shut - a node that must never accept a remote spawn, whatever it has registered. Note that it is only consulted when `Flags.Enable` is true, and that supplying `Flags` yourself replaces the whole default set rather than adjusting one member of it:
 
 ```go
 node, err := ergo.StartNode("worker@localhost", gen.NodeOptions{

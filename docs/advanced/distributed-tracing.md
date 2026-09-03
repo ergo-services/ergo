@@ -497,9 +497,11 @@ func (a *OrderProcessor) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-One-shot attributes appear on the observations emitted during this handler invocation: the Processed observation for the incoming message, and the Sent observations for outgoing messages. When the handler returns, one-shot attributes are cleared automatically. The next handler invocation starts with a clean slate.
+One-shot attributes appear on the observations emitted during this handler invocation: the Processed observation for the incoming message, and the Sent observations for outgoing messages.
 
-If a one-shot attribute has the same key as a permanent attribute, the one-shot value takes priority for that handler invocation. The permanent attribute is not modified.
+**The automatic clear happens only when the handled message carried a trace.** It runs as part of emitting the Processed observation, and that emission is skipped for an untraced message - so a handler that sets one-shot attributes while nothing is being traced leaves them in place, and they surface on the next invocation that *is* traced. If a handler may run either way, clear them yourself with `ClearTracingSpanAttributes()` before returning.
+
+A key collision between a one-shot and a permanent attribute is **not** resolved. Both are emitted, permanent first, one-shot second, with no de-duplication - what the exporter or backend does with two attributes of the same name is its own business, and most keep the last. Use distinct keys rather than relying on an override.
 
 ### Where Attributes Appear
 
@@ -793,7 +795,9 @@ node.TracingExporterAddPID(pid, "my-exporter",
 
 The process implements `HandleSpan(gen.TracingSpan)` to process each observation. If the process's mailbox is full, observations are silently dropped. Ensure the exporter can keep up with the observation rate.
 
-**Behavior-based.** A simple implementation of the `gen.TracingBehavior` interface. `HandleSpan` is called synchronously when an observation is emitted. Use this for lightweight exporters that don't need actor capabilities.
+**Behavior-based.** A simple implementation of the `gen.TracingBehavior` interface. Use it for lightweight exporters that don't need actor capabilities.
+
+`HandleSpan` does not run on the goroutine that emitted the span. Each object exporter gets a worker of its own with a 1024-span queue, and emitting is a non-blocking push onto it, so a slow exporter cannot stall the code that produced the span. Panics inside `HandleSpan` are recovered and logged instead of taking the node down.
 
 ```go
 type TracingBehavior interface {
@@ -807,7 +811,7 @@ node.TracingExporterAdd("counter", &spanCounter{},
     gen.TracingFlagSend | gen.TracingFlagReceive)
 ```
 
-Keep `HandleSpan` fast. It blocks delivery to the next exporter in the chain.
+Keep `HandleSpan` fast anyway. It does not block the emitter or the other exporters, but its own queue is bounded: once 1024 spans are waiting on it, the ones behind them are dropped.
 
 ### Registering Exporters
 

@@ -12,7 +12,9 @@ Like remote spawning, remote application starting isn't automatic. Security matt
 
 ## Security Model
 
-Remote application starting is disabled by default at the framework level. To enable it, set the `EnableRemoteApplicationStart` flag in your node's network configuration:
+The gate is the application registry, not the flag. `EnableRemoteApplicationStart` is **on** in `gen.DefaultNetworkFlags`, and a node that configures no flags of its own is given those defaults, so on an ordinary node the flag is already true. What actually stops a peer is that no application can be started remotely until `network.EnableApplicationStart(name)` has allowed it.
+
+Set the flag when you want the transport-level door shut - a node that must never accept a remote application start, whatever it has enabled. Note that it is only consulted when `Flags.Enable` is true, and that supplying `Flags` yourself replaces the whole default set rather than adjusting one member of it:
 
 ```go
 node, err := ergo.StartNode("worker@localhost", gen.NodeOptions{

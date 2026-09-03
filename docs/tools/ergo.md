@@ -84,10 +84,12 @@ ergo add actor StandaloneActor
 ### ergo add supervisor
 
 ```
-ergo add supervisor [--type <type>] [--strategy <strategy>] <[Parent:]Name>
+ergo add supervisor <[Parent:]Name> [--type <type>] [--strategy <strategy>]
 ```
 
 Adds a supervisor. `Parent` is an existing application or supervisor.
+
+The name comes first, and that is not stylistic: `add supervisor`, `add app` and `add message` each read the name from the first argument and look for flags only after it. Lead with a flag and the flag becomes the name - `ergo add supervisor --type one_for_one Sup` records a supervisor literally called `--type`, which then fails during generation. Only `add actor` accepts either order.
 
 `--type` controls which children are restarted when one fails:
 
@@ -96,7 +98,9 @@ Adds a supervisor. `Parent` is an existing application or supervisor.
 | `one_for_one` (default) | only the failed child                                                           |
 | `all_for_one`           | all children                                                                    |
 | `rest_for_one`          | the failed child and all children started after it                              |
-| `simple_one_for_one`    | children spawned dynamically at runtime via `AddChild`, no static children list |
+| `simple_one_for_one`    | many instances of one declared spec, spawned at runtime with `StartChild`        |
+
+A supervisor of any type still needs at least one declared child: `Init` rejects an empty `Children` list with "children list can not be empty". A freshly generated supervisor has none, so add a child to it - `ergo add actor MySup:Worker` - before running the node. This bites hardest with `simple_one_for_one`, where it is tempting to assume the instances alone are enough.
 
 `--strategy` controls when a child is restarted:
 
@@ -115,16 +119,18 @@ ergo add supervisor WorkerSup:SubSup --type rest_for_one
 ### ergo add app
 
 ```
-ergo add app [--mode <mode>] <Name>
+ergo add app <Name> [--mode <mode>]
 ```
 
-Adds an application. `--mode` declares what happens when the application stops:
+Adds an application. `--mode` declares what happens to **the application** when one of its group members terminates. It has nothing to do with stopping the node:
 
-| Mode                  | Behavior                         |
-| --------------------- | -------------------------------- |
-| `transient` (default) | node stops on abnormal exit      |
-| `permanent`           | node always stops when app exits |
-| `temporary`           | node ignores the exit            |
+| Mode                  | Behavior                                                                    |
+| --------------------- | --------------------------------------------------------------------------- |
+| `transient` (default) | the application stops if a member exits abnormally                           |
+| `permanent`           | the application stops when any member exits, with that member's reason       |
+| `temporary`           | the application stops once the last member is gone, with reason `normal`     |
+
+A stopped application returns to `ApplicationStateLoaded` and the node keeps running. See [Applications](../basics/application.md) for the full lifecycle.
 
 ```bash
 ergo add app MyApp
@@ -135,7 +141,7 @@ ergo add app CriticalApp --mode permanent
 ### ergo add message
 
 ```
-ergo add message --field name:type [--field name:type ...] <Name>
+ergo add message <Name> --field name:type [--field name:type ...]
 ```
 
 Adds an EDF message type. Field types can be standard Go types (`string`, `int`, `bool`, `[]byte`) or framework types (`gen.Alias`, `gen.PID`, `gen.Ref`).
@@ -231,7 +237,6 @@ node:
 
     # Known applications from the ergo.services ecosystem
     - observer
-    - mcp
     - radar
 
   processes:           # spawned directly by node, no application
@@ -342,7 +347,7 @@ Each `ergo add` updates `ergo.yaml`, regenerates `*_gen.go` files, and leaves yo
 
 ## What's Next
 
-* [Observer](https://github.com/ergo-services/ergo/blob/v330/docs/tools/observer.md): web UI for inspecting running nodes and processes
+* [Observer](../extra-library/applications/observer.md): web UI, API and MCP surface for inspecting running nodes and processes
 * [Actors](https://github.com/ergo-services/ergo/blob/v330/docs/actors/README.md): actor types, supervision and messaging patterns
 * [Applications](../basics/application.md): application lifecycle and modes
 * [Pool](../actors/pool.md): distributing work across worker processes

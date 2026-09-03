@@ -869,7 +869,7 @@ token, _ := producer.RegisterEvent("prices", gen.EventOptions{Buffer: 100})
 // - Event name available for re-registration
 ```
 
-Subscribers can't distinguish explicit `UnregisterEvent` from producer termination - both deliver termination notification with reason `gen.ErrUnregistered`.
+The reason tells a subscriber which of the two happened. An explicit `UnregisterEvent` dispatches `gen.ErrUnregistered`. A producer that terminates dispatches its **own** termination reason instead - `gen.TerminateReasonNormal`, a panic, whatever it died of. So `errors.Is(reason, gen.ErrUnregistered)` means the producer is alive and has stopped publishing, and any other reason means the producer itself is gone.
 
 ### When Network Connection Fails
 

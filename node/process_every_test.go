@@ -105,7 +105,6 @@ func TestProcessTimedSendRouting(t *testing.T) {
 		{"processid", gen.ProcessID{Name: "dest", Node: "n@localhost"}, kindProcessID},
 		{"alias", gen.Alias{Node: "n@localhost"}, kindAlias},
 		{"atom", gen.Atom("dest"), kindProcessID},
-		{"string", "dest", kindProcessID},
 	}
 
 	senders := []struct {
@@ -240,37 +239,47 @@ func TestProcessTimedSendNotAllowed(t *testing.T) {
 	}
 }
 
-// A target that is not PID/ProcessID/Alias/Atom/string is rejected at schedule
-// time with gen.ErrIncorrect and no timer is armed.
+// A target that is not PID/ProcessID/Alias/Atom is rejected at schedule
+// time with gen.ErrIncorrect and no timer is armed. A plain string is such a
+// target: a process name must be a gen.Atom.
 func TestProcessTimedSendUnsupportedTarget(t *testing.T) {
 	calls := []struct {
 		name string
-		call func(p *process) (gen.CancelFunc, error)
+		call func(p *process, to any) (gen.CancelFunc, error)
 	}{
-		{"SendAfter", func(p *process) (gen.CancelFunc, error) {
-			return p.SendAfter(123, "m", time.Millisecond)
+		{"SendAfter", func(p *process, to any) (gen.CancelFunc, error) {
+			return p.SendAfter(to, "m", time.Millisecond)
 		}},
-		{"SendWithPriorityAfter", func(p *process) (gen.CancelFunc, error) {
-			return p.SendWithPriorityAfter(123, "m", gen.MessagePriorityHigh, time.Millisecond)
+		{"SendWithPriorityAfter", func(p *process, to any) (gen.CancelFunc, error) {
+			return p.SendWithPriorityAfter(to, "m", gen.MessagePriorityHigh, time.Millisecond)
 		}},
-		{"SendEvery", func(p *process) (gen.CancelFunc, error) {
-			return p.SendEvery(123, "m", time.Millisecond)
+		{"SendEvery", func(p *process, to any) (gen.CancelFunc, error) {
+			return p.SendEvery(to, "m", time.Millisecond)
 		}},
-		{"SendWithPriorityEvery", func(p *process) (gen.CancelFunc, error) {
-			return p.SendWithPriorityEvery(123, "m", gen.MessagePriorityHigh, time.Millisecond)
+		{"SendWithPriorityEvery", func(p *process, to any) (gen.CancelFunc, error) {
+			return p.SendWithPriorityEvery(to, "m", gen.MessagePriorityHigh, time.Millisecond)
 		}},
 	}
+	targets := []struct {
+		name string
+		to   any
+	}{
+		{"int", 123},
+		{"string", "dest"},
+	}
 	for _, c := range calls {
-		t.Run(c.name, func(t *testing.T) {
-			p := newEveryProcess(mock.NewCore())
-			cancel, err := c.call(p)
-			if err != gen.ErrIncorrect {
-				t.Fatalf("expected ErrIncorrect, got %v", err)
-			}
-			if cancel != nil {
-				t.Fatal("expected nil CancelFunc for unsupported target")
-			}
-		})
+		for _, tg := range targets {
+			t.Run(c.name+"/"+tg.name, func(t *testing.T) {
+				p := newEveryProcess(mock.NewCore())
+				cancel, err := c.call(p, tg.to)
+				if err != gen.ErrIncorrect {
+					t.Fatalf("expected ErrIncorrect, got %v", err)
+				}
+				if cancel != nil {
+					t.Fatal("expected nil CancelFunc for unsupported target")
+				}
+			})
+		}
 	}
 }
 

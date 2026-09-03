@@ -43,6 +43,13 @@ type cronLast struct {
 	err  error
 }
 
+func sameWallMinute(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd &&
+		a.Hour() == b.Hour() && a.Minute() == b.Minute()
+}
+
 func createCron(node gen.Node) *cron {
 	c := &cron{
 		node:  node,
@@ -66,7 +73,10 @@ func createCron(node gen.Node) *cron {
 			// node terminated
 			return
 		}
-		c.tick(time.Now().Truncate(time.Minute))
+		c.Lock()
+		at := c.next
+		c.Unlock()
+		c.tick(at)
 
 		now := time.Now()
 		next := now.Add(time.Minute).Truncate(time.Minute)
@@ -94,14 +104,17 @@ func (c *cron) tick(actionTime time.Time) {
 			continue
 		}
 
-		// check if actionTime is actually now:
-		// - no time adjustment happened,
-		// - no Day Light Saving happened
 		nowInLocation := time.Now().In(cj.job.Location).Truncate(time.Minute)
 		actionTimeInLocation := actionTime.In(cj.job.Location).Truncate(time.Minute)
 		if nowInLocation != actionTimeInLocation {
 			c.node.Log().Debug(cronLogPrefix+"ignore job %s action time != now",
 				cj.job.Name)
+			continue
+		}
+
+		if l := cj.last.Load(); l != nil && sameWallMinute(l.time, actionTimeInLocation) {
+			c.node.Log().Debug(cronLogPrefix+"ignore job %s, local minute %s already ran",
+				cj.job.Name, actionTimeInLocation.Format("2006-01-02 15:04"))
 			continue
 		}
 
@@ -310,14 +323,20 @@ func (c *cron) Schedule(since time.Time, period time.Duration) []gen.CronSchedul
 	start := since.Truncate(time.Minute)
 	end := start.Add(period)
 
+	prev := make([]time.Time, len(snapshot))
 	for now := start; now.Before(end); now = now.Add(time.Minute) {
 		cronSchedule := gen.CronSchedule{
 			Time: now,
 		}
-		for _, e := range snapshot {
-			if e.mask.IsRunAt(now.In(e.loc)) == false {
+		for i, e := range snapshot {
+			local := now.In(e.loc)
+			if e.mask.IsRunAt(local) == false {
 				continue
 			}
+			if prev[i].IsZero() == false && sameWallMinute(prev[i], local) {
+				continue
+			}
+			prev[i] = local
 			cronSchedule.Jobs = append(cronSchedule.Jobs, e.name)
 		}
 
@@ -344,10 +363,17 @@ func (c *cron) JobSchedule(job gen.Atom, since time.Time, period time.Duration) 
 	start := since.Truncate(time.Minute)
 	end := start.Add(period)
 
+	var prev time.Time
 	for now := start; now.Before(end); now = now.Add(time.Minute) {
-		if mask.IsRunAt(now.In(loc)) == false {
+		local := now.In(loc)
+		if mask.IsRunAt(local) == false {
 			continue
 		}
+		if prev.IsZero() == false && sameWallMinute(prev, local) {
+			// a fall-back repeated this local minute; the tick runs it once
+			continue
+		}
+		prev = local
 		schedule = append(schedule, now)
 	}
 

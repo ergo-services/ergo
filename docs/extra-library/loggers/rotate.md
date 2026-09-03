@@ -102,7 +102,8 @@ This configuration:
 - Rotates every hour
 - Stores logs in `/var/log/myapp/`
 - Names files `myapp.log` (active) and `myapp.202411191200.log.gz` (rotated with compression)
-- Keeps last 24 hourly files (24 hours of history)
-- Deletes files older than 24 hours automatically
+- Keeps the last 24 files **this process rotated**
+
+`Depth` is not retention by age, and not by what is in the directory. The logger keeps an in-memory list of the files it has rotated during its own lifetime and removes the oldest only once that list grows past `Depth`. It never scans the directory at startup, so files left by an earlier run are neither counted nor deleted - restart the node every hour with `Depth: 24` and the directory grows without bound. To bound disk use across restarts, do it outside the logger: logrotate, a cron sweep, or a volume with its own retention.
 
 For detailed logger configuration options, see the `rotate.Options` struct in the package. For understanding how loggers integrate with the framework, see [Logging](../../basics/logging.md).

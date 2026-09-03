@@ -470,15 +470,17 @@ Two consequences follow from the set being flat. A membership the sender forgot 
 
 Type registration must happen before connection establishment. During handshake, nodes exchange their registered type lists and error lists. These lists become the encoding dictionaries for that connection.
 
-If you register a type after a connection is established, that type isn't in the dictionary. Attempting to send a value of that type fails - the encoder can't find it in the shared schema. The only way to use the newly registered type is to disconnect and reconnect, forcing a new handshake that includes the type.
+Registering a type after a connection is established does not break that connection. The dictionary is a compression device, not a gate: when a type has no cache id for this connection, the encoder writes its full canonical name instead, and the receiver resolves that name against the types **it** has registered. Nothing checks the peer's list before sending.
 
-The recommended place to register types is the application's `Load(node)` callback. Applications are loaded after the network stack is initialized but before any outgoing or incoming traffic, so all types end up in the handshake dictionaries. An application owns its message types and registers them itself, keeping registration co-located with the code that defines the types.
+What the missing entry costs is size, and what it requires is symmetry. The name travels with every message rather than a two-byte id, and the receiving node must have registered the same type - otherwise it fails there, at decode, with "unknown reg type". Reconnecting is worth doing to get the compact ids back on a hot path, not to make the type usable.
 
-For dynamic type registration (registering types based on runtime configuration or plugin loading), you have limited options:
+The recommended place to register types is the application's `Load` callback. Applications are loaded after the network stack is initialized but before any outgoing or incoming traffic, so all types end up in the handshake dictionaries. An application owns its message types and registers them itself, keeping registration co-located with the code that defines the types.
 
-**Register before any traffic** - Load your configuration, determine which types you need, register them in your application's `Load()` callback. This works but requires knowing all types upfront for the application.
+For dynamic type registration (registering types based on runtime configuration or plugin loading), the options differ in cost rather than in whether they work:
 
-**Coordinate reconnection** - Register the new type via `node.Network().RegisterType`, disconnect existing connections to nodes that need the type, wait for reconnection with new handshake. This is complex and causes temporary communication loss.
+**Register before any traffic** - Load your configuration, determine which types you need, register them in your application's `Load()` callback. This is the one that gets you cache ids on every connection.
+
+**Register late on both sides** - `node.Network().RegisterType` on each node that will encode or decode the type. Messages flow immediately, carrying the full type name until the next handshake replaces it with an id. Reconnect if that overhead matters on the path in question.
 
 **Use custom marshaling** - Implement `edf.Marshaler`/`Unmarshaler` or `encoding.BinaryMarshaler`/`Unmarshaler`. These don't require pre-registration - they work immediately. The tradeoff is you write the encoding logic yourself.
 
@@ -512,7 +514,7 @@ pid, err := node.Spawn(createWorker, gen.ProcessOptions{
     Compression: gen.Compression{
         Enable:    true,
         Type:      gen.CompressionTypeGZIP,
-        Level:     gen.CompressionLevelDefault,
+        Level:     gen.CompressionDefault,
         Threshold: 1024,
     },
 })
@@ -523,13 +525,13 @@ Or adjust it dynamically:
 ```go
 process.SetCompression(true)
 process.SetCompressionType(gen.CompressionTypeGZIP)
-process.SetCompressionLevel(gen.CompressionLevelBestSpeed)
+process.SetCompressionLevel(gen.CompressionBestSpeed)
 process.SetCompressionThreshold(2048)
 ```
 
 **Type** determines the compression algorithm. GZIP (ID=102) provides good compression ratios with reasonable speed. ZLIB (ID=101) is similar but with slightly different format. LZW (ID=100) is faster but produces lower compression. Choose based on your CPU/bandwidth tradeoff.
 
-**Level** trades compression time for compression ratio. `CompressionLevelBestSize` produces smaller messages but takes longer. `CompressionLevelBestSpeed` compresses quickly but produces larger output. `CompressionLevelDefault` balances both.
+**Level** trades compression time for compression ratio. `CompressionBestSize` produces smaller messages but takes longer. `CompressionBestSpeed` compresses quickly but produces larger output. `CompressionDefault` balances both.
 
 **Threshold** sets the minimum size for compression. Messages smaller than the threshold aren't compressed, even if compression is enabled. Compressing tiny messages adds overhead without reducing size meaningfully. The default 1024 bytes is reasonable - messages below 1KB go uncompressed, larger messages get compressed.
 
@@ -593,19 +595,20 @@ Message ordering is controlled by a per-process flag called `KeepNetworkOrder`, 
 
 ### How It Works: Sender Side
 
-With ordering enabled, all messages from a process go through the same TCP link in the connection pool. The link is selected deterministically: `sender.ID % 255 % pool_size`. Since TCP guarantees FIFO delivery within a single connection, messages arrive at the remote node in exactly the order they were sent.
+With ordering enabled, all messages from a process go through the same TCP link in the connection pool. The link is selected deterministically from an order value the sender computes as `sender.ID % 255 + 1`, then `order % pool_size` picks the link. Since TCP guarantees FIFO delivery within a single connection, messages arrive at the remote node in exactly the order they were sent.
 
-With ordering disabled, messages are distributed round-robin across all pool links. This spreads the load for maximum throughput, but the arrival order across different TCP connections is no longer deterministic.
+The `+ 1` is not cosmetic: zero is the reserved "unordered" value. With ordering disabled the sender writes 0, and both ends read that as "no ordering requested" - the sender takes the round-robin path across all pool links, and the receiver picks its decoding queue by arrival instead of by order value. This spreads the load for maximum throughput, but the arrival order across different TCP connections is no longer deterministic.
 
 ### How It Works: Receiver Side
 
-Each message carries an **order byte** in the protocol header (byte 6 of the ENP frame). When ordering is enabled, the order byte is derived from the recipient's identity:
-- For `gen.PID` recipients: `to.ID % 255`
-- For `gen.Alias` recipients: `to.ID[1] % 255`
+Each message carries an **order byte** in the protocol header (byte 6 of the ENP frame). Which identity it is derived from depends on how the message was addressed:
+- For `gen.PID` recipients: `to.ID % 255 + 1` - the recipient's
+- For `gen.Alias` recipients: `to.ID[1] % 255 + 1` - the recipient's
+- For a name-addressed send, the sender's own value, because the recipient's id is not known at that point
 
-The receiving node routes messages to receive queues based on this byte: `order_byte % queue_count`. Messages destined for the same recipient land in the same queue and are decoded sequentially, preserving order.
+The receiving node routes messages to receive queues based on this byte: `order_byte % queue_count`. Messages carrying the same value land in the same queue and are decoded sequentially, preserving order.
 
-When ordering is disabled, the order byte is zero. Messages distribute round-robin across receive queues, enabling parallel decoding at the cost of non-deterministic arrival order.
+When ordering is disabled the byte is zero, which the receiver treats as "no ordering": messages distribute round-robin across receive queues, enabling parallel decoding at the cost of non-deterministic arrival order. That is why the computed values start at 1 rather than 0.
 
 ### Two-Level Guarantee
 
@@ -656,13 +659,13 @@ Each frame has an 8-byte header:
 - Byte 0: Magic byte (78 for ENP)
 - Byte 1: Protocol version (1 for current version)
 - Bytes 2-5: Frame length (uint32, total size in bytes)
-- Byte 6: Order byte (derived from sender PID for message ordering)
+- Byte 6: Order byte (derived from the recipient for PID and Alias sends, from the sender for name-addressed sends; `0` means unordered)
 - Byte 7: Message type (101 for PID message, 121 for call request, 129 for response, 200 for compressed, etc.)
 
 For PID messages, the frame contains:
 - Sender PID (8 bytes - just the ID, node is known from connection)
-- Priority byte (bits 0-6 = priority 0-2, bit 7 = Important delivery flag)
-- Optional reference (8 bytes - first uint64 of Ref.ID, only if Important)
+- Priority byte (bits 0-1 = priority 0-2, bit 7 = Important delivery flag; the bits in between are not read)
+- Reference (8 bytes - first uint64 of Ref.ID; always present, written only when the Important bit is set)
 - Recipient PID (8 bytes)
 - EDF-encoded message payload
 
@@ -700,6 +703,6 @@ Understanding network transparency helps you design better distributed systems.
 
 **Leverage compression** - Enable compression for processes that send large messages. The CPU cost of compression is usually worth the network bandwidth savings. But don't compress tiny messages - the overhead exceeds the benefit.
 
-**Register types early** - Do all type registration from your application's `Load(node)` callback so types are in the registry before any traffic. Avoid dynamic type registration that requires connection cycling. Static registration is simpler and more reliable.
+**Register types early** - Do all type registration from your application's `Load` callback so types are in the registry before any traffic. Avoid dynamic type registration that requires connection cycling. Static registration is simpler and more reliable.
 
 For details on how the network stack implements transparency, see [Network Stack](network-stack.md). For understanding how nodes discover each other, see [Service Discovery](service-discovering.md).

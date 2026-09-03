@@ -81,9 +81,13 @@ import (
 )
 
 func main() {
+    behavior, err := colored.CreateLogger(colored.Options{})
+    if err != nil {
+        panic(err)
+    }
     logger := gen.Logger{
         Name:   "colored",
-        Logger: colored.CreateLogger(colored.Options{}),
+        Logger: behavior,
     }
 
     options := gen.NodeOptions{}

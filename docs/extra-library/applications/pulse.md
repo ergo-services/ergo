@@ -86,6 +86,8 @@ Where Point is: Sent=1, Delivered=2, Processed=3.
 
 This means the three observations for a single message (Sent, Delivered, Processed) have related but distinct OTLP span IDs. Given any one, you can compute the other two.
 
+There is a fourth point, `gen.TracingPointSpan` (4) - a business span opened with `StartTracingSpan`. Pulse exports it in the **Processed** slot, since a business span has a single observation and anchors its children the way a Processed does; span and message span ids come from disjoint sequences, so the shared slot never collides.
+
 ### Parent-Child Relationships
 
 | Observation | OTLP Parent | Meaning |
@@ -153,7 +155,7 @@ The Sent side of a message gets the initiator kind (CLIENT/PRODUCER), while the 
 
 ## Reading Traces in Grafana
 
-OTLP was designed for request-response services where a span represents a unit of work with a start and end time. Ergo's actor model is different: messages are instantaneous events (sent, delivered, processed), not duration-based operations. Pulse maps each event to a zero-duration OTLP span placed at the exact timestamp when the event occurred.
+OTLP was designed for request-response services where a span represents a unit of work with a start and end time. Ergo's actor model is different: messages are instantaneous events (sent, delivered, processed), not duration-based operations. Pulse maps each of those to a zero-duration OTLP span placed at the exact timestamp when the event occurred. A business span is the exception - it has a real start and end, so it exports with its actual interval, which is what makes `StartTracingSpan` the tool for timing a unit of work.
 
 In trace visualization tools (Grafana, Jaeger, Zipkin), these appear as dots on a timeline rather than bars. This is expected. The horizontal distance between dots shows actual timing, and the tree structure shows causality.
 
@@ -257,4 +259,4 @@ storage:
       path: /var/tempo/wal
 ```
 
-Point Pulse at `tempo:4318` with `Insecure: true`. In Grafana, add Tempo as a data source (`http://tempo:3200`) and use the Explore view to search for traces by trace ID or attributes.
+Point Pulse at `URL: "http://tempo:4318/v1/traces"`. The option is the full OTLP/HTTP endpoint rather than a `host:port` pair, and there is no `Insecure` field - plain HTTP is just an `http://` URL. In Grafana, add Tempo as a data source (`http://tempo:3200`) and use the Explore view to search for traces by trace ID or attributes.

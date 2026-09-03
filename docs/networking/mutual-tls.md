@@ -39,7 +39,7 @@ func startSecureNode(name string) (gen.Node, error) {
 ```
 
 `NodeOptions.CertManager` is used for:
-- Default acceptor (created automatically on port 15000)
+- Default acceptor (created automatically on `gen.DefaultPort`, 11144)
 - All outgoing connections
 
 To override per-acceptor, use `AcceptorOptions.CertManager`.
@@ -52,15 +52,25 @@ To override per-acceptor, use `AcceptorOptions.CertManager`.
 type CertAuthManager interface {
     CertManager
 
-    // server-side
+    // server-side: CA pool to verify client certificates
     SetClientCAs(pool *x509.CertPool)
-    SetClientAuth(auth tls.ClientAuthType)
+    ClientCAs() *x509.CertPool
 
-    // client-side
+    // client-side: CA pool to verify server certificates
     SetRootCAs(pool *x509.CertPool)
-    SetServerName(name string) // for SNI
+    RootCAs() *x509.CertPool
+
+    // server-side: client authentication policy
+    SetClientAuth(auth tls.ClientAuthType)
+    ClientAuth() tls.ClientAuthType
+
+    // client-side: server name for SNI and verification
+    SetServerName(name string)
+    ServerName() string
 }
 ```
+
+Every setter is paired with a getter, and the getters are not decoration: they are what the network stack calls. A type that implements only the four setters does not satisfy the interface.
 
 **Server-side settings:**
 
@@ -97,7 +107,7 @@ certManager.Update(newCert)
 
 New connections use the updated certificate. Existing connections keep their original certificate.
 
-CA pools and `ClientAuth` are fixed at startup. Restart the node to change these settings.
+CA pools and `ClientAuth` are rotatable too, on a `gen.CertAuthManager`. The listener installs a per-connection TLS callback, so every incoming handshake re-reads `ClientCAs()` and `ClientAuth()` from the manager: calling `SetClientCAs` or `SetClientAuth` takes effect on the live listener, for the next connection, with no restart. Outgoing connections read `RootCAs()` and `ServerName()` at dial time, so those apply from the next dial. Only connections already established keep the settings they were made with.
 
 To use different certificates for specific destinations, see [Static Routes](static-routes.md).
 
@@ -121,4 +131,4 @@ Updates apply to new connections only. Close existing connections to force recon
 
 **CA pool changes not taking effect**
 
-CA pools are fixed at startup. Restart the node to apply changes.
+Check that the manager is a `gen.CertAuthManager` and that it is the one the acceptor holds - the per-connection re-read only happens for that type. Changes apply to the next connection, not to open ones, so an existing connection has to be closed to be re-verified.

@@ -26,9 +26,9 @@ Four packages cover the span from a single function up to a cluster of real node
 **check** is the language, and nothing more. It defines the record types and the fluent `Should...` grammar every test is written in. You rarely import it directly - `unit` and `stage` expose its assertions on their own handles - but reading it once teaches the vocabulary the other layers reuse: cardinalities, filters, scoping, and value capture.
 
 ```go
-sub.ShouldSend().To("db").Message(SaveUser{ID: 7}).Once().Assert() // exactly once
+sub.ShouldSend().To(gen.Atom("db")).Message(SaveUser{ID: 7}).Once().Assert() // exactly once
 sub.ShouldSpawn().Times(3).Assert()                                // a count
-sub.ShouldSend().To("audit").None().Assert()                       // never happened
+sub.ShouldSend().To(gen.Atom("audit")).None().Assert()                       // never happened
 child, _ := sub.ShouldSpawn().Once().Capture()                     // grab the result
 ```
 
@@ -53,7 +53,7 @@ node.ShouldSpawn().Times(3).Assert()
 ```go
 sub, _ := unit.Spawn(t, factoryWorker, gen.ProcessOptions{})
 sub.SendMessage(client, StartJob{ID: "42"})
-sub.ShouldSend().To("scheduler").Message(JobQueued{ID: "42"}).Once().Assert()
+sub.ShouldSend().To(gen.Atom("scheduler")).Message(JobQueued{ID: "42"}).Once().Assert()
 ```
 
 **stage** brings the whole runtime to life. It starts real nodes, runs real actors and applications, lets them talk over the real network, and observes what the live runtime does. Use it for what `unit` deliberately leaves out: the real scheduler, supervision and restarts, links and monitors across nodes, remote spawn, disconnects. Because everything runs for real and concurrently, assertions wait with `Within` instead of reading a snapshot.

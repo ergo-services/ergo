@@ -21,7 +21,11 @@ func main() {
          Endpoints: []string{"localhost:2379"},
          Cluster:   "production",
      }
-     options.Network.Registrar = etcd.Create(registrarOptions)
+     registrar, err := etcd.Create(registrarOptions)
+     if err != nil {
+         panic(err)
+     }
+     options.Network.Registrar = registrar
      ...
      node, err := ergo.StartNode("demo@localhost", options)
      ...
@@ -38,7 +42,12 @@ Using `etcd.Options`, you can specify:
 * `InsecureSkipVerify` - Option to ignore TLS certificate verification
 * `DialTimeout` - Connection timeout (default: 10s)
 * `RequestTimeout` - Request timeout (default: 10s)
-* `KeepAlive` - Keep-alive timeout (default: 10s)
+* `KeepAlive` - gRPC keep-alive interval. Left at zero it is **derived from `LeaseTTL`** as `LeaseTTL/3`, floored at one second - so 3.33s with the default TTL, not 10s
+* `LeaseTTL` - Lease lifetime in **seconds** (default: 10). The node's registration disappears this long after it stops renewing
+* `SuspectGrace` - How long a node that stopped renewing is kept as suspect before removal (default: 30s)
+* `SweepInterval` - How often expired registrations are swept (default: 1s)
+
+`KeepAlive` is deliberately tied to `LeaseTTL`: detection costs two keep-alive intervals, which has to fit inside the lease for a failover to happen before the lease expires. Raising `LeaseTTL` without touching `KeepAlive` keeps that relation; setting `KeepAlive` by hand breaks it if you make it longer than half the TTL.
 
 When the node starts, it will register with the etcd cluster and maintain a lease to ensure automatic cleanup if the node becomes unavailable.
 

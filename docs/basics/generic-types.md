@@ -30,10 +30,10 @@ A `gen.PID` uniquely identifies a process. It contains the node name where the p
 ```go
 pid := gen.PID{Node: "node@localhost", ID: 1001, Creation: 1685523227}
 fmt.Printf("%s", pid)
-// Output: <90A29F11.0.1001>
+// Output: <2C323E75.0.1001>
 ```
 
-The hash (90A29F11) is a CRC32 of the node name. This keeps the printed form compact while remaining unique.
+The leading hash is a CRC32 of the node name, computed with the framework's own polynomial table rather than a standard one, so `node@localhost` always prints as `2C323E75`. It keeps the printed form compact while staying distinct per node. The two numbers after it are the halves of the single `ID` field - high 32 bits, then low - so a small ID prints its high half as `0`. `Creation` is not in the printed form at all.
 
 ### gen.ProcessID
 
@@ -42,8 +42,10 @@ A `gen.ProcessID` identifies a process by its registered name rather than `gen.P
 ```go
 processID := gen.ProcessID{Name: "worker", Node: "node@localhost"}
 fmt.Printf("%s", processID)
-// Output: <90A29F11.'worker'>
+// Output: <2C323E75.worker>
 ```
+
+The name is appended as-is here. Only `gen.Atom` quotes itself when printed.
 
 ### gen.Ref
 
@@ -54,7 +56,7 @@ A `gen.Ref` is guaranteed unique within a node for its lifetime. The structure i
 ```go
 ref := node.MakeRef()
 fmt.Printf("%s", ref)
-// Output: Ref#<90A29F11.128194.23952.0>
+// Output: Ref#<2C323E75.128194.23952.0>
 ```
 
 References can also embed deadlines (stored in ID[2]) for timeout tracking. Recipients can check `ref.IsAlive()` to see if a request is still valid.
@@ -66,9 +68,12 @@ References can also embed deadlines (stored in ID[2]) for timeout tracking. Reci
 Aliases use the same structure as references but print with a different prefix:
 
 ```go
-alias := process.CreateAlias()
+alias, err := process.CreateAlias()
+if err != nil {
+    return err
+}
 fmt.Printf("%s", alias)
-// Output: Alias#<90A29F11.128194.23952.0>
+// Output: Alias#<2C323E75.128194.23952.0>
 ```
 
 ### gen.Event
@@ -78,7 +83,7 @@ fmt.Printf("%s", alias)
 ```go
 event := gen.Event{Name: "user_login", Node: "node@localhost"}
 fmt.Printf("%s", event)
-// Output: Event#<90A29F11:'user_login'>
+// Output: Event#<2C323E75:user_login>
 ```
 
 ### gen.Env

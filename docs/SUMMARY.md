@@ -65,6 +65,7 @@
 * [Distributed Tracing](advanced/distributed-tracing.md)
 * [Inspecting Actor State](advanced/inspecting-state.md)
 * [Inspecting With Observer](advanced/observer.md)
+* [Inspecting With an AI Agent](advanced/mcp.md)
 
 ## extra library
 

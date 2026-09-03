@@ -51,7 +51,11 @@ func createPoolFactory() gen.ProcessBehavior {
 poolPID, err := node.Spawn(createPoolFactory, gen.ProcessOptions{})
 ```
 
-The pool spawns workers during initialization. Each worker is linked to the pool (via `LinkParent: true`). If a worker crashes, the pool receives an exit signal and can restart it.
+`PoolSize` below 1 is not an error and not "no workers": `ProcessInit` substitutes the default of **3**, and the substituted value is what `ergo:pool_size` then reports. `WorkerFactory` is the field with no default: leave it nil and the first worker spawn fails, `ProcessInit` returns that error, and the pool does not start.
+
+The pool spawns workers during initialization with `LinkParent: true`. That link runs one way, from worker to pool: if the **pool** terminates, its workers get an exit signal and go with it. The reverse is not true - a crashing worker sends the pool nothing.
+
+The pool notices a dead worker lazily instead. When it forwards a message and the target answers `gen.ErrProcessUnknown` or `gen.ErrProcessTerminated`, it spawns a replacement and forwards the message there. So a worker that dies while the pool is idle is replaced on the next message addressed to it, not at the moment of death.
 
 Workers are created using the `WorkerFactory`. This is the same factory pattern as regular `Spawn` - it returns a `gen.ProcessBehavior` instance. The workers can be `act.Actor`, `act.Pool` (nested pools), or custom behaviors.
 
@@ -68,9 +72,9 @@ return act.PoolOptions{
 }, nil
 ```
 
-When a sender tries to send beyond this limit, they receive `ErrProcessMailboxFull` (if using important delivery) or the message is dropped with a log entry. This backpressure prevents the system from accepting more work than it can handle.
+That product is the work in flight the pool can hold. Past it the message is **dropped**: the pool logs an error, increments `ergo:messages_unhandled` and releases the message. The sender is not told. `ErrProcessMailboxFull` comes from a target's own queue on the ordinary send path, and the pool's forwarding is not that path - a `Send` to a saturated pool returns `nil`, and a `Call` ends in the caller's own timeout with no indication of the cause.
 
-For external APIs (HTTP, gRPC), this translates to returning "503 Service Unavailable" when the pool is saturated. The pool size controls maximum concurrency, and the mailbox size controls burst capacity. Tune both based on your worker processing speed and acceptable latency.
+So this is a limit, not backpressure. If an external API is to answer "503 Service Unavailable" when the pool is saturated, that decision has to be made before the pool: check `ergo:messages_unhandled` from the inspect callback, or gate admission in the handler. The pool size controls maximum concurrency and the mailbox size controls burst capacity - tune both against worker processing speed and acceptable latency, and treat a rising drop counter as the signal that the sizing is wrong.
 
 ## Automatic Message Distribution
 
@@ -156,17 +160,22 @@ stats, err := process.CallWithPriority(poolPID, GetPoolStatsRequest{}, gen.Messa
 func (p *WorkerPool) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
     switch req := request.(type) {
     case GetPoolStatsRequest:
+        // The pool's own counters are unexported. Read them through the
+        // inspect callback, where they are published as strings.
+        info := p.HandleInspect(from)
         return PoolStats{
-            WorkerCount: p.pool.Len(),
-            Forwarded:   p.forwarded,
+            Size:      info["ergo:pool_size"],
+            Forwarded: info["ergo:messages_forwarded"],
         }, nil
-    
+
     default:
         p.Log().Warning("unhandled request: %T", request)
         return nil, nil  // Caller will timeout
     }
 }
 ```
+
+`act.Pool` keeps its counters in unexported fields, so an embedding type cannot read `p.pool.Len()` or `p.forwarded` from its own package - that does not compile. The published route is the inspect callback, whose keys are listed below.
 
 **Important**: High-priority requests that return `(nil, nil)` from `HandleCall` are **not** forwarded to workers. They're simply ignored, and the caller times out. Forwarding only happens for Main queue messages. If you want a request to be handled, either:
 - Send it with normal priority (goes to workers)
@@ -203,15 +212,17 @@ func (p *WorkerPool) HandleMessage(from gen.PID, message any) error {
 
 `AddWorkers` spawns new workers with the same factory and options used during initialization. They're added to the FIFO queue and immediately available for work.
 
-`RemoveWorkers` takes workers from the queue and sends them `gen.TerminateReasonNormal` via `SendExit`. The workers terminate gracefully, finishing any in-progress work before shutting down.
+`RemoveWorkers` takes workers from the queue and sends them `gen.TerminateReasonNormal` via `SendExit`. That exit goes to the **Urgent** queue, and every run loop drains Urgent before System before Main, so a removed worker stops at its next dispatch: the message it is handling now finishes, and everything already queued behind it in Main does not. `SetTrapExit` does not soften this either - the trap only applies to an exit from the worker's parent, and here the parent is the pool that sent it.
+
+If in-flight work must not be lost, drain before removing: stop feeding the pool, wait for the workers' mailboxes to empty, then call `RemoveWorkers`.
 
 Both methods return the new pool size after the operation. They fail if called from outside Running state.
 
 ## Worker Restarts
 
-Workers are linked to the pool with `LinkParent: true`. When a worker crashes, the pool receives an exit signal. The `forward` mechanism detects this (`ErrProcessUnknown` / `ErrProcessTerminated`), spawns a replacement with the same factory and arguments, and forwards the message to the new worker.
+Workers are spawned with `LinkParent: true`, which links them to the pool and not the pool to them - a crashing worker sends the pool no signal at all. Detection happens in the `forward` path instead: the pool pops a worker, forwards, and if the answer is `ErrProcessUnknown` or `ErrProcessTerminated` it spawns a replacement with the same factory and arguments and forwards the message to the new worker.
 
-This is automatic restart, not supervision. The pool doesn't track worker history or apply restart strategies. It just replaces dead workers immediately when detected during forwarding. If you need sophisticated restart strategies, use a Supervisor to manage the pool and its workers.
+This is automatic restart, not supervision. The pool doesn't track worker history or apply restart strategies, and it does not learn of a death until it next tries to use that worker - a pool sitting idle keeps a dead PID in its queue until the next message. If you need sophisticated restart strategies, use a Supervisor to manage the pool and its workers.
 
 ## Pool Statistics
 
@@ -231,6 +242,8 @@ stats, err := node.Inspect(poolPID)
 All of these keys use the reserved `ergo:` prefix. A `HandleInspect` you implement is merged on top of them, so your fields are added beside these rather than replacing the set - and one of these is overridden only if you name it with the prefix.
 
 Use this for monitoring pool health. High `ergo:messages_unhandled` indicates workers are overwhelmed. High `ergo:worker_restarts` suggests worker stability issues.
+
+`ProcessOptions.Fallback` does not help here, though it is the natural thing to reach for. Two reasons, either of which is enough. `PoolOptions` carries only `PoolSize`, `WorkerMailboxSize`, `WorkerFactory` and `WorkerArgs` - the pool builds its workers' `ProcessOptions` itself and sets no fallback, and there is no runtime setter for one. And the pool delivers with `Forward`, which pushes onto the worker's queue directly and answers `gen.ErrProcessMailboxFull`; the fallback is consulted only on the ordinary routing path that `Send` takes. A message the pool cannot place is dropped and counted, never diverted. The remedies are `AddWorkers`, a larger `WorkerMailboxSize`, or shedding load before the pool.
 
 ## When to Use Pools
 

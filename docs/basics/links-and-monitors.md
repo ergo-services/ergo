@@ -20,13 +20,17 @@ Exit signals arrive in the Urgent queue, bypassing normal message ordering. The 
 
 But sometimes you want to handle exit signals explicitly. Actors can enable exit signal trapping through `act.Actor`. When trapping is enabled, exit signals are delivered as `gen.MessageExit*` messages to your `HandleMessage` callback. You can examine the signal, check the termination reason, and decide whether to terminate or attempt recovery.
 
-Each exit message type carries the termination reason in its `Reason` field. The reason tells you what happened: normal shutdown (`gen.TerminateReasonNormal`), abnormal crash, panic (`gen.TerminateReasonPanic`), forced kill (`gen.TerminateReasonKill`), or network failure (`gen.ErrNoConnection`). This context lets you make informed decisions about how to react.
+The process-level exit messages carry the termination reason in a `Reason` field. The reason tells you what happened: normal shutdown (`gen.TerminateReasonNormal`), abnormal crash, panic (`gen.TerminateReasonPanic`) or forced kill (`gen.TerminateReasonKill`). This context lets you make informed decisions about how to react.
+
+`gen.MessageExitNode` is the exception: it carries only `Name`, the node that went away. A lost connection has no reason to report beyond itself.
 
 The framework provides linking methods for different identification schemes. `LinkPID` takes a process identifier and links to that specific process instance. When it terminates, you receive `gen.MessageExitPID`. `LinkProcessID` links to a registered name rather than a specific instance. If the process terminates or unregisters the name, you receive `gen.MessageExitProcessID`. `LinkAlias` works with process aliases - termination or alias deletion triggers `gen.MessageExitAlias`.
 
 You can also link to node connections with `LinkNode`. If the connection to the specified node is lost, you receive `gen.MessageExitNode`. This is useful for processes that can't operate when a particular remote node is unavailable.
 
-The generic `Link` method accepts any target type and dispatches to the appropriate typed method. Use it when the target type varies, or use the specific methods when you know the type.
+The generic `Link` method takes four target types and dispatches to the typed method for each: `gen.PID`, `gen.ProcessID`, `gen.Alias`, and `gen.Atom` - which it reads as a **registered name on the local node**, not as a node name. Anything else returns `gen.ErrUnsupported`. `Monitor`, `Unlink` and `Demonitor` behave the same way.
+
+That means node and event targets are not reachable through the generic form: `Link(gen.Atom("other@host"))` looks for a local process registered under that name and fails with `gen.ErrProcessUnknown`, and `Link(gen.Event{...})` returns `gen.ErrUnsupported`. Call `LinkNode` and `LinkEvent` directly.
 
 ### The Unidirectional Nature
 
@@ -44,11 +48,11 @@ Monitors provide lifecycle awareness without lifecycle coupling. You track when 
 
 The quintessential monitor use case is supervision. A supervisor monitors worker processes. When a worker terminates, the supervisor receives a down message. The message includes the worker's PID or identifier and the termination reason. The supervisor examines this information, consults its restart strategy, and decides whether to spawn a replacement. The supervisor continues running regardless of how many workers have crashed.
 
-Down messages arrive in the System queue with high priority (but lower than Urgent exit signals). Each `gen.MessageDown*` type includes a `Reason` field. For `MonitorPID`, you receive `gen.MessageDownPID` with the target's PID and reason. For `MonitorProcessID`, you receive `gen.MessageDownProcessID` with the registered name and reason. The reason might indicate normal termination, a crash, or a special case like name unregistration (`gen.ErrUnregistered`).
+Down messages arrive in the System queue with high priority (but lower than Urgent exit signals). Every `gen.MessageDown*` type includes a `Reason` field except `gen.MessageDownNode`, which carries only the node name. For `MonitorPID`, you receive `gen.MessageDownPID` with the target's PID and reason. For `MonitorProcessID`, you receive `gen.MessageDownProcessID` with the registered name and reason. The reason might indicate normal termination, a crash, or a special case like name unregistration (`gen.ErrUnregistered`).
 
 Monitoring registered names or aliases handles invalidation gracefully. If you monitor a process by name and that process unregisters its name, you receive a down message with reason `gen.ErrUnregistered`. The process might still be running, but it's no longer accessible by that name, which is what you were monitoring. Same logic applies to alias deletion - you're notified that the thing you were monitoring is no longer valid.
 
-Node monitoring tracks connection health. `MonitorNode` sends you `gen.MessageDownNode` when the connection to a remote node is lost. The reason is `gen.ErrNoConnection`. This is useful for detecting network partitions or remote node crashes without linking (which would terminate your process).
+Node monitoring tracks connection health. `MonitorNode` sends you `gen.MessageDownNode` when the connection to a remote node is lost. It has one field, `Name` - there is no reason to read, because losing the connection is the whole of the news. This is useful for detecting network partitions or remote node crashes without linking (which would terminate your process).
 
 ## Network Transparency in Practice
 

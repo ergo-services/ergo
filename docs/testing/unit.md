@@ -57,7 +57,7 @@ Keep the direction straight here, because it is the most common source of confus
 
 `FireTimers` is what makes time-driven behavior deterministic - a periodic tick, a timeout, a retry back-off, a TTL - so a test never sleeps to watch one elapse. Three things it deliberately does not do. It fires every pending timer at once rather than stepping to the next, and a timer the handler re-arms is left for the following call. A timer aimed at another process is marked fired but not delivered, because that message is outward work: assert it with `ShouldSendAfter`, or `ShouldSendEvery` for a periodic one. And it advances no clock, so an actor comparing `time.Now()` against a stored timestamp still needs the wall time to have passed - give such a test a millisecond timeout rather than a mocked hour.
 
-The idiomatic actor does almost nothing in `Init`. `Call`, `Link`, `Monitor` and `RegisterName` are all unavailable in the Init state, so an actor that needs any of them posts a message to itself and does the real setup in the handler that receives it. A live node delivers that message, and the chain it starts, with no help. In unit nothing is delivered until the test asks, and `Drain` is the ask:
+The idiomatic actor does almost nothing in `Init`. Not because it cannot: `Call`, `Link`, `Monitor` and `RegisterName` all work there - their state gate admits Init alongside Running, and the process is registered before `Init` runs precisely so that it can. The reason is that work done in `Init` holds up the spawn, so a slow or absent dependency turns a start-up into a stall. An actor that needs any of them posts a message to itself and does the real setup in the handler that receives it. A live node delivers that message, and the chain it starts, with no help. In unit nothing is delivered until the test asks, and `Drain` is the ask:
 
 ```go
 sub, _ := unit.Spawn(t, factorySession, gen.ProcessOptions{})
@@ -77,18 +77,18 @@ An actor never runs in a vacuum: it calls out to dependencies, and it reads thin
 An actor that calls a dependency cannot be tested alone unless you decide what the call returns. `OnCall` does that - it intercepts the actor's outbound `Call` and answers it - which is what lets you drive both branches of the same handler:
 
 ```go
-sub.OnCall("backend").Respond("OK")
+sub.OnCall(gen.Atom("backend")).Respond("OK")
 sub.SendMessage(client, "ping")
-sub.ShouldSend().To("client").Message("OK").Once().Assert()
+sub.ShouldSend().To(gen.Atom("client")).Message("OK").Once().Assert()
 ```
 
 Make the call fail, and the error branch runs instead:
 
 ```go
-sub.OnCall("backend").Fail(gen.ErrTimeout)
+sub.OnCall(gen.Atom("backend")).Fail(gen.ErrTimeout)
 sub.SendMessage(client, "ping")
-sub.ShouldSend().To("logger").Message("backend failed").Once().Assert()
-sub.ShouldSend().To("client").None().Assert() // the happy path did not run
+sub.ShouldSend().To(gen.Atom("logger")).Message("backend failed").Once().Assert()
+sub.ShouldSend().To(gen.Atom("client")).None().Assert() // the happy path did not run
 ```
 
 Calls are not the only outward action with a return value. Spawning a child, allocating an alias, registering an event, spawning on a remote node - each has a typed stub for either outcome, and the error-only operations (`Send`, `Link`, `Monitor`, `SendExit`, and the like) take a `Fail`. `FailFunc` makes failure selective - a counter in the closure can fail only the second and fifth send while the rest succeed:
@@ -98,7 +98,7 @@ sub.OnSpawn(factoryWorker).Fail(gen.ErrProcessTerminated)
 sub.OnRemoteSpawn("peer@localhost", "svc").Return(remotePID)
 
 i := 0
-sub.OnSend("svc").FailFunc(func() error {
+sub.OnSend(gen.Atom("svc")).FailFunc(func() error {
     i++
     if i == 2 || i == 5 {
         return gen.ErrProcessMailboxFull
@@ -115,7 +115,13 @@ sub.OnMonitorEvent(gen.Event{Name: "metrics"}).Return([]gen.MessageEvent{{Messag
 
 Whether the actor registered its own event as notifying, and with what buffer, is a question for the records rather than the stubs: `ShouldRegisterEvent` filters on `Notify`, `Buffer` and `Open`, so "it asked to be told when the first subscriber arrives" is assertable on its own.
 
-Two things hold for every stub. Whatever it decides, the action is still recorded - the stub shapes the return value, it does not hide the send from `ShouldSend`. And a stub you never set is permissive: an unstubbed `Call` returns `(nil, nil)`, a value-producing operation returns a synthetic value, an error-only one succeeds. The single loud exception is an unstubbed *resolve* through the mock network, because a forgotten discovery stub is almost always a bug, not an intended default.
+Two things hold for every stub. Whatever it decides, the action is still recorded - the stub shapes the return value, it does not hide the send from `ShouldSend`. And a stub you never set is mostly permissive: a value-producing operation returns a synthetic value, an error-only one succeeds.
+
+The exceptions fail the test loudly rather than defaulting, because for these a made-up answer would send the actor down a path you did not choose:
+
+- an unstubbed outbound **`Call`** - the response drives the caller's logic, so there is no sensible default. All seven `Call` variants go through the same strict route, and the failure names the stub to add: `OnCall(...).Respond(...)` or `.Fail(...)`.
+- an unstubbed **resolve** or **resolve-application** through the mock network - a forgotten discovery stub is almost always a bug.
+- a **`Node()` method the mock does not implement** - it tells you to override it with `sub.Node().On...(...)`, or to use stage instead.
 
 A stub only answers a call made after you set it. For a call from a handler that is enough - set the stub after spawn, before the input that triggers it, as above. But some actors call a dependency in `Init` itself: a supervisor that registers with a service as it starts, for one. By the time `Spawn` returns, `Init` has already run, so a stub set on the returned `Subject` is too late.
 
@@ -123,7 +129,7 @@ Split the spawn for that case. `Prepare` builds the actor and hands back its `Su
 
 ```go
 sub := unit.Prepare(t, factoryRadarSup, gen.ProcessOptions{})
-sub.OnCall("radar_health").Fail(gen.ErrProcessUnknown) // the service is not running
+sub.OnCall(gen.Atom("radar_health")).Fail(gen.ErrProcessUnknown) // the service is not running
 if err := sub.Run(); err != nil {
     t.Fatal(err)
 }
@@ -170,7 +176,7 @@ The PIDs `unit` hands back are honest. Every spawn gets a distinct, well-formed 
 ```go
 sub.SendMessage(client, "spawn-worker")
 spawn, _ := sub.ShouldSpawn().Once().Capture()
-sub.ShouldSend().To("manager").Message(spawn.Child).Once().Assert()
+sub.ShouldSend().To(gen.Atom("manager")).Message(spawn.Child).Once().Assert()
 ```
 
 And termination is recorded. When a callback returns an error, panics, or returns a stop reason, the actor terminates; assert it with `ShouldTerminate`, or read it off the `Subject`:
@@ -194,7 +200,7 @@ Meta processes - the I/O adapters behind TCP, UDP, web, and the like - have thei
 ```go
 m, err := sub.SpawnMeta(&echoMeta{}, gen.MetaOptions{})
 m.DeliverMessage(sub.PID(), "hello")
-m.ShouldSend().To("client").Message("got:hello").Once().Assert()
+m.ShouldSend().To(gen.Atom("client")).Message("got:hello").Once().Assert()
 ```
 
 A meta shares its parent's journal and its egress is observed as coming from the parent PID, exactly how the runtime routes it. `DeliverMessage`, `Request`, `Inspect`, and `Terminate` drive the matching callbacks, and the state gates apply - `SendResponse` is rejected outside a running callback, just as in production.
