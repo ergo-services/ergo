@@ -302,9 +302,7 @@ func (a *Actor) ProcessRun() (rr error) {
 		case gen.MailboxMessageTypeExit:
 			switch exit := message.Message.(type) {
 			case gen.MessageExitPID:
-				// trap exit signal if it wasn't send by parent
-				// and TrapExit == true
-				if a.trap && message.From != a.Parent() {
+				if a.trap && exit.PID != a.Parent() {
 					message.Type = gen.MailboxMessageTypeRegular
 					goto retry
 				}

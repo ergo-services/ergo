@@ -464,4 +464,4 @@ For guidance on designing your own inspection surface, see [Inspecting Actor Sta
 
 ## MCP
 
-[MCP](../applications/mcp.md) exposes the same inspection surface as tools an AI agent calls on demand, across every node in the cluster through one entry point. For a leader actor that means the whole election can be read in one pass: which node each replica thinks is leading, at which term, with which view and quorum - which is how a divergence between replicas becomes obvious rather than inferred.
+The [MCP surface of Observer](../applications/observer.md) exposes the same inspection as resources and tools an AI agent asks for on demand, across every node in the cluster from the one node that serves it. For a leader actor that means the whole election can be read in one pass: which node each replica thinks is leading, at which term, with which view and quorum - which is how a divergence between replicas becomes obvious rather than inferred.

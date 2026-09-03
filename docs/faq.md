@@ -170,7 +170,7 @@ Traces can be viewed directly in Observer as waterfall diagrams or exported to O
 
 ### How do I inspect a running node?
 
-Run the [Observer](extra-library/applications/observer.md) web UI for live visibility into processes, applications, network connections, events, logs, tracing waterfalls, and heap profiles. For AI-driven investigation, use the [MCP application](extra-library/applications/mcp.md) to expose the running system to Claude Code, Cursor, or any MCP-compatible client. For continuous metrics, the [Radar](extra-library/applications/radar.md) application provides a Prometheus endpoint with a ready-to-use Grafana dashboard.
+Run the [Observer](extra-library/applications/observer.md) web UI for live visibility into processes, applications, network connections, events, logs, tracing waterfalls, and heap profiles. The same application serves an MCP surface, which exposes the running system to Claude Code, Cursor, or any MCP-compatible client for AI-driven investigation. For continuous metrics, the [Radar](extra-library/applications/radar.md) application provides a Prometheus endpoint with a ready-to-use Grafana dashboard.
 
 ### What can Observer do?
 
@@ -239,7 +239,7 @@ Yes, and it is particularly well-suited. Each AI agent runs as an isolated proce
 
 ### What is MCP support in Ergo?
 
-Ergo has built-in support for the Model Context Protocol (MCP), an emerging standard for AI tool integration. The [MCP application](extra-library/applications/mcp.md) exposes the running cluster to AI assistants (Claude Code, Cursor, and any MCP-compatible client) as a set of diagnostic tools. The AI inspects processes, queries events, captures goroutine dumps, reads logs, and runs samplers through natural language.
+Ergo has built-in support for the Model Context Protocol (MCP), an emerging standard for AI tool integration. The [Observer](extra-library/applications/observer.md) application serves it beside its web UI: the running cluster reaches AI assistants (Claude Code, Cursor, and any MCP-compatible client) as resources to read and tools to call. The AI inspects processes, queries events, captures goroutine dumps, reads logs, and asks the same question of every node, through natural language.
 
 Two deployment modes:
 

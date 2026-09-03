@@ -56,7 +56,7 @@ What you get automatically:
 - **Supervision.** Put the agent under a supervisor and it restarts on failure with your chosen strategy. See [Supervisor](actors/supervisor.md).
 - **Distributed addressability.** Each agent has a PID that works across nodes. See [Remote Spawn Process](networking/remote-spawn-process.md).
 - **Event-based coordination.** Agents publish to and subscribe to named event streams, fanning out one network message per node instead of one per subscriber. See [Events](basics/events.md).
-- **Live diagnostics.** Expose the running system to any AI assistant via the [MCP application](extra-library/applications/mcp.md).
+- **Live diagnostics.** Expose the running system to any AI assistant through the MCP surface of the [Observer](extra-library/applications/observer.md) application.
 
 The actor's private state (`notes` in the example) is safe without any synchronization. Messages arrive one at a time. The actor never shares memory with anyone.
 
@@ -178,14 +178,15 @@ The framework delivers one network message per subscriber node regardless of how
 
 AI agents are nondeterministic. Behavior depends on prompts, external API latency, model temperature, and tool responses. Predefined metrics cover known failure modes, but the interesting failures are the ones you didn't anticipate.
 
-Add the [MCP application](extra-library/applications/mcp.md) to your node:
+Add the [Observer](extra-library/applications/observer.md) application to your node. One listener
+serves the web UI, the browser API and the MCP surface:
 
 ```go
-import "ergo.services/application/mcp"
+import "ergo.services/application/observer"
 
 node, _ := ergo.StartNode("mynode@localhost", gen.NodeOptions{
     Applications: []gen.ApplicationBehavior{
-        mcp.CreateApp(mcp.Options{Port: 9922}),
+        observer.CreateApp(observer.Options{Port: 9911}),
     },
 })
 ```
@@ -193,7 +194,7 @@ node, _ := ergo.StartNode("mynode@localhost", gen.NodeOptions{
 Connect Claude Code (or any MCP-compatible client):
 
 ```
-claude mcp add --transport http ergo http://localhost:9922/mcp
+claude mcp add --transport http ergo http://localhost:9911/mcp
 ```
 
 Now you describe a symptom in plain English and the AI runs a diagnostic sequence against the live system:
@@ -209,9 +210,14 @@ AI: Checking process list sorted by mailbox...
     -> 73% time in external_api.Call(). The payment API is the bottleneck.
 ```
 
-The MCP application exposes 48 diagnostic tools covering process inspection, profiling, cluster visibility, and samplers (continuous data collection into ring buffers for trend analysis). One entry point node gives access to every node in the cluster. Other nodes run MCP in agent mode without exposing an HTTP port.
+The surface has two halves. Readings are resources the agent reads by URI, `ergo://<node>/<lens>`,
+and read again with a cursor to take only what has landed since. Everything else is a tool: 38 of
+them, from a process listing to a heap profile, plus the two that put one question to many nodes at
+once. Only the node serving MCP needs the Observer application: every node runs the built-in
+`system` application it asks, so the whole cluster is reachable from one endpoint.
 
-For the full toolkit, cluster proxy mechanics, sampler recipes, profiling options, and Claude Code plugin configuration, see [MCP](extra-library/applications/mcp.md).
+For the surface in full, what it costs the node, and how a ceiling bounds what an agent may do,
+see [Observer](extra-library/applications/observer.md).
 
 ## Getting started
 
@@ -232,21 +238,21 @@ ergo add actor AgentSup:AnalysisAgent
 go run ./cmd
 ```
 
-Add MCP to the generated node setup:
+Add Observer to the generated node setup, which brings the MCP surface with it:
 
 ```go
-import "ergo.services/application/mcp"
+import "ergo.services/application/observer"
 
 options.Applications = []gen.ApplicationBehavior{
     agentnodeapp.CreateApp(),
-    mcp.CreateApp(mcp.Options{Port: 9922}),
+    observer.CreateApp(observer.Options{Port: 9911}),
 }
 ```
 
 Connect your AI assistant and start investigating:
 
 ```
-claude mcp add --transport http ergo http://localhost:9922/mcp
+claude mcp add --transport http ergo http://localhost:9911/mcp
 ```
 
 ## Cloud-connected agents
@@ -258,5 +264,5 @@ Running agents across AWS, GCP, Azure, or bare metal is supported via [ergo.clou
 - [Process](basics/process.md) for the actor lifecycle
 - [Supervisor](actors/supervisor.md) for restart strategies
 - [Events](basics/events.md) for pub/sub coordination
-- [MCP](extra-library/applications/mcp.md) for live diagnostics and AI-driven investigation
+- [Observer](extra-library/applications/observer.md) for live diagnostics and AI-driven investigation
 - [Examples](https://github.com/ergo-services/examples) for working reference projects

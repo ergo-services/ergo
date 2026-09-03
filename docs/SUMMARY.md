@@ -74,7 +74,6 @@
   * [Metrics](extra-library/actors/metrics.md)
 * [Applications](extra-library/applications/README.md)
   * [Observer](extra-library/applications/observer.md)
-  * [MCP](extra-library/applications/mcp.md)
   * [Radar](extra-library/applications/radar.md)
   * [Pulse](extra-library/applications/pulse.md)
   * [Grid](extra-library/applications/grid.md)

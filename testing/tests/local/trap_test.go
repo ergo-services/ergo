@@ -13,6 +13,9 @@ import (
 // spawnTrapper asks an exiter to spawn a trapper child (so the exiter is its parent).
 type spawnTrapper struct{ Trap bool }
 
+// spawnLinkedTrapper asks an exiter to spawn a trapper child linked to it.
+type spawnLinkedTrapper struct{ Trap bool }
+
 // doExit asks an exiter to send an exit signal to Target.
 type doExit struct {
 	Target gen.PID
@@ -28,6 +31,8 @@ func (e *exiter) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
 	switch c := request.(type) {
 	case spawnTrapper:
 		return e.Spawn(factoryTrapper, gen.ProcessOptions{}, c.Trap)
+	case spawnLinkedTrapper:
+		return e.Spawn(factoryTrapper, gen.ProcessOptions{LinkParent: true}, c.Trap)
 	case doExit:
 		if err := e.SendExit(c.Target, c.Reason); err != nil {
 			return nil, err
@@ -109,6 +114,29 @@ func TestLocalTrapExit(t *testing.T) {
 		// and the process survives it
 		_, err = n.Native().ProcessInfo(tp)
 		check.NoError(t, err)
+	})
+
+	// the parent dies on its own and the link cascade carries the exit signal. The
+	// messenger is then the node core rather than the parent, and a trap must not
+	// keep the child alive
+	t.Run("ParentDeathCascades", func(t *testing.T) {
+		victim := n.Spawn(factoryExiter, gen.ProcessOptions{})
+
+		tpAny, err := n.Call(victim, spawnLinkedTrapper{Trap: true})
+		check.NoError(t, err)
+		tp := tpAny.(gen.PID)
+
+		n.Send(w, monitorCmd{Target: tp})
+		n.ShouldMonitor().From(w).Target(tp).Once().Within(time.Second).Must()
+
+		mk := n.Mark()
+		n.Kill(victim)
+
+		n.ShouldReceiveDown().To(w).About(tp).ReasonIs(gen.TerminateReasonKill).
+			Since(mk).Once().Within(time.Second).Must()
+
+		_, err = n.Native().ProcessInfo(tp)
+		check.True(t, err != nil)
 	})
 
 	t.Run("ParentTerminates", func(t *testing.T) {

@@ -246,7 +246,7 @@ node:
 
 Known loggers: `colored` ([docs](../extra-library/loggers/colored.md)), `rotate` ([docs](../extra-library/loggers/rotate.md)).
 
-Known applications: `observer` ([docs](../extra-library/applications/observer.md)), `mcp` ([docs](../extra-library/applications/mcp.md)), `radar` ([docs](../extra-library/applications/radar.md)).
+Known applications: `observer` ([docs](../extra-library/applications/observer.md)), `radar` ([docs](../extra-library/applications/radar.md)).
 
 ## Customizing Generated Code
 

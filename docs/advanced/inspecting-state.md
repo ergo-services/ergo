@@ -20,7 +20,7 @@ func (w *Worker) HandleInspect(from gen.PID, item ...string) map[string]string {
 
 The mechanics are covered in [Actor](../actors/actor.md#inspection): requests arrive on the Urgent queue, values are strings, and the callback must return immediately. This page is about the part the mechanics do not tell you - what to put in there, and what it buys.
 
-The division of labour is worth stating plainly, because it is unusual. The framework does not define what belongs in that map. It has no schema for it, no field registry, no notion of which keys are meaningful. All it does is instrument: deliver the request, call your callback, and carry the result to whoever asked - the observer renders it, [MCP](../extra-library/applications/mcp.md) returns it as a tool result, a sibling process gets it from `process.Inspect`. **The content is entirely yours, and so is the diagnostic value.** An actor whose callback returns three convenient fields is an actor that cannot be diagnosed, and no amount of tooling above it changes that.
+The division of labour is worth stating plainly, because it is unusual. The framework does not define what belongs in that map. It has no schema for it, no field registry, no notion of which keys are meaningful. All it does is instrument: deliver the request, call your callback, and carry the result to whoever asked - the observer renders it, its [MCP surface](../extra-library/applications/observer.md) returns it as a tool result, a sibling process gets it from `process.Inspect`. **The content is entirely yours, and so is the diagnostic value.** An actor whose callback returns three convenient fields is an actor that cannot be diagnosed, and no amount of tooling above it changes that.
 
 ## What you do not expose does not exist
 
@@ -140,7 +140,7 @@ A single inspection call is a snapshot of one actor. What makes the callback wor
 
 **One node, read by a human.** [Observer](observer.md) shows a process list, its tree, and the inspection output of whichever process you open, updating live. This is the view for "I know roughly where the problem is".
 
-**A whole cluster, read by an AI.** [MCP](../extra-library/applications/mcp.md) exposes the same surface as tools an agent calls on demand: enumerate processes across the cluster, inspect any of them, follow the topology, sample profiles. Each node runs the diagnostic tools internally, and one entry point reaches all of them through cluster proxy, so a single conversation covers every node.
+**A whole cluster, read by an AI.** The [MCP surface of Observer](../extra-library/applications/observer.md) exposes the same inspection as resources and tools an agent asks for on demand: enumerate processes across the cluster, inspect any of them, follow the topology, capture a profile. Every node runs the built-in `system` application that answers those questions, and the one node serving MCP reaches all of them, so a single conversation covers the cluster.
 
 The difference between the two is not convenience, it is method. A dashboard answers questions decided in advance. An agent holding the whole inspection surface can work the other way round: start from a symptom, enumerate what exists, read the state of the processes that look implicated, correlate across nodes, and narrow down. Point diagnosis becomes system diagnosis, because nothing has to be selected up front.
 
@@ -178,6 +178,6 @@ Before shipping an actor, read your own `HandleInspect` against these:
 
 - [Actor - Inspection](../actors/actor.md#inspection) - the callback's mechanics and constraints
 - [Inspecting With Observer](observer.md) - the human-facing view of the same data
-- [MCP](../extra-library/applications/mcp.md) - the cluster-wide, agent-facing view
+- [Observer](../extra-library/applications/observer.md) - the same data as an agent-facing MCP surface
 - [AI Agents](../ai-agents.md) - using Ergo as both runtime and diagnostic surface
 - [Debugging](debugging.md) - the wider set of techniques this fits into
