@@ -1,0 +1,147 @@
+# yaml-language-server: $schema=https://api.gitbook.com/gitbook-docs.yaml
+$schema: https://api.gitbook.com/gitbook-docs.yaml
+version: 1
+
+site:
+  title: Ergo Framework
+
+  structure:
+    - type: section
+      key: section-basics
+      title: Basics
+      path: basics
+      default: true
+      children:
+        - type: space
+          key: space-basics
+          title: Basics
+          path: basics
+          default: true
+          content:
+            directory: ./basics
+
+    - type: section
+      key: section-actors
+      title: Actors
+      path: actors
+      children:
+        - type: space
+          key: space-actors
+          title: Actors
+          path: actors
+          default: true
+          content:
+            directory: ./actors
+
+    - type: section
+      key: section-meta-processes
+      title: Meta Processes
+      path: meta-processes
+      children:
+        - type: space
+          key: space-meta-processes
+          title: Meta Processes
+          path: meta-processes
+          default: true
+          content:
+            directory: ./meta-processes
+
+    - type: section
+      key: section-networking
+      title: Networking
+      path: networking
+      children:
+        - type: space
+          key: space-networking
+          title: Networking
+          path: networking
+          default: true
+          content:
+            directory: ./networking
+
+    - type: section
+      key: section-testing
+      title: Testing
+      path: testing
+      children:
+        - type: space
+          key: space-testing
+          title: Testing
+          path: testing
+          default: true
+          content:
+            directory: ./testing
+
+    - type: section
+      key: section-advanced
+      title: Advanced
+      path: advanced
+      children:
+        - type: space
+          key: space-advanced
+          title: Advanced
+          path: advanced
+          default: true
+          content:
+            directory: ./advanced
+
+    - type: section
+      key: section-extra-library
+      title: extra library
+      path: extra-library
+      children:
+        - type: space
+          key: space-extra-actors
+          title: Actors
+          path: actors
+          default: true
+          content:
+            directory: ./extra-library/actors
+
+        - type: space
+          key: space-extra-applications
+          title: Applications
+          path: applications
+          content:
+            directory: ./extra-library/applications
+
+        - type: space
+          key: space-extra-meta-processes
+          title: Meta-Processes
+          path: meta-processes
+          content:
+            directory: ./extra-library/meta-processes
+
+        - type: space
+          key: space-extra-loggers
+          title: Loggers
+          path: loggers
+          content:
+            directory: ./extra-library/loggers
+
+        - type: space
+          key: space-extra-registrars
+          title: Registrars
+          path: registrars
+          content:
+            directory: ./extra-library/registrars
+
+        - type: space
+          key: space-extra-network-protocols
+          title: Network Protocols
+          path: network-protocols
+          content:
+            directory: ./extra-library/network-protocols
+
+    - type: section
+      key: section-tools
+      title: Tools
+      path: tools
+      children:
+        - type: space
+          key: space-tools
+          title: Tools
+          path: tools
+          default: true
+          content:
+            directory: ./tools
