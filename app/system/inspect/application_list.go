@@ -1,8 +1,6 @@
 package inspect
 
 import (
-	"fmt"
-
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 )
@@ -29,7 +27,7 @@ func (ial *application_list) Init(args ...any) error {
 		Notify: true,
 		Buffer: 1, // keep the last event
 	}
-	evname := gen.Atom(fmt.Sprintf("%s", inspectApplicationList))
+	evname := gen.Atom(inspectApplicationList)
 	token, err := ial.RegisterEvent(evname, eopts)
 	if err != nil {
 		ial.Log().Error("unable to register event: %s", err)

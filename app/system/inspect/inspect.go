@@ -194,7 +194,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(inspectNode, forward)
+		if err := i.Send(gen.Atom(inspectNode), forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", gen.Atom(inspectNode), err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	case RequestInspectNodeShort:
@@ -222,7 +225,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	case RequestInspectNetwork:
@@ -238,7 +244,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(inspectNetwork, forward)
+		if err := i.Send(gen.Atom(inspectNetwork), forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", gen.Atom(inspectNetwork), err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	case RequestInspectConnection:
@@ -255,7 +264,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	case RequestInspectProcessList:
@@ -280,7 +292,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	case RequestInspectProcessRange:
@@ -301,7 +316,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	case RequestInspectProcess:
@@ -318,7 +336,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	case RequestInspectMeta:
@@ -335,7 +356,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	case RequestInspectLog:
@@ -372,7 +396,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	case RequestInspectTracing:
@@ -400,7 +427,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil
 
 	case RequestInspectEventList:
@@ -421,7 +451,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil
 
 	case RequestInspectEvent:
@@ -443,7 +476,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil
 
 	case RequestInspectEventStream:
@@ -480,7 +516,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil
 
 	case RequestInspectConnectionList:
@@ -500,7 +539,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(pname, forward)
+		if err := i.Send(pname, forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", pname, err)
+			return err, nil
+		}
 		return nil, nil
 
 	case RequestInspectApplicationList:
@@ -516,7 +558,10 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 			pid: from,
 			ref: ref,
 		}
-		i.Send(inspectApplicationList, forward)
+		if err := i.Send(gen.Atom(inspectApplicationList), forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", gen.Atom(inspectApplicationList), err)
+			return err, nil
+		}
 		return nil, nil // no reply
 
 	// one-shot reads
