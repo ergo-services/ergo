@@ -323,6 +323,8 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 		return alias, err
 	}
 
+	m.creation = time.Now().Unix()
+
 	go m.start()
 
 	return m.id, nil
@@ -1772,6 +1774,10 @@ func (p *process) MonitorPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
+	if target == p.pid {
+		return gen.ErrNotAllowed
+	}
+
 	if p.node.targets.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
@@ -1807,6 +1813,10 @@ func (p *process) DemonitorPID(target gen.PID) error {
 
 func (p *process) MonitorProcessID(target gen.ProcessID) error {
 	if p.isStateIR() == false {
+		return gen.ErrNotAllowed
+	}
+
+	if target.Name == p.name && target.Node == p.node.name {
 		return gen.ErrNotAllowed
 	}
 

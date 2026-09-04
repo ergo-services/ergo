@@ -23,6 +23,7 @@ type stubs struct {
 	linkev    []*EventSubscribeStub
 	monev     []*EventSubscribeStub
 	send      []*FailStub
+	response  []*FailStub
 	link      []*FailStub
 	unlink    []*FailStub
 	monitor   []*FailStub
@@ -334,6 +335,14 @@ func resolveFail(list []*FailStub, to any) (error, bool) {
 func (a *Subject) OnSend(to any) *FailStub {
 	s := &FailStub{to: to}
 	a.stubs.send = append(a.stubs.send, s)
+	return s
+}
+
+// OnSendResponse stubs the response to a call from `to` to fail. The real node
+// answers gen.ErrResponseIgnored when the caller is no longer waiting for it.
+func (a *Subject) OnSendResponse(to any) *FailStub {
+	s := &FailStub{to: to}
+	a.stubs.response = append(a.stubs.response, s)
 	return s
 }
 

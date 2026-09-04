@@ -20,6 +20,7 @@ type Network struct {
 
 type networkOverrides struct {
 	registrar               func() (gen.Registrar, error)
+	resolveApplication      func(name gen.Atom) (gen.ApplicationRoutes, error)
 	cookie                  func() string
 	setCookie               func(cookie string) error
 	maxMessageSize          func() int
@@ -75,11 +76,14 @@ func newNetwork(r recorder) *Network {
 // On<Method> overrides
 
 func (n *Network) OnRegistrar(fn func() (gen.Registrar, error)) { n.ov.registrar = fn }
-func (n *Network) OnCookie(fn func() string)                    { n.ov.cookie = fn }
-func (n *Network) OnSetCookie(fn func(cookie string) error)     { n.ov.setCookie = fn }
-func (n *Network) OnMaxMessageSize(fn func() int)               { n.ov.maxMessageSize = fn }
-func (n *Network) OnSetMaxMessageSize(fn func(size int))        { n.ov.setMaxMessageSize = fn }
-func (n *Network) OnNetworkFlags(fn func() gen.NetworkFlags)    { n.ov.networkFlags = fn }
+func (n *Network) OnResolveApplication(fn func(name gen.Atom) (gen.ApplicationRoutes, error)) {
+	n.ov.resolveApplication = fn
+}
+func (n *Network) OnCookie(fn func() string)                 { n.ov.cookie = fn }
+func (n *Network) OnSetCookie(fn func(cookie string) error)  { n.ov.setCookie = fn }
+func (n *Network) OnMaxMessageSize(fn func() int)            { n.ov.maxMessageSize = fn }
+func (n *Network) OnSetMaxMessageSize(fn func(size int))     { n.ov.setMaxMessageSize = fn }
+func (n *Network) OnNetworkFlags(fn func() gen.NetworkFlags) { n.ov.networkFlags = fn }
 func (n *Network) OnSetNetworkFlags(fn func(flags gen.NetworkFlags)) {
 	n.ov.setNetworkFlags = fn
 }
@@ -160,6 +164,9 @@ func (n *Network) Registrar() (gen.Registrar, error) {
 }
 
 func (n *Network) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes, error) {
+	if n.ov.resolveApplication != nil {
+		return n.ov.resolveApplication(name)
+	}
 	reg, err := n.Registrar()
 	if err != nil {
 		return nil, err

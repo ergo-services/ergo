@@ -426,6 +426,23 @@ func (s *Subject) CallWithPriority(from gen.PID, request any, priority gen.Messa
 	return s.resolveResponse(mk, ref)
 }
 
+// CallWithDeadline makes a synchronous request whose reference carries an absolute
+// unix deadline, the way a caller using CallWithTimeout builds it. A deadline that
+// has already passed models a request that outlived the caller waiting for it: the
+// actor sees ref.IsAlive() report false.
+func (s *Subject) CallWithDeadline(from gen.PID, request any, deadline int64) (any, error) {
+	s.t.Helper()
+	s.requireInited("CallWithDeadline")
+	if s.terminated {
+		return nil, s.reason
+	}
+	ref := s.node.synthRef()
+	ref.ID[2] = uint64(deadline)
+	mk := s.node.rec.Mark()
+	s.deliverTo(from, s.process.pid, request, gen.MailboxMessageTypeRequest, ref)
+	return s.resolveResponse(mk, ref)
+}
+
 func (s *Subject) callTo(from gen.PID, target any, request any) (any, error) {
 	s.requireInited("Call")
 	if s.terminated {
@@ -445,7 +462,7 @@ func (s *Subject) resolveResponse(mk int, ref gen.Ref) (any, error) {
 	// the response first and fall back to the termination reason only if none was sent.
 	for _, r := range s.node.rec.Records()[mk:] {
 		sr, ok := r.(check.SendResponse)
-		if ok == false || sr.Ref != ref {
+		if ok == false || sr.Ref != ref || sr.Error != nil {
 			continue
 		}
 		if e, ok := sr.Message.(error); ok {

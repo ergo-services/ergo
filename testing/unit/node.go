@@ -203,9 +203,10 @@ func (n *mockNode) routeSendExitMeta(st *stubs, from gen.PID, meta gen.Alias, re
 	return err
 }
 
-func (n *mockNode) routeSendResponse(from, to gen.PID, ref gen.Ref, message any, options gen.MessageOptions) error {
-	n.rec.Put(check.SendResponse{From: from, To: to, Ref: ref, Message: message, Options: options})
-	return nil
+func (n *mockNode) routeSendResponse(st *stubs, from, to gen.PID, ref gen.Ref, message any, options gen.MessageOptions) error {
+	err, _ := resolveFail(st.response, to)
+	n.rec.Put(check.SendResponse{From: from, To: to, Ref: ref, Message: message, Options: options, Error: err})
+	return err
 }
 
 func (n *mockNode) routeSendEvent(from gen.PID, name gen.Atom, token gen.Ref, message any, options gen.MessageOptions) error {

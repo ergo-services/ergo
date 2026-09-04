@@ -578,7 +578,7 @@ func (n *node) MetaInfo(m gen.Alias) (gen.MetaInfo, error) {
 	info.MessagePriority = gen.MessagePriority(mp.priority.Load())
 	info.Uptime = time.Now().Unix() - mp.creation
 	info.LogLevel = mp.log.Level()
-	info.State = gen.MetaState(mp.state)
+	info.State = gen.MetaState(atomic.LoadInt32(&mp.state))
 	return info, nil
 }
 
@@ -2543,6 +2543,11 @@ func (n *node) TracingExporterAddPID(pid gen.PID, name string, flags gen.Tracing
 	if loaded == false {
 		return gen.ErrProcessUnknown
 	}
+
+	if name == "" {
+		return gen.ErrIncorrect
+	}
+
 	p := value.(*process)
 	if p.tracingExporterName.Load() != nil {
 		return gen.ErrNotAllowed

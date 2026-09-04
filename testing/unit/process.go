@@ -595,7 +595,7 @@ func (p *mockProcess) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	if p.stateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	return p.node.routeSendResponse(p.pid, to, ref, message, p.msgOptions())
+	return p.node.routeSendResponse(p.stubs, p.pid, to, ref, message, p.msgOptions())
 }
 func (p *mockProcess) SendResponseImportant(to gen.PID, ref gen.Ref, message any) error {
 	if p.stateIR() == false {
@@ -603,13 +603,13 @@ func (p *mockProcess) SendResponseImportant(to gen.PID, ref gen.Ref, message any
 	}
 	opts := p.msgOptions()
 	opts.ImportantDelivery = true
-	return p.node.routeSendResponse(p.pid, to, ref, message, opts)
+	return p.node.routeSendResponse(p.stubs, p.pid, to, ref, message, opts)
 }
 func (p *mockProcess) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	if p.stateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	return p.node.routeSendResponse(p.pid, to, ref, err, p.msgOptions())
+	return p.node.routeSendResponse(p.stubs, p.pid, to, ref, err, p.msgOptions())
 }
 func (p *mockProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
 	if p.stateIR() == false {
@@ -617,7 +617,7 @@ func (p *mockProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err er
 	}
 	opts := p.msgOptions()
 	opts.ImportantDelivery = true
-	return p.node.routeSendResponse(p.pid, to, ref, err, opts)
+	return p.node.routeSendResponse(p.stubs, p.pid, to, ref, err, opts)
 }
 
 // calls (tier 3: strict stub)

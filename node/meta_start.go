@@ -5,7 +5,6 @@ package node
 import (
 	"runtime"
 	"sync/atomic"
-	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -33,8 +32,6 @@ func (m *meta) start() {
 	}
 
 	// start meta process
-	m.creation = time.Now().Unix()
-
 	atomic.StoreInt32(&m.state, int32(gen.MetaStateSleep))
 
 	// handle mailbox

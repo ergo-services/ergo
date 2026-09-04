@@ -2,6 +2,7 @@ package registrar
 
 import (
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,41 +11,86 @@ import (
 	"ergo.services/ergo/testing/mock"
 )
 
-// testNode is a minimal gen.NodeRegistrar: the registrar client only reads Name()
-// and Log() from it; everything else is a safe no-op.
+// testNode is a minimal gen.NodeRegistrar: the registrar client reads Name(), Log()
+// and Peers() from it and publishes membership changes through RegisterEvent and
+// SendEvent. Published messages are collected, and also offered on a buffered
+// channel so a test can wait for one without polling.
 type testNode struct {
-	name gen.Atom
-	log  gen.Log
+	name   gen.Atom
+	log    gen.Log
+	peers  []gen.Atom
+	regErr error
+
+	mu        sync.Mutex
+	events    []any
+	published chan any
 }
 
-func (n *testNode) Name() gen.Atom                                             { return n.name }
-func (n *testNode) Creation() int64                                            { return 1 }
-func (n *testNode) Peers() []gen.Atom                                          { return nil }
-func (n *testNode) SetEnv(gen.Env, any)                                        {}
-func (n *testNode) RegisterEvent(gen.Atom, gen.EventOptions) (gen.Ref, error)  { return gen.Ref{}, nil }
-func (n *testNode) UnregisterEvent(gen.Atom) error                             { return nil }
-func (n *testNode) SendEvent(gen.Atom, gen.Ref, gen.MessageOptions, any) error { return nil }
-func (n *testNode) Log() gen.Log                                               { return n.log }
-func (n *testNode) Stop()                                                      {}
-func (n *testNode) StopWithTimeout(time.Duration)                              {}
-func (n *testNode) StopForce()                                                 {}
+func (n *testNode) Name() gen.Atom      { return n.name }
+func (n *testNode) Creation() int64     { return 1 }
+func (n *testNode) Peers() []gen.Atom   { return n.peers }
+func (n *testNode) SetEnv(gen.Env, any) {}
+func (n *testNode) RegisterEvent(gen.Atom, gen.EventOptions) (gen.Ref, error) {
+	if n.regErr != nil {
+		return gen.Ref{}, n.regErr
+	}
+	return gen.Ref{ID: [3]uint64{7, 0, 0}}, nil
+}
+func (n *testNode) UnregisterEvent(gen.Atom) error { return nil }
+func (n *testNode) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
+	n.mu.Lock()
+	n.events = append(n.events, message)
+	ch := n.published
+	n.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- message:
+		default:
+		}
+	}
+	return nil
+}
+func (n *testNode) Log() gen.Log                  { return n.log }
+func (n *testNode) Stop()                         {}
+func (n *testNode) StopWithTimeout(time.Duration) {}
+func (n *testNode) StopForce()                    {}
+
+// sent returns the messages published so far.
+func (n *testNode) sent() []any {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return append([]any{}, n.events...)
+}
+
+// await returns the next published message, or fails the test if none arrives.
+func (n *testNode) await(t *testing.T) any {
+	t.Helper()
+	select {
+	case message := <-n.published:
+		return message
+	case <-time.After(5 * time.Second):
+		t.Fatal("no membership change was published")
+		return nil
+	}
+}
 
 // startOwner starts a registrar that owns the embedded server and has node1
-// registered locally. Returns the server port and the owner registrar.
-func startOwner(t *testing.T) (uint16, gen.Registrar) {
+// registered locally. Returns the server port, the owner registrar and the node
+// it registered.
+func startOwner(t *testing.T) (uint16, *client, *testNode) {
 	t.Helper()
 	owner := Create(Options{}).(*client)
 	owner.options.Port = 0
-	node := &testNode{name: "node1@localhost", log: mock.NewLog()}
+	node := &testNode{name: "node1@localhost", log: mock.NewLog(), published: make(chan any, 16)}
 	if _, err := owner.Register(node, gen.RegisterRoutes{Routes: []gen.Route{{Host: "localhost", Port: 7001}}}); err != nil {
 		t.Fatalf("owner register: %s", err)
 	}
 	t.Cleanup(owner.Terminate)
-	return uint16(owner.server.lReg.Addr().(*net.TCPAddr).Port), owner
+	return uint16(owner.server.lReg.Addr().(*net.TCPAddr).Port), owner, node
 }
 
 func TestRegistrarOwnerResolvesLocally(t *testing.T) {
-	_, owner := startOwner(t)
+	_, owner, _ := startOwner(t)
 
 	routes, err := owner.Resolver().Resolve("node1@localhost")
 	check.NoError(t, err)
@@ -53,7 +99,7 @@ func TestRegistrarOwnerResolvesLocally(t *testing.T) {
 }
 
 func TestRegistrarRemoteRegisterAndResolve(t *testing.T) {
-	port, owner := startOwner(t)
+	port, owner, _ := startOwner(t)
 
 	// a second node registers over TCP (exercises serveConn on the server)
 	remote := Create(Options{Port: port, DisableServer: true})
@@ -74,7 +120,7 @@ func TestRegistrarRemoteRegisterAndResolve(t *testing.T) {
 }
 
 func TestRegistrarDuplicateNameRejected(t *testing.T) {
-	port, _ := startOwner(t)
+	port, _, _ := startOwner(t)
 
 	dup := Create(Options{Port: port, DisableServer: true})
 	dupNode := &testNode{name: "node1@localhost", log: mock.NewLog()}
@@ -85,7 +131,7 @@ func TestRegistrarDuplicateNameRejected(t *testing.T) {
 }
 
 func TestRegistrarResolveUnknownOverUDP(t *testing.T) {
-	port, _ := startOwner(t)
+	port, _, _ := startOwner(t)
 
 	remote := Create(Options{Port: port, DisableServer: true})
 	remoteNode := &testNode{name: "node2@localhost", log: mock.NewLog()}

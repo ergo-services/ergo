@@ -141,13 +141,13 @@ func (m *MetaSubject) Request(from gen.PID, request any) (any, error) {
 	switch reason {
 	case nil:
 		if result != nil {
-			m.meta.node.routeSendResponse(m.meta.parent, from, ref, result, m.meta.options())
+			m.meta.node.routeSendResponse(m.meta.stubs, m.meta.parent, from, ref, result, m.meta.options())
 		}
 		m.meta.state = gen.MetaStateSleep
 		return result, nil
 	case gen.TerminateReasonNormal:
 		if result != nil {
-			m.meta.node.routeSendResponse(m.meta.parent, from, ref, result, m.meta.options())
+			m.meta.node.routeSendResponse(m.meta.stubs, m.meta.parent, from, ref, result, m.meta.options())
 		}
 		m.terminate(reason)
 		return result, nil
@@ -312,14 +312,14 @@ func (m *mockMeta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 	if m.state != gen.MetaStateRunning {
 		return gen.ErrNotAllowed
 	}
-	return m.node.routeSendResponse(m.parent, to, ref, message, m.options())
+	return m.node.routeSendResponse(m.stubs, m.parent, to, ref, message, m.options())
 }
 
 func (m *mockMeta) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 	if m.state != gen.MetaStateRunning {
 		return gen.ErrNotAllowed
 	}
-	return m.node.routeSendResponse(m.parent, to, ref, err, m.options())
+	return m.node.routeSendResponse(m.stubs, m.parent, to, ref, err, m.options())
 }
 
 func (m *mockMeta) Spawn(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {

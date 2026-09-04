@@ -133,6 +133,8 @@ type processOverrides struct {
 	setTracingSpanAttribute    func(key, value string)
 	tracingAttributes          func() []gen.TracingAttribute
 	clearTracingSpanAttributes func()
+	startTracingSpan           func(name string) gen.TracingSpanScope
+	closeTracingSpans          func()
 	sendTracingSpan            func(span gen.TracingSpan)
 	forward                    func(to gen.PID, message *gen.MailboxMessage, priority gen.MessagePriority) error
 }
@@ -366,6 +368,10 @@ func (p *Process) OnTracingAttributes(fn func() []gen.TracingAttribute) {
 	p.ov.tracingAttributes = fn
 }
 func (p *Process) OnClearTracingSpanAttributes(fn func()) { p.ov.clearTracingSpanAttributes = fn }
+func (p *Process) OnStartTracingSpan(fn func(name string) gen.TracingSpanScope) {
+	p.ov.startTracingSpan = fn
+}
+func (p *Process) OnCloseTracingSpans(fn func()) { p.ov.closeTracingSpans = fn }
 func (p *Process) OnSendTracingSpan(fn func(span gen.TracingSpan)) {
 	p.ov.sendTracingSpan = fn
 }
@@ -1257,10 +1263,17 @@ func (p *Process) SendTracingSpan(span gen.TracingSpan) {
 }
 
 func (p *Process) StartTracingSpan(name string) gen.TracingSpanScope {
+	if p.ov.startTracingSpan != nil {
+		return p.ov.startTracingSpan(name)
+	}
 	return gen.TracingSpanScopeNoop
 }
 
-func (p *Process) CloseTracingSpans() {}
+func (p *Process) CloseTracingSpans() {
+	if p.ov.closeTracingSpans != nil {
+		p.ov.closeTracingSpans()
+	}
+}
 
 func (p *Process) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.MessagePriority) error {
 	var err error
