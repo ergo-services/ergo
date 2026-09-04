@@ -113,6 +113,14 @@ Because the columns are signals, sorting turns the table into a diagnostic tool.
 
 **Kind** deserves a note. It classifies a process by what it is for rather than what type implements it: actor, supervisor, pool and router describe structure; fsm, saga, worker, scheduler, queue, producer, consumer and coordinator describe behavior; web, gateway, proxy, stream, broker and client sit on a boundary; store, cache and session hold data; metrics, leader, follower, health, monitor and logger are operational. The base behaviors report their own kind; your actors opt in either statically, by implementing `ProcessKind()`, or at runtime with `SetProcessKind`. Any string is valid, and anything outside the list renders as `custom`. Colour encodes the category and the icon the specific kind, the same way in the table and in the supervision tree; a reference gallery is one click away from either.
 
+<details>
+
+<summary>Process kinds</summary>
+
+<figure><img src="../.gitbook/assets/observer-kinds.png" alt="Process kinds dialog"><figcaption>The kind gallery: every kind the classifier knows, grouped by category with its colour and icon.</figcaption></figure>
+
+</details>
+
 Three cards across the top summarize the node rather than the scope: process counters (total, spawned, terminated, spawn failures), a **States** bar showing how they split across running, sleep, wait and zombie, and delivery errors split local and remote. Clicking a segment of the States bar filters the table to it. Below them, three charts follow the current scope: messages in and out, the distribution of utilization, and mailbox latency. Click any PID to open a floating detail window.
 
 ### Choosing what the table shows: Scope
@@ -140,14 +148,6 @@ Filters narrow by name, behavior type, application, state, or minimum mailbox de
 **Init Time.** Time spent in the `Init` callback during startup. Highlighted red if over one second. Keep initialization fast: spawn has a timeout, and under a supervisor a slow Init blocks the restart of sibling processes.
 
 **Wakeups.** How many times the process was activated to handle messages. Each activation processes one batch from the mailbox. A high wakeup count with low message counts can indicate many small deliveries.
-
-</details>
-
-<details>
-
-<summary>Process kinds</summary>
-
-<figure><img src="../.gitbook/assets/observer-kinds.png" alt="Process kinds dialog"><figcaption>The kind gallery: every kind the classifier knows, grouped by category with its colour and icon.</figcaption></figure>
 
 </details>
 
