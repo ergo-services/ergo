@@ -40,11 +40,11 @@ The top bar carries the node selector on the left and the connection indicator o
 
 ## The node at a glance: Info
 
-The Info page answers the first question you ask: is this node healthy, and what is it running? Glance cards and live charts across the top track the numbers that move: process count split into total, running and zombie, event throughput published against received, memory used against live heap, CPU split into user and system time, goroutine count, and GC cycles with the next collection threshold. A climbing memory line or a growing process count shows up here first.
+The Info page answers the first question you ask: is this node healthy, and what is it running? Three glance cards and three live charts across the top track the numbers that move: process count split into total, running and zombie; event throughput published against received; memory used against the GOMEMLIMIT ceiling; and per-second CPU split into user and system time. A climbing memory line or a growing process count shows up here first.
 
-Below the glance, **Node Runtime** identifies the node (name, CRC32, framework version, operating system and architecture, uptime) and **Node Config** holds two controls that take effect immediately: the [log level](../basics/logging.md), and the [tracing](distributed-tracing.md) sampler that decides whether the node starts new traces for messages sent through `node.Send()` and `node.Call()`. Turn the sampler up to investigate, and back off when you are done.
+Below the glance, **Node** identifies it (name, CRC32, framework version, operating system and architecture), **Node Runtime** carries the figures the Go runtime reports (goroutines, live heap, the next GC threshold, GC cycles and the CPU fraction spent collecting), and **Node Config** holds two controls that take effect immediately: the [log level](../basics/logging.md), and the [tracing](distributed-tracing.md) sampler that decides whether the node starts new traces for messages sent through `node.Send()` and `node.Call()`. Turn the sampler up to investigate, and back off when you are done.
 
-The rest of the page summarizes the node without leaving it. **Registry** counts registered names, aliases and events. **Delivery Errors** splits failures four ways, send and call, local and remote, which separates "the target is gone" from "the network is broken". **Events** shows published, received, local sent and remote sent. **Cron** and **Tracing** count spans by kind (send, call, request, response, spawn, terminate) and list the tracing exporters and loggers currently registered, or say plainly that none are.
+The rest of the page summarizes the node without leaving it. **Registry** counts registered names, aliases and events. **Delivery Errors** splits failures four ways, send and call, local and remote, which separates "the target is gone" from "the network is broken". **Events** shows published, received, local sent and remote sent. **Loggers** shows the log volume per level beside the loggers currently registered, and **Tracing** counts spans by kind (send, call, request, response, spawn, terminate) beside the registered exporters. Both say plainly when nothing is registered.
 
 <details>
 
@@ -60,7 +60,7 @@ A collapsible panel shows exactly which binary is running: the main module and G
 
 <summary>Cron jobs</summary>
 
-<figure><img src="../.gitbook/assets/observer-info-cron.png" alt="Cron jobs section"><figcaption>The node's cron jobs with their schedules, filtered by its own scope.</figcaption></figure>
+<figure><img src="../.gitbook/assets/observer-info-cron.png" alt="Cron section with its scope"><figcaption>The Cron section with its scope panel open: which jobs are loaded is narrowed before they are fetched.</figcaption></figure>
 
 The node's [cron](../basics/cron.md) jobs appear with their schedule, description and next run. The section has a scope of its own, filtering by name and by schedule spec with a row limit, because a node that schedules a job per tenant has more jobs than a panel can list.
 
@@ -68,7 +68,7 @@ The node's [cron](../basics/cron.md) jobs appear with their schedule, descriptio
 
 ## Managing applications: Applications
 
-An Ergo node runs its work as [applications](../basics/application.md), each a supervised group of processes. Every application is a card, and the card is a summary of the contract it declared: its state (loaded, running, stopping) and [mode](../basics/application.md#application-modes), its description and parent, and its weight, which is the priority the [registrar](../networking/service-discovering.md) uses when several nodes offer the same application.
+An Ergo node runs its work as [applications](../basics/application.md), each a supervised group of processes. A strip across the top counts them by state (total, running, transitioning, loaded) and every application is a card, and the card is a summary of the contract it declared: its state (loaded, running, stopping) and [mode](../basics/application.md#application-modes), its description, version, parent and uptime, whether it depends on the network, and the applications it depends on. Two fields feed service discovery: its weight, the priority the [registrar](../networking/service-discovering.md) applies when several nodes offer the same application, and its tags, the labels a caller selects on (see [Tags for Instance Selection](../basics/application.md#tags-for-instance-selection)).
 
 Two numbers on the card are easy to confuse and worth separating. **Members** is how many processes the application declared in its group. **Processes** is how many exist in its tree right now, the members plus everything they spawned, and the bar draws that as a share of the whole node. An application declaring four members and owning twelve hundred processes is not a contradiction; it is a supervisor tree that grew, and the bar tells you how much of the node it accounts for.
 
@@ -96,7 +96,7 @@ The tree is navigable rather than static. Search by name or PID and step through
 
 <summary>Supervision tree with a heatmap</summary>
 
-<figure><img src="../.gitbook/assets/observer-app-tree.png" alt="Application supervision tree"><figcaption>An application's supervision tree in a floating window, coloured as a mailbox heatmap.</figcaption></figure>
+<figure><img src="../.gitbook/assets/observer-app-tree.png" alt="Application supervision tree"><figcaption>An application's supervision tree in a floating window, coloured as a mailbox heatmap, with the colour-mode selector open.</figcaption></figure>
 
 </details>
 
@@ -111,9 +111,9 @@ The processes page is where you spend most of your time. Every process on the no
 
 Because the columns are signals, sorting turns the table into a diagnostic tool. Sort by Messages In to find the busiest processes, by Mailbox to bring the most backlogged to the top, by Running Time to see where handler time goes. Fourteen columns cover identification (PID, name, kind, behavior, application), messaging (messages in and out, mailbox depth, latency), and lifecycle (running time, init time, wakeups, uptime, state), which is enough to answer most questions without opening a single process.
 
-**Kind** deserves a note. It classifies a process by what it is for rather than what type implements it: actor, supervisor, pool and router describe structure; fsm, saga, worker, scheduler, queue, producer, consumer and coordinator describe behavior; web, gateway, proxy, stream, broker and client sit on a boundary; store, cache and session hold data; metrics, leader, follower, health, monitor and logger are operational. The framework and the extension libraries report their own kind, your actors can opt into any of these, and anything unrecognized falls back to `custom`. Colour encodes the category and the icon the specific kind, the same way in the table and in the supervision tree; a reference gallery is one click away from either.
+**Kind** deserves a note. It classifies a process by what it is for rather than what type implements it: actor, supervisor, pool and router describe structure; fsm, saga, worker, scheduler, queue, producer, consumer and coordinator describe behavior; web, gateway, proxy, stream, broker and client sit on a boundary; store, cache and session hold data; metrics, leader, follower, health, monitor and logger are operational. The base behaviors report their own kind; your actors opt in either statically, by implementing `ProcessKind()`, or at runtime with `SetProcessKind`. Any string is valid, and anything outside the list renders as `custom`. Colour encodes the category and the icon the specific kind, the same way in the table and in the supervision tree; a reference gallery is one click away from either.
 
-Above the table, three charts summarize the current scope rather than one process: messages in and out, the distribution of utilization across the scoped processes, and mailbox latency. A State Distribution bar shows how the scope splits across process states, and clicking a segment filters the table to it. Click any PID to open a floating detail window.
+Three cards across the top summarize the node rather than the scope: process counters (total, spawned, terminated, spawn failures), a **States** bar showing how they split across running, sleep, wait and zombie, and delivery errors split local and remote. Clicking a segment of the States bar filters the table to it. Below them, three charts follow the current scope: messages in and out, the distribution of utilization, and mailbox latency. Click any PID to open a floating detail window.
 
 ### Choosing what the table shows: Scope
 
@@ -153,13 +153,13 @@ Filters narrow by name, behavior type, application, state, or minimum mailbox de
 
 ## Everything about one process: Process Details
 
-Once the table points you at a suspect, the floating detail window tells you everything about it, across four tabs.
+Once the table points you at a suspect, the floating detail window tells you everything about it. A header line carries its state, PID, kind, behavior and application, four cards count messages in and out, mailbox depth and wakeups, and four tabs hold the detail.
 
 The **overview** tab shows two live charts: incoming and outgoing message rates over the last minute, and the depths of the four mailbox queues (Main, System, Urgent, Log). Cards below show running time, init time, state time and uptime, the same signals as in the table but plotted over time. The parent and leader processes appear as links that open their own windows.
 
 The **relations** tab reveals how the process is wired into the rest of the system: the aliases it registered, the meta processes it owns, the events it created, and its links and monitors grouped by type (see [Links and Monitors](../basics/links-and-monitors.md)). This answers a question that matters before you touch anything: who else is affected if this process terminates. Events registered on other nodes can be opened from here as remote event streams. From this tab you can also open the process's supervision subtree as a floating tree, with the same colour modes as the application tree, to see where it sits and which branch below it is busy.
 
-The **inspect** tab shows whatever the process chooses to publish about itself through its `HandleInspect` callback, as live key-value pairs refreshed once a second. If your actor implements that method, it can surface any internal state you care about: queue lengths, cache sizes, open connection counts, the current step of a job. This is your own window into a process that the framework cannot see on its own. A process that implements nothing says so rather than showing an empty box.
+The **inspect** tab shows whatever the process chooses to publish about itself through its `HandleInspect` callback, as live key-value pairs, refreshed on demand or on an interval you pick, with a filter over the keys. If your actor implements that method, it can surface any internal state you care about: queue lengths, cache sizes, open connection counts, the current step of a job. This is your own window into a process that the framework cannot see on its own. A process that implements nothing says so rather than showing an empty box.
 
 <details>
 
@@ -185,13 +185,13 @@ The detail window is also where Observer stops being read-only.
 
 The **config** tab changes settings that take effect on the running process immediately: raise its log level to get more detail from just that process, adjust message priority, compression (with its algorithm, level and threshold), important delivery and network ordering for its outgoing messages, or turn on the tracing sampler for a targeted look. The fallback setting shows where messages go when the mailbox overflows. The environment section appears when the node has `ExposeEnvInfo` enabled in its security settings.
 
-Three actions let you intervene directly. **Send Message** delivers a message to the process. **Send Exit** sends an exit signal with a reason you choose, normal, shutdown or your own. **Kill** terminates it immediately. These act on the real system, so each asks for confirmation and names the target; they are disabled for system processes.
+Three icons in the window header intervene directly, from whichever tab you are on. **Send Message** delivers a message to the process. **Send Exit** sends an exit signal with a reason you choose, normal, shutdown or your own. **Kill** terminates it immediately. These act on the real system, so each asks for confirmation and names the target; they are disabled for system processes.
 
 <details>
 
 <summary>Config tab and the three actions</summary>
 
-<figure><img src="../.gitbook/assets/observer-process-config.png" alt="Process config tab"><figcaption>The config tab: live settings, plus Send Message, Send Exit and Kill.</figcaption></figure>
+<figure><img src="../.gitbook/assets/observer-process-config.png" alt="Process config tab"><figcaption>The config tab: log level, message priority, network ordering, important delivery, compression and the tracing sampler, applied on the running process.</figcaption></figure>
 
 </details>
 
@@ -199,7 +199,7 @@ Three actions let you intervene directly. **Send Message** delivers a message to
 
 A [meta process](../basics/meta-process.md) is not an actor with a mailbox loop; it is a goroutine the framework supervises on an actor's behalf, which is how a TCP connection, a web handler or a port stays attached to a process without blocking it. They appear on the relations tab of their owner and open into their own window.
 
-That window is the actor window in miniature and for the same reasons: mailbox queues and message counters in and out, uptime, the log level and message priority as live controls, and the meta process's own `HandleInspect` state. You can send it a message or an exit signal from there, which is how you close one connection out of thousands without touching the process that owns them.
+That window is the actor window in miniature and for the same reasons: its two mailbox queues against their size limit, message counters in and out, uptime, the log level and message priority as live controls, and the meta process's own `HandleInspect` state. You can send it a message or an exit signal from there, which is how you close one connection out of thousands without touching the process that owns them.
 
 <details>
 
@@ -213,9 +213,9 @@ That window is the actor window in miniature and for the same reasons: mailbox q
 
 Processes rarely work alone; they publish and subscribe to [events](../basics/events.md). The events page makes that traffic visible.
 
-Like the processes page, it shows only what the scope defines. Each row names the event, its producer process, when it was registered, how many subscribers it has, and publication statistics, with delta indicators marking events that are actively publishing. The From control chooses First (oldest registered) or Last (newest), and filters narrow by name, notify mode, buffered mode, open mode, and minimum subscriber count. Three charts above the table summarize the scope: event throughput, event utilization, and how recently each event last published.
+Five cards across the top count the events registered and the messages published, received, delivered locally and sent to remote nodes. Below them, like the processes page, the table shows only what the scope defines. Each row names the event, its producer process, when it was registered, how many subscribers it has, and publication statistics, with delta indicators marking events that are actively publishing. The From control chooses First (oldest registered) or Last (newest), and filters narrow by name, notify mode, buffered mode, open mode, and minimum subscriber count. Three charts above the table summarize the scope: event throughput, event utilization, and how recently each event last published.
 
-Beyond the table, you can open a **live stream** of a single event and watch the actual messages as the producer publishes them, in real time. Filters match the message type and its content, with an exclude mode to hide noise, so you can answer questions the counters cannot: what exactly is this producer emitting, and does it match what subscribers expect. It is a live tap on production message traffic, with no change to the producer or its subscribers.
+Beyond the table, you can open a **live stream** of a single event and watch the actual messages as the producer publishes them, in real time. Filters match the message type and its content, with an exclude mode to hide noise, so you can answer questions the counters cannot: what exactly is this producer emitting, and does it match what subscribers expect. The window states which of the two it is doing: observing a producer that publishes regardless, or acting as the first subscriber of an event whose producer is notified.
 
 <details>
 
@@ -249,13 +249,13 @@ Beyond the table, you can open a **live stream** of a single event and watch the
 
 The network page shows how the node reaches the rest of the cluster and how much traffic flows.
 
-The top of the page is configuration rather than telemetry. **Parameters** holds the network mode, max message size, handshake and protocol versions, and the negotiated flags. **Registrar** shows the service discovery backend, its endpoints and its capabilities, so a node that cannot find its peers tells you here whether it even has a registrar to ask. **Acceptors** lists the node's listeners with their addresses, TLS configuration and per-acceptor flags. Below that, the page splits into three tabs.
+The top of the page is configuration rather than telemetry. **Parameters** holds the network mode, max message size, handshake and protocol versions, and the negotiated flags. **Registrar** shows the service discovery backend, its endpoints, and which of its optional capabilities are available (proxy, application routes, config, events), so a node that cannot find its peers tells you here whether it even has a registrar to ask. **Acceptors** lists the node's listeners with their addresses, TLS configuration and per-acceptor flags. Below that, the page splits into five tabs.
 
-The **Connections** tab is the default. Four live charts plot aggregate traffic across all connections: messages per second, bytes per second, compression operations, and fragmentation operations, each in and out. A connection table with its own scope shows every connection with delta indicators; click a row for a detailed window. A cluster nodes section lists everything known through the registrar or an active connection, which is the quick picture of the topology.
+The **Connections** tab is the default. Four live charts plot aggregate traffic across all connections: messages per second, bytes per second, compression operations, and fragmentation operations, each in and out. A connection table with its own scope shows every connection with delta indicators: direction, TLS or plain, node and connection uptimes, messages and bytes each way, pool size, reconnections and measured clock skew. Click a row for a detailed window. A cluster nodes section lists everything known through the registrar or an active connection, which is the quick picture of the topology.
 
 The **Routes** tab shows configured static routes and proxy routes side by side: static routes tell the node where to dial when a name matches, proxy routes describe how to reach nodes through an intermediary. A node with neither says so, which is the expected state when discovery is doing the work.
 
-The **Types** tab is a snapshot of the wire-format type registry, the set of message types the node knows how to serialize. Each row shows its registration ID, owning protocol version, kind, the wire size of a zero value, and canonical name; expand a row for the inferred Go shape of the type. Two filters narrow by name and by schema content. Refresh re-fetches the registry, which rarely changes after startup, so this tab does not stream. With the node built using `-tags=typestats`, extra columns show per-type encode and decode counts and wire-byte totals; see [The typestats Tag](debugging.md#the-typestats-tag) for using them to pick compression candidates.
+The **Types** tab is a snapshot of the wire-format type registry, the set of message types the node knows how to serialize. Each row shows its registration ID, owning protocol version, kind, the wire size of a zero value, and canonical name; expand a row for the inferred Go shape of the type. Two filters narrow by name and by schema content. Refresh re-fetches the registry, which rarely changes after startup, so this tab does not stream. **Errors** and **Atoms** are the same idea for the other two registries: the error sentinels and the atoms this node knows how to put on the wire. With the node built using `-tags=typestats`, extra columns show per-type encode and decode counts and wire-byte totals; The average bytes per operation is what to sort on when picking compression candidates: a high average is worth compressing, a low one is not worth the framing overhead. See [The typestats Tag](debugging.md#the-typestats-tag).
 
 <details>
 
@@ -287,7 +287,7 @@ The **Types** tab is a snapshot of the wire-format type registry, the set of mes
 
 Clicking a connection row opens a window with the full picture of one connection. Metric cards show messages and bytes in each direction. The **identity** section shows node and connection uptimes, framework and protocol versions, max message size, and the negotiated network flags as colored pills (Remote Spawn, Fragmentation, Important Delivery, and so on), each green when both nodes agreed to enable it. Below, the pool size and reconnection counter appear, and for outgoing connections the Pool DSN lists the addresses of the pooled TCP connections.
 
-Two live charts track messages and bytes per second each way, and a **proxy transit** section adds a third when the connection carries traffic on behalf of other nodes. The **compression** and **fragmentation** sections show how many messages were compressed or fragmented, the ratio, and the bytes saved, which tells you whether those features are helping or adding overhead. A "Switch observer to this node" button re-points Observer at the remote node.
+Two live charts track messages and bytes per second each way, and a **proxy transit** section adds a third when the connection carries traffic on behalf of other nodes. The **compression** and **fragmentation** sections show how many messages were compressed or fragmented, the ratios, the bytes saved and the reassembly timeouts, which tells you whether those features are helping or adding overhead. A "Switch observer to this node" button re-points Observer at the remote node.
 
 <details>
 
@@ -365,7 +365,7 @@ Traces are listed newest first. Each row shows a copyable trace ID, the root pro
 
 Click a trace to expand its waterfall. It groups the observation points for each message (Sent, Delivered, Processed) into one row and arranges the rows into a tree by parent and child, so the indentation is the causal chain of who triggered whom.
 
-Each row carries a color-coded kind (SEND, CALL, RESP, SPAWN, TERM), the sender and receiver with their behaviors, the message type, and a timeline bar split into a lighter transit segment (Sent to Delivered) and a solid processing segment (Delivered to Processed). Hovering shows the node at each point and the exact durations. For a message that crosses nodes, the transit time subtracts the measured clock skew between them, so the number reflects real travel time rather than clock drift. Local PIDs are clickable and open detail windows, and clicking a row opens a panel with every field of the span and the custom attributes merged from all of its observation points.
+Each row carries a color-coded kind (SEND, CALL, RESP, SPAWN, TERM, and SPAN for a business span opened with `StartTracingSpan`), the sender and receiver with their behaviors, the message type, and a timeline bar split into a lighter transit segment (Sent to Delivered) and a solid processing segment (Delivered to Processed). Hovering shows the node at each point and the exact durations. For a message that crosses nodes, the transit time subtracts the measured clock skew between them, so the number reflects real travel time rather than clock drift. Local PIDs are clickable and open detail windows, and clicking a row opens a panel with every field of the span and the custom attributes merged from all of its observation points.
 
 ### Scope
 
@@ -389,7 +389,7 @@ You can also reach a node that Observer is not yet connected to. If the registra
 
 <summary>Node selector and connecting by address</summary>
 
-<figure><img src="../.gitbook/assets/observer-nodes.png" alt="Node selector and connect dialog"><figcaption>The node selector listing cluster nodes, and the dialog for reaching a node by address.</figcaption></figure>
+<figure><img src="../.gitbook/assets/observer-nodes.png" alt="Node selector and connect dialog"><figcaption>The node selector: every node the registrar knows, searchable by name or CRC32, the connected ones marked, and an entry point for reaching one by address.</figcaption></figure>
 
 </details>
 
