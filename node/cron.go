@@ -1,19 +1,20 @@
 package node
 
 import (
+	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
+
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
-	"fmt"
-	"runtime"
-	"sync"
-	"time"
 )
 
 const cronLogPrefix = "(cron) "
 
 type cron struct {
 	node gen.Node
-	sync.RWMutex
+	sync.Mutex
 
 	jobs  map[gen.Atom]*cronJob
 	spool lib.QueueMPSC
@@ -25,14 +26,27 @@ type cron struct {
 // internal job
 
 type cronJob struct {
-	disable bool
+	disable atomic.Bool
 
 	job gen.CronJob
 
 	mask cronSpecMask
 
-	last    time.Time
-	lastErr error
+	last atomic.Pointer[cronLast]
+}
+
+// last completed (or in-progress) action of a job, stored as one atomic value so
+// readers always see a consistent time/error pair without taking the cron lock.
+type cronLast struct {
+	time time.Time
+	err  error
+}
+
+func sameWallMinute(a, b time.Time) bool {
+	ay, am, ad := a.Date()
+	by, bm, bd := b.Date()
+	return ay == by && am == bm && ad == bd &&
+		a.Hour() == b.Hour() && a.Minute() == b.Minute()
 }
 
 func createCron(node gen.Node) *cron {
@@ -47,89 +61,110 @@ func createCron(node gen.Node) *cron {
 	next := now.Add(time.Minute).Truncate(time.Minute)
 	in := next.Sub(now)
 
+	// assign under the lock: time.AfterFunc starts the timer immediately, so if it
+	// fires before the assignment completes the callback would race it. The
+	// callback takes the same lock before touching c.timer, so it cannot proceed
+	// until the assignment is done (same pattern as lib/flusher).
+	c.Lock()
+	c.next = next
 	c.timer = time.AfterFunc(in, func() {
 		if node.IsAlive() == false {
 			// node terminated
 			return
 		}
-		actionTime := time.Now().Truncate(time.Minute)
-		for {
-
-			item, ok := c.spool.Pop()
-			if ok == false {
-				// empty queue
-				break
-			}
-			cj := item.(*cronJob)
-			if cj.disable == true {
-				continue
-			}
-
-			// check if actionTime is actually now:
-			// - no time adjustment happened,
-			// - no Day Light Saving happened
-			nowInLocation := time.Now().In(cj.job.Location).Truncate(time.Minute)
-			actionTimeInLocation := actionTime.In(cj.job.Location).Truncate(time.Minute)
-			if nowInLocation != actionTimeInLocation {
-				// do nothing
-				c.node.Log().Debug(cronLogPrefix+"ignore job %s action time != now",
-					cj.job.Name)
-				return
-			}
-
-			// DO the job
-			go func() {
-				if lib.Recover() {
-					defer func() {
-						if r := recover(); r != nil {
-							pc, fn, line, _ := runtime.Caller(2)
-							c.node.Log().Panic("panic in cron action for job %s: %#v at %s[%s:%d]",
-								cj.job.Name, r, runtime.FuncForPC(pc).Name(), fn, line)
-						}
-					}()
-				}
-
-				cj.last = actionTimeInLocation
-				cj.lastErr = cj.job.Action.Do(cj.job.Name, c.node, actionTime)
-				if cj.lastErr == nil {
-					c.node.Log().Info(cronLogPrefix+"%s has completed (action time: %s)",
-						cj.job.Name, cj.last)
-					return
-				}
-
-				c.node.Log().Error(cronLogPrefix+"job %s has failed (action time: %s): %s", cj.job.Name, cj.last, cj.lastErr)
-
-				if cj.job.Fallback.Enable == false {
-					return
-				}
-
-				messageFallback := gen.MessageCronFallback{
-					Job:  cj.job.Name,
-					Tag:  cj.job.Fallback.Tag,
-					Time: cj.last,
-					Err:  cj.lastErr,
-				}
-				if err := c.node.Send(cj.job.Fallback.Name, messageFallback); err != nil {
-					c.node.Log().Error(
-						cronLogPrefix+"fallback process %s for %s is unreachable: %s",
-						cj.job.Fallback.Name, cj.job.Name, err,
-					)
-					return
-				}
-
-				c.node.Log().Info(cronLogPrefix+"sent fallback message to %s (job: %s)",
-					cj.job.Fallback.Name, cj.job.Name)
-			}()
-		}
+		c.Lock()
+		at := c.next
+		c.Unlock()
+		c.tick(at)
 
 		now := time.Now()
 		next := now.Add(time.Minute).Truncate(time.Minute)
 		in := next.Sub(now)
+		c.Lock()
 		c.timer.Reset(in)
+		c.Unlock()
 		c.schedule(next)
 	})
+	c.Unlock()
 
 	return c
+}
+
+// tick drains the spool for actionTime and runs each due job's action in its own goroutine.
+func (c *cron) tick(actionTime time.Time) {
+	for {
+		item, ok := c.spool.Pop()
+		if ok == false {
+			// empty queue
+			break
+		}
+		cj := item.(*cronJob)
+		if cj.disable.Load() {
+			continue
+		}
+
+		nowInLocation := time.Now().In(cj.job.Location).Truncate(time.Minute)
+		actionTimeInLocation := actionTime.In(cj.job.Location).Truncate(time.Minute)
+		if nowInLocation != actionTimeInLocation {
+			c.node.Log().Debug(cronLogPrefix+"ignore job %s action time != now",
+				cj.job.Name)
+			continue
+		}
+
+		if l := cj.last.Load(); l != nil && sameWallMinute(l.time, actionTimeInLocation) {
+			c.node.Log().Debug(cronLogPrefix+"ignore job %s, local minute %s already ran",
+				cj.job.Name, actionTimeInLocation.Format("2006-01-02 15:04"))
+			continue
+		}
+
+		// DO the job
+		go func() {
+			if cj.disable.Load() {
+				// disabled between the spool pop and the action launch
+				return
+			}
+			if lib.Recover() {
+				defer func() {
+					if r := recover(); r != nil {
+						c.node.Log().Panic("panic in cron action for job %s: %#v at %s",
+							cj.job.Name, r, lib.PanicOrigin())
+					}
+				}()
+			}
+
+			cj.last.Store(&cronLast{time: actionTimeInLocation})
+			err := cj.job.Action.Do(cj.job.Name, c.node, actionTime)
+			cj.last.Store(&cronLast{time: actionTimeInLocation, err: err})
+			if err == nil {
+				c.node.Log().Info(cronLogPrefix+"%s has completed (action time: %s)",
+					cj.job.Name, actionTimeInLocation)
+				return
+			}
+
+			c.node.Log().Error(cronLogPrefix+"job %s has failed (action time: %s): %s", cj.job.Name, actionTimeInLocation, err)
+
+			if cj.job.Fallback.Enable == false {
+				return
+			}
+
+			messageFallback := gen.MessageCronFallback{
+				Job:  cj.job.Name,
+				Tag:  cj.job.Fallback.Tag,
+				Time: actionTimeInLocation,
+				Err:  err,
+			}
+			if sendErr := c.node.Send(cj.job.Fallback.Name, messageFallback); sendErr != nil {
+				c.node.Log().Error(
+					cronLogPrefix+"fallback process %s for %s is unreachable: %s",
+					cj.job.Fallback.Name, cj.job.Name, sendErr,
+				)
+				return
+			}
+
+			c.node.Log().Info(cronLogPrefix+"sent fallback message to %s (job: %s)",
+				cj.job.Fallback.Name, cj.job.Name)
+		}()
+	}
 }
 
 func (c *cron) AddJob(job gen.CronJob) error {
@@ -175,7 +210,7 @@ func (c *cron) RemoveJob(name gen.Atom) error {
 	if exist == false {
 		return gen.ErrUnknown
 	}
-	cj.disable = true
+	cj.disable.Store(true)
 	delete(c.jobs, name)
 	return nil
 }
@@ -187,7 +222,7 @@ func (c *cron) EnableJob(name gen.Atom) error {
 	if exist == false {
 		return gen.ErrUnknown
 	}
-	cj.disable = false
+	cj.disable.Store(false)
 	c.scheduleJob(cj)
 	return nil
 }
@@ -199,14 +234,14 @@ func (c *cron) DisableJob(name gen.Atom) error {
 	if exist == false {
 		return gen.ErrUnknown
 	}
-	cj.disable = true
+	cj.disable.Store(true)
 	return nil
 }
 
 func (c *cron) JobInfo(name gen.Atom) (gen.CronJobInfo, error) {
 	var jobInfo gen.CronJobInfo
-	c.RLock()
-	defer c.RUnlock()
+	c.Lock()
+	defer c.Unlock()
 	v, found := c.jobs[name]
 	if found == false {
 		return jobInfo, gen.ErrUnknown
@@ -215,10 +250,12 @@ func (c *cron) JobInfo(name gen.Atom) (gen.CronJobInfo, error) {
 	jobInfo.Spec = v.job.Spec
 	jobInfo.Location = v.job.Location.String()
 	jobInfo.ActionInfo = v.job.Action.Info()
-	jobInfo.Disabled = v.disable
-	jobInfo.LastRun = v.last
-	if v.lastErr != nil {
-		jobInfo.LastErr = v.lastErr.Error()
+	jobInfo.Disabled = v.disable.Load()
+	if l := v.last.Load(); l != nil {
+		jobInfo.LastRun = l.time
+		if l.err != nil {
+			jobInfo.LastErr = l.err.Error()
+		}
 	}
 	jobInfo.Fallback = v.job.Fallback
 	return jobInfo, nil
@@ -227,16 +264,18 @@ func (c *cron) JobInfo(name gen.Atom) (gen.CronJobInfo, error) {
 func (c *cron) Info() gen.CronInfo {
 	var info gen.CronInfo
 
-	c.RLock()
-	defer c.RUnlock()
+	c.Lock()
+	defer c.Unlock()
 
 	info.Next = c.next
 	info.Spool = []gen.Atom{}
 	info.Jobs = []gen.CronJobInfo{}
 
-	for item := c.spool.Item(); item != nil; item = item.Next() {
-		cj := item.Value().(*cronJob)
-		if cj.disable == true {
+	for _, cj := range c.jobs {
+		if cj.disable.Load() {
+			continue
+		}
+		if cj.mask.IsRunAt(c.next.In(cj.job.Location)) == false {
 			continue
 		}
 		info.Spool = append(info.Spool, cj.job.Name)
@@ -248,10 +287,12 @@ func (c *cron) Info() gen.CronInfo {
 		jobInfo.Spec = v.job.Spec
 		jobInfo.Location = v.job.Location.String()
 		jobInfo.ActionInfo = v.job.Action.Info()
-		jobInfo.Disabled = v.disable
-		jobInfo.LastRun = v.last
-		if v.lastErr != nil {
-			jobInfo.LastErr = v.lastErr.Error()
+		jobInfo.Disabled = v.disable.Load()
+		if l := v.last.Load(); l != nil {
+			jobInfo.LastRun = l.time
+			if l.err != nil {
+				jobInfo.LastErr = l.err.Error()
+			}
 		}
 		jobInfo.Fallback = v.job.Fallback
 
@@ -262,24 +303,39 @@ func (c *cron) Info() gen.CronInfo {
 }
 
 func (c *cron) Schedule(since time.Time, period time.Duration) []gen.CronSchedule {
+	// snapshot the jobs (name, immutable mask, location) under the lock, then run
+	// the O(period) computation lock-free so a large period cannot block the tick.
+	type entry struct {
+		name gen.Atom
+		mask cronSpecMask
+		loc  *time.Location
+	}
+	c.Lock()
+	snapshot := make([]entry, 0, len(c.jobs))
+	for _, v := range c.jobs {
+		snapshot = append(snapshot, entry{name: v.job.Name, mask: v.mask, loc: v.job.Location})
+	}
+	c.Unlock()
+
 	var schedule []gen.CronSchedule
-
-	c.RLock()
-	defer c.RUnlock()
-
 	start := since.Truncate(time.Minute)
 	end := start.Add(period)
 
+	prev := make([]time.Time, len(snapshot))
 	for now := start; now.Before(end); now = now.Add(time.Minute) {
 		cronSchedule := gen.CronSchedule{
 			Time: now,
 		}
-		for _, v := range c.jobs {
-			nowLocation := now.In(v.job.Location)
-			if v.mask.IsRunAt(nowLocation) == false {
+		for i, e := range snapshot {
+			local := now.In(e.loc)
+			if e.mask.IsRunAt(local) == false {
 				continue
 			}
-			cronSchedule.Jobs = append(cronSchedule.Jobs, v.job.Name)
+			if prev[i].IsZero() == false && sameWallMinute(prev[i], local) {
+				continue
+			}
+			prev[i] = local
+			cronSchedule.Jobs = append(cronSchedule.Jobs, e.name)
 		}
 
 		if len(cronSchedule.Jobs) > 0 {
@@ -291,23 +347,31 @@ func (c *cron) Schedule(since time.Time, period time.Duration) []gen.CronSchedul
 }
 
 func (c *cron) JobSchedule(job gen.Atom, since time.Time, period time.Duration) ([]time.Time, error) {
-	var schedule []time.Time
-	c.RLock()
+	c.Lock()
 	v, found := c.jobs[job]
 	if found == false {
-		c.RUnlock()
+		c.Unlock()
 		return nil, gen.ErrUnknown
 	}
-	defer c.RUnlock()
+	mask := v.mask
+	loc := v.job.Location
+	c.Unlock()
 
+	var schedule []time.Time
 	start := since.Truncate(time.Minute)
 	end := start.Add(period)
 
+	var prev time.Time
 	for now := start; now.Before(end); now = now.Add(time.Minute) {
-		nowLocation := now.In(v.job.Location)
-		if v.mask.IsRunAt(nowLocation) == false {
+		local := now.In(loc)
+		if mask.IsRunAt(local) == false {
 			continue
 		}
+		if prev.IsZero() == false && sameWallMinute(prev, local) {
+			// a fall-back repeated this local minute; the tick runs it once
+			continue
+		}
+		prev = local
 		schedule = append(schedule, now)
 	}
 
@@ -315,6 +379,8 @@ func (c *cron) JobSchedule(job gen.Atom, since time.Time, period time.Duration) 
 }
 
 func (c *cron) terminate() {
+	c.Lock()
+	defer c.Unlock()
 	if c.timer == nil {
 		return
 	}
@@ -322,8 +388,8 @@ func (c *cron) terminate() {
 }
 
 func (c *cron) schedule(next time.Time) {
-	c.RLock()
-	defer c.RUnlock()
+	c.Lock()
+	defer c.Unlock()
 	c.next = next
 	for _, cj := range c.jobs {
 		c.scheduleJob(cj)
@@ -335,7 +401,7 @@ func (c *cron) scheduleJob(cj *cronJob) {
 	// to get rid of concurrent access to the c.next value
 
 	next := c.next.In(cj.job.Location)
-	if cj.disable == true {
+	if cj.disable.Load() {
 		return
 	}
 	if cj.mask.IsRunAt(next) == false {

@@ -1,9 +1,10 @@
 package handshake
 
 import (
+	"sync"
+
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/net/edf"
-	"sync"
 )
 
 const (
@@ -14,10 +15,11 @@ const (
 	handshakeVersion byte = 1
 
 	defaultPoolSize int = 3
-)
 
-var (
-	DefaultPoolSize int = 1
+	// handshakeMaxControlSize bounds a control message read (Hello, Join, Accept, Reject).
+	// These are small and fixed-shape; the ceiling also caps pre-auth buffering on the first
+	// (unauthenticated) read. The larger Introduce read uses the configurable node limit.
+	handshakeMaxControlSize int = 64 * 1024
 )
 
 type MessageHello struct {
@@ -55,9 +57,14 @@ type MessageAccept struct {
 	DigestCert string
 }
 
+type MessageReject struct {
+	Reason string
+}
+
 type ConnectionOptions struct {
 	PoolSize int
 	PoolDSN  []string
+	TLS      bool
 
 	EncodeAtomCache *sync.Map
 	EncodeRegCache  *sync.Map
@@ -66,6 +73,17 @@ type ConnectionOptions struct {
 	DecodeAtomCache *sync.Map
 	DecodeRegCache  *sync.Map
 	DecodeErrCache  *sync.Map
+
+	SoftwareKeepAliveMisses int
+	FragmentSize            int
+	FragmentTimeout         int
+	MaxFragmentAssemblies   int
+
+	// acceptor handshake continuation between Negotiate and Accept; opaque to proto
+	pendingAccept    MessageAccept
+	pendingIntroduce MessageIntroduce
+	pendingTail      []byte
+	awaitingAccept   bool
 }
 
 func init() {
@@ -74,6 +92,7 @@ func init() {
 		MessageJoin{},
 		MessageIntroduce{},
 		MessageAccept{},
+		MessageReject{},
 	}
 
 	for _, t := range types {

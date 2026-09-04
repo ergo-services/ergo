@@ -100,7 +100,7 @@ Cross-host discovery uses UDP queries. When node 2 needs to reach node 4, it ask
 
 **Use for**: Development, testing, single-host deployments, simple multi-host setups without firewalls blocking UDP.
 
-**Limitations**: No application discovery, no configuration management, no event notifications.
+**Limitations**: No application discovery, no configuration management. Node listing and membership events are host-scoped - they cover the nodes of this machine plus, for listing, the hosts of connected peers.
 
 ### etcd Registrar
 
@@ -167,17 +167,23 @@ Applications are the unit of deployment in Ergo. A node can load multiple applic
 
 ### Registering Applications
 
-When you start an application, it automatically registers with the registrar (if using etcd or Saturn):
+When you start an application, it automatically registers with the registrar (if using etcd or Saturn). The spec (including Weight) is returned from the application's `Load` callback:
 
 ```go
-// Define application spec with weight
-spec := gen.ApplicationSpec{
-    Name:   "api",
-    Group:  []gen.ApplicationMemberSpec{{Factory: createAPIHandler}},
-    Weight: 100,  // higher weight = more traffic
+type APIApp struct {
+    app.Application
 }
 
-node.ApplicationLoad(app, spec)
+func (a *APIApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    return gen.ApplicationSpec{
+        Name:   "api",
+        Group:  []gen.ApplicationMemberSpec{{Factory: createAPIHandler}},
+        Weight: 100,  // higher weight = more traffic
+    }, nil
+}
+
+// In main:
+node.ApplicationLoad(&APIApp{})
 node.ApplicationStart("api", gen.ApplicationOptions{})
 ```
 
@@ -188,10 +194,7 @@ The registrar now knows: application "api" is running on this node with weight 1
 Other nodes can discover where applications run:
 
 ```go
-registrar, _ := node.Network().Registrar()
-resolver := registrar.Resolver()
-
-routes, _ := resolver.ResolveApplication("api")
+routes, _ := node.Network().ResolveApplication("api")
 for _, route := range routes {
     fmt.Printf("api on %s (weight: %d, state: %s)\n",
         route.Node, route.Weight, route.State)
@@ -307,11 +310,8 @@ func main() {
 
     node, _ := ergo.StartNode("worker@"+hostname(), options)
 
-    // Load and start the application
-    node.ApplicationLoad(&WorkerApp{}, gen.ApplicationSpec{
-        Name:   "worker",
-        Weight: 100,
-    })
+    // Load and start the application (spec returned from WorkerApp.Load)
+    node.ApplicationLoad(&WorkerApp{})
     node.ApplicationStartPermanent("worker", gen.ApplicationOptions{})
 
     node.Wait()
@@ -322,17 +322,17 @@ On coordinator/client nodes:
 
 ```go
 func (c *Coordinator) distributeWork(job Job) error {
-    registrar, _ := c.Node().Network().Registrar()
-    routes, _ := registrar.Resolver().ResolveApplication("worker")
+    routes, _ := c.Node().Network().ResolveApplication("worker")
 
     // Select node based on weights
     targetNode := c.selectNode(routes)
 
-    // Get connection and send work
-    remote, _ := c.Network().GetNode(targetNode)
-    return remote.Send("worker_handler", job)
+    // Messaging needs no connection handle: address the process by name and node
+    return c.Send(gen.ProcessID{Name: "worker_handler", Node: targetNode}, job)
 }
 ```
+
+`gen.RemoteNode`, which is what `GetNode` returns, describes the peer rather than talks to it: it offers `Spawn`, `ApplicationStart` and `Info`, and has no `Send` or `Call`. Ordinary messaging goes through the process's own `Send`/`Call` with a `gen.ProcessID`, and the framework opens the connection if there is not one already.
 
 ### Scaling Operations
 
@@ -360,8 +360,8 @@ func (c *Coordinator) Init(args ...any) error {
     return nil
 }
 
-func (c *Coordinator) HandleEvent(ev gen.MessageEvent) error {
-    switch msg := ev.Message.(type) {
+func (c *Coordinator) HandleEvent(event gen.MessageEvent) error {
+    switch msg := event.Message.(type) {
 
     case etcd.EventApplicationStarted:
         if msg.Name == "worker" {
@@ -512,6 +512,8 @@ func (s *Scheduler) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
+Re-arming with `SendAfter` on every tick is the manual way to build a periodic timer. `SendEvery(s.PID(), RunScheduledTasks{}, 10*time.Second)` does the same with one reused timer (no per-tick allocation). Keep the returned `CancelFunc` and call it when the node loses leadership: a `SendEvery` ticker fires until it is cancelled or its process stops, so there is no per-tick `IsLeader()` guard to fall back on - you stop it explicitly instead.
+
 **Distributed locks**: Leader grants exclusive access.
 
 ```go
@@ -609,6 +611,7 @@ type AppMetrics struct {
     requestsTotal  prometheus.Counter
     requestLatency prometheus.Histogram
     activeJobs     prometheus.Gauge
+    registered     bool
 }
 
 func (m *AppMetrics) Init(args ...any) (metrics.Options, error) {
@@ -627,9 +630,20 @@ func (m *AppMetrics) Init(args ...any) (metrics.Options, error) {
         Help: "Currently processing jobs",
     })
 
-    m.Registry().MustRegister(m.requestsTotal, m.requestLatency, m.activeJobs)
-
     return metrics.Options{Port: 9090}, nil
+}
+
+func (m *AppMetrics) CollectMetrics() error {
+    // Registry() is nil during Init - the actor creates the registry from the
+    // Options that Init returns. Register on the first collection instead.
+    if m.registered == false {
+        if err := m.Registry().Register(m.requestsTotal); err != nil {
+            return err
+        }
+        m.Registry().MustRegister(m.requestLatency, m.activeJobs)
+        m.registered = true
+    }
+    return nil
 }
 ```
 
@@ -705,16 +719,11 @@ Open `http://localhost:9911` to see:
 - **Process details**: Links, monitors, aliases, environment
 - **Logs**: Real-time log stream with filtering
 
-### Standalone Observer Tool
+### Inspecting the rest of the cluster
 
-For inspecting remote nodes without embedding:
+There is no standalone observer binary. Observer is the embedded application above, and it does not need one: a single node running it reaches every other node in the cluster over the ordinary connection. Add it to one node - a dedicated one if you like - and inspect the others from there by name.
 
-```bash
-go install ergo.services/tools/observer@latest
-observer -cookie "your-cluster-cookie"
-```
-
-Connect to any node in your cluster and inspect its state remotely.
+The tools that do exist install as `ergo.tools/*`: `ergo` (the scaffolder), `saturn` (the registrar server) and [`argus`](../tools/argus.md) (an actor-model vet tool).
 
 ### Process Inspection
 
@@ -772,7 +781,7 @@ Start an application on a remote node:
 
 ```go
 // On remote node: load app and enable remote start
-node.ApplicationLoad(&WorkerApp{}, gen.ApplicationSpec{Name: "workers"})
+node.ApplicationLoad(&WorkerApp{})
 network.EnableApplicationStart("workers", "coordinator@host")
 
 // On coordinator: start remotely
@@ -825,8 +834,8 @@ cacheEnabled := config["cache.enabled"].(bool) // true
 React to config changes in real-time:
 
 ```go
-func (a *App) HandleEvent(ev gen.MessageEvent) error {
-    switch msg := ev.Message.(type) {
+func (a *App) HandleEvent(event gen.MessageEvent) error {
+    switch msg := event.Message.(type) {
     case etcd.EventConfigUpdate:
         a.Log().Info("config changed: %s = %v", msg.Item, msg.Value)
 
@@ -937,8 +946,8 @@ func (c *Coordinator) HandleBecomeFollower(leader gen.PID) error {
     return nil
 }
 
-func (c *Coordinator) HandleEvent(ev gen.MessageEvent) error {
-    switch ev.Message.(type) {
+func (c *Coordinator) HandleEvent(event gen.MessageEvent) error {
+    switch event.Message.(type) {
     case etcd.EventApplicationStarted, etcd.EventApplicationStopped:
         c.refreshWorkers()
     }
@@ -946,8 +955,7 @@ func (c *Coordinator) HandleEvent(ev gen.MessageEvent) error {
 }
 
 func (c *Coordinator) refreshWorkers() {
-    reg, _ := c.Node().Network().Registrar()
-    c.workers, _ = reg.Resolver().ResolveApplication("worker")
+    c.workers, _ = c.Node().Network().ResolveApplication("worker")
 }
 
 func main() {
@@ -985,13 +993,16 @@ package main
 import (
     "ergo.services/actor/metrics"
     "ergo.services/ergo"
+    "ergo.services/ergo/app"
     "ergo.services/ergo/gen"
     "ergo.services/registrar/etcd"
 )
 
-type WorkerApp struct{}
+type WorkerApp struct {
+    app.Application
+}
 
-func (w *WorkerApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (w *WorkerApp) Load(args ...any) (gen.ApplicationSpec, error) {
     return gen.ApplicationSpec{
         Name:   "worker",
         Weight: 100,
@@ -1000,9 +1011,6 @@ func (w *WorkerApp) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error
         },
     }, nil
 }
-
-func (w *WorkerApp) Start(mode gen.ApplicationMode) {}
-func (w *WorkerApp) Terminate(reason error) {}
 
 func main() {
     options := gen.NodeOptions{
@@ -1055,7 +1063,7 @@ Ergo provides integrated technologies for building production clusters:
 | **Applications** | Deployment units with weights | Core framework |
 | **Leader Actor** | Failover via leader election | `ergo.services/actor/leader` |
 | **Metrics Actor** | Prometheus observability | `ergo.services/actor/metrics` |
-| **Observer** | Web UI for inspection | `ergo.services/application/observer`, `tools/observer` |
+| **Observer** | Web UI, API and MCP surface for inspection | `ergo.services/application/observer` |
 | **Remote Spawn** | Dynamic process creation | Core framework |
 | **Remote App Start** | Dynamic application deployment | Core framework |
 | **Configuration** | Hierarchical config management | Registrar feature |

@@ -5,10 +5,10 @@ package gen
 //
 // Default Registrar Behavior (if not configured in NetworkOptions):
 // - Uses minimal built-in registrar (no external service required)
-// - Tries to start embedded registrar server on localhost:41000
+// - Tries to start embedded registrar server on localhost:4499
 // - If port taken, connects to existing registrar on localhost (TCP client)
 // - Same host: nodes discover each other via local registrar server
-// - Different hosts: queries remote host's registrar via UDP (host:41000)
+// - Different hosts: queries remote host's registrar via UDP (host:4499)
 //   - Remote host must have registrar server running
 //   - Remote host must be reachable and port open
 //   - No persistent connection - query on-demand only
@@ -76,8 +76,21 @@ type Registrar interface {
 	// Returns ErrUnsupported if not supported.
 	ConfigItem(item string) (any, error)
 
-	// Event returns an event for monitoring registrar changes.
-	// Link/Monitor this event to receive notifications when registry changes.
+	// Event returns an event for monitoring registrar state changes.
+	// Link/Monitor this event to receive notifications when the registry changes.
+	//
+	// Messages published through this event are of the standard
+	// MessageRegistrar* types declared in this package:
+	//
+	//   - MessageRegistrarNodeJoined / MessageRegistrarNodeLeft
+	//   - MessageRegistrarConfigUpdate
+	//   - MessageRegistrarApplicationLoaded / Initializing / Started / Stopping / Unloaded
+	//   - MessageRegistrarProxyRegistered / MessageRegistrarProxyUnregistered
+	//
+	// A specific registrar implementation MAY additionally publish
+	// vendor-specific message types declared in its own package; consult
+	// the registrar's documentation.
+	//
 	// Optional feature - check RegistrarInfo.SupportEvent.
 	// Returns ErrUnsupported if not supported.
 	Event() (Event, error)
@@ -102,14 +115,93 @@ type Resolver interface {
 	Resolve(node Atom) ([]Route, error)
 
 	// ResolveProxy resolves proxy routes for the given node name.
-	// Returns proxy paths (node A → proxy B → target node C).
+	// Returns proxy paths (node A -> proxy B -> target node C).
 	// Enables connecting through intermediate proxy nodes.
 	ResolveProxy(node Atom) ([]ProxyRoute, error)
 
 	// ResolveApplication resolves deployment locations for the given application.
-	// Returns which nodes have this application loaded or running.
-	// Enables finding where applications are deployed in the cluster.
-	ResolveApplication(name Atom) ([]ApplicationRoute, error)
+	// Returns which nodes have this application loaded or running. Result
+	// supports chained filtering via WithTags/WithoutTags/WithState.
+	ResolveApplication(name Atom) (ApplicationRoutes, error)
+}
+
+// ApplicationRoutes is the result type of Resolver.ResolveApplication.
+// Provides chainable filter methods for narrowing down routes by tags,
+// state, etc. without requiring the resolver to support server-side filtering.
+type ApplicationRoutes []ApplicationRoute
+
+// WithTags returns a new ApplicationRoutes containing only routes whose
+// Tags include ALL the given tags. Calling with no tags is a no-op.
+func (r ApplicationRoutes) WithTags(tags ...Atom) ApplicationRoutes {
+	if len(tags) == 0 {
+		return r
+	}
+	out := r[:0:0]
+	for _, route := range r {
+		match := true
+		for _, t := range tags {
+			found := false
+			for _, rt := range route.Tags {
+				if rt == t {
+					found = true
+					break
+				}
+			}
+			if found == false {
+				match = false
+				break
+			}
+		}
+		if match {
+			out = append(out, route)
+		}
+	}
+	return out
+}
+
+// WithoutTags returns a new ApplicationRoutes excluding routes whose Tags
+// include ANY of the given tags. Calling with no tags is a no-op.
+func (r ApplicationRoutes) WithoutTags(tags ...Atom) ApplicationRoutes {
+	if len(tags) == 0 {
+		return r
+	}
+	out := r[:0:0]
+	for _, route := range r {
+		match := true
+		for _, t := range tags {
+			for _, rt := range route.Tags {
+				if rt == t {
+					match = false
+					break
+				}
+			}
+			if match == false {
+				break
+			}
+		}
+		if match {
+			out = append(out, route)
+		}
+	}
+	return out
+}
+
+// WithState returns a new ApplicationRoutes containing only routes whose
+// State is in the given set. Calling with no states is a no-op.
+func (r ApplicationRoutes) WithState(states ...ApplicationState) ApplicationRoutes {
+	if len(states) == 0 {
+		return r
+	}
+	out := r[:0:0]
+	for _, route := range r {
+		for _, s := range states {
+			if route.State == s {
+				out = append(out, route)
+				break
+			}
+		}
+	}
+	return out
 }
 
 // RegistrarInfo describes registrar capabilities and connection details.
@@ -171,6 +263,9 @@ type AcceptorInfo struct {
 
 	// ProtoVersion is the network protocol version (EDF or Erlang).
 	ProtoVersion Version
+
+	// HandshakeErrors is the cumulative number of failed handshakes on this acceptor.
+	HandshakeErrors uint64
 }
 
 // RegisterRoutes contains routes to publish when registering with the service registry.
@@ -240,6 +335,7 @@ type ApplicationRoute struct {
 
 	// Weight is the routing weight for load balancing.
 	// Higher weight = preferred for remote operations.
+	// A negative weight excludes the route from resolve results (out of rotation).
 	Weight int
 
 	// Mode is the application starting mode (Temporary, Transient, Permanent).
@@ -251,8 +347,13 @@ type ApplicationRoute struct {
 	// Examples: "blue", "green", "canary", "stable", "maintenance".
 	Tags []Atom
 
-	// State is the current application state (Loaded, Running, Stopped).
+	// State is the current application state (Loaded, Initializing, Running, Stopping).
 	State ApplicationState
+
+	// Version is the application version taken from its ApplicationSpec.
+	// Lets a resolver tell instances of the same application apart during a
+	// rolling upgrade, alongside Tags.
+	Version Version
 }
 
 // StaticRoutes contains static route configuration received from registrar.

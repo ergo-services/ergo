@@ -6,18 +6,18 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"ergo.services/ergo/app/system"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 	"ergo.services/ergo/lib/osdep"
-	"ergo.services/ergo/net/edf"
 	"ergo.services/ergo/node/tm"
 )
 
@@ -59,6 +59,14 @@ func releaseNodeCall(r *nodeCall) {
 }
 
 type node struct {
+	// core is the routing surface handed to collaborators (processes, connections,
+	// node-level Send/Call). Defaults to the node itself; a decorator may replace it
+	// (testing/stage) to observe routing and delivery.
+	core gen.Core
+	// wrapProcess optionally decorates the gen.Process handed to a behavior at
+	// ProcessInit (testing/stage) to observe a process's egress actions.
+	wrapProcess func(gen.Process) gen.Process
+
 	name      gen.Atom
 	version   gen.Version
 	framework gen.Version
@@ -70,9 +78,12 @@ type node struct {
 	security    gen.SecurityOptions
 	certmanager gen.CertManager
 
-	corePID gen.PID
-	nextID  uint64
-	uniqID  uint64
+	corePID   gen.PID
+	nextID    uint64
+	uniqID    uint64
+	traceID   uint64
+	spanID    uint64
+	nameCRC32 uint64
 
 	processes sync.Map // process pid gen.PID -> *process
 	names     sync.Map // process name gen.Atom -> *process
@@ -88,13 +99,19 @@ type node struct {
 
 	cron *cron
 
-	loggers map[gen.LogLevel]*sync.Map // level -> name -> gen.LoggerBehavior
-	log     *log
+	loggers   map[gen.LogLevel]*sync.Map // level -> name -> gen.LoggerBehavior
+	loggersMu sync.Mutex                 // serializes LoggerAdd/LoggerDelete registration
+	log       *log
+
+	tracingExporters sync.Map // name -> tracingExporterEntry
+	tracing          gen.Tracing
+	tracingSampler   atomic.Pointer[gen.TracingSampler]
 
 	shutdownTimeout time.Duration
 	waitprocesses   sync.WaitGroup
 	wait            chan struct{}
 	once            sync.Once
+	stopping        atomic.Bool // CAS-guard against concurrent Stop/StopForce
 
 	licenses sync.Map
 
@@ -102,7 +119,32 @@ type node struct {
 
 	enableCTRLC atomic.Bool
 	ctrlc       chan os.Signal
+
+	processesSpawned     uint64
+	processesSpawnFailed uint64
+	processesTerminated  uint64
+
+	sendErrorsLocal  uint64
+	sendErrorsRemote uint64
+	callErrorsLocal  uint64
+	callErrorsRemote uint64
+
+	logMessages  [6]uint64                              // atomic: 0=trace, 1=debug, 2=info, 3=warning, 4=error, 5=panic
+	tracingSpans [5]uint64                              // atomic: 0=send, 1=request, 2=response, 3=spawn, 4=terminate
+	tracingAttrs atomic.Pointer[[]gen.TracingAttribute] // node-level permanent, COW; pointer always non-nil
 }
+
+type tracingExporterEntry struct {
+	exporter   gen.TracingBehavior
+	flags      gen.TracingFlags
+	pid        gen.PID                          // non-zero for process-based exporters
+	dispatcher *lib.Dispatcher[gen.TracingSpan] // decouples an object exporter from the routing goroutine
+}
+
+// tracingExporterQueue bounds the buffer of spans awaiting an object exporter's HandleSpan.
+const tracingExporterQueue = 1024
+
+const logListLimit = 10
 
 type eventOwner struct {
 	name      gen.Atom
@@ -114,20 +156,56 @@ type eventOwner struct {
 	last lib.QueueMPSC
 }
 
-func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version) (gen.Node, error) {
+// NodeOptionsExtra carries options not exposed through the public ergo.StartNode
+// entry point. WrapCore decorates the routing surface handed to collaborators;
+// WrapProcess decorates the gen.Process handed to each behavior at ProcessInit.
+type NodeOptionsExtra struct {
+	gen.NodeOptions
+	FrameworkVersion      gen.Version
+	WrapCore              func(gen.Core) gen.Core
+	WrapProcess           func(gen.Process) gen.Process
+	WrapCoreTargetManager func(gen.CoreTargetManager) gen.CoreTargetManager
+}
+
+// the host is checked by the acceptor that binds it
+const nodeNameReserved = ":/?#%"
+
+func validNodeName(name gen.Atom) error {
+	parts := strings.Split(string(name), "@")
+	if len(parts) != 2 {
+		return fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
+	}
+	if len(parts[0]) < 1 {
+		return fmt.Errorf("too short node name")
+	}
+	if len(parts[1]) < 1 {
+		return fmt.Errorf("too short host name")
+	}
+
+	id := parts[0]
+	if utf8.ValidString(id) == false {
+		return fmt.Errorf("node name is not valid UTF-8")
+	}
+	if i := strings.IndexAny(id, nodeNameReserved); i >= 0 {
+		return fmt.Errorf("%q is not allowed in a node name", id[i])
+	}
+	if strings.IndexFunc(id, func(r rune) bool {
+		return r == ' ' || unicode.IsPrint(r) == false
+	}) >= 0 {
+		return fmt.Errorf("a space or a non-printable character is not allowed in a node name")
+	}
+	return nil
+}
+
+func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
+	options := extra.NodeOptions
+	frameworkVersion := extra.FrameworkVersion
 	if len(name) > 255 {
 		return nil, gen.ErrAtomTooLong
 	}
 
-	if s := strings.Split(string(name), "@"); len(s) != 2 {
-		return nil, fmt.Errorf("incorrect FQDN node name (example: node@localhost)")
-	} else {
-		if len(s[0]) < 1 {
-			return nil, fmt.Errorf("too short node name")
-		}
-		if len(s[1]) < 1 {
-			return nil, fmt.Errorf("too short host name")
-		}
+	if err := validNodeName(name); err != nil {
+		return nil, err
 	}
 
 	creation := time.Now().Unix()
@@ -142,9 +220,10 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 		framework: frameworkVersion,
 		creation:  creation,
 
-		corePID: gen.PID{Node: name, ID: 1, Creation: creation},
-		nextID:  startID,
-		uniqID:  startUniqID,
+		corePID:   gen.PID{Node: name, ID: 1, Creation: creation},
+		nextID:    startID,
+		uniqID:    startUniqID,
+		nameCRC32: uint64(name.CRC32Sum()),
 
 		certmanager: options.CertManager,
 		security:    options.Security,
@@ -155,6 +234,12 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 
 		wait: make(chan struct{}),
 	}
+	node.core = node
+	if extra.WrapCore != nil {
+		node.core = extra.WrapCore(node)
+	}
+	node.wrapProcess = extra.WrapProcess
+	node.tracingAttrs.Store(new([]gen.TracingAttribute))
 
 	node.log = createLog(options.Log.Level, node.dolog)
 	node.log.setSource(gen.MessageLogNode{Node: name, Creation: creation})
@@ -191,11 +276,25 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 		node.LoggerAdd(lo.Name, lo.Logger, lo.Filter...)
 	}
 
-	node.validateLicenses(node.version)
+	for _, te := range options.Tracing.Exporters {
+		if len(te.Name) == 0 {
+			return nil, errors.New("tracing exporter name can not be empty")
+		}
+		if te.Exporter == nil {
+			return nil, errors.New("tracing exporter can not be nil")
+		}
+		if err := node.TracingExporterAdd(te.Name, te.Exporter, te.Flags); err != nil {
+			return nil, fmt.Errorf("tracing exporter %q: %w", te.Name, err)
+		}
+	}
 
 	// create target manager (pub/sub subsystem) before network start
 	// because registrar may call RegisterEvent during network initialization
-	node.targets = tm.Create(createTMBridge(node), tm.Options{})
+	bridge := gen.CoreTargetManager(createTMBridge(node))
+	if extra.WrapCoreTargetManager != nil {
+		bridge = extra.WrapCoreTargetManager(bridge)
+	}
+	node.targets = tm.Create(bridge, tm.Options{})
 
 	node.network = createNetwork(node)
 
@@ -203,7 +302,20 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 		return nil, err
 	}
 
-	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{})
+	node.coreEventsToken, _ = node.RegisterEvent(gen.CoreEvent, gen.EventOptions{Buffer: 1000})
+
+	// Pre-register user-declared node-level events before starting cron and
+	// applications so processes can subscribe from Init() without racing the
+	// producer registration.
+	for _, spec := range options.Events {
+		if _, err := node.RegisterEvent(spec.Name, gen.EventOptions{
+			Buffer: spec.Buffer,
+			Open:   true,
+		}); err != nil {
+			node.StopForce()
+			return nil, fmt.Errorf("unable to pre-register event %q: %w", spec.Name, err)
+		}
+	}
 
 	node.cron = createCron(node)
 	for _, job := range options.Cron.Jobs {
@@ -219,20 +331,19 @@ func Start(name gen.Atom, options gen.NodeOptions, frameworkVersion gen.Version)
 			// load applications
 			name, err := node.ApplicationLoad(app)
 			if err != nil {
-				node.log.Error("unable to load application %s: %s ", name, err)
+				node.log.Error("unable to load application %s: %s", name, err)
 				node.StopForce()
 				return nil, err
 			}
 			// start applications
 			if err := node.ApplicationStart(name, gen.ApplicationOptions{}); err != nil {
-				node.log.Error("unable to start application %s:%s", name, err)
+				node.log.Error("unable to start application %s: %s", name, err)
 				node.StopForce()
 				return nil, err
 			}
 		}
 	}
 
-	edf.RegisterAtom(name)
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
 
 	// enable SIGTERM
@@ -342,7 +453,7 @@ func (n *node) Spawn(
 		Args:           args,
 		ParentPID:      n.corePID,
 		ParentLeader:   n.corePID,
-		ParentLogLevel: n.log.level,
+		ParentLogLevel: n.log.Level(),
 		ParentEnv:      n.EnvList(),
 		Ref:            ref,
 	}
@@ -376,7 +487,7 @@ func (n *node) SpawnRegister(register gen.Atom, factory gen.ProcessFactory,
 		Args:           args,
 		ParentPID:      n.corePID,
 		ParentLeader:   n.corePID,
-		ParentLogLevel: n.log.level,
+		ParentLogLevel: n.log.Level(),
 		ParentEnv:      n.EnvList(),
 		Ref:            ref,
 	}
@@ -458,17 +569,17 @@ func (n *node) MetaInfo(m gen.Alias) (gen.MetaInfo, error) {
 
 	info.ID = mp.id
 	info.Parent = p.pid
-	info.Application = p.application
+	info.Application = appName(p.application)
 	info.Behavior = mp.sbehavior
 	info.MailboxSize = mp.main.Size()
 	info.MailboxQueues.Main = mp.main.Len()
 	info.MailboxQueues.System = mp.system.Len()
-	info.MessagesIn = mp.messagesIn
-	info.MessagesOut = mp.messagesOut
-	info.MessagePriority = mp.priority
+	info.MessagesIn = atomic.LoadUint64(&mp.messagesIn)
+	info.MessagesOut = atomic.LoadUint64(&mp.messagesOut)
+	info.MessagePriority = gen.MessagePriority(mp.priority.Load())
 	info.Uptime = time.Now().Unix() - mp.creation
 	info.LogLevel = mp.log.Level()
-	info.State = gen.MetaState(mp.state)
+	info.State = gen.MetaState(atomic.LoadInt32(&mp.state))
 	return info, nil
 }
 
@@ -487,28 +598,40 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 
 	info.PID = p.pid
 	info.Name = p.name
-	info.Application = p.application
+	info.Application = appName(p.application)
 	info.Behavior = p.sbehavior
+	info.Kind = p.kind
 	info.MailboxSize = p.mailbox.Main.Size()
 	info.MailboxQueues.Main = p.mailbox.Main.Len()
 	info.MailboxQueues.Urgent = p.mailbox.Urgent.Len()
 	info.MailboxQueues.System = p.mailbox.System.Len()
 	info.MailboxQueues.Log = p.mailbox.Log.Len()
+	info.MailboxQueues.LatencyMain = p.mailbox.Main.Latency()
+	info.MailboxQueues.LatencySystem = p.mailbox.System.Latency()
+	info.MailboxQueues.LatencyUrgent = p.mailbox.Urgent.Latency()
+	info.MailboxQueues.LatencyLog = p.mailbox.Log.Latency()
 	info.MessagesIn = atomic.LoadUint64(&p.messagesIn)
 	info.MessagesOut = atomic.LoadUint64(&p.messagesOut)
 	info.RunningTime = atomic.LoadUint64(&p.runningTime)
-	info.Compression = p.compression
-	info.MessagePriority = p.priority
+	info.InitTime = atomic.LoadUint64(&p.initTime)
+	info.Wakeups = atomic.LoadUint64(&p.wakeups)
+	info.Compression = *p.compression.Load()
+	info.MessagePriority = gen.MessagePriority(p.priority.Load())
 	info.Uptime = p.Uptime()
 	info.State = p.State()
+	info.StateTime = time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered)
 	info.Parent = p.parent
 	info.Leader = p.leader
 	info.Fallback = p.fallback
 	info.Aliases = p.Aliases()
 	info.Events = p.Events()
 	info.LogLevel = p.log.Level()
-	info.KeepNetworkOrder = p.keeporder
-	info.ImportantDelivery = p.important
+	info.KeepNetworkOrder = p.keeporder.Load()
+	info.ImportantDelivery = p.important.Load()
+	info.Tracing = gen.TracingInfo{
+		Sampler:    p.TracingSampler().String(),
+		Attributes: *p.tracingAttrs.Load(),
+	}
 
 	if n.security.ExposeEnvInfo {
 		info.Env = p.EnvList()
@@ -573,7 +696,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	return info, nil
 }
 
-func (n *node) SetLogLevelProcess(pid gen.PID, level gen.LogLevel) error {
+func (n *node) SetProcessLogLevel(pid gen.PID, level gen.LogLevel) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
@@ -586,22 +709,122 @@ func (n *node) SetLogLevelProcess(pid gen.PID, level gen.LogLevel) error {
 	return p.log.SetLevel(level)
 }
 
-func (n *node) LogLevelProcess(pid gen.PID) (gen.LogLevel, error) {
-	var level gen.LogLevel
+func (n *node) SetProcessSendPriority(pid gen.PID, priority gen.MessagePriority) error {
 	if n.isRunning() == false {
-		return level, gen.ErrNodeTerminated
+		return gen.ErrNodeTerminated
+	}
+	switch priority {
+	case gen.MessagePriorityNormal:
+	case gen.MessagePriorityHigh:
+	case gen.MessagePriorityMax:
+	default:
+		return gen.ErrIncorrect
 	}
 	value, loaded := n.processes.Load(pid)
 	if loaded == false {
-		return level, gen.ErrProcessUnknown
+		return gen.ErrProcessUnknown
 	}
-
 	p := value.(*process)
-	level = p.log.Level()
-	return level, nil
+	p.priority.Store(int32(priority))
+	return nil
 }
 
-func (n *node) SetLogLevelMeta(m gen.Alias, level gen.LogLevel) error {
+func (n *node) SetProcessCompression(pid gen.PID, enabled bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.updateCompression(func(c *gen.Compression) { c.Enable = enabled })
+	return nil
+}
+
+func (n *node) SetProcessCompressionType(pid gen.PID, ctype gen.CompressionType) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	switch ctype {
+	case gen.CompressionTypeGZIP:
+	case gen.CompressionTypeLZW:
+	case gen.CompressionTypeZLIB:
+	default:
+		return gen.ErrIncorrect
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.updateCompression(func(c *gen.Compression) { c.Type = ctype })
+	return nil
+}
+
+func (n *node) SetProcessCompressionLevel(pid gen.PID, level gen.CompressionLevel) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	switch level {
+	case gen.CompressionBestSize:
+	case gen.CompressionBestSpeed:
+	case gen.CompressionDefault:
+	default:
+		return gen.ErrIncorrect
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.updateCompression(func(c *gen.Compression) { c.Level = level })
+	return nil
+}
+
+func (n *node) SetProcessCompressionThreshold(pid gen.PID, threshold int) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	if threshold < gen.DefaultCompressionThreshold {
+		return gen.ErrIncorrect
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.updateCompression(func(c *gen.Compression) { c.Threshold = threshold })
+	return nil
+}
+
+func (n *node) SetProcessKeepNetworkOrder(pid gen.PID, order bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.keeporder.Store(order)
+	return nil
+}
+
+func (n *node) SetProcessImportantDelivery(pid gen.PID, important bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.important.Store(important)
+	return nil
+}
+
+func (n *node) SetMetaLogLevel(m gen.Alias, level gen.LogLevel) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
@@ -621,26 +844,32 @@ func (n *node) SetLogLevelMeta(m gen.Alias, level gen.LogLevel) error {
 	return mp.log.SetLevel(level)
 }
 
-func (n *node) LogLevelMeta(m gen.Alias) (gen.LogLevel, error) {
-	var level gen.LogLevel
+func (n *node) SetMetaSendPriority(m gen.Alias, priority gen.MessagePriority) error {
 	if n.isRunning() == false {
-		return level, gen.ErrNodeTerminated
+		return gen.ErrNodeTerminated
 	}
 	value, loaded := n.aliases.Load(m)
 	if loaded == false {
-		return level, gen.ErrProcessUnknown
+		return gen.ErrProcessUnknown
 	}
 
 	p := value.(*process)
 
 	value, loaded = p.metas.Load(m)
 	if loaded == false {
-		return level, gen.ErrMetaUnknown
+		return gen.ErrMetaUnknown
 	}
 	mp := value.(*meta)
-	level = mp.log.Level()
 
-	return level, nil
+	switch priority {
+	case gen.MessagePriorityNormal:
+	case gen.MessagePriorityHigh:
+	case gen.MessagePriorityMax:
+	default:
+		return gen.ErrIncorrect
+	}
+	mp.priority.Store(int32(priority))
+	return nil
 }
 
 func (n *node) Info() (gen.NodeInfo, error) {
@@ -678,6 +907,37 @@ func (n *node) Info() (gen.NodeInfo, error) {
 		})
 	}
 
+	info.Tracing = gen.TracingInfo{
+		Sampler:    n.TracingSampler().String(),
+		Attributes: *n.tracingAttrs.Load(),
+	}
+
+	n.tracingExporters.Range(func(k, v any) bool {
+		entry := v.(tracingExporterEntry)
+		behavior := ""
+		if entry.exporter != nil {
+			behavior = strings.TrimPrefix(reflect.TypeOf(entry.exporter).String(), "*")
+		}
+		var dropped uint64
+		if entry.dispatcher != nil {
+			dropped = entry.dispatcher.Dropped()
+		}
+		info.TracingExporters = append(info.TracingExporters, gen.TracingExporterInfo{
+			Name:         k.(string),
+			Behavior:     behavior,
+			Flags:        entry.flags,
+			DroppedSpans: dropped,
+		})
+		return true
+	})
+
+	for i := 0; i < 6; i++ {
+		info.LogMessages[i] = atomic.LoadUint64(&n.logMessages[i])
+	}
+	for i := 0; i < 5; i++ {
+		info.TracingSpans[i] = atomic.LoadUint64(&n.tracingSpans[i])
+	}
+
 	if n.security.ExposeEnvInfo {
 		info.Env = n.EnvList()
 	} else {
@@ -691,12 +951,21 @@ func (n *node) Info() (gen.NodeInfo, error) {
 		case gen.ProcessStateRunning:
 			info.ProcessesRunning++
 		case gen.ProcessStateWaitResponse:
-			info.ProcessesRunning++
+			info.ProcessesWaitResponse++
 		case gen.ProcessStateZombee:
 			info.ProcessesZombee++
 		}
 		return true
 	})
+
+	info.ProcessesSpawned = atomic.LoadUint64(&n.processesSpawned)
+	info.ProcessesSpawnFailed = atomic.LoadUint64(&n.processesSpawnFailed)
+	info.ProcessesTerminated = atomic.LoadUint64(&n.processesTerminated)
+
+	info.SendErrorsLocal = atomic.LoadUint64(&n.sendErrorsLocal)
+	info.SendErrorsRemote = atomic.LoadUint64(&n.sendErrorsRemote)
+	info.CallErrorsLocal = atomic.LoadUint64(&n.callErrorsLocal)
+	info.CallErrorsRemote = atomic.LoadUint64(&n.callErrorsRemote)
 
 	n.names.Range(func(_, _ any) bool {
 		info.RegisteredNames++
@@ -707,17 +976,107 @@ func (n *node) Info() (gen.NodeInfo, error) {
 		return true
 	})
 
+	tmInfo := n.targets.Info()
+	info.RegisteredEvents = tmInfo.Events
+	info.EventsPublished = tmInfo.EventsPublished
+	info.EventsReceived = tmInfo.EventsReceived
+	info.EventsLocalSent = tmInfo.EventsLocalSent
+	info.EventsRemoteSent = tmInfo.EventsRemoteSent
+
 	info.ApplicationsTotal = int64(len(n.Applications()))
 	info.ApplicationsRunning = int64(len(n.ApplicationsRunning()))
 
-	var mstat runtime.MemStats
-	runtime.ReadMemStats(&mstat)
-	info.MemoryUsed = mstat.Sys
-	info.MemoryAlloc = mstat.Alloc
+	rm := lib.ReadRuntimeMetrics()
+	info.MemoryUsed = rm.MemoryTotal
+	info.MemoryAlloc = rm.MemoryObjects
+	info.MemoryLimit = rm.MemoryLimit
+	info.HeapLive = rm.HeapLive
+	info.HeapGoal = rm.HeapGoal
+	info.Goroutines = rm.Goroutines
+	info.GCCycles = rm.GCCycles
+	info.HeapAllocObjects = rm.HeapAllocObjects
+	info.HeapFreeObjects = rm.HeapFreeObjects
+	info.CPUTimeGC = rm.CPUTimeGC
+	info.CPUTimeTotal = rm.CPUTimeTotal
 
 	utime, stime := osdep.ResourceUsage()
 	info.UserTime = utime
 	info.SystemTime = stime
+
+	info.ServerTime = time.Now()
+
+	return info, nil
+}
+
+func (n *node) ShortInfo() (gen.NodeShortInfo, error) {
+	var info gen.NodeShortInfo
+	if n.isRunning() == false {
+		return info, gen.ErrNodeTerminated
+	}
+
+	info.Name = n.name
+	info.Creation = atomic.LoadInt64(&n.creation)
+	info.Uptime = n.Uptime()
+	info.Version = n.version
+	info.Framework = n.framework
+	info.LogLevel = n.log.Level()
+	info.Mode = n.network.Mode()
+	info.Peers = n.peers()
+
+	n.processes.Range(func(_, v any) bool {
+		info.ProcessesTotal++
+		p := v.(*process)
+		switch p.State() {
+		case gen.ProcessStateRunning:
+			info.ProcessesRunning++
+		case gen.ProcessStateWaitResponse:
+			info.ProcessesWaitResponse++
+		case gen.ProcessStateZombee:
+			info.ProcessesZombee++
+		}
+		return true
+	})
+
+	info.ProcessesSpawned = atomic.LoadUint64(&n.processesSpawned)
+	info.ProcessesSpawnFailed = atomic.LoadUint64(&n.processesSpawnFailed)
+	info.ProcessesTerminated = atomic.LoadUint64(&n.processesTerminated)
+
+	// one pass for the counters and the names
+	n.applications.Range(func(_, v any) bool {
+		app := v.(*application)
+		info.ApplicationsTotal++
+		if app.isRunning() {
+			info.ApplicationsRunning++
+		}
+		info.Applications = append(info.Applications, app.spec.Name)
+		return true
+	})
+
+	info.SendErrorsLocal = atomic.LoadUint64(&n.sendErrorsLocal)
+	info.SendErrorsRemote = atomic.LoadUint64(&n.sendErrorsRemote)
+	info.CallErrorsLocal = atomic.LoadUint64(&n.callErrorsLocal)
+	info.CallErrorsRemote = atomic.LoadUint64(&n.callErrorsRemote)
+
+	for i := 0; i < 6; i++ {
+		info.LogMessages[i] = atomic.LoadUint64(&n.logMessages[i])
+	}
+
+	rmShort := lib.ReadRuntimeMetrics()
+	info.MemoryUsed = rmShort.MemoryTotal
+	info.MemoryAlloc = rmShort.MemoryObjects
+	info.MemoryLimit = rmShort.MemoryLimit
+	info.HeapLive = rmShort.HeapLive
+	info.HeapGoal = rmShort.HeapGoal
+	info.Goroutines = rmShort.Goroutines
+	info.GCCycles = rmShort.GCCycles
+	info.CPUTimeGC = rmShort.CPUTimeGC
+	info.CPUTimeTotal = rmShort.CPUTimeTotal
+
+	utime, stime := osdep.ResourceUsage()
+	info.UserTime = utime
+	info.SystemTime = stime
+
+	info.ServerTime = time.Now()
 
 	return info, nil
 }
@@ -737,53 +1096,39 @@ func (n *node) ProcessList() ([]gen.PID, error) {
 	return pl, nil
 }
 
-func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, error) {
+func (n *node) ProcessListShortInfo(start, limit int, filter ...func(gen.ProcessShortInfo) bool) ([]gen.ProcessShortInfo, error) {
 	if n.isRunning() == false {
 		return nil, gen.ErrNodeTerminated
 	}
 
-	if start < 1000 || limit < 0 {
+	if limit < 0 || (start >= 0 && start < 1000) {
 		return nil, gen.ErrIncorrect
 	}
 	if limit == 0 {
 		limit = 100
 	}
-	ustart := uint64(start)
+
+	nextID := atomic.LoadUint64(&n.nextID)
+	from, to, step := int64(start), int64(nextID)+1, int64(1)
+	if start < 0 {
+		from, to, step = int64(nextID), 999, -1
+	}
+
 	psi := []gen.ProcessShortInfo{}
 	pid := n.corePID
 
-	for limit > 0 {
-
-		if ustart > n.nextID {
-			break
-		}
-
-		pid.ID = ustart
-		ustart++
+	// the bound is compared by direction, not by equality: a start beyond the newest id would
+	// never reach it going up, and the walk would run to the end of int64
+	for id := from; limit > 0 && ((step > 0 && id < to) || (step < 0 && id > to)); id += step {
+		pid.ID = uint64(id)
 		v, found := n.processes.Load(pid)
 		if found == false {
 			continue
 		}
 		process := v.(*process)
-		messagesMailbox := process.mailbox.Main.Len() +
-			process.mailbox.System.Len() +
-			process.mailbox.Urgent.Len() +
-			process.mailbox.Log.Len()
-
-		info := gen.ProcessShortInfo{
-			PID:             process.pid,
-			Name:            process.name,
-			Application:     process.application,
-			Behavior:        process.sbehavior,
-			MessagesIn:      process.messagesIn,
-			MessagesOut:     process.messagesOut,
-			MessagesMailbox: uint64(messagesMailbox),
-			RunningTime:     process.runningTime,
-			Uptime:          process.Uptime(),
-			State:           process.State(),
-			Parent:          process.parent,
-			Leader:          process.leader,
-			LogLevel:        process.log.Level(),
+		info := process.shortInfo()
+		if len(filter) > 0 && filter[0](info) == false {
+			continue
 		}
 		psi = append(psi, info)
 		limit--
@@ -791,6 +1136,19 @@ func (n *node) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, e
 
 	return psi, nil
 
+}
+
+func (n *node) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	n.processes.Range(func(_, v any) bool {
+		p := v.(*process)
+		return fn(p.shortInfo())
+	})
+
+	return nil
 }
 
 func (n *node) NetworkStart(options gen.NetworkOptions) error {
@@ -809,30 +1167,67 @@ func (n *node) NetworkStop() error {
 }
 
 func (n *node) Network() gen.Network {
-	if n.isRunning() == false {
-		return nil
-	}
 	return n.network
 }
 
-func (n *node) Cron() gen.Cron {
-	if n.isRunning() == false {
-		return nil
+// Peers implements gen.NodeRegistrar.
+func (n *node) Peers() []gen.Atom {
+	return n.network.Nodes()
+}
+
+// peers describes the current connections for gen.NodeShortInfo.
+func (n *node) peers() []gen.RemoteNodeShortInfo {
+	nodes := n.network.Nodes()
+	peers := make([]gen.RemoteNodeShortInfo, 0, len(nodes))
+
+	for _, name := range nodes {
+		remote, err := n.network.Node(name)
+		if err != nil {
+			// disconnected between listing and reading
+			peers = append(peers, gen.RemoteNodeShortInfo{Node: name})
+			continue
+		}
+		info := remote.Info()
+		peers = append(peers, gen.RemoteNodeShortInfo{
+			Node:             info.Node,
+			ConnectionUptime: info.ConnectionUptime,
+			MessagesIn:       info.MessagesIn,
+			MessagesOut:      info.MessagesOut,
+			BytesIn:          info.BytesIn,
+			BytesOut:         info.BytesOut,
+			Reconnections:    info.Reconnections,
+			TLS:              info.TLS,
+		})
 	}
+	return peers
+}
+
+func (n *node) Cron() gen.Cron {
 	return n.cron
 }
 
 func (n *node) Stop() {
-	n.stop(false)
+	n.stop(false, n.shutdownTimeout)
+}
+
+func (n *node) StopWithTimeout(timeout time.Duration) {
+	if timeout <= 0 {
+		timeout = n.shutdownTimeout
+	}
+	n.stop(false, timeout)
 }
 
 func (n *node) StopForce() {
-	n.stop(true)
+	n.stop(true, 0)
 }
 
-func (n *node) stop(force bool) {
+func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 	if n.isRunning() == false {
 		// already stopped
+		return
+	}
+	if n.stopping.CompareAndSwap(false, true) == false {
+		// another Stop/StopForce call already in flight
 		return
 	}
 
@@ -874,53 +1269,8 @@ func (n *node) stop(force bool) {
 	}
 
 	if force == false {
-		// start a goroutine to print pending processes every 5 seconds
-		// and force exit if shutdown timeout expires
-		stopPrinting := make(chan struct{})
-		shutdownTimeout := n.shutdownTimeout
-		go func() {
-			ticker := time.NewTicker(5 * time.Second)
-			defer ticker.Stop()
-			timeout := time.After(shutdownTimeout)
-			for {
-				select {
-				case <-stopPrinting:
-					return
-				case <-timeout:
-					n.log.Error("shutdown timeout %s expired, force exit", n.shutdownTimeout)
-					os.Exit(1)
-				case <-ticker.C:
-					var count int
-					n.processes.Range(func(_, v any) bool {
-						count++
-						if count > 10 {
-							return true
-						}
-						if count == 1 {
-							n.log.Warning("node %s is still waiting for process(es) to terminate:", n.name)
-						}
-
-						p := v.(*process)
-						name := p.sbehavior
-						state := gen.ProcessState(atomic.LoadInt32(&p.state))
-						qlen := p.mailbox.Len()
-
-						if p.name != "" {
-							name = fmt.Sprintf("%s, %s", p.name, p.sbehavior)
-						}
-
-						n.log.Warning("  %s (%s) state: %s, queue: %d",
-							p.pid, name, state, qlen)
-						return true
-					})
-					if count > 10 {
-						n.log.Warning("  ...and %d more", count-10)
-					}
-				}
-			}
-		}()
-		n.waitprocesses.Wait()
-		close(stopPrinting)
+		n.waitProcessesWithEscalation(shutdownTimeout)
+		n.waitApplications(5 * time.Second)
 	}
 
 	n.NetworkStop()
@@ -943,6 +1293,107 @@ func (n *node) stop(force bool) {
 	n.once.Do(func() {
 		close(n.wait)
 	})
+}
+
+// waitApplications lets the applications that are still tearing down reach their
+// Terminate callback before the node takes the network and the loggers away from them.
+func (n *node) waitApplications(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	n.applications.Range(func(_, v any) bool {
+		app := v.(*application)
+		if app.spec.Name == system.Name {
+			return true
+		}
+		app.mu.RLock()
+		stopped := app.stopped
+		app.mu.RUnlock()
+		if stopped == nil {
+			return true
+		}
+		select {
+		case <-stopped:
+		case <-time.After(time.Until(deadline)):
+			n.log.Warning("application %s has not finished its teardown", app.spec.Name)
+		}
+		return true
+	})
+}
+
+// waitProcessesWithEscalation blocks until all tracked processes have called
+// waitprocesses.Done. Periodically logs stuck processes. On shutdownTimeout
+// escalates to force-kill of all remaining processes, then waits a short
+// settle window. As a last resort calls os.Exit(1) if processes refuse to die.
+func (n *node) waitProcessesWithEscalation(shutdownTimeout time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		n.waitprocesses.Wait()
+		close(done)
+	}()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+	timeout := time.After(shutdownTimeout)
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-timeout:
+			lines, total := n.snapshotRunningProcesses()
+			n.log.Error("shutdown timeout %s expired, killing %d remaining process(es):", shutdownTimeout, total)
+			n.logSnapshot(lines, total)
+			n.processes.Range(func(_, v any) bool {
+				p := v.(*process)
+				n.Kill(p.pid)
+				return true
+			})
+			select {
+			case <-done:
+			case <-time.After(5 * time.Second):
+				lines, total := n.snapshotRunningProcesses()
+				n.log.Error("processes still alive after force kill, hard exit (%d remaining):", total)
+				n.logSnapshot(lines, total)
+				os.Exit(1)
+			}
+			return
+		case <-ticker.C:
+			lines, total := n.snapshotRunningProcesses()
+			if total > 0 {
+				n.log.Warning("node %s is still waiting for process(es) to terminate:", n.name)
+				n.logSnapshot(lines, total)
+			}
+		}
+	}
+}
+
+// snapshotRunningProcesses gathers up to logListLimit still-running process
+// descriptions plus the total count (which may exceed the limit).
+func (n *node) snapshotRunningProcesses() (lines []string, total int) {
+	n.processes.Range(func(_, v any) bool {
+		total++
+		if total > logListLimit {
+			return true
+		}
+		p := v.(*process)
+		name := p.sbehavior
+		if p.name != "" {
+			name = fmt.Sprintf("%s, %s", p.name, p.sbehavior)
+		}
+		state := gen.ProcessState(atomic.LoadInt32(&p.state))
+		qlen := p.mailbox.Len()
+		lines = append(lines, fmt.Sprintf("  %s (%s) state: %s, queue: %d", p.pid, name, state, qlen))
+		return true
+	})
+	return
+}
+
+func (n *node) logSnapshot(lines []string, total int) {
+	for _, l := range lines {
+		n.log.Warning(l)
+	}
+	if total > logListLimit {
+		n.log.Warning("  ...and %d more", total-logListLimit)
+	}
 }
 
 func (n *node) Wait() {
@@ -973,19 +1424,26 @@ func (n *node) SendWithPriority(to any, message any, priority gen.MessagePriorit
 		return gen.ErrNodeTerminated
 	}
 
+	var tracing gen.Tracing
+	if s := n.tracingSampler.Load(); s != nil && (*s).Sample() {
+		tracing = n.MakeTraceID()
+		tracing.Behavior = "core"
+	}
 	options := gen.MessageOptions{
-		Priority: priority,
+		Priority:          priority,
+		Tracing:           tracing,
+		TracingAttributes: *n.tracingAttrs.Load(),
 	}
 
 	switch t := to.(type) {
 	case gen.Atom:
-		return n.RouteSendProcessID(n.corePID, gen.ProcessID{Name: t, Node: n.name}, options, message)
+		return n.core.RouteSendProcessID(n.corePID, gen.ProcessID{Name: t, Node: n.name}, options, message)
 	case gen.PID:
-		return n.RouteSendPID(n.corePID, t, options, message)
+		return n.core.RouteSendPID(n.corePID, t, options, message)
 	case gen.ProcessID:
-		return n.RouteSendProcessID(n.corePID, t, options, message)
+		return n.core.RouteSendProcessID(n.corePID, t, options, message)
 	case gen.Alias:
-		return n.RouteSendAlias(n.corePID, t, options, message)
+		return n.core.RouteSendAlias(n.corePID, t, options, message)
 	}
 
 	return gen.ErrUnsupported
@@ -1004,7 +1462,7 @@ func (n *node) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOption
 		Message:   message,
 	}
 
-	return n.RouteSendEvent(n.corePID, token, options, em)
+	return n.core.RouteSendEvent(n.corePID, token, options, em)
 }
 
 func (n *node) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
@@ -1027,11 +1485,32 @@ func (n *node) UnregisterEvent(name gen.Atom) error {
 	return n.unregisterEvent(name, n.corePID)
 }
 
+func (n *node) EventInfo(event gen.Event) (gen.EventInfo, error) {
+	if n.isRunning() == false {
+		return gen.EventInfo{}, gen.ErrNodeTerminated
+	}
+	return n.targets.EventInfo(event)
+}
+
+func (n *node) EventRangeInfo(fn func(gen.EventInfo) bool) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	return n.targets.EventRangeInfo(fn)
+}
+
+func (n *node) EventListInfo(timestamp int64, limit int, filter ...func(gen.EventInfo) bool) ([]gen.EventInfo, error) {
+	if n.isRunning() == false {
+		return nil, gen.ErrNodeTerminated
+	}
+	return n.targets.EventListInfo(timestamp, limit, filter...)
+}
+
 func (n *node) SendExit(pid gen.PID, reason error) error {
 	if n.isRunning() == false {
 		return gen.ErrNodeTerminated
 	}
-	return n.RouteSendExit(n.corePID, pid, reason)
+	return n.core.RouteSendExit(n.corePID, pid, reason)
 }
 
 func (n *node) Call(to any, request any) (any, error) {
@@ -1066,6 +1545,13 @@ func (n *node) CallImportant(to any, request any) (any, error) {
 func (n *node) callWithOptions(to any, request any, timeout int, options gen.MessageOptions) (any, error) {
 	if n.isRunning() == false {
 		return nil, gen.ErrNodeTerminated
+	}
+	if s := n.tracingSampler.Load(); s != nil && (*s).Sample() {
+		options.Tracing = n.MakeTraceID()
+		options.Tracing.Behavior = "core"
+	}
+	if attrs := *n.tracingAttrs.Load(); options.Tracing.ID != [2]uint64{} && len(attrs) > 0 {
+		options.TracingAttributes = attrs
 	}
 
 	switch t := to.(type) {
@@ -1115,7 +1601,7 @@ func (n *node) callPIDWithOptions(
 
 	options.Ref = ref
 
-	if err = n.RouteCallPID(n.corePID, to, options, request); err != nil {
+	if err = n.core.RouteCallPID(n.corePID, to, options, request); err != nil {
 		releaseNodeCall(call)
 		return nil, err
 	}
@@ -1141,15 +1627,17 @@ func (n *node) callPIDWithOptions(
 handleResponse:
 	response := call.response
 	err = call.err
+	important := call.important
+	cfrom := call.from
 	releaseNodeCall(call)
 
-	if call.important {
+	if important {
 		options := gen.MessageOptions{
 			Ref: ref,
 		}
 
 		// send ack
-		n.RouteSendResponseError(n.corePID, call.from, options, nil)
+		n.RouteSendResponseError(n.corePID, cfrom, options, nil)
 	}
 
 	if err != nil {
@@ -1191,7 +1679,7 @@ func (n *node) callProcessIDWithOptions(
 
 	options.Ref = ref
 
-	if err = n.RouteCallProcessID(n.corePID, to, options, request); err != nil {
+	if err = n.core.RouteCallProcessID(n.corePID, to, options, request); err != nil {
 		releaseNodeCall(call)
 		return nil, err
 	}
@@ -1217,14 +1705,16 @@ func (n *node) callProcessIDWithOptions(
 handleResponse:
 	response := call.response
 	err = call.err
+	important := call.important
+	cfrom := call.from
 	releaseNodeCall(call)
 
-	if call.important {
+	if important {
 		options := gen.MessageOptions{
 			Ref: ref,
 		}
 		// send ack
-		n.RouteSendResponseError(n.corePID, call.from, options, nil)
+		n.RouteSendResponseError(n.corePID, cfrom, options, nil)
 	}
 
 	if err != nil {
@@ -1266,7 +1756,7 @@ func (n *node) callAliasWithOptions(
 
 	options.Ref = ref
 
-	if err = n.RouteCallAlias(n.corePID, to, options, request); err != nil {
+	if err = n.core.RouteCallAlias(n.corePID, to, options, request); err != nil {
 		releaseNodeCall(call)
 		return nil, err
 	}
@@ -1292,14 +1782,16 @@ func (n *node) callAliasWithOptions(
 handleResponse:
 	response := call.response
 	err = call.err
+	important := call.important
+	cfrom := call.from
 	releaseNodeCall(call)
 
-	if call.important {
+	if important {
 		options := gen.MessageOptions{
 			Ref: ref,
 		}
 		// send ack
-		n.RouteSendResponseError(n.corePID, call.from, options, nil)
+		n.RouteSendResponseError(n.corePID, cfrom, options, nil)
 	}
 
 	if err != nil {
@@ -1470,10 +1962,13 @@ func (n *node) Kill(pid gen.PID) error {
 	case int32(gen.ProcessStateInit),
 		int32(gen.ProcessStateWaitResponse),
 		int32(gen.ProcessStateRunning):
+		atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 		// do not unregister process until its goroutine stopped
 		return nil
 	case int32(gen.ProcessStateTerminated):
 		atomic.StoreInt32(&p.state, int32(gen.ProcessStateTerminated))
+		return nil
+	case int32(gen.ProcessStateZombee):
 		return nil
 	}
 
@@ -1481,21 +1976,15 @@ func (n *node) Kill(pid gen.PID) error {
 	if old == int32(gen.ProcessStateTerminated) {
 		return nil
 	}
-	// unregister process and stuff belonging to it
-	n.unregisterProcess(p, gen.TerminateReasonKill)
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
+	// unregister process and stuff belonging to it. wrapPreserveMailbox so killing
+	// a non-running (e.g. sleeping) process captures its mailbox just like the
+	// run-loop kill path does, keeping the exit reason consistent and not losing a
+	// message that raced into the mailbox before the kill.
+	reason := p.wrapPreserveMailbox(gen.TerminateReasonKill)
+	n.unregisterProcess(p, reason)
 
-	go func() {
-		if lib.Recover() {
-			defer func() {
-				if rcv := recover(); rcv != nil {
-					pc, fn, line, _ := runtime.Caller(2)
-					p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
-						p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
-				}
-			}()
-		}
-		p.behavior.ProcessTerminate(gen.TerminateReasonKill)
-	}()
+	go n.finishProcess(p, reason, gen.TerminateReasonKill)
 
 	return nil
 }
@@ -1540,15 +2029,21 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 	if lib.Recover() {
 		defer func() {
 			if rcv := recover(); rcv != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				n.log.Panic("panic in ApplicationLoad - %#v at %s[%s:%d]",
-					rcv, runtime.FuncForPC(pc).Name(), fn, line)
+				n.log.Panic("panic in ApplicationLoad - %#v at %s",
+					rcv, lib.PanicOrigin())
 				r = gen.ErrApplicationLoadPanic
 			}
 		}()
 	}
 
-	spec, err := app.Load(n, args...)
+	a := &application{
+		node:     n,
+		behavior: app,
+		state:    int32(gen.ApplicationStateLoaded),
+	}
+	a.log = createLog(n.log.Level(), n.dolog)
+
+	spec, err := app.PreLoad(a, args...)
 	if err != nil {
 		return name, err
 	}
@@ -1556,22 +2051,17 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 	if len(spec.Group) == 0 {
 		return name, gen.ErrApplicationEmpty
 	}
-
 	if len(spec.Name) == 0 {
 		return name, gen.ErrApplicationName
 	}
-
 	if spec.Depends.Network {
-		// TODO make it right
 		if n.network == nil {
 			return name, gen.ErrApplicationDepends
 		}
 	}
-
 	if spec.Mode == 0 {
 		spec.Mode = gen.ApplicationModeTemporary
 	}
-
 	if spec.Depends.Applications == nil {
 		spec.Depends.Applications = []gen.Atom{}
 	}
@@ -1586,19 +2076,43 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 		spec.LogLevel = n.log.Level()
 	}
 
-	a := &application{
-		spec:     spec,
-		node:     n,
-		behavior: app,
-		state:    int32(gen.ApplicationStateLoaded),
-		mode:     spec.Mode,
+	if n.network != nil && n.network.Mode() != gen.NetworkModeDisabled {
+		if len(spec.Network.RegisterTypes) > 0 {
+			if err := n.network.RegisterTypes(spec.Network.RegisterTypes); err != nil {
+				return name, fmt.Errorf("application %s: register types: %w", spec.Name, err)
+			}
+		}
+		if len(spec.Network.RegisterErrors) > 0 {
+			if err := n.network.RegisterErrors(spec.Network.RegisterErrors); err != nil {
+				return name, fmt.Errorf("application %s: register errors: %w", spec.Name, err)
+			}
+		}
+		if len(spec.Network.RegisterAtoms) > 0 {
+			if err := n.network.RegisterAtoms(spec.Network.RegisterAtoms); err != nil {
+				return name, fmt.Errorf("application %s: register atoms: %w", spec.Name, err)
+			}
+		}
 	}
+
+	a.spec = spec
+	a.mode = spec.Mode
+	a.tags = append([]gen.Atom(nil), spec.Tags...)
+	a.weight = spec.Weight
+
+	if spec.LogLevel != gen.LogLevelDefault {
+		a.log.SetLevel(spec.LogLevel)
+	}
+	a.log.setSource(gen.MessageLogApplication{
+		Node:     n.name,
+		Name:     spec.Name,
+		Mode:     spec.Mode,
+		Behavior: strings.TrimPrefix(reflect.TypeOf(app).String(), "*"),
+	})
+
 	if _, exist := n.applications.LoadOrStore(spec.Name, a); exist {
 		return spec.Name, gen.ErrTaken
 	}
-
 	a.registerAppRoute()
-
 	return spec.Name, nil
 }
 
@@ -1646,126 +2160,114 @@ func (n *node) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, erro
 		return nil, fmt.Errorf("application %s is not running", name)
 	}
 
-	members := make(map[gen.PID]bool, app.group.Len())
-	pids := make([]gen.PID, 0, app.group.Len())
-	app.group.Range(func(pid gen.PID, _ bool) bool {
-		members[pid] = true
-		pids = append(pids, pid)
-		return true
-	})
-
-	limit = app.group.Len() + limit
-
-	n.processes.Range(func(_, v any) bool {
-		p := v.(*process)
-		if p.application != name {
-			return true // continue
+	nextID := atomic.LoadUint64(&n.nextID)
+	pids := []gen.PID{}
+	pid := n.corePID
+	for id := startID; id != nextID+1; id++ {
+		pid.ID = id
+		v, found := n.processes.Load(pid)
+		if found == false {
+			continue
 		}
-		if _, exist := members[p.pid]; exist {
-			return true // continue
+		p := v.(*process)
+		if appName(p.application) != name {
+			continue
 		}
 		pids = append(pids, p.pid)
-
-		if len(pids) >= limit {
-			return false // stop
+		if limit > 0 && len(pids) >= limit {
+			break
 		}
-
-		return true
-	})
+	}
 
 	return pids, nil
 }
 
-func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error) {
+func (n *node) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, int, error) {
 	if limit < 0 {
-		return nil, gen.ErrIncorrect
+		return nil, 0, gen.ErrIncorrect
 	}
 
 	if n.isRunning() == false {
-		return nil, gen.ErrNodeTerminated
+		return nil, 0, gen.ErrNodeTerminated
 	}
 
 	v, exist := n.applications.Load(name)
 	if exist == false {
-		return nil, gen.ErrApplicationUnknown
+		return nil, 0, gen.ErrApplicationUnknown
 	}
 	app := v.(*application)
 	if app.isRunning() == false {
-		return nil, fmt.Errorf("application %s is not running", name)
+		return nil, 0, fmt.Errorf("application %s is not running", name)
 	}
 
-	members := make(map[gen.PID]bool, app.group.Len())
-	psi := make([]gen.ProcessShortInfo, 0, app.group.Len())
+	if limit == 0 {
+		limit = 100
+	}
 
-	app.group.Range(func(pid gen.PID, _ bool) bool {
-		v, exist := n.processes.Load(pid)
-		if exist == false {
-			return true // continue
+	nextID := atomic.LoadUint64(&n.nextID)
+	psi := []gen.ProcessShortInfo{}
+	omitted := 0
+	pid := n.corePID
+	for id := startID; id != nextID+1; id++ {
+		pid.ID = id
+		v, found := n.processes.Load(pid)
+		if found == false {
+			continue
 		}
-		p, _ := v.(*process)
-		messagesMailbox := p.mailbox.Main.Len() +
-			p.mailbox.System.Len() +
-			p.mailbox.Urgent.Len() +
-			p.mailbox.Log.Len()
-
-		info := gen.ProcessShortInfo{
-			PID:             p.pid,
-			Name:            p.name,
-			Application:     p.application,
-			Behavior:        p.sbehavior,
-			MessagesIn:      p.messagesIn,
-			MessagesOut:     p.messagesOut,
-			MessagesMailbox: uint64(messagesMailbox),
-			RunningTime:     p.runningTime,
-			Uptime:          p.Uptime(),
-			State:           p.State(),
-			Parent:          p.parent,
-			Leader:          p.leader,
-			LogLevel:        p.log.Level(),
-		}
-		psi = append(psi, info)
-		members[p.pid] = true
-		return true
-	})
-
-	limit = app.group.Len() + limit
-	n.processes.Range(func(_, v any) bool {
 		p := v.(*process)
-		if p.application != name {
-			return true // continue
+		if appName(p.application) != name {
+			continue
 		}
-		if _, exist := members[p.pid]; exist {
-			return true // continue
-		}
-
-		messagesMailbox := p.mailbox.Main.Len() +
-			p.mailbox.System.Len() +
-			p.mailbox.Urgent.Len() +
-			p.mailbox.Log.Len()
-
-		info := gen.ProcessShortInfo{
-			PID:             p.pid,
-			Name:            p.name,
-			Application:     p.application,
-			Behavior:        p.sbehavior,
-			MessagesIn:      p.messagesIn,
-			MessagesOut:     p.messagesOut,
-			MessagesMailbox: uint64(messagesMailbox),
-			RunningTime:     p.runningTime,
-			Uptime:          p.Uptime(),
-			State:           p.State(),
-			Parent:          p.parent,
-			Leader:          p.leader,
-			LogLevel:        p.log.Level(),
-		}
-		psi = append(psi, info)
 		if len(psi) >= limit {
-			return false // stop
+			omitted++
+			continue
 		}
-		return true
-	})
 
-	return psi, nil
+		info := p.shortInfo()
+		psi = append(psi, info)
+	}
+
+	return psi, omitted, nil
+}
+
+// startDependencies starts every application this one depends on (each in its own
+// ApplicationSpec.Mode) before it starts. Shared by all ApplicationStart* entry points.
+func (n *node) startDependencies(name gen.Atom, deps []gen.Atom, options gen.ApplicationOptions, visited map[gen.Atom]bool) error {
+	visited[name] = true
+	defer delete(visited, name)
+	for _, dep := range deps {
+		if visited[dep] {
+			n.log.Error("unable to start %s: circular application dependency on %s", name, dep)
+			return gen.ErrApplicationDepends
+		}
+		v, exist := n.applications.Load(dep)
+		if exist == false {
+			n.log.Error("unable to start %s: unknown dependent application %s", name, dep)
+			return gen.ErrApplicationDepends
+		}
+		app := v.(*application)
+		if err := n.startDependencies(dep, app.spec.Depends.Applications, options, visited); err != nil {
+			return err
+		}
+		opts := gen.ApplicationOptionsExtra{
+			ApplicationOptions: options,
+			CorePID:            n.corePID,
+			CoreEnv:            n.EnvList(),
+			CoreLogLevel:       n.log.Level(),
+		}
+		if err := app.start(app.spec.Mode, opts); err != nil {
+			if err != gen.ErrApplicationRunning {
+				n.log.Error(
+					"unable to start %s: start dependent application %s failed: %s",
+					name,
+					dep,
+					err,
+				)
+				return gen.ErrApplicationDepends
+			}
+		}
+	}
+	return nil
 }
 
 func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
@@ -1775,23 +2277,8 @@ func (n *node) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) e
 	}
 	app := v.(*application)
 
-	// check dependency on the other applications
-	for _, dep := range app.spec.Depends.Applications {
-		if err := n.ApplicationStart(dep, options); err != nil {
-			if err == gen.ErrApplicationUnknown {
-				n.log.Error("unable to start %s: unknown dependent application %s", name, dep)
-				return gen.ErrApplicationDepends
-			}
-
-			if err != gen.ErrApplicationRunning {
-				n.log.Error(
-					"unable to start %s: start dependent application %s failed: %s",
-					dep,
-					err,
-				)
-				return gen.ErrApplicationDepends
-			}
-		}
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options, make(map[gen.Atom]bool)); err != nil {
+		return err
 	}
 
 	opts := gen.ApplicationOptionsExtra{
@@ -1809,6 +2296,11 @@ func (n *node) ApplicationStartPermanent(name gen.Atom, options gen.ApplicationO
 		return gen.ErrApplicationUnknown
 	}
 	app := v.(*application)
+
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options, make(map[gen.Atom]bool)); err != nil {
+		return err
+	}
+
 	opts := gen.ApplicationOptionsExtra{
 		ApplicationOptions: options,
 		CorePID:            n.corePID,
@@ -1824,6 +2316,11 @@ func (n *node) ApplicationStartTransient(name gen.Atom, options gen.ApplicationO
 		return gen.ErrApplicationUnknown
 	}
 	app := v.(*application)
+
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options, make(map[gen.Atom]bool)); err != nil {
+		return err
+	}
+
 	opts := gen.ApplicationOptionsExtra{
 		ApplicationOptions: options,
 		CorePID:            n.corePID,
@@ -1839,6 +2336,11 @@ func (n *node) ApplicationStartTemporary(name gen.Atom, options gen.ApplicationO
 		return gen.ErrApplicationUnknown
 	}
 	app := v.(*application)
+
+	if err := n.startDependencies(name, app.spec.Depends.Applications, options, make(map[gen.Atom]bool)); err != nil {
+		return err
+	}
+
 	opts := gen.ApplicationOptionsExtra{
 		ApplicationOptions: options,
 		CorePID:            n.corePID,
@@ -1936,12 +2438,13 @@ func (n *node) LoggerAddPID(pid gen.PID, name string, filter ...gen.LogLevel) er
 	logger := createProcessLogger(p.mailbox.Log, p.run)
 	if err := n.LoggerAdd(name, logger, filter...); err == nil {
 		p.loggername = name
+		p.loggerlevel = p.log.Level()
 		p.log.SetLevel(gen.LogLevelDisabled)
 	} else {
 		return err
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("node.LoggerAddPID added new process logger %s with name %q", pid, name)
 	}
 	return nil
@@ -1954,10 +2457,16 @@ func (n *node) LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.L
 	if logger == nil {
 		return gen.ErrIncorrect
 	}
+	if name == "" {
+		return gen.ErrIncorrect
+	}
 
 	if filter == nil {
 		filter = gen.DefaultLogFilter
 	}
+
+	n.loggersMu.Lock()
+	defer n.loggersMu.Unlock()
 
 	for _, l := range n.loggers {
 		if _, exist := l.Load(name); exist {
@@ -1971,7 +2480,7 @@ func (n *node) LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.L
 		}
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace("node.LoggerAdd added new logger with name %q", name)
 	}
 	return nil
@@ -1985,14 +2494,14 @@ func (n *node) LoggerDeletePID(pid gen.PID) {
 
 	p := value.(*process)
 	if p.loggername != "" {
-		n.LoggerDelete(p.loggername)
+		name := p.loggername
+		n.LoggerDelete(name)
 		p.loggername = ""
-		// TODO we should restore previous log level
-		p.log.SetLevel(gen.LogLevelInfo)
+		p.log.SetLevel(p.loggerlevel)
 		n.log.Trace(
 			"node.LoggerDeletePID removed process logger %s with name %q",
 			pid,
-			p.loggername,
+			name,
 		)
 	}
 }
@@ -2000,11 +2509,13 @@ func (n *node) LoggerDeletePID(pid gen.PID) {
 func (n *node) LoggerDelete(name string) {
 	var logger gen.LoggerBehavior
 
+	n.loggersMu.Lock()
 	for _, l := range n.loggers {
 		if v, exist := l.LoadAndDelete(name); exist {
 			logger = v.(gen.LoggerBehavior)
 		}
 	}
+	n.loggersMu.Unlock()
 	// call terminate
 	if logger != nil {
 		logger.Terminate()
@@ -2020,6 +2531,218 @@ func (n *node) LoggerLevels(name string) []gen.LogLevel {
 		}
 	}
 	return levels
+}
+
+// tracing
+
+func (n *node) TracingExporterAddPID(pid gen.PID, name string, flags gen.TracingFlags) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+
+	if name == "" {
+		return gen.ErrIncorrect
+	}
+
+	p := value.(*process)
+	if p.tracingExporterName.Load() != nil {
+		return gen.ErrNotAllowed
+	}
+	entry := tracingExporterEntry{
+		flags: flags,
+		pid:   pid,
+	}
+	if _, loaded := n.tracingExporters.LoadOrStore(name, entry); loaded {
+		return gen.ErrTaken
+	}
+	p.tracingExporterName.Store(&name)
+	return nil
+}
+
+func (n *node) TracingExporterAdd(name string, exporter gen.TracingBehavior, flags gen.TracingFlags) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	if exporter == nil {
+		return gen.ErrIncorrect
+	}
+	// run HandleSpan on a dedicated worker so a slow or blocking exporter cannot stall the
+	// routing goroutine; recover its panics so a buggy exporter cannot take the node down
+	handle := func(span gen.TracingSpan) {
+		defer func() {
+			if rcv := recover(); rcv != nil {
+				n.log.Error("tracing exporter %q panicked in HandleSpan: %#v", name, rcv)
+			}
+		}()
+		exporter.HandleSpan(span)
+	}
+	entry := tracingExporterEntry{
+		exporter:   exporter,
+		flags:      flags,
+		dispatcher: lib.NewDispatcher[gen.TracingSpan](tracingExporterQueue, handle),
+	}
+	if _, loaded := n.tracingExporters.LoadOrStore(name, entry); loaded {
+		entry.dispatcher.Stop()
+		return gen.ErrTaken
+	}
+	return nil
+}
+
+func (n *node) TracingExporterDeletePID(pid gen.PID) {
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return
+	}
+	p := value.(*process)
+	if name := p.tracingExporterName.Load(); name != nil {
+		n.TracingExporterDelete(*name)
+		p.tracingExporterName.Store(nil)
+	}
+}
+
+func (n *node) TracingExporterDelete(name string) {
+	v, loaded := n.tracingExporters.LoadAndDelete(name)
+	if loaded == false {
+		return
+	}
+	entry := v.(tracingExporterEntry)
+	if entry.exporter != nil {
+		entry.dispatcher.Stop() // no HandleSpan runs after this returns
+		entry.exporter.Terminate()
+	}
+}
+
+func (n *node) TracingExporters() []string {
+	var exporters []string
+	n.tracingExporters.Range(func(k, _ any) bool {
+		exporters = append(exporters, k.(string))
+		return true
+	})
+	return exporters
+}
+
+func (n *node) TracingExporterFlags(name string) gen.TracingFlags {
+	v, ok := n.tracingExporters.Load(name)
+	if ok == false {
+		return 0
+	}
+	return v.(tracingExporterEntry).flags
+}
+
+func (n *node) sendTracingSpan(span gen.TracingSpan) {
+	if span.Kind >= 1 && span.Kind <= 5 {
+		atomic.AddUint64(&n.tracingSpans[span.Kind-1], 1)
+	}
+	n.tracingExporters.Range(func(k, v any) bool {
+		entry := v.(tracingExporterEntry)
+		if matchTracingFlags(entry.flags, span) == false {
+			return true
+		}
+		if entry.exporter != nil {
+			entry.dispatcher.Push(span)
+			return true
+		}
+		value, loaded := n.processes.Load(entry.pid)
+		if loaded == false {
+			return true
+		}
+		p := value.(*process)
+		msg := gen.TakeMailboxMessage()
+		msg.Type = gen.MailboxMessageTypeSpan
+		msg.Message = span
+		if p.mailbox.Main.Push(msg) == false {
+			gen.ReleaseMailboxMessage(msg)
+			return true
+		}
+		p.run()
+		return true
+	})
+}
+
+func matchTracingFlags(flags gen.TracingFlags, span gen.TracingSpan) bool {
+	if span.Point == gen.TracingPointSpan {
+		return flags&gen.TracingFlagReceive != 0
+	}
+	switch span.Kind {
+	case gen.TracingKindSend, gen.TracingKindRequest, gen.TracingKindResponse:
+		if span.Point == gen.TracingPointSent {
+			return flags&gen.TracingFlagSend != 0
+		}
+		return flags&gen.TracingFlagReceive != 0
+	case gen.TracingKindSpawn, gen.TracingKindTerminate:
+		return flags&gen.TracingFlagProcs != 0
+	}
+	return false
+}
+
+func (n *node) SetTracingAttribute(key, value string) {
+	if strings.HasPrefix(key, "ergo.") {
+		return
+	}
+	cur := *n.tracingAttrs.Load()
+	for i, a := range cur {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(cur))
+			copy(attrs, cur)
+			attrs[i] = gen.TracingAttribute{Key: key, Value: value}
+			n.tracingAttrs.Store(&attrs)
+			return
+		}
+	}
+	attrs := make([]gen.TracingAttribute, len(cur)+1)
+	copy(attrs, cur)
+	attrs[len(attrs)-1] = gen.TracingAttribute{Key: key, Value: value}
+	n.tracingAttrs.Store(&attrs)
+}
+
+func (n *node) RemoveTracingAttribute(key string) {
+	cur := *n.tracingAttrs.Load()
+	for i, a := range cur {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(cur)-1)
+			copy(attrs, cur[:i])
+			copy(attrs[i:], cur[i+1:])
+			n.tracingAttrs.Store(&attrs)
+			return
+		}
+	}
+}
+
+func (n *node) SetTracingSampler(sampler gen.TracingSampler) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	if sampler == gen.TracingSamplerDisable {
+		n.tracingSampler.Store(nil)
+		return nil
+	}
+	n.tracingSampler.Store(&sampler)
+	return nil
+}
+
+func (n *node) TracingSampler() gen.TracingSampler {
+	s := n.tracingSampler.Load()
+	if s == nil {
+		return gen.TracingSamplerDisable
+	}
+	return *s
+}
+
+func (n *node) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+	p.tracingSampler.Store(&sampler)
+	return nil
 }
 
 func (n *node) Loggers() []string {
@@ -2042,6 +2765,22 @@ func (n *node) dolog(message gen.MessageLog, loggername string) {
 	if n.isRunning() == false {
 		return
 	}
+
+	switch message.Level {
+	case gen.LogLevelTrace:
+		atomic.AddUint64(&n.logMessages[0], 1)
+	case gen.LogLevelDebug:
+		atomic.AddUint64(&n.logMessages[1], 1)
+	case gen.LogLevelInfo:
+		atomic.AddUint64(&n.logMessages[2], 1)
+	case gen.LogLevelWarning:
+		atomic.AddUint64(&n.logMessages[3], 1)
+	case gen.LogLevelError:
+		atomic.AddUint64(&n.logMessages[4], 1)
+	case gen.LogLevelPanic:
+		atomic.AddUint64(&n.logMessages[5], 1)
+	}
+
 	if l := n.loggers[message.Level]; l != nil {
 		if loggername != "" {
 			if v, found := l.Load(loggername); found {
@@ -2103,40 +2842,49 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 
 	if factory == nil {
+		atomic.AddUint64(&n.processesSpawnFailed, 1)
 		return empty, gen.ErrIncorrect
 	}
 
 	if options.ParentPID == empty || options.ParentLeader == empty {
+		atomic.AddUint64(&n.processesSpawnFailed, 1)
 		return empty, gen.ErrParentUnknown
 	}
 
+	now := time.Now()
 	p := &process{
-		node:        n,
-		response:    make(chan response, 10),
-		creation:    time.Now().Unix(),
-		keeporder:   true,
-		state:       int32(gen.ProcessStateInit),
-		parent:      options.ParentPID,
-		leader:      options.ParentLeader,
-		application: options.Application,
-		important:   options.ImportantDelivery,
+		node:         n,
+		core:         n.core,
+		response:     make(chan response, 10),
+		creation:     now.Unix(),
+		state:        int32(gen.ProcessStateInit),
+		stateEntered: now.UnixNano(),
+		parent:       options.ParentPID,
+		leader:       options.ParentLeader,
 	}
+	p.keeporder.Store(true)
+	p.important.Store(options.ImportantDelivery)
+	p.tracingAttrs.Store(new([]gen.TracingAttribute))
 
-	if options.Register != "" {
-		if _, exist := n.names.LoadOrStore(options.Register, p); exist {
-			return p.pid, gen.ErrTaken
+	if options.Application != "" {
+		if v, ok := n.applications.Load(options.Application); ok {
+			p.application = v.(*application)
 		}
-		p.name = options.Register
-		p.registered.Store(true)
 	}
 
-	// init mailbox
-	if options.MailboxSize > 0 {
+	// init mailbox before publishing the name: RouteSend* finds the process by
+	// name and reads p.mailbox, so it must be ready before the LoadOrStore below
+	if options.Mailbox != nil {
+		// adopt the mailbox handed in by the supervisor (or test) instead
+		// of allocating fresh queues
+		p.mailbox = *options.Mailbox
 		p.fallback = options.Fallback
-		p.mailbox.Main = lib.NewQueueLimitMPSC(options.MailboxSize, false)
-		p.mailbox.System = lib.NewQueueLimitMPSC(options.MailboxSize, false)
-		p.mailbox.Urgent = lib.NewQueueLimitMPSC(options.MailboxSize, false)
-		p.mailbox.Log = lib.NewQueueLimitMPSC(options.MailboxSize, false)
+	} else if options.MailboxSize > 0 {
+		p.fallback = options.Fallback
+		p.mailbox.Main = lib.NewQueueLimitMPSC(options.MailboxSize)
+		p.mailbox.System = lib.NewQueueLimitMPSC(options.MailboxSize)
+		p.mailbox.Urgent = lib.NewQueueLimitMPSC(options.MailboxSize)
+		p.mailbox.Log = lib.NewQueueLimitMPSC(options.MailboxSize)
 	} else {
 		p.mailbox.Main = lib.NewQueueMPSC()
 		p.mailbox.System = lib.NewQueueMPSC()
@@ -2144,18 +2892,29 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		p.mailbox.Log = lib.NewQueueMPSC()
 	}
 
+	p.preserveMailbox = options.PreserveMailbox
+
+	if options.Register != "" {
+		if _, exist := n.names.LoadOrStore(options.Register, p); exist {
+			atomic.AddUint64(&n.processesSpawnFailed, 1)
+			return p.pid, gen.ErrTaken
+		}
+		p.name = options.Register
+		p.registered.Store(true)
+	}
+
 	// create pid
 	pid := gen.PID{
 		Node:     n.name,
 		ID:       atomic.AddUint64(&n.nextID, 1),
-		Creation: n.creation,
+		Creation: atomic.LoadInt64(&n.creation),
 	}
 	p.pid = pid
 
 	for k, v := range options.ParentEnv {
 		p.SetEnv(k, v)
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.log.Trace(
 			"...spawn new process %s (parent %s, %s) using %#v",
 			p.pid,
@@ -2173,34 +2932,37 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		p.leader = options.Leader
 	}
 
-	p.compression = options.Compression
-	if p.compression.Level == 0 {
-		p.compression.Level = gen.DefaultCompressionLevel
+	compression := options.Compression
+	if compression.Level == 0 {
+		compression.Level = gen.DefaultCompressionLevel
 	}
-	if p.compression.Type == "" {
-		p.compression.Type = gen.DefaultCompressionType
+	if compression.Type == "" {
+		compression.Type = gen.DefaultCompressionType
 	}
-	if p.compression.Threshold == 0 {
-		p.compression.Threshold = gen.DefaultCompressionThreshold
+	if compression.Threshold == 0 {
+		compression.Threshold = gen.DefaultCompressionThreshold
 	}
+	p.compression.Store(&compression)
 
 	switch options.SendPriority {
 	case gen.MessagePriorityHigh:
-		p.priority = gen.MessagePriorityHigh
+		p.priority.Store(int32(gen.MessagePriorityHigh))
 	case gen.MessagePriorityMax:
-		p.priority = gen.MessagePriorityMax
+		p.priority.Store(int32(gen.MessagePriorityMax))
 	default:
-		p.priority = gen.MessagePriorityNormal
+		p.priority.Store(int32(gen.MessagePriorityNormal))
 	}
 
 	// create a new process with provided behavior
 	behavior := factory()
 	if behavior == nil {
 		n.names.Delete(p.name)
+		atomic.AddUint64(&n.processesSpawnFailed, 1)
 		return p.pid, errors.New("factory function must return non nil value")
 	}
 	p.behavior = behavior
 	p.sbehavior = strings.TrimPrefix(reflect.TypeOf(behavior).String(), "*")
+	p.kind = behavior.ProcessKind()
 
 	if options.LogLevel == gen.LogLevelDefault {
 		// parent's log level
@@ -2219,9 +2981,44 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	// early registration - allows using Link/Monitor/RegisterEvent/RegisterName in Init
 	n.processes.Store(p.pid, p)
 
+	// join the application before Init runs: a process using what the application
+	// opened must be accounted for by its teardown
+	if app, ok := p.application.(*application); ok {
+		if app.registerProcess(p.pid, options.ApplicationGroupMember) == false {
+			n.processes.Delete(p.pid)
+			if p.registered.Load() {
+				n.names.Delete(p.name)
+			}
+			atomic.AddUint64(&n.processesSpawnFailed, 1)
+			return p.pid, gen.ErrApplicationStopping
+		}
+	}
+
+	tracingActive := options.Tracing.ID != [2]uint64{}
+	var spawnSpanID uint64
+	var parentSpanID uint64
+	if tracingActive {
+		parentSpanID = options.Tracing.SpanID
+		spawnSpanID = atomic.AddUint64(&n.spanID, 1)
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: spawnSpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointSent, Kind: gen.TracingKindSpawn,
+			Timestamp: time.Now().UnixNano(),
+			Node:      n.name, From: options.ParentPID, To: pid,
+			Behavior: options.Tracing.Behavior,
+		})
+	}
+
 	// Handle ProcessInit with timeout
 	var initErr error
 	deadline := options.Ref.ID[2]
+
+	// the behavior gets the process directly, or a decorator (testing/stage)
+	bp := gen.Process(p)
+	if n.wrapProcess != nil {
+		bp = n.wrapProcess(p)
+	}
 
 	if deadline > 0 {
 		// check if already expired
@@ -2230,6 +3027,10 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			if p.registered.Load() {
 				n.names.Delete(p.name)
 			}
+			if app, ok := p.application.(*application); ok {
+				app.removeProcess(p.pid)
+			}
+			atomic.AddUint64(&n.processesSpawnFailed, 1)
 			return p.pid, gen.ErrTimeout
 		}
 
@@ -2240,7 +3041,9 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		errCh := make(chan error, 1)
 
 		go func() {
-			err := behavior.ProcessInit(p, options.Args...)
+			initStart := time.Now()
+			err := behavior.ProcessInit(bp, options.Args...)
+			atomic.StoreUint64(&p.initTime, uint64(time.Since(initStart)))
 
 			// try to claim "init completed"
 			if atomic.CompareAndSwapInt32(&completed, 0, 1) {
@@ -2251,13 +3054,16 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 
 			// timeout won - main already called Kill, we do cleanup
 			atomic.StoreInt32(&p.state, int32(gen.ProcessStateTerminated))
+			atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 			n.cleanupProcess(p, gen.TerminateReasonKill)
+			if app, ok := p.application.(*application); ok {
+				app.removeProcess(p.pid)
+			}
 			if lib.Recover() {
 				defer func() {
 					if rcv := recover(); rcv != nil {
-						pc, fn, line, _ := runtime.Caller(2)
-						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
-							p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s",
+							p.pid, p.name, rcv, lib.PanicOrigin())
 					}
 				}()
 			}
@@ -2276,6 +3082,7 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			if atomic.CompareAndSwapInt32(&completed, 0, 2) {
 				// we won - goroutine will do cleanup when ProcessInit completes
 				n.Kill(p.pid)
+				atomic.AddUint64(&n.processesSpawnFailed, 1)
 				return p.pid, gen.ErrTimeout
 			}
 			// goroutine won - receive result
@@ -2283,24 +3090,50 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		}
 	} else {
 		// no timeout - synchronous behavior
-		initErr = behavior.ProcessInit(p, options.Args...)
+		initStart := time.Now()
+		initErr = behavior.ProcessInit(bp, options.Args...)
+		atomic.StoreUint64(&p.initTime, uint64(time.Since(initStart)))
 	}
 
 	if initErr != nil {
+		if tracingActive {
+			n.sendTracingSpan(gen.TracingSpan{
+				TraceID: options.Tracing.ID, SpanID: spawnSpanID,
+				ParentSpanID: parentSpanID,
+				Point:        gen.TracingPointProcessed, Kind: gen.TracingKindSpawn,
+				Timestamp: time.Now().UnixNano(),
+				Node:      n.name, From: options.ParentPID, To: pid,
+				Behavior: p.sbehavior, Error: initErr.Error(),
+			})
+		}
 		n.cleanupProcess(p, initErr)
+		if app, ok := p.application.(*application); ok {
+			app.removeProcess(p.pid)
+		}
 		go func() {
 			if lib.Recover() {
 				defer func() {
 					if rcv := recover(); rcv != nil {
-						pc, fn, line, _ := runtime.Caller(2)
-						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
-							p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s",
+							p.pid, p.name, rcv, lib.PanicOrigin())
 					}
 				}()
 			}
 			p.behavior.ProcessTerminate(initErr)
 		}()
+		atomic.AddUint64(&n.processesSpawnFailed, 1)
 		return p.pid, initErr
+	}
+
+	if tracingActive {
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: spawnSpanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointProcessed, Kind: gen.TracingKindSpawn,
+			Timestamp: time.Now().UnixNano(),
+			Node:      n.name, From: options.ParentPID, To: pid,
+			Behavior: p.sbehavior,
+		})
 	}
 
 	if options.LinkParent {
@@ -2308,10 +3141,11 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	}
 
 	// switch to sleep state (process already registered above)
-	p.state = int32(gen.ProcessStateSleep)
+	atomic.StoreInt32(&p.state, int32(gen.ProcessStateSleep))
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 
 	// do not count system app processes
-	if p.application != system.Name {
+	if appName(p.application) != system.Name {
 		n.waitprocesses.Add(1)
 	}
 
@@ -2319,15 +3153,33 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 	// so we should run this process to make sure this message is handled
 	p.run()
 
+	atomic.AddUint64(&n.processesSpawned, 1)
 	return p.pid, nil
 }
 
 // cleanupProcess performs core cleanup for a process.
 // Does NOT call waitprocesses.Done() - caller must handle if needed.
 func (n *node) cleanupProcess(p *process, reason error) {
+	if p.tracing.ID != [2]uint64{} {
+		var errString string
+		if reason != nil {
+			errString = reason.Error()
+		}
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: p.tracing.ID, SpanID: atomic.AddUint64(&n.spanID, 1),
+			ParentSpanID: p.tracing.SpanID,
+			Point:        gen.TracingPointProcessed, Kind: gen.TracingKindTerminate,
+			Timestamp: time.Now().UnixNano(),
+			Node:      n.name, From: p.pid, To: p.pid,
+			Behavior: p.sbehavior, Error: errString,
+		})
+	}
 	n.processes.Delete(p.pid)
-	n.RouteTerminatePID(p.pid, reason) // calls TerminatedTargetPID internally
-	n.targets.TerminatedProcess(p.pid, reason)
+
+	if name := p.tracingExporterName.Load(); name != nil {
+		n.TracingExporterDelete(*name)
+		p.tracingExporterName.Store(nil)
+	}
 
 	n.log.Trace("...cleanupProcess %s", p.pid)
 
@@ -2341,6 +3193,9 @@ func (n *node) cleanupProcess(p *process, reason error) {
 		n.aliases.Delete(a)
 		n.RouteTerminateAlias(a, reason)
 	}
+
+	n.RouteTerminatePID(p.pid, reason) // calls TerminatedTargetPID internally
+	n.targets.TerminatedProcess(p.pid, reason)
 
 	p.metas.Range(func(_, v any) bool {
 		m := v.(*meta)
@@ -2360,22 +3215,39 @@ func (n *node) cleanupProcess(p *process, reason error) {
 func (n *node) unregisterProcess(p *process, reason error) {
 	n.cleanupProcess(p, reason)
 
-	if p.application != system.Name {
-		n.waitprocesses.Done()
-	}
+	atomic.AddUint64(&n.processesTerminated, 1)
+
 	n.log.Trace("...unregisterProcess %s", p.pid)
 
 	if p.loggername != "" {
 		n.LoggerDelete(p.loggername)
 		p.log.SetLevel(gen.LogLevelInfo)
 	}
+}
 
-	if p.application != "" {
-		if v, exist := n.applications.Load(p.application); exist {
-			app := v.(*application)
-			app.terminate(p.pid, reason)
+// finishProcess is the tail of the termination path: the behavior callback first, the
+// accounting after it. The application and the node shutdown barrier learn about the
+// termination only once the callback has returned, so neither of them can release what
+// the process is still using. Must be called after unregisterProcess.
+func (n *node) finishProcess(p *process, reason error, terminateReason error) {
+	defer func() {
+		if app, ok := p.application.(*application); ok {
+			app.processTerminated(p.pid, reason)
 		}
+		if appName(p.application) != system.Name {
+			n.waitprocesses.Done()
+		}
+	}()
+
+	if lib.Recover() {
+		defer func() {
+			if rcv := recover(); rcv != nil {
+				p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s",
+					p.pid, p.name, rcv, lib.PanicOrigin())
+			}
+		}()
 	}
+	p.behavior.ProcessTerminate(terminateReason)
 }
 
 func (n *node) isRunning() bool {
@@ -2433,40 +3305,4 @@ func (n *node) unregisterEvent(name gen.Atom, pid gen.PID) error {
 	n.log.Trace("...unregisterEvent %s for %s", name, pid)
 
 	return n.targets.UnregisterEvent(pid, name)
-}
-
-func (n *node) validateLicenses(versions ...gen.Version) {
-	for _, version := range versions {
-		switch version.License {
-		case gen.LicenseMIT:
-			continue
-
-		case "":
-			if lib.Trace() {
-				n.Log().Trace("undefined license for %s", version)
-			}
-			continue
-
-		case gen.LicenseBSL1:
-			var valid bool
-
-			if _, exist := n.licenses.LoadOrStore(version, valid); exist {
-				continue
-			}
-
-			// TODO validate license
-			//if valid {
-			//	continue
-			//}
-
-			n.Log().Warning("%s is distributed under %q and can not be used "+
-				"without a license for production/commercial purposes",
-				version, version.License)
-
-		default:
-			if lib.Trace() {
-				n.Log().Trace("unhandled license %q for %s", version.License, version)
-			}
-		}
-	}
 }

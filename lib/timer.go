@@ -8,7 +8,12 @@ import (
 var (
 	timers = &sync.Pool{
 		New: func() any {
-			return time.NewTimer(time.Second * 5)
+			// Return a stopped timer with empty C so the first Reset by the
+			// caller is race-free per time.Timer.Reset contract. NewTimer(1h)
+			// then Stop() runs within nanoseconds; Stop is guaranteed to win.
+			t := time.NewTimer(time.Hour)
+			t.Stop()
+			return t
 		},
 	}
 )

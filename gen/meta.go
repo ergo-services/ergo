@@ -2,6 +2,7 @@ package gen
 
 import (
 	"fmt"
+	"time"
 )
 
 type MetaState int32
@@ -23,9 +24,6 @@ func (p MetaState) String() string {
 	}
 	return fmt.Sprintf("state#%d", int32(p))
 }
-func (p MetaState) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + p.String() + "\""), nil
-}
 
 type MetaBehavior interface {
 	Init(process MetaProcess) error
@@ -40,10 +38,10 @@ type MetaBehavior interface {
 // MetaProcess interface provides methods for meta process operations.
 //
 // Meta processes bridge the actor model with the synchronous world by using two goroutines:
-// 1. Forever-running goroutine: Executes Start() method, typically blocked on sync operations
-//    (HTTP server, TCP accept loop, blocking I/O, etc.)
-// 2. Message-handling goroutine: Handles mailbox messages, created only when messages arrive
-//    (same as regular process - sequential message handling)
+//  1. Forever-running goroutine: Executes Start() method, typically blocked on sync operations
+//     (HTTP server, TCP accept loop, blocking I/O, etc.)
+//  2. Message-handling goroutine: Handles mailbox messages, created only when messages arrive
+//     (same as regular process - sequential message handling)
 //
 // This design allows:
 // - One goroutine blocked on sync operations (Start() method)
@@ -67,7 +65,8 @@ type MetaProcess interface {
 	Parent() PID
 
 	// Send sends an asynchronous message to the target.
-	// Target can be: PID, ProcessID, Alias, Atom (process name), or string (process name).
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other type returns ErrUnsupported.
 	// Available in: Sleep, Running, Terminated states.
 	// Sleep allowed because external code (HTTP/TCP handlers) calls from non-actor goroutines.
 	Send(to any, message any) error
@@ -76,6 +75,24 @@ type MetaProcess interface {
 	// Available in: Sleep, Running, Terminated states.
 	// Sleep allowed for external code integration.
 	SendWithPriority(to any, message any, priority MessagePriority) error
+
+	// SendAfter sends the message to the target once the delay elapses. The cancel
+	// function discards the scheduled send and reports false if it already fired.
+	// Dropped if the meta process or its parent terminates before the timer expires.
+	// Available in: Sleep, Running states. Returns ErrNotAllowed in Terminated state.
+	SendAfter(to any, message any, after time.Duration) (CancelFunc, error)
+
+	// SendWithPriorityAfter is SendAfter with the specified priority.
+	SendWithPriorityAfter(to any, message any, priority MessagePriority, after time.Duration) (CancelFunc, error)
+
+	// SendEvery sends the message to the target on every period, until the cancel
+	// function is called or the meta process or its parent terminates.
+	// Available in: Sleep, Running states. Returns ErrNotAllowed in Terminated state,
+	// ErrIncorrect on a non-positive period.
+	SendEvery(to any, message any, period time.Duration) (CancelFunc, error)
+
+	// SendWithPriorityEvery is SendEvery with the specified priority.
+	SendWithPriorityEvery(to any, message any, priority MessagePriority, period time.Duration) (CancelFunc, error)
 
 	// SendResponse sends a response to a Call request.
 	// Used in HandleCall() to respond to synchronous requests.

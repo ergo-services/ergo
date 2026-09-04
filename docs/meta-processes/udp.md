@@ -379,7 +379,7 @@ Most importantly: **design your protocol so datagram loss doesn't break function
 UDP server supports inspection for debugging:
 
 ```go
-serverInfo, _ := process.Call(udpID, gen.Inspect{})
+serverInfo, _ := process.InspectMeta(udpID)
 // Returns: map[string]string{
 //     "listener":  "0.0.0.0:8125",
 //     "process":   "metrics_collector",
@@ -387,6 +387,8 @@ serverInfo, _ := process.Call(udpID, gen.Inspect{})
 //     "bytes out": "1048576",
 // }
 ```
+
+A meta process is inspected by its alias through `InspectMeta`, not by a `Call`: the request goes down the meta's system queue to its `HandleInspect`, which a `Call` never reaches. `gen.Node` carries the same method for callers that are not processes.
 
 Use this for monitoring datagram counts, bandwidth usage, or displaying server status.
 
@@ -445,11 +447,18 @@ func (c *DNSClient) query(domain string) {
         Data: query,
     })
     
-    // Store pending query with timeout
+    // Arm the timeout. SendAfter returns (gen.CancelFunc, error), so it cannot
+    // sit inside a struct literal.
+    cancel, err := c.SendAfter(c.PID(), QueryTimeout{queryID}, 5*time.Second)
+    if err != nil {
+        c.Log().Error("cannot arm the query timeout: %s", err)
+        return
+    }
+
     c.pending[queryID] = &PendingQuery{
         domain:  domain,
         sent:    time.Now(),
-        timeout: c.SendAfter(c.PID(), QueryTimeout{queryID}, 5*time.Second),
+        timeout: cancel,
     }
 }
 

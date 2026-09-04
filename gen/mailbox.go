@@ -10,8 +10,10 @@ const (
 	MailboxMessageTypeRegular MailboxMessageType = 0
 	MailboxMessageTypeRequest MailboxMessageType = 1
 	MailboxMessageTypeEvent   MailboxMessageType = 2
-	MailboxMessageTypeExit    MailboxMessageType = 3
-	MailboxMessageTypeInspect MailboxMessageType = 4 // for the observer's purposes
+	MailboxMessageTypeSpan    MailboxMessageType = 3
+
+	MailboxMessageTypeExit    MailboxMessageType = 10
+	MailboxMessageTypeInspect MailboxMessageType = 11
 )
 
 type MailboxMessage struct {
@@ -20,6 +22,7 @@ type MailboxMessage struct {
 	Type    MailboxMessageType
 	Target  any
 	Message any
+	Tracing Tracing
 }
 
 var (
@@ -42,5 +45,6 @@ func ReleaseMailboxMessage(m *MailboxMessage) {
 	m.Type = 0
 	m.From = emptyPID
 	m.Ref = emptyRef
+	m.Tracing = Tracing{}
 	mbm.Put(m)
 }

@@ -522,7 +522,7 @@ Writes `Data` to stdin. If `ReadBufferPool` is configured, the Port returns the 
 
 When the external program exits (normally or crash), the Port sends `MessagePortTerminate` and terminates itself. The Port also kills the external program if:
 
-- The Port is terminated (you call `process.SendExit` to the Port's ID)
+- The Port is terminated (you call `process.SendExitMeta(portID, reason)` - a Port is addressed by `gen.Alias`, and `SendExit` takes a `gen.PID`)
 - The Port's parent terminates (cascading termination)
 - An error occurs reading stdout (broken pipe, I/O error)
 
@@ -535,8 +535,10 @@ Stderr is read in a separate goroutine. This means stderr messages can arrive af
 Port supports inspection for debugging:
 
 ```go
-result, err := process.Call(portID, gen.Inspect{})
+result, err := process.InspectMeta(portID)
 ```
+
+A meta process is inspected by its alias through `InspectMeta`, not by a `Call`: the request goes down the meta's system queue to its `HandleInspect`, which a `Call` never reaches. `gen.Node` carries the same method for callers that are not processes.
 
 Returns a map with Port status:
 
@@ -633,39 +635,43 @@ func (s *PortSupervisor) Init(args ...any) (act.SupervisorSpec, error) {
 
 Supervise the actor that spawns ports. If the actor crashes, the supervisor restarts it, which re-spawns ports. Ports inherit parent lifecycle - when the actor terminates, all its ports terminate.
 
-**Pattern: Backpressure with buffer pool**
+**Pattern: bounding slow processing of port output**
+
+The controller that owns the port should not do slow work in its own handler, and it must not reach for a semaphore or a goroutine to avoid that. Both break the actor model, and this chapter's own [Meta Processes](../basics/meta-process.md) page says why: a blocking send inside a callback stalls the actor's single dispatch loop, including the stdin writes the port needs, and a goroutine calling `c.processData` gives two goroutines concurrent access to the controller's state.
+
+Hand the work to a pool instead. The pool's `PoolSize` bounds concurrency and `WorkerMailboxSize` bounds the burst, which is the backpressure the semaphore was reaching for:
 
 ```go
-bufferPool := &sync.Pool{
-    New: func() any {
-        return make([]byte, 8192)
-    },
+// In the controller's Init: a pool of workers that does the slow part
+func (c *Controller) Init(args ...any) error {
+    pid, err := c.SpawnRegister("port_workers", createPortPool, gen.ProcessOptions{})
+    if err != nil {
+        return err
+    }
+    c.workers = pid
+    return nil
 }
 
-// Limit concurrent buffers
-sem := make(chan struct{}, 100) // Max 100 buffers in flight
-
+// The controller only routes. No goroutines, no blocking.
 func (c *Controller) HandleMessage(from gen.PID, message any) error {
     switch m := message.(type) {
     case meta.MessagePortData:
-        // Acquire semaphore (blocks if 100 buffers in use)
-        sem <- struct{}{}
-        
-        go func() {
-            defer func() {
-                <-sem             // Release semaphore
-                bufferPool.Put(m.Data) // Return buffer
-            }()
-            
-            // Process data (can be slow)
-            c.processData(m.Data)
-        }()
+        return c.Send(c.workers, m)
+    }
+    return nil
+}
+
+// The worker does the work, one chunk at a time, on its own goroutine
+func (w *PortWorker) HandleMessage(from gen.PID, message any) error {
+    switch m := message.(type) {
+    case meta.MessagePortData:
+        w.processData(m.Data)
     }
     return nil
 }
 ```
 
-Limit memory usage by capping concurrent buffers. If processing is slow, the semaphore blocks, which blocks the actor's message loop, which applies backpressure to the Port.
+Two things to decide with this shape. A `ReadBufferPool` buffer must be returned by whoever finishes with it - that is now the worker, after `processData`, and never twice. And when every worker mailbox is full the pool **drops** the message rather than queueing it (see [Pool Actor](../actors/pool.md)), so size the pool for the port's real output rate and watch `ergo:messages_unhandled`.
 
 **Pitfall: Forgetting to return buffers**
 
@@ -702,9 +708,11 @@ c.Send(portID, meta.MessagePortData{Data: largeBuffer})
 // ^ This Send doesn't block, but the Port's write to stdin might
 ```
 
-If the external program stops reading stdin (buffer full, process blocked), the Port blocks writing. The Port's `HandleMessage` is blocked, so it can't send you more stdout data. Deadlock.
+If the external program stops reading stdin (buffer full, process blocked), the Port blocks inside that write.
 
-Solution: Design your protocol so the external program never stops reading stdin. Use flow control or chunking to prevent overflows.
+What it does **not** block is stdout. A meta process runs two goroutines: one handles its mailbox, and one runs `Start`, which for a Port is the stdout reader that sends you `MessagePortText` / `MessagePortData`. The stdin writes live in `HandleMessage`, on the mailbox goroutine, so a stalled write stops further stdin writes and nothing else - stdout keeps arriving, and the queued outbound data piles up in the Port's mailbox instead.
+
+That is a leak of memory and of latency rather than a deadlock, and it is silent: the sender's `Send` returns immediately every time. Design your protocol so the external program never stops reading stdin, and use flow control or chunking to prevent overflows.
 
 **Pitfall: Ignoring MessagePortError**
 

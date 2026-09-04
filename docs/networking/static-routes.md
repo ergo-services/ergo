@@ -18,7 +18,7 @@ The framework maintains an internal routing table. When you create an outgoing c
 2. **Falls back to discovery** - If no static route exists, queries the Registrar
 3. **Tries proxy routes** - If direct connection fails, attempts proxy routes
 
-This order is important. Static routes always win. If you've defined a route for `"prod-*"` that matches `prod-db@example.com`, the framework uses your route and never asks the Registrar. You've taken control.
+This order is important, and step 2 is reached only when step 1 found **nothing**. A matching static route is not a preference, it is the whole answer: every matching route is tried by weight, and if they all fail the attempt ends with `gen.ErrNoRoute`. The registrar is never asked as a second chance. Defining a route for `"prod-*"` therefore takes `prod-db@example.com` out of discovery permanently - you have taken control, including of the failure.
 
 The routing table uses pattern matching. When the framework needs to connect to `prod-db@example.com`, it checks all static routes against that name using Go's `regexp.MatchString`. Any routes whose patterns match become candidates. If multiple routes match, they're sorted by weight (higher weights first), and the framework tries them in order until one succeeds.
 
@@ -95,19 +95,15 @@ You can combine static patterns with dynamic resolution:
 
 ```go
 route := gen.NetworkRoute{
-    Resolver: registrar.Resolver(), // use specific registrar
-    Route: gen.Route{
-        Host: "custom.example.com", // override resolved host
-        TLS:  true,                 // force TLS
-    },
+    Resolver: registrar.Resolver(), // ask this registrar for these nodes
 }
 
 network.AddRoute("staging-.*", route, 100)
 ```
 
-This hybrid approach uses the pattern to select which nodes use this route, then queries the resolver for connection details. The `Route` fields override any values returned by the resolver. In this example, even if the resolver returns a non-TLS route, the framework forces TLS. If the resolver returns `staging-db@internal` but you've specified `Host: "custom.example.com"`, the framework connects to your specified host instead.
+The pattern selects **which** nodes are resolved this way. It does not blend the two sources: once the resolver answers, the framework builds a fresh route out of what came back, and any `Route` fields configured beside the resolver contribute nothing to it. Host, port, TLS and the flags all come from the resolver. Only two things fall back to the node's own configuration when the resolver leaves them empty: the certificate manager, and the cookie.
 
-Why would you do this? Imagine you have a staging environment behind a bastion host. The staging nodes register themselves in the discovery system with their internal addresses, but you need to connect through a specific gateway. The resolver pattern matches staging nodes, the resolver gets you the node's details, but your route configuration redirects the connection through your gateway.
+So a `TLS: true` sitting next to a `Resolver` does not force TLS onto a resolver answer that says otherwise, and a `Host` there does not redirect the connection. Use this form to point a subset of nodes at a different discovery service. To dictate the address yourself, give the route a `Route` and no `Resolver` - a plain static route is the form that is honoured verbatim.
 
 ### Custom Cookie
 
@@ -137,14 +133,13 @@ route := gen.NetworkRoute{
         Port: 4370,
         TLS:  true,
     },
-    Cert:               customCert,
-    InsecureSkipVerify: false, // enforce certificate validation
+    Cert: customCert,
 }
 ```
 
 Different routes can use different certificates. Your production nodes might use certificates from one CA. A partner's nodes might use certificates from another CA. Each route gets its own certificate manager, allowing you to maintain separate trust chains.
 
-Setting `InsecureSkipVerify: true` disables certificate validation. Use this only for testing or when connecting to nodes with self-signed certificates you trust but can't properly validate.
+Certificate **validation**, on the other hand, is not per route. `gen.NetworkRoute` carries an `InsecureSkipVerify` field, but every outgoing path overwrites it with the node-wide `NetworkOptions.InsecureSkipVerify` before dialling, so setting it on a route neither loosens nor tightens anything. One route cannot be strict while another is lax: the node decides, and the setting to reach for is `NetworkOptions.InsecureSkipVerify`. Incoming connections are the exception - there `AcceptorOptions.InsecureSkipVerify` is honoured per acceptor.
 
 ### Custom Network Flags
 
@@ -269,7 +264,11 @@ Removing a route doesn't affect existing connections. If you have an active conn
 
 ## Proxy Routes
 
-Sometimes you can't connect directly to a node. Maybe it's behind a firewall. Maybe it's in a private network. Proxy routes let you connect through an intermediate node:
+{% hint style="warning" %}
+**Proxying is not implemented yet.** The API below exists and a proxy route can be registered and read back, but no connection is ever made through it: every proxy path ends in `connectProxy`, which logs "proxy feature is not implemented yet" and returns `gen.ErrUnsupported`. A node that can only be reached through a gateway cannot be reached at all today. This section describes the shape the feature will take; treat it as a preview, not as something to build on.
+{% endhint %}
+
+Sometimes you can't connect directly to a node. Maybe it's behind a firewall. Maybe it's in a private network. Proxy routes are meant to let you connect through an intermediate node:
 
 ```go
 proxyRoute := gen.NetworkProxyRoute{
@@ -282,7 +281,7 @@ proxyRoute := gen.NetworkProxyRoute{
 network.AddProxyRoute("backend-.*@internal.local", proxyRoute, 100)
 ```
 
-When the framework needs to connect to `backend-db@internal.local`, it establishes a connection to `gateway@dmz.example.com` first, then asks the gateway to proxy the connection to the final destination. The gateway handles forwarding messages between you and the backend node.
+The intent is that connecting to `backend-db@internal.local` opens a connection to `gateway@dmz.example.com` first and asks the gateway to forward. Today the attempt stops at the gateway step with `gen.ErrUnsupported`.
 
 Proxy routes have the same pattern matching and weight semantics as direct routes. You can define multiple proxy routes for the same pattern with different weights for failover.
 
@@ -295,32 +294,33 @@ proxyRoute := gen.NetworkProxyRoute{
         Proxy: "gateway@dmz",
     },
     Cookie: "gateway-specific-cookie",        // authenticate to gateway
-    MaxHop: 3,                                // limit proxy chain depth
+    MaxHop: 3,                                // intended chain-depth limit
     Flags: gen.NetworkProxyFlags{
-        Enable:                  true,
-        EnableLink:              true,        // allow link operations through proxy
-        EnableMonitor:           true,        // allow monitor operations
-        EnableSpawn:             false,       // don't allow spawning through proxy
+        Enable:                       true,
+        EnableRemoteSpawn:            false,
+        EnableRemoteApplicationStart: false,
+        EnableEncryption:             true,
+        EnableImportantDelivery:      true,
     },
 }
 ```
 
-`MaxHop` limits proxy chaining. If the gateway itself needs to proxy through another node, and that node proxies through yet another node, `MaxHop` prevents infinite loops. The default is 8. Each proxy hop decrements the counter. When it reaches zero, the framework refuses to proxy further.
+Those five are the whole of `gen.NetworkProxyFlags`. There is no `EnableLink` or `EnableMonitor` field, and `EnableSpawn` is a method on `gen.Network`, not a flag.
 
-The `Flags` control what operations the proxy allows. Maybe your gateway allows monitoring remote processes but doesn't allow spawning processes through the proxy. This gives you granular security control at the proxy level.
+`MaxHop` is stored and reported but not yet acted on: nothing decrements it, and there is no `DefaultProxyMaxHop` constant. It is part of the same unimplemented feature as the rest of this section.
 
 ## Static Routes vs Discovery
 
 Static routes are checked first, always. When the framework needs to connect to a node:
 
 1. **Check routing table** - Pattern match against static routes
-2. **Try static routes** - Attempt connection using matched routes (by weight order)
-3. **Query discovery** - If no static route exists or all failed, ask the Registrar
+2. **Try static routes** - Attempt connection using matched routes (by weight order). If any matched, this is the last step: on failure the answer is `gen.ErrNoRoute`
+3. **Query discovery** - Only when **no** static route matched, ask the Registrar
 4. **Try discovered routes** - Attempt connection using discovered addresses
-5. **Try proxy discovery** - If direct connection fails, try discovered proxy routes
+5. **Try proxy discovery** - If direct connection fails, try discovered proxy routes (which currently end in `gen.ErrUnsupported`, see the warning above)
 6. **Fail** - Return `gen.ErrNoRoute`
 
-This priority order means static routes override discovery. If you have a static route for `prod-db` pointing to `10.0.1.50`, the framework never asks the Registrar for `prod-db`'s address. It just uses your route. This is by design - you're explicitly taking control.
+A static route is not a preference the framework may reconsider. If you have one for `prod-db` pointing to `10.0.1.50` and that address is down, the connection fails - the Registrar is never asked, even though it might know a working address. This is by design: you took control, and that includes the failure. Remove or narrow the route to hand the node back to discovery.
 
 But combining them is powerful. You can define static routes with resolvers:
 

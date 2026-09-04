@@ -3,10 +3,13 @@ package node
 import (
 	"fmt"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/testing/mock"
 )
 
 type testCaseCronSpecField struct {
@@ -406,13 +409,13 @@ func TestCronOverlapFix(t *testing.T) {
 		t.Errorf("Expected Jan 15, 2024 12:00 (Monday, 15th) to match '0 12 15 * 1'")
 	}
 
-	// Monday, Jan 8, 2024 12:00 - should match (weekday=Monday, even though day≠15)
+	// Monday, Jan 8, 2024 12:00 - should match (weekday=Monday, even though day!=15)
 	jan8_2024 := time.Date(2024, 1, 8, 12, 0, 0, 0, time.UTC)
 	if !spec.IsRunAt(jan8_2024) {
 		t.Errorf("Expected Jan 8, 2024 12:00 (Monday, 8th) to match '0 12 15 * 1' - weekday should match")
 	}
 
-	// Tuesday, Jan 15, 2024 12:00 - should match (day=15, even though weekday≠Monday)
+	// Tuesday, Jan 15, 2024 12:00 - should match (day=15, even though weekday!=Monday)
 	jan15_2024_tue := time.Date(2024, 1, 16, 12, 0, 0, 0, time.UTC) // 16th is Tuesday, but let's use 15th
 	jan15_2024_tue = time.Date(2024, 2, 15, 12, 0, 0, 0, time.UTC)  // Feb 15, 2024 is Thursday
 	if !spec.IsRunAt(jan15_2024_tue) {
@@ -506,5 +509,121 @@ func TestCronCornerCases(t *testing.T) {
 	feb27_2023 := time.Date(2023, 2, 27, 12, 0, 0, 0, time.UTC)
 	if specL.IsRunAt(feb27_2023) {
 		t.Errorf("Expected Feb 27, 2023 12:00 (not last day in non-leap year) to NOT match '0 12 L * *'")
+	}
+}
+
+// TestCronConcurrentAccess drives a synchronous tick (spool drain plus action
+// launch) concurrently with Info/JobInfo, Enable/Disable of a job's flag, and the
+// range queries. A once-a-minute timer would never fire inside a unit test, so the
+// tick is invoked directly: this is what actually exercises the callback-driven
+// races under -race - the lock-free spool Pop against Info, the action goroutines
+// writing last/lastErr against Info/JobInfo reads, the atomic disable flag read in
+// the Pop loop against Enable/Disable, and schedule writing c.next against Info.
+func TestCronConcurrentAccess(t *testing.T) {
+	node := mock.NewNode()
+	node.OnIsAlive(func() bool { return false }) // keep the real timer inert; the test drives cron state itself
+	c := createCron(node)
+	defer c.terminate()
+
+	action := gen.CreateCronActionMessage(gen.Atom("target"), gen.MessagePriorityNormal)
+	for i := 0; i < 5; i++ {
+		name := gen.Atom(fmt.Sprintf("j%d", i))
+		if err := c.AddJob(gen.CronJob{Name: name, Spec: "* * * * *", Action: action}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	var stop atomic.Bool
+	run := func(fn func()) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for stop.Load() == false {
+				fn()
+			}
+		}()
+	}
+
+	// sole spool consumer: schedule writes c.next and pushes the due jobs, then the
+	// synchronous tick drains the spool and launches each due job's action.
+	run(func() {
+		now := time.Now().Truncate(time.Minute)
+		c.schedule(now)
+		c.tick(now)
+	})
+	// concurrent readers and flag mutators
+	run(func() { c.Info() })
+	run(func() { c.JobInfo("j0") })
+	run(func() { c.EnableJob("j1") })
+	run(func() { c.DisableJob("j1") })
+	run(func() { c.Schedule(time.Now(), 10*time.Minute) })
+
+	time.Sleep(200 * time.Millisecond)
+	stop.Store(true)
+	wg.Wait()
+}
+
+// TestCronStartupNextInitialized guards the startup edge case: createCron must set
+// c.next to the next real minute before AddJob can run, so a job registered at
+// startup is scheduled against a real future tick and never against the zero time
+// (0001-01-01 00:00 Monday), which would spuriously fire it on the first tick.
+func TestCronStartupNextInitialized(t *testing.T) {
+	before := time.Now()
+	node := mock.NewNode()
+	node.OnIsAlive(func() bool { return false }) // keep the real timer inert; the test drives cron state itself
+	c := createCron(node)
+	defer c.terminate()
+
+	if c.next.IsZero() {
+		t.Fatal("c.next not initialized: startup jobs would be scheduled against the zero time")
+	}
+	if c.next != c.next.Truncate(time.Minute) {
+		t.Fatalf("c.next %v is not on a minute boundary", c.next)
+	}
+	if c.next.After(before) == false {
+		t.Fatalf("c.next %v is not a future minute (want > %v)", c.next, before)
+	}
+}
+
+type cronCountAction struct{ ran atomic.Int32 }
+
+func (a *cronCountAction) Do(gen.Atom, gen.Node, time.Time) error { a.ran.Add(1); return nil }
+func (a *cronCountAction) Info() string                           { return "count" }
+
+// TestCronDisableAfterSpoolNotExecuted guards the disable TOCTOU: a job disabled
+// after it was pushed to the spool must be skipped by the tick, not executed. A
+// second job left enabled is the positive control that the action path works.
+func TestCronDisableAfterSpoolNotExecuted(t *testing.T) {
+	node := mock.NewNode()
+	node.OnIsAlive(func() bool { return false }) // keep the real timer inert; the test drives cron state itself
+	c := createCron(node)
+	defer c.terminate()
+
+	stays := &cronCountAction{}
+	gone := &cronCountAction{}
+	if err := c.AddJob(gen.CronJob{Name: "stays", Spec: "* * * * *", Action: stays}); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.AddJob(gen.CronJob{Name: "gone", Spec: "* * * * *", Action: gone}); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Now().Truncate(time.Minute)
+	c.schedule(now)      // both jobs spooled (enabled at spool time)
+	c.DisableJob("gone") // disabled while sitting in the spool
+	c.tick(now)          // "stays" runs, "gone" must be skipped
+
+	// wait for the enabled action to run, then confirm the disabled one did not
+	deadline := time.Now().Add(time.Second)
+	for stays.ran.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if stays.ran.Load() == 0 {
+		t.Fatal("enabled job did not run - test setup issue")
+	}
+	time.Sleep(50 * time.Millisecond) // margin for a wrongly-launched action goroutine
+	if got := gone.ran.Load(); got != 0 {
+		t.Fatalf("job disabled after spooling was executed: ran=%d, want 0", got)
 	}
 }

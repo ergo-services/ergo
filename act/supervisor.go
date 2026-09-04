@@ -1,11 +1,10 @@
 package act
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"sort"
-	"strings"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -49,7 +48,11 @@ type SupervisorBehavior interface {
 	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
 	HandleEvent(message gen.MessageEvent) error
 
-	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
+	// HandleInspect invoked on the request made with gen.Process.Inspect(...).
+	// The returning fields are merged into the supervisor state (strategy,
+	// children), so implement it to add the fields of your own. The supervisor
+	// state uses the reserved "ergo:" prefix for its keys; a returning field
+	// with such a key overrides it.
 	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
@@ -64,6 +67,13 @@ type Supervisor struct {
 	handleChild bool
 	children    map[gen.PID]gen.Atom
 	state       supState
+
+	spanStart int64 // handler-entry time for the Processed span interval
+}
+
+// ProcessKind reports this process as built on act.Supervisor.
+func (s *Supervisor) ProcessKind() gen.ProcessKind {
+	return gen.ProcessKindSupervisor
 }
 
 // SupervisorType
@@ -111,6 +121,8 @@ type SupervisorStrategy int
 
 func (s SupervisorStrategy) String() string {
 	switch s {
+	case SupervisorStrategyInherit:
+		return "Inherit"
 	case SupervisorStrategyTransient:
 		return "Transient"
 	case SupervisorStrategyTemporary:
@@ -122,20 +134,52 @@ func (s SupervisorStrategy) String() string {
 }
 
 const (
+	// SupervisorStrategyInherit is a sentinel valid only inside SupervisorChildRestart.
+	// At child level it means the child uses the supervisor-level Strategy.
+	// At supervisor level it is normalized to SupervisorStrategyTransient on init.
+	SupervisorStrategyInherit SupervisorStrategy = 0
+
 	// SupervisorStrategyTransient child process is restarted only if
 	// it terminates abnormally, that is, with an exit reason other
 	// than TerminateReasonNormal, TerminateReasonShutdown.
 	// This is default strategy.
-	SupervisorStrategyTransient SupervisorStrategy = 0
+	SupervisorStrategyTransient SupervisorStrategy = 1
 
 	// SupervisorStrategyTemporary child process is never restarted
 	// (not even when the supervisor restart strategy is rest_for_one
 	// or one_for_all and a sibling death causes the temporary process
 	// to be terminated)
-	SupervisorStrategyTemporary SupervisorStrategy = 1
+	SupervisorStrategyTemporary SupervisorStrategy = 2
 
 	// SupervisorStrategyPermanent child process is always restarted
-	SupervisorStrategyPermanent SupervisorStrategy = 2
+	SupervisorStrategyPermanent SupervisorStrategy = 3
+)
+
+// OnExceed defines what happens when the per-spec restart intensity is
+// exceeded. Only meaningful when SupervisorChildRestart.Intensity > 0.
+type OnExceed uint8
+
+func (a OnExceed) String() string {
+	switch a {
+	case OnExceedTerminateSupervisor:
+		return "TerminateSupervisor"
+	case OnExceedDisable:
+		return "Disable"
+	}
+	return "Bug: unknown OnExceed"
+}
+
+const (
+	// OnExceedTerminateSupervisor terminates the supervisor when the per-spec
+	// restart intensity is exceeded. This is the default.
+	OnExceedTerminateSupervisor OnExceed = 0
+
+	// OnExceedDisable disables the offending child when its per-spec or
+	// per-instance restart intensity is exceeded; the supervisor remains
+	// alive. For OneForOne the spec is marked disabled (re-enable via
+	// EnableChild). For SimpleOneForOne the offending instance is dropped
+	// while the spec stays available for new StartChild calls.
+	OnExceedDisable OnExceed = 1
 )
 
 // SupervisorSpec
@@ -164,6 +208,21 @@ type SupervisorRestart struct {
 	KeepOrder bool // ignored for SupervisorTypeSimpleOneForOne and SupervisorTypeOneForOne
 }
 
+// SupervisorChildRestart is an optional per-child override of the
+// supervisor-level restart configuration. Zero-value fields inherit:
+// Strategy == SupervisorStrategyInherit uses the supervisor Strategy;
+// Intensity == 0 uses the supervisor's global counter (Period is then
+// ignored). Setting Intensity > 0 enables a dedicated per-spec counter
+// (per-instance for SimpleOneForOne). OnExceed == OnExceedDisable
+// requires Intensity > 0 and is rejected for SupervisorTypeAllForOne
+// and SupervisorTypeRestForOne.
+type SupervisorChildRestart struct {
+	Strategy  SupervisorStrategy
+	Intensity uint16
+	Period    uint16
+	OnExceed  OnExceed
+}
+
 // SupervisorChildSpec
 type SupervisorChildSpec struct {
 	Name        gen.Atom
@@ -171,6 +230,7 @@ type SupervisorChildSpec struct {
 	Factory     gen.ProcessFactory
 	Options     gen.ProcessOptions
 	Args        []any
+	Restart     SupervisorChildRestart
 }
 
 type SupervisorChild struct {
@@ -218,7 +278,9 @@ func (s *Supervisor) AddChild(child SupervisorChildSpec) error {
 }
 
 // EnableChild enables the child process in the supervisor spec and attempts to
-// start it. Returns error if spawning child process is failed.
+// start it. Returns error if spawning child process is failed. Returns
+// ErrSupervisorChildRunning if the child is still terminating after DisableChild;
+// retry once it has stopped.
 func (s *Supervisor) EnableChild(name gen.Atom) error {
 	if s.State() != gen.ProcessStateRunning {
 		return gen.ErrNotAllowed
@@ -254,8 +316,7 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
 	if s.behavior, ok = process.Behavior().(SupervisorBehavior); ok == false {
-		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
-		return fmt.Errorf("ProcessInit: not a SupervisorBehavior %s", unknown)
+		return fmt.Errorf("ProcessInit: not a SupervisorBehavior %s", process.BehaviorName())
 	}
 
 	s.Process = process
@@ -264,9 +325,8 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				s.Log().Panic("Supervisor initialization failed. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				s.Log().Panic("Supervisor initialization failed. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()
@@ -277,7 +337,10 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		return err
 	}
 
-	// validate restart strategy
+	// supervisor-level Strategy: Inherit is normalized to Transient
+	if spec.Restart.Strategy == SupervisorStrategyInherit {
+		spec.Restart.Strategy = SupervisorStrategyTransient
+	}
 	switch spec.Restart.Strategy {
 	case SupervisorStrategyTransient, SupervisorStrategyTemporary,
 		SupervisorStrategyPermanent:
@@ -286,7 +349,6 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		return fmt.Errorf("unknown supervisor restart strategy")
 	}
 
-	// validate restart options
 	if spec.Restart.Intensity == 0 {
 		spec.Restart.Intensity = defaultRestartIntensity
 	}
@@ -294,7 +356,6 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 		spec.Restart.Period = defaultRestartPeriod
 	}
 
-	// validate child spec list
 	if len(spec.Children) == 0 {
 		return fmt.Errorf("children list can not be empty")
 	}
@@ -302,15 +363,21 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	s.handleChild = spec.EnableHandleChild
 
 	duplicate := make(map[gen.Atom]bool)
-	for _, s := range spec.Children {
-		if err := validateChildSpec(s); err != nil {
+	for _, c := range spec.Children {
+		if err := validateChildSpec(c); err != nil {
 			return err
 		}
-		_, dup := duplicate[s.Name]
+		if err := validateChildRestart(c.Restart, spec.Type); err != nil {
+			return fmt.Errorf("%w: child %q: %s", ErrSupervisorInvalidSpec, c.Name, err)
+		}
+		if err := validateChildOptions(c.Options, spec.Type); err != nil {
+			return fmt.Errorf("%w: child %q: %s", ErrSupervisorInvalidSpec, c.Name, err)
+		}
+		_, dup := duplicate[c.Name]
 		if dup {
 			return ErrSupervisorChildDuplicate
 		}
-		duplicate[s.Name] = true
+		duplicate[c.Name] = true
 	}
 
 	// create supervisor
@@ -346,10 +413,9 @@ func (s *Supervisor) ProcessRun() (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
 
-				s.Log().Panic("Supervisor got panic. Shutting down with reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				s.Log().Panic("Supervisor got panic. Shutting down with reason: %#v at %s",
+					r, lib.PanicOrigin())
 
 				action := s.sup.childTerminated(s.Name(), s.PID(), gen.TerminateReasonPanic)
 				rr = s.handleAction(action)
@@ -410,6 +476,12 @@ func (s *Supervisor) ProcessRun() (rr error) {
 		switch message.Type {
 
 		case gen.MailboxMessageTypeRegular:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				s.SetPropagatingTrace(message.Tracing)
+				s.spanStart = time.Now().UnixNano()
+			}
+
 			var reason error
 			if s.handleChild {
 				switch m := message.Message.(type) {
@@ -425,14 +497,34 @@ func (s *Supervisor) ProcessRun() (rr error) {
 			}
 
 			if reason != nil {
+				s.sendSpanProcessed(message, gen.TracingKindSend, reason.Error())
 				action := s.sup.childTerminated(s.Name(), s.PID(), reason)
 				if err := s.handleAction(action); err != nil {
 					return err
 				}
+			} else {
+				s.sendSpanProcessed(message, gen.TracingKindSend, "")
+			}
+
+			if messageHasTracing {
+				s.SetPropagatingTrace(gen.Tracing{})
 			}
 
 		case gen.MailboxMessageTypeRequest:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				s.SetPropagatingTrace(message.Tracing)
+				s.spanStart = time.Now().UnixNano()
+			}
+
 			result, reason := s.behavior.HandleCall(message.From, message.Ref, message.Message)
+
+			if reason != nil {
+				s.sendSpanProcessed(message, gen.TracingKindRequest, reason.Error())
+			} else {
+				s.sendSpanProcessed(message, gen.TracingKindRequest, "")
+			}
+
 			if result != nil {
 				s.SendResponse(message.From, message.Ref, result)
 			}
@@ -441,6 +533,10 @@ func (s *Supervisor) ProcessRun() (rr error) {
 				if err := s.handleAction(action); err != nil {
 					return err
 				}
+			}
+
+			if messageHasTracing {
+				s.SetPropagatingTrace(gen.Tracing{})
 			}
 
 		case gen.MailboxMessageTypeEvent:
@@ -495,8 +591,16 @@ func (s *Supervisor) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := s.behavior.HandleInspect(message.From, message.Message.([]string)...)
+			items := message.Message.([]string)
+			// supervisor state first, the behavior may override any of the fields
+			result := s.sup.inspect(items...)
+			for k, v := range s.behavior.HandleInspect(message.From, items...) {
+				result[k] = v
+			}
 			s.SendResponse(message.From, message.Ref, result)
+
+		case gen.MailboxMessageTypeSpan:
+			panic("supervisor process can not be a tracing exporter")
 		}
 	}
 }
@@ -553,6 +657,9 @@ func (s *Supervisor) handleAction(action supAction) error {
 
 			action.spec.Options.LinkChild = true
 			action.spec.Options.LinkParent = true
+			if action.adoptMailbox != nil {
+				action.spec.Options.Mailbox = action.adoptMailbox
+			}
 
 			if action.spec.register {
 				pid, err = s.SpawnRegister(
@@ -585,13 +692,12 @@ func (s *Supervisor) handleAction(action supAction) error {
 			// on disabling child spec
 			s.state = supStateStrategy
 			for _, pid := range action.terminate {
-				// TODO
-				// Child is disabling if exceeded restart limits. basically we dont need
-				// to send exit again.
-				// Current workaround: SendExit return error if its terminated already,
-				// so dont log misleading message
-				if err := s.SendExit(pid, action.reason); err == nil {
+				switch err := s.SendExit(pid, action.reason); err {
+				case nil:
 					s.Log().Info("Supervisor: terminate children %s", pid)
+				case gen.ErrProcessMailboxFull:
+					s.Log().Error("Supervisor: exit to %s undelivered (%s), killing", pid, err)
+					s.Node().Kill(pid)
 				}
 			}
 			s.state = supStateNormal
@@ -650,16 +756,15 @@ const (
 	supActionStartChild supActionType = 1
 	// just stop children (on disabling child spec)
 	supActionTerminateChildren supActionType = 2
-	// stop children due to restart strategy activated
-	supActionTerminateChildrenStrategy supActionType = 3
-	supActionTerminate                 supActionType = 4
+	supActionTerminate         supActionType = 4
 )
 
 type supAction struct {
 	do supActionType
 
 	// for supActionStartChild
-	spec supChildSpec
+	spec         supChildSpec
+	adoptMailbox *gen.ProcessMailbox
 
 	// for supActionTerminateChildren
 	terminate []gen.PID
@@ -711,6 +816,92 @@ func validateChildSpec(s SupervisorChildSpec) error {
 	return nil
 }
 
+func validateChildOptions(opts gen.ProcessOptions, t SupervisorType) error {
+	if opts.PreserveMailbox {
+		switch t {
+		case SupervisorTypeAllForOne, SupervisorTypeRestForOne:
+			return fmt.Errorf("Options.PreserveMailbox is not supported for All/Rest For One")
+		}
+	}
+	return nil
+}
+
+func validateChildRestart(r SupervisorChildRestart, t SupervisorType) error {
+	switch r.Strategy {
+	case SupervisorStrategyInherit, SupervisorStrategyTransient,
+		SupervisorStrategyTemporary, SupervisorStrategyPermanent:
+	default:
+		return fmt.Errorf("unknown Restart.Strategy")
+	}
+
+	if r.Intensity == 0 && r.Period > 0 {
+		return fmt.Errorf("Restart.Period requires Intensity > 0")
+	}
+	if r.OnExceed == OnExceedDisable && r.Intensity == 0 {
+		return fmt.Errorf("Restart.OnExceed=Disable requires Intensity > 0")
+	}
+
+	if r.Intensity > 0 {
+		switch t {
+		case SupervisorTypeAllForOne, SupervisorTypeRestForOne:
+			return fmt.Errorf("per-child Restart.Intensity is not supported for All/Rest For One")
+		}
+	}
+	return nil
+}
+
+// resolveStrategy returns the effective Strategy for a child given the
+// supervisor-level Strategy (already normalized) and the per-child override.
+func resolveStrategy(supStrategy SupervisorStrategy, childStrategy SupervisorStrategy) SupervisorStrategy {
+	if childStrategy == SupervisorStrategyInherit {
+		return supStrategy
+	}
+	return childStrategy
+}
+
+func extractMailbox(reason error) *gen.ProcessMailbox {
+	var ge *gen.Error
+	if errors.As(reason, &ge) == false || ge.Mailbox == nil {
+		return nil
+	}
+	mb := ge.Mailbox
+	ge.Mailbox = nil
+	return mb
+}
+
+const supRestartHistoryMax = 50
+
+type supRestartEvent struct {
+	timestamp time.Time
+	spec      gen.Atom
+	reason    string
+}
+
+func supAppendHistory(history []supRestartEvent, name gen.Atom, reason error) []supRestartEvent {
+	e := supRestartEvent{
+		timestamp: time.Now(),
+		spec:      name,
+	}
+	if reason != nil {
+		e.reason = reason.Error()
+	}
+	history = append(history, e)
+	if len(history) > supRestartHistoryMax {
+		history = history[len(history)-supRestartHistoryMax:]
+	}
+	return history
+}
+
+func supHistoryToInspect(history []supRestartEvent, result map[string]string) {
+	result["ergo:history:count"] = fmt.Sprintf("%d", len(history))
+	for i, e := range history {
+		prefix := fmt.Sprintf("ergo:history:%d:", i)
+		result[prefix+"time"] = e.timestamp.UTC().Format(time.RFC3339Nano)
+		result[prefix+"child"] = string(e.spec)
+		result[prefix+"reason"] = e.reason
+	}
+}
+
 type supChild struct {
 	pid  gen.PID
 	spec supChildSpec
@@ -722,6 +913,14 @@ type supChildSpec struct {
 	disabled bool
 	i        int
 	pid      gen.PID
+
+	// effStrategy is the resolved Strategy after merging supervisor-level
+	// and per-child Restart.Strategy. Filled at init/childAddSpec.
+	effStrategy SupervisorStrategy
+
+	// localRestarts is the per-spec restart history when the spec opts in
+	// via Restart.Intensity > 0. Nil otherwise (the global counter is used).
+	localRestarts []int64
 }
 
 func sortSupChild(c []supChild) []SupervisorChild {
@@ -751,4 +950,32 @@ func sortSupChild(c []supChild) []SupervisorChild {
 		children = append(children, child)
 	}
 	return children
+}
+
+func (s *Supervisor) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKind, errStr string) {
+	if message.Tracing.ID == [2]uint64{} {
+		return
+	}
+	var msgType string
+	if message.Message != nil {
+		msgType = reflect.TypeOf(message.Message).String()
+	}
+	s.SendTracingSpan(gen.TracingSpan{
+		TraceID:      message.Tracing.ID,
+		SpanID:       message.Tracing.SpanID,
+		Point:        gen.TracingPointProcessed,
+		Kind:         kind,
+		Timestamp:    s.spanStart,
+		EndTimestamp: time.Now().UnixNano(),
+		Node:         s.Node().Name(),
+		From:         message.From,
+		To:           s.PID(),
+		Ref:          message.Ref,
+		Behavior:     s.BehaviorName(),
+		Message:      msgType,
+		Error:        errStr,
+		Attributes:   s.TracingAttributes(),
+	})
+	s.CloseTracingSpans()
+	s.ClearTracingSpanAttributes()
 }

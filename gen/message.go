@@ -92,15 +92,15 @@ type MessageEvent struct {
 	Message   any
 }
 
-// MessageLog
+// MessageLog. No stack trace here: a logger captures it itself with
+// runtime.Callers inside Log, which runs in the recover defer. See logger/sentry.
 type MessageLog struct {
-	Time       time.Time
-	Level      LogLevel
-	Source     any // MessageLogProcess, MessageLogNode, MessageLogNetwork, MessageLogMeta
-	Format     string
-	Args       []any
-	Fields     []LogField
-	StackTrace []string
+	Time   time.Time
+	Level  LogLevel
+	Source any // MessageLogProcess, MessageLogNode, MessageLogNetwork, MessageLogMeta
+	Format string
+	Args   []any
+	Fields []LogField
 }
 
 // MessageLogProcess
@@ -129,6 +129,14 @@ type MessageLogNetwork struct {
 	Node     Atom
 	Peer     Atom
 	Creation int64
+}
+
+// MessageLogApplication
+type MessageLogApplication struct {
+	Node     Atom
+	Name     Atom
+	Mode     ApplicationMode
+	Behavior string
 }
 
 type MessageCron struct {

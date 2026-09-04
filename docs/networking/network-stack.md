@@ -38,7 +38,7 @@ The embedded registrar provides basic discovery:
 - Automatic failover if the server node dies
 
 For production clusters, external registrars provide more features:
-- **etcd** - Centralized discovery, application routing, configuration storage, HTTP polling for registration
+- **etcd** - Centralized discovery, application routing, configuration storage; registration held by a lease, changes delivered by a prefix watch
 - **Saturn** - Purpose-built for Ergo, immediate event propagation, efficient at scale
 
 The embedded registrar works for development and small deployments. For larger clusters or dynamic topologies, use etcd or Saturn. The choice is transparent to your code - you specify the registrar at node startup, and everything else works identically.
@@ -66,7 +66,7 @@ Now when connecting to `prod-db@example.com`, the framework uses your route dire
 
 Static routes support pattern matching (`"prod-.*"`), multiple routes with failover weights, and hybrid approaches (use patterns for selection, resolvers for address lookup). You can configure per-route cookies, certificates, network flags, and atom mappings.
 
-The framework checks static routes first, always. If a static route exists, discovery is bypassed. If static routes fail or don't exist, the framework falls back to discovery.
+The framework checks static routes first, always. A matching static route takes that node out of discovery entirely: every matching route is tried, and when they all fail the attempt ends with `gen.ErrNoRoute` - the registrar is never consulted. Discovery is reached only when **no** static route matched the name.
 
 For details, see [Static Routes](static-routes.md).
 
@@ -103,9 +103,37 @@ After handshake, the accepting node tells the dialing node to create a connectio
 
 The dialing node opens additional TCP connections using a shortened join handshake (skips full authentication since the first connection already authenticated). These connections join the pool, forming a single logical connection with multiple physical TCP links.
 
-Multiple connections enable parallel message delivery. Each message goes to a connection based on the sender's identity (derived from sender PID). Messages from the same sender always use the same connection, preserving order. Messages from different senders use different connections, enabling parallelism.
+Multiple connections enable parallel message delivery. Each message goes to a connection based on the sender's identity, and the receiving side creates multiple receive queues per TCP connection for concurrent processing. This two-level mechanism (sender-side link selection and receiver-side queue routing) preserves per-sender message ordering while enabling parallelism across different senders. For details on how ordering works, including the `KeepNetworkOrder` flag and when to disable it, see [Message Ordering](network-transparency.md#message-ordering).
 
-The receiving side creates 4 receive queues per TCP connection. A 3-connection pool has 12 receive queues processing messages concurrently. This parallel processing improves throughput while preserving per-sender message ordering.
+### Software Keepalive
+
+*Introduced in v3.3.0.*
+
+TCP keepalive operates at the OS level - it detects hard network failures like unplugged cables or crashed hosts. But it can't detect application-level problems: a stuck process that stopped reading from a connection, a flusher that failed silently, a goroutine that never got scheduled. The connection looks alive to TCP while no useful data flows.
+
+Software keepalive works at the protocol level. When a connection pool item has nothing to send, its flusher periodically writes a small keepalive packet. The receiving side expects these packets and sets a read deadline based on the sender's advertised period. If nothing arrives - no real messages and no keepalive packets - the deadline fires and the connection is terminated.
+
+Each side advertises its keepalive period during handshake. This allows asymmetric configuration: a node in a reliable datacenter might send keepalive every 15 seconds, while a node on an unstable network might send every 5 seconds. The receiver calculates its deadline from the sender's period, not its own.
+
+```go
+node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
+    Network: gen.NetworkOptions{
+        Flags: gen.NetworkFlags{
+            // ... other flags ...
+            EnableSoftwareKeepAlive: 15, // send keepalive every 15 seconds when idle
+        },
+        SoftwareKeepAliveMisses: 3, // tolerate 3 missed keepalives before disconnect
+    },
+})
+```
+
+The timeout calculation uses the remote node's period, not the local one. If the remote node advertises a 15-second period and you configure 3 misses, the connection is considered dead after 45 seconds of silence. Real messages reset the deadline just like keepalive packets do - on a busy connection, keepalive is never sent because regular traffic keeps the deadline from expiring.
+
+When a keepalive timeout fires on any pool item, the entire connection is terminated - not just the affected TCP link. A single unresponsive link is strong evidence that the whole network path to the remote node is down. This triggers the standard cleanup flow: monitors receive `MessageDown`, links receive `MessageExit`, and the connection is removed from the node's connection map.
+
+Software keepalive is enabled by default (15-second period, 3 misses, 45-second timeout). Set `EnableSoftwareKeepAlive` to 0 to disable it. Acceptors and routes can override the misses count; zero inherits from `NetworkOptions`.
+
+Both sides must have keepalive enabled for the feature to activate. If either side advertises period 0, the connection falls back to TCP-only keepalive with infinite read deadline - neither side sends keepalive packets and neither side sets read deadlines. This means a single node with keepalive disabled in a cluster removes protection for all its connections, not just its own. During a rolling upgrade from older nodes (which don't support the feature) to newer ones, connections between old and new nodes will not have software keepalive until both sides are upgraded.
 
 ## Message Encoding and Transmission
 
@@ -115,9 +143,9 @@ Once a connection exists, messages flow through encoding and framing.
 
 EDF is a binary encoding specifically designed for the framework's communication patterns. It's type-aware - each value is prefixed with a type tag (e.g., `0x95` for int64, `0xaa` for PID, `0x9d` for slice). The decoder reads the tag and knows what follows.
 
-Framework types like `gen.PID` and `gen.Ref` have optimized encodings. Structs are encoded field-by-field in declaration order (no field names on the wire). Custom types must be registered on both sides - registration happens during `init()`, and during handshake nodes exchange their type lists to agree on encoding.
+Framework types like `gen.PID` and `gen.Ref` have optimized encodings. Structs are encoded field-by-field in declaration order (no field names on the wire). Custom types must be registered on both sides via `node.Network().RegisterType` (typically from an application's `Load` callback). During handshake, nodes exchange their type lists to agree on encoding.
 
-Compression is automatic. If a message exceeds the compression threshold (default 1024 bytes), it's compressed using GZIP, ZLIB, or LZW. The protocol frame indicates compression, so the receiver decompresses before decoding.
+Compression is opt-in, per process, and off until you ask for it. There is no node-level compression option: the switch is `ProcessOptions.Compression` at spawn, or `SetCompression` at runtime, and only `Enable: true` makes the wire path consider it. Once enabled, a message larger than the threshold (default 1024 bytes) is compressed with GZIP, ZLIB or LZW; the protocol frame says so, and the receiver decompresses before decoding. A process that never enables it sends everything uncompressed however large the message is.
 
 For details on EDF - type tags, struct encoding, registration requirements, compression, caching - see [Network Transparency](network-transparency.md).
 
@@ -128,6 +156,39 @@ ENP wraps encoded messages in frames for transmission. Each frame has an 8-byte 
 The order byte preserves message ordering per sender. Messages from the same sender have the same order value and route to the same receive queue, guaranteeing sequential processing. Messages from different senders have different order values and route to different queues, enabling parallel processing.
 
 For details on protocol framing, order bytes, receive queue distribution, and the exact byte layout, see [Network Transparency](network-transparency.md).
+
+### Message Fragmentation
+
+*Introduced in v3.3.0.*
+
+When a message exceeds the fragment size threshold (default 65000 bytes), the framework splits it into smaller pieces for transmission and reassembles them on the receiving side. This happens after compression; if a compressed message is still too large, it gets fragmented. From your code's perspective, nothing changes. You send a large message, and it arrives intact.
+
+Fragmentation works with all message types: regular sends, important delivery, calls, and events. It composes with compression: a message can be compressed first, then fragmented, and on the receiving side defragmented and then decompressed.
+
+When [`KeepNetworkOrder`](network-transparency.md#message-ordering) is disabled for a process, the framework distributes fragments across all TCP connections in the pool, using the full bandwidth of the connection. This is useful for transferring large payloads where throughput matters more than ordering. When `KeepNetworkOrder` is enabled (the default), all fragments travel through a single TCP connection to preserve message ordering for that sender.
+
+Both nodes must have `EnableFragmentation` in their network flags. If either side doesn't support it, large messages are sent as-is (subject to `MaxMessageSize` limits). During handshake, nodes exchange their fragmentation capability, and the feature activates only when both sides agree.
+
+`MaxMessageSize` is a logical limit on the EDF-encoded message, checked before compression and fragmentation. On the receiving side, the framework tracks the accumulated size of received fragments and rejects the assembly if it exceeds the limit.
+
+```go
+node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
+    Network: gen.NetworkOptions{
+        Flags: gen.NetworkFlags{
+            EnableFragmentation: true, // default: true
+        },
+        FragmentSize:          65000, // bytes per fragment, 0 = default
+        FragmentTimeout:       30,    // seconds, assembly timeout, 0 = default
+        MaxFragmentAssemblies: 1000,  // max concurrent assemblies, 0 = default
+    },
+})
+```
+
+`FragmentSize` controls at what point messages get split. This is a sender-side setting; the receiver reassembles whatever arrives regardless of the sender's fragment size. Two nodes can use different fragment sizes.
+
+`FragmentTimeout` sets how long the receiver waits for all fragments before discarding an incomplete assembly. If a sender crashes mid-message or a connection drops, partial assemblies are cleaned up after this timeout.
+
+`MaxFragmentAssemblies` limits how many messages can be simultaneously reassembled per connection, protecting against memory exhaustion from many concurrent large messages.
 
 ## Network Transparency in Practice
 
@@ -158,7 +219,12 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
             EnableRemoteSpawn:            true,
             EnableRemoteApplicationStart: true,
             EnableImportantDelivery:      true,
+            EnableFragmentation:          true, // default: true
+            EnableSoftwareKeepAlive:      15, // seconds, 0 to disable
         },
+        SoftwareKeepAliveMisses: 3, // tolerate 3 missed keepalives
+        FragmentSize:          65000, // 0 = default
+        FragmentTimeout:       30,    // seconds, 0 = default
         Acceptors: []gen.AcceptorOptions{
             {
                 Port:       15000,
@@ -176,19 +242,29 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 
 **MaxMessageSize** - Maximum incoming message size. Protects against memory exhaustion. Default unlimited (fine for trusted clusters).
 
-**Flags** - Control capabilities. Remote nodes learn your flags during handshake and can only use features you've enabled. `EnableRemoteSpawn` allows spawning (with explicit permission per process). `EnableImportantDelivery` enables delivery confirmation.
+**Flags** - Control capabilities. Remote nodes learn your flags during handshake and can only use features you've enabled. `EnableRemoteSpawn` allows spawning (with explicit permission per process). `EnableImportantDelivery` enables delivery confirmation. `EnableFragmentation` enables message fragmentation for large messages (both sides must enable). `EnableSoftwareKeepAlive` sets the keepalive period in seconds (see [Software Keepalive](#software-keepalive)).
+
+The defaults are all-or-nothing, and this catches people. `gen.DefaultNetworkFlags` is substituted only while `Flags.Enable` is false - the moment you write `Flags: gen.NetworkFlags{Enable: true, ...}`, your literal stands exactly as written and every field you did not name is `false`. So enabling one flag silently turns off fragmentation, important delivery, tracing, clock skew, proxy accept, simultaneous connect, wrapped errors and the 15-second software keepalive. To change one thing, start from the defaults:
+
+```go
+flags := gen.DefaultNetworkFlags
+flags.EnableRemoteSpawn = false
+options.Network.Flags = flags
+```
 
 **Acceptors** - Define listeners for incoming connections. Multiple acceptors on different ports are supported. Each can have its own cookie, TLS, and protocol.
 
 ## Custom Network Stacks
 
-The framework provides three extension points:
+The framework provides four extension points:
 
 **gen.NetworkHandshake** - Control connection establishment and authentication. Implement this to change how nodes authenticate or how connection pools are created.
 
 **gen.NetworkProto** - Control message encoding and transmission. The Erlang distribution protocol is implemented as a custom proto, allowing Ergo nodes to join Erlang clusters.
 
 **gen.Connection** - The actual connection handling. Implement this for custom framing, routing, or error handling.
+
+**gen.TypeRegistry** - Optional capability that proto implementations may declare to expose a wire-format type registry. The default ENP/EDF stack implements it. The Erlang distribution proto does not, since the Erlang external term format is schemaless on the wire. When a node has multiple protos configured, `node.Network().RegisterType` distributes registration to every TypeRegistry-capable proto strictly: any per-proto failure fails the call. Protos that do not implement TypeRegistry are skipped silently.
 
 You can register multiple handshakes and protos, allowing one node to support multiple protocol stacks simultaneously:
 

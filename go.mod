@@ -1,3 +1,3 @@
 module ergo.services/ergo
 
-go 1.20
+go 1.21

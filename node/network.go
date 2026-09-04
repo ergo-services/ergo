@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +29,8 @@ func createNetwork(node *node) *network {
 		defaultHandshake: handshake.Create(handshake.Options{}),
 		defaultProto:     proto.Create(),
 	}
+	n.cookie.Store(new(string))
+	n.flags.Store(&gen.NetworkFlags{})
 	// register standard handshake and proto
 	n.RegisterHandshake(n.defaultHandshake)
 	n.RegisterProto(n.defaultProto)
@@ -35,16 +38,17 @@ func createNetwork(node *node) *network {
 }
 
 type network struct {
-	running atomic.Bool
+	running atomic.Bool // start/stop claim (prevents a concurrent start or stop)
+	ready   atomic.Bool // reader gate: true only after start() has published all state
 
-	mode       gen.NetworkMode
-	flags      gen.NetworkFlags
-	skipverify bool
+	mode       atomic.Int32 // gen.NetworkMode
+	flags      atomic.Pointer[gen.NetworkFlags]
+	skipverify atomic.Bool
 
 	node      *node
-	registrar gen.Registrar
+	registrar gen.Registrar // start-only; published via the ready gate
 
-	acceptors []*acceptor
+	acceptors atomic.Pointer[[]*acceptor]
 
 	defaultHandshake gen.NetworkHandshake
 	defaultProto     gen.NetworkProto
@@ -52,65 +56,96 @@ type network struct {
 	handshakes sync.Map // .Version().String() -> handshake
 	protos     sync.Map // .Version().String() -> proto
 
-	cookie         string
-	maxmessagesize int
+	cookie                         atomic.Pointer[string]
+	maxmessagesize                 atomic.Int64
+	handshakeTimeoutDefault        time.Duration
+	handshakeMaxMessageSizeDefault int
+	softwareKeepAliveMisses        int
+	fragmentSize                   int
+	fragmentTimeout                int
+	maxFragmentAssemblies          int
 
 	staticRoutes  *staticRoutes
 	staticProxies *staticProxies
 
+	registrarRoutes  []string // route matches added from the registrar in hidden mode; cleared on stop
+	registrarProxies []string // proxy route matches added from the registrar in hidden mode; cleared on stop
+
 	enableSpawn    sync.Map
 	enableAppStart sync.Map
 
-	connections sync.Map // gen.Atom (peer name) => gen.Connection
+	connections     sync.Map // gen.Atom (peer name) => gen.Connection (routing index)
+	connectionsByID sync.Map // string (ConnectionID) => gen.Connection (authoritative dedup + pool-join attach)
+	pending         sync.Map // gen.Atom (peer name) => *pendingEntry
+	// mergeMu serializes the connection-merge decision (register/take-over/drop), like
+	// OTP's net_kernel: handshakes run concurrently, the decision is one at a time.
+	mergeMu sync.Mutex
+
+	connectionsEstablished atomic.Uint64
+	connectionsLost        atomic.Uint64
+}
+
+type pendingEntry struct {
+	ready chan struct{} // closed when connect finishes (success or failure)
 }
 
 func (n *network) Registrar() (gen.Registrar, error) {
-	if n.running.Load() == false {
+	if n.ready.Load() == false {
 		return nil, gen.ErrNetworkStopped
 	}
 	return n.registrar, nil
 }
 
+func (n *network) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes, error) {
+	reg, err := n.Registrar()
+	if err != nil {
+		return nil, err
+	}
+	return reg.Resolver().ResolveApplication(name)
+}
+
 func (n *network) Cookie() string {
-	return n.cookie
+	return *n.cookie.Load()
 }
 func (n *network) SetCookie(cookie string) error {
-	n.cookie = cookie
-	if lib.Trace() {
+	n.cookie.Store(&cookie)
+	if lib.Verbose() {
 		n.node.Log().Trace("updated cookie")
 	}
 	return nil
 }
 
 func (n *network) NetworkFlags() gen.NetworkFlags {
-	return n.flags
+	return *n.flags.Load()
 }
 
 func (n *network) SetNetworkFlags(flags gen.NetworkFlags) {
 	if flags.Enable == false {
 		flags = gen.DefaultNetworkFlags
 	}
-	n.flags = flags
+	n.flags.Store(&flags)
 }
 
 func (n *network) MaxMessageSize() int {
-	return n.maxmessagesize
+	return int(n.maxmessagesize.Load())
 }
 
 func (n *network) SetMaxMessageSize(size int) {
 	if size < 0 {
 		size = 0
 	}
-	n.maxmessagesize = size
+	n.maxmessagesize.Store(int64(size))
 }
 
 func (n *network) Acceptors() ([]gen.Acceptor, error) {
 	var acceptors []gen.Acceptor
-	if n.running.Load() == false {
+	if n.ready.Load() == false {
 		return nil, gen.ErrNetworkStopped
 	}
-	for _, acceptor := range n.acceptors {
-		acceptors = append(acceptors, acceptor)
+	if accs := n.acceptors.Load(); accs != nil {
+		for _, acceptor := range *accs {
+			acceptors = append(acceptors, acceptor)
+		}
 	}
 	return acceptors, nil
 }
@@ -121,6 +156,26 @@ func (n *network) Node(name gen.Atom) (gen.RemoteNode, error) {
 		return nil, err
 	}
 	return c.Node(), nil
+}
+
+func (n *network) handshakeTimeout(v time.Duration) time.Duration {
+	if v > 0 {
+		return v
+	}
+	if n.handshakeTimeoutDefault > 0 {
+		return n.handshakeTimeoutDefault
+	}
+	return gen.DefaultHandshakeTimeout
+}
+
+func (n *network) handshakeMaxMessageSize(v int) int {
+	if v > 0 {
+		return v
+	}
+	if n.handshakeMaxMessageSizeDefault > 0 {
+		return n.handshakeMaxMessageSizeDefault
+	}
+	return gen.DefaultHandshakeMaxMessageSize
 }
 
 func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
@@ -134,12 +189,15 @@ func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
 func (n *network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.RemoteNode, error) {
 	var emptyVersion gen.Version
 
-	route.InsecureSkipVerify = n.skipverify
+	route.InsecureSkipVerify = n.skipverify.Load()
 
 	if route.Resolver != nil {
 		resolved, err := route.Resolver.Resolve(name)
 		if err != nil {
 			return nil, err
+		}
+		if len(resolved) == 0 {
+			return nil, gen.ErrNoRoute
 		}
 		route.Route.Port = resolved[0].Port
 		route.Route.TLS = resolved[0].TLS
@@ -184,7 +242,7 @@ func (n *network) AddRoute(match string, route gen.NetworkRoute, weight int) err
 	if err := n.staticRoutes.add(match, route, weight); err != nil {
 		return err
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("added static route %s with weight %d", match, weight)
 	}
 	return nil
@@ -194,7 +252,7 @@ func (n *network) RemoveRoute(match string) error {
 	if err := n.staticRoutes.remove(match); err != nil {
 		return err
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("removed static route %s", match)
 	}
 	return nil
@@ -212,7 +270,7 @@ func (n *network) AddProxyRoute(match string, route gen.NetworkProxyRoute, weigh
 		return err
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("added static proxy route %s with weight %d", match, weight)
 	}
 	return nil
@@ -222,7 +280,7 @@ func (n *network) RemoveProxyRoute(match string) error {
 	if err := n.staticProxies.remove(match); err != nil {
 		return err
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("removed static proxy route %s", match)
 	}
 	return nil
@@ -240,6 +298,7 @@ type enableSpawn struct {
 	sync.RWMutex
 	factory  gen.ProcessFactory
 	behavior string
+	all      bool
 	nodes    map[gen.Atom]bool
 }
 
@@ -259,14 +318,16 @@ func (n *network) EnableSpawn(name gen.Atom, factory gen.ProcessFactory, nodes .
 	if exist {
 		enable = v.(*enableSpawn)
 		if reflect.TypeOf(enable.factory()) != reflect.TypeOf(factory()) {
-			return fmt.Errorf("%s associated with another process factory", name)
+			return gen.ErrTaken
 		}
 	}
 	enable.Lock()
 	if len(nodes) == 0 {
-		// allow any node to spawn this process (make nodes map empty)
+		// allow any node to spawn this process
+		enable.all = true
 		enable.nodes = make(map[gen.Atom]bool)
 	} else {
+		enable.all = false
 		for _, nn := range nodes {
 			enable.nodes[nn] = true
 		}
@@ -282,10 +343,10 @@ func (n *network) getEnabledSpawn(name gen.Atom, source gen.Atom) (gen.ProcessFa
 		return nil, gen.ErrNameUnknown
 	}
 	enable := v.(*enableSpawn)
-	allowed := true
 	enable.RLock()
-	if len(enable.nodes) > 0 {
-		allowed = enable.nodes[source]
+	allowed, ok := enable.nodes[source]
+	if ok == false {
+		allowed = enable.all
 	}
 	enable.RUnlock()
 	if allowed == false {
@@ -339,6 +400,7 @@ func (n *network) DisableSpawn(name gen.Atom, nodes ...gen.Atom) error {
 
 type enableAppStart struct {
 	sync.RWMutex
+	all   bool
 	nodes map[gen.Atom]bool
 }
 
@@ -353,9 +415,11 @@ func (n *network) EnableApplicationStart(name gen.Atom, nodes ...gen.Atom) error
 	}
 	enable.Lock()
 	if len(nodes) == 0 {
-		// allow any node to start this app (make nodes map empty)
+		// allow any node to start this app
+		enable.all = true
 		enable.nodes = make(map[gen.Atom]bool)
 	} else {
+		enable.all = false
 		for _, nn := range nodes {
 			enable.nodes[nn] = true
 		}
@@ -371,10 +435,10 @@ func (n *network) isEnabledApplicationStart(name gen.Atom, source gen.Atom) erro
 		return gen.ErrNameUnknown
 	}
 	enable := v.(*enableAppStart)
-	allowed := true
 	enable.RLock()
-	if len(enable.nodes) > 0 {
-		allowed = enable.nodes[source]
+	allowed, ok := enable.nodes[source]
+	if ok == false {
+		allowed = enable.all
 	}
 	enable.RUnlock()
 	if allowed == false {
@@ -419,7 +483,7 @@ func (n *network) DisableApplicationStart(name gen.Atom, nodes ...gen.Atom) erro
 	enable := v.(*enableAppStart)
 	enable.Lock()
 	for _, nn := range nodes {
-		delete(enable.nodes, nn)
+		enable.nodes[nn] = false
 	}
 	enable.Unlock()
 	return nil
@@ -432,7 +496,7 @@ func (n *network) RegisterHandshake(handshake gen.NetworkHandshake) {
 	}
 	_, exist := n.handshakes.LoadOrStore(handshake.Version().Str(), handshake)
 	if exist == false {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("registered handshake %s", handshake.Version())
 		}
 	}
@@ -445,7 +509,7 @@ func (n *network) RegisterProto(proto gen.NetworkProto) {
 	}
 	_, exist := n.protos.LoadOrStore(proto.Version().Str(), proto)
 	if exist == false {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("registered proto %s", proto.Version())
 		}
 	}
@@ -466,17 +530,19 @@ func (n *network) Nodes() []gen.Atom {
 func (n *network) Info() (gen.NetworkInfo, error) {
 	var info gen.NetworkInfo
 
-	if n.running.Load() == false {
+	if n.ready.Load() == false {
 		return info, gen.ErrNetworkStopped
 	}
 
-	info.Mode = n.mode
+	info.Mode = gen.NetworkMode(n.mode.Load())
 	info.Registrar = n.registrar.Info()
 
-	for _, acceptor := range n.acceptors {
-		info.Acceptors = append(info.Acceptors, acceptor.Info())
+	if accs := n.acceptors.Load(); accs != nil {
+		for _, acceptor := range *accs {
+			info.Acceptors = append(info.Acceptors, acceptor.Info())
+		}
 	}
-	info.MaxMessageSize = n.maxmessagesize
+	info.MaxMessageSize = int(n.maxmessagesize.Load())
 	info.HandshakeVersion = n.defaultHandshake.Version()
 	info.ProtoVersion = n.defaultProto.Version()
 
@@ -489,7 +555,10 @@ func (n *network) Info() (gen.NetworkInfo, error) {
 	info.Routes = n.staticRoutes.info()
 	info.ProxyRoutes = n.staticProxies.info()
 
-	info.Flags = n.flags
+	info.Flags = *n.flags.Load()
+
+	info.ConnectionsEstablished = n.connectionsEstablished.Load()
+	info.ConnectionsLost = n.connectionsLost.Load()
 
 	info.EnabledSpawn = n.listEnabledSpawn()
 	info.EnabledApplicationStart = n.listEnabledApplicationStart()
@@ -498,7 +567,212 @@ func (n *network) Info() (gen.NetworkInfo, error) {
 }
 
 func (n *network) Mode() gen.NetworkMode {
-	return n.mode
+	return gen.NetworkMode(n.mode.Load())
+}
+
+func (n *network) Protos() []gen.NetworkProto {
+	var list []gen.NetworkProto
+	n.protos.Range(func(_, v any) bool {
+		list = append(list, v.(gen.NetworkProto))
+		return true
+	})
+	return list
+}
+
+// typeRegistryEntry pairs a proto with its TypeRegistry capability.
+type typeRegistryEntry struct {
+	proto    gen.NetworkProto
+	registry gen.TypeRegistry
+}
+
+func (n *network) typeRegistries() []typeRegistryEntry {
+	var list []typeRegistryEntry
+	n.protos.Range(func(_, v any) bool {
+		p := v.(gen.NetworkProto)
+		if r, ok := p.(gen.TypeRegistry); ok {
+			list = append(list, typeRegistryEntry{p, r})
+		}
+		return true
+	})
+	return list
+}
+
+func (n *network) RegisterType(v any) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterType(v)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterType: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisterTypes(types []any) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterTypes(types)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterTypes: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisterError(e error) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterError(e)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterError: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisterErrors(list []error) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterErrors(list)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterErrors: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisterAtom(a gen.Atom) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterAtom(a)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterAtom: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisterAtoms(atoms []gen.Atom) error {
+	regs := n.typeRegistries()
+	if len(regs) == 0 {
+		return gen.ErrUnsupported
+	}
+	var errs []string
+	for _, r := range regs {
+		err := r.registry.RegisterAtoms(atoms)
+		if err == nil || err == gen.ErrTaken {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("RegisterAtoms: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (n *network) RegisteredTypes() []gen.RegisteredTypeInfo {
+	var all []gen.RegisteredTypeInfo
+	for _, r := range n.typeRegistries() {
+		all = append(all, r.registry.RegisteredTypes()...)
+	}
+	return all
+}
+
+func (n *network) RegisteredErrors() []gen.RegisteredErrorInfo {
+	var all []gen.RegisteredErrorInfo
+	for _, r := range n.typeRegistries() {
+		all = append(all, r.registry.RegisteredErrors()...)
+	}
+	return all
+}
+
+func (n *network) RegisteredAtoms() []gen.RegisteredAtomInfo {
+	var all []gen.RegisteredAtomInfo
+	for _, r := range n.typeRegistries() {
+		all = append(all, r.registry.RegisteredAtoms()...)
+	}
+	return all
+}
+
+// LookupType resolves a canonical type name across the registries. The name is globally
+// unique, so two registries disagreeing is a conflict, not a preference: report it and
+// pick by registry order.
+func (n *network) LookupType(name string) (reflect.Type, bool) {
+	var (
+		found  reflect.Type
+		winner string
+	)
+	for _, r := range n.sortedTypeRegistries() {
+		t, ok := r.registry.LookupType(name)
+		if ok == false {
+			continue
+		}
+		if found == nil {
+			found, winner = t, protoName(r.proto)
+			continue
+		}
+		if t != found {
+			n.node.Log().Error("type %q resolves to %s in proto %s and to %s in proto %s; using %s",
+				name, found, winner, t, protoName(r.proto), winner)
+		}
+	}
+	return found, found != nil
+}
+
+// sortedTypeRegistries makes cross-registry lookup reproducible; typeRegistries walks a
+// sync.Map.
+func (n *network) sortedTypeRegistries() []typeRegistryEntry {
+	list := n.typeRegistries()
+	sort.SliceStable(list, func(i, j int) bool {
+		return protoName(list[i].proto) < protoName(list[j].proto)
+	})
+	return list
+}
+
+func protoName(p gen.NetworkProto) string {
+	v := p.Version()
+	return v.Name + " " + v.Release
 }
 
 //
@@ -520,41 +794,45 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 		return v.(gen.Connection), nil
 	}
 
+	if n.ready.Load() == false {
+		return nil, gen.ErrNoRoute
+	}
+
 	registrar := n.registrar
 	if registrar == nil {
 		return nil, gen.ErrNoRoute
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("trying to make connection with %s", name)
 	}
 	// check the static routes
 	if sroutes, found := n.staticRoutes.lookup(string(name)); found {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("found %s static route[s] for %s", len(sroutes), name)
 		}
 		for i, sroute := range sroutes {
-			sroute.InsecureSkipVerify = n.skipverify
+			sroute.InsecureSkipVerify = n.skipverify.Load()
 			if sroute.Resolver == nil {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("use static route to %s (%d)", name, i+1)
 				}
 				if c, err := n.connect(name, sroute); err == nil {
 					return c, nil
 				} else {
-					if lib.Trace() {
+					if lib.Verbose() {
 						n.node.Log().Trace("unable to connect to %s using static route: %s", name, err)
 					}
 				}
 				continue
 			}
 
-			if lib.Trace() {
+			if lib.Verbose() {
 				n.node.Log().Trace("use static route to %s with resolver (%d)", name, i+1)
 			}
 			nr, err := sroute.Resolver.Resolve(name)
 			if err != nil {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("failed to resolve %s: %s", name, err)
 				}
 				continue
@@ -563,18 +841,18 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 			for _, route := range nr {
 				nroute := gen.NetworkRoute{
 					Route:              route,
-					InsecureSkipVerify: n.skipverify,
+					InsecureSkipVerify: n.skipverify.Load(),
 				}
 				if nroute.Route.TLS && nroute.Cert == nil {
 					nroute.Cert = n.node.certmanager
 				}
 				if nroute.Cookie == "" {
-					nroute.Cookie = n.cookie
+					nroute.Cookie = *n.cookie.Load()
 				}
 				if c, err := n.connect(name, nroute); err == nil {
 					return c, nil
 				} else {
-					if lib.Trace() {
+					if lib.Verbose() {
 						n.node.Log().Trace("unable to connect to %s using static route (with resolver): %s", name, err)
 					}
 				}
@@ -585,12 +863,12 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 
 	// check the static proxy routes
 	if proutes, found := n.staticProxies.lookup(string(name)); found {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("found %d static proxy route[s] for %s", len(proutes), name)
 		}
 		for i, proute := range proutes {
 			if proute.Resolver == nil {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("use static proxy route to %s (%d)", name, i+1)
 				}
 				if c, err := n.connectProxy(name, proute); err == nil {
@@ -599,12 +877,12 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 				continue
 			}
 
-			if lib.Trace() {
+			if lib.Verbose() {
 				n.node.Log().Trace("use static proxy route to %s with resolver (%d)", name, i+1)
 			}
 			pr, err := proute.Resolver.ResolveProxy(name)
 			if err != nil {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("failed to resolve proxy for %s: %s", name, err)
 				}
 				continue
@@ -617,7 +895,7 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 				if c, err := n.connectProxy(name, nproute); err == nil {
 					return c, nil
 				} else {
-					if lib.Trace() {
+					if lib.Verbose() {
 						n.node.Log().Trace("unable to connect to %s using proxy route: %s", name, err)
 					}
 				}
@@ -628,15 +906,15 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 
 	// resolve it
 	if nr, err := registrar.Resolver().Resolve(name); err == nil {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("resolved %d route[s] for %s", len(nr), name)
 		}
 
 		for _, route := range nr {
 			nroute := gen.NetworkRoute{
 				Route:              route,
-				InsecureSkipVerify: n.skipverify,
-				Cookie:             n.cookie,
+				InsecureSkipVerify: n.skipverify.Load(),
+				Cookie:             *n.cookie.Load(),
 			}
 
 			if route.TLS {
@@ -646,23 +924,23 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 			if c, err := n.connect(name, nroute); err == nil {
 				return c, nil
 			} else {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("unable to connect to %s: %s", name, err)
 				}
 			}
 		}
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("unable to connect to %s directly, looking up proxies...", name)
 		}
 	} else {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("attempt to resolve %s failed: %s", name, err)
 		}
 	}
 
 	// resolve proxy
 	if pr, err := registrar.Resolver().ResolveProxy(name); err == nil {
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("resolved %d proxy routes for %s", len(pr), name)
 		}
 
@@ -680,7 +958,7 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 			if c, err := n.connectProxy(name, nproute); err == nil {
 				return c, nil
 			} else {
-				if lib.Trace() {
+				if lib.Verbose() {
 					n.node.Log().Trace("unable to connect to %s using resolve proxy: %s", name, err)
 				}
 			}
@@ -690,10 +968,41 @@ func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
 	return nil, gen.ErrNoRoute
 }
 
+// acquirePending tries to become the goroutine that connects to `name`.
+// If another goroutine is already connecting, waits for it to finish and
+// checks the result. Retries up to 3 times if the other goroutine fails.
+// Returns: (entry, nil) if acquired; (nil, nil) if connection appeared; (nil, err) on failure.
+func (n *network) acquirePending(name gen.Atom) (*pendingEntry, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		entry := &pendingEntry{ready: make(chan struct{})}
+		actual, loaded := n.pending.LoadOrStore(name, entry)
+		if loaded == false {
+			return entry, nil // acquired the slot
+		}
+
+		// another connect in progress, wait for it
+		pe := actual.(*pendingEntry)
+		select {
+		case <-pe.ready:
+			// connect finished (success or failure)
+		case <-time.After(5 * time.Second):
+			return nil, fmt.Errorf("connection to %s: pending timeout", name)
+		}
+
+		// check if connection appeared
+		if _, ok := n.connections.Load(name); ok {
+			return nil, nil // connection exists
+		}
+
+		// connect failed and pending was cleared, retry LoadOrStore
+	}
+	return nil, fmt.Errorf("connection to %s: 3 attempts exhausted", name)
+}
+
 func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection, error) {
 	var dial func(network, addr string) (net.Conn, error)
 
-	if n.running.Load() == false {
+	if n.ready.Load() == false {
 		return nil, gen.ErrNetworkStopped
 	}
 
@@ -706,14 +1015,32 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return nil, fmt.Errorf("no proto handler for %s", route.Route.ProtoVersion)
 	}
 
-	handshake := vhandshake.(gen.NetworkHandshake)
+	hs := vhandshake.(gen.NetworkHandshake)
 	proto := vproto.(gen.NetworkProto)
 
 	if route.Route.Host == "" {
 		route.Route.Host = name.Host()
 	}
 
-	if lib.Trace() {
+	// acquire pending slot (waits for ongoing connect, retries on failure)
+	entry, err := n.acquirePending(name)
+	if err != nil {
+		return nil, err
+	}
+	if entry == nil {
+		// connection appeared while waiting
+		v, ok := n.connections.Load(name)
+		if ok == false {
+			return nil, gen.ErrNoRoute
+		}
+		return v.(gen.Connection), nil
+	}
+	defer func() {
+		n.pending.Delete(name)
+		close(entry.ready) // wake ALL waiting goroutines
+	}()
+
+	if lib.Verbose() {
 		n.node.Log().Trace("trying to connect to %s (%s:%d, tls:%v)",
 			name, route.Route.Host, route.Route.Port, route.Route.TLS)
 	}
@@ -755,23 +1082,34 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	if err != nil {
 		return nil, err
 	}
+	conn.SetDeadline(time.Now().Add(n.handshakeTimeout(route.HandshakeTimeout)))
 
 	hopts := gen.HandshakeOptions{
-		Cookie:         route.Cookie,
-		Flags:          route.Flags,
-		MaxMessageSize: n.maxmessagesize,
+		Cookie:                  route.Cookie,
+		Flags:                   route.Flags,
+		MaxMessageSize:          int(n.maxmessagesize.Load()),
+		HandshakeMaxMessageSize: n.handshakeMaxMessageSize(route.HandshakeMaxMessageSize),
+		CheckPending: func(peer gen.Atom) bool {
+			_, exists := n.pending.Load(peer)
+			return exists
+		},
 	}
 
 	if hopts.Cookie == "" {
-		hopts.Cookie = n.cookie
+		hopts.Cookie = *n.cookie.Load()
 	}
 	if hopts.Flags.Enable == false {
-		hopts.Flags = n.flags
+		hopts.Flags = *n.flags.Load()
 	}
+	// period for keepalive is already in hopts.Flags (from route.Flags or n.flags)
 
-	result, err := handshake.Start(n.node, conn, hopts)
+	result, err := hs.Start(n.node, conn, hopts)
 	if err != nil {
 		conn.Close()
+		// on simultaneous connect rejection, check if accept path established connection
+		if v, ok := n.connections.Load(name); ok {
+			return v.(gen.Connection), nil
+		}
 		return nil, err
 	}
 
@@ -800,7 +1138,16 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 	}
 	log.setSource(logSource)
 
-	pconn, err := proto.NewConnection(n.node, result, log)
+	// inject options into ConnectionOptions
+	if opts, ok := result.Custom.(handshake.ConnectionOptions); ok {
+		opts.SoftwareKeepAliveMisses = n.keepAliveMisses(route.SoftwareKeepAliveMisses)
+		opts.FragmentSize = n.fragmentSize
+		opts.FragmentTimeout = n.fragmentTimeout
+		opts.MaxFragmentAssemblies = n.maxFragmentAssemblies
+		result.Custom = opts
+	}
+
+	pconn, err := proto.NewConnection(n.node.core, result, log)
 	if err != nil {
 		conn.Close()
 		return nil, err
@@ -811,47 +1158,96 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		if err != nil {
 			return nil, nil, err
 		}
-		tail, err := handshake.Join(n.node, c, id, hopts)
+		c.SetDeadline(time.Now().Add(n.handshakeTimeout(route.HandshakeTimeout)))
+		tail, err := hs.Join(n.node, c, id, hopts)
 		if err != nil {
+			c.Close()
 			return nil, nil, err
 		}
 		return c, tail, nil
 	}
 
-	if c, err := n.registerConnection(result.Peer, pconn); err != nil {
-		if err == gen.ErrTaken {
-			return c, nil
-		}
-		pconn.Terminate(err)
-		conn.Close()
-		return nil, err
+	// single primary: the connection for connID is the canonical-direction primary
+	// (initiated by the smaller-named node). Both ends compute the same survivor, so no
+	// cross-kill. The merge decision is serialized (mergeMu) like OTP's net_kernel; the
+	// handshake above ran concurrently.
+	localIsCanonical := n.node.name < result.Peer
+
+	// the non-canonical outgoing primary stays passive (dial==nil, no self-redial): under a
+	// simultaneous connect it is the losing direction and the canonical end closes its TCP;
+	// were it joined with a redial it would reconnect as a pool-join and attach to the
+	// canonical connection as a TCP the writer does not track (pool overshoot, churn that
+	// never settles). The pool is still filled by the dialer (real redial passed to serve);
+	// a non-canonical dialer fills only after the acceptor go-ahead, never a superseded one.
+	primaryDial := redial
+	if localIsCanonical == false {
+		primaryDial = nil
 	}
 
-	pconn.Join(conn, result.ConnectionID, redial, result.Tail)
-	go n.serve(proto, pconn, redial)
+	n.mergeMu.Lock()
+	owner, loaded := n.connectionsByID.LoadOrStore(result.ConnectionID, pconn)
+	if loaded {
+		oc := owner.(gen.Connection)
+		if localIsCanonical == false {
+			// our outgoing is the losing direction: drop ours, adopt the owner
+			n.mergeMu.Unlock()
+			pconn.Terminate(nil)
+			conn.Close()
+			return oc, nil
+		}
+		// our outgoing is the canonical winner but a provisional (losing direction)
+		// registered first: take over, replace it, then drop it
+		n.connectionsByID.Store(result.ConnectionID, pconn)
+		if jerr := pconn.Join(conn, result.ConnectionID, primaryDial, result.Tail); jerr != nil {
+			n.connectionsByID.CompareAndSwap(result.ConnectionID, pconn, oc)
+			n.mergeMu.Unlock()
+			pconn.Terminate(nil)
+			conn.Close()
+			return nil, jerr
+		}
+		n.registerConnection(result.Peer, pconn)
+		n.mergeMu.Unlock()
+		go n.serve(proto, pconn, redial, result.ConnectionID)
+		oc.Terminate(nil) // drop the provisional loser
+		return pconn, nil
+	}
 
+	if jerr := pconn.Join(conn, result.ConnectionID, primaryDial, result.Tail); jerr != nil {
+		n.connectionsByID.CompareAndDelete(result.ConnectionID, pconn)
+		n.mergeMu.Unlock()
+		pconn.Terminate(nil)
+		conn.Close()
+		return nil, jerr
+	}
+	n.registerConnection(result.Peer, pconn)
+	n.mergeMu.Unlock()
+	go n.serve(proto, pconn, redial, result.ConnectionID)
 	return pconn, nil
 }
 
-func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.NetworkDial) {
+func (n *network) serve(proto gen.NetworkProto, conn gen.Connection, redial gen.NetworkDial, connID string) {
 	name := conn.Node().Name()
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
 				n.node.log.Panic("connection with %s (%s) terminated abnormally: %v", name, name.CRC32(), r)
-				n.unregisterConnection(name, gen.TerminateReasonPanic)
+				n.unregisterConnection(name, conn, connID, gen.TerminateReasonPanic)
 				conn.Terminate(gen.TerminateReasonPanic)
 			}
 		}()
 	}
 
 	err := proto.Serve(conn, redial)
-	n.unregisterConnection(name, err)
+	reason := err
+	if reason == nil {
+		reason = gen.TerminateReasonNormal
+	}
+	n.unregisterConnection(name, conn, connID, reason)
 	conn.Terminate(err)
 }
 
 func (n *network) connectProxy(name gen.Atom, route gen.NetworkProxyRoute) (gen.Connection, error) {
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("trying to connect to %s (via proxy %s)", name, route.Route.Proxy)
 	}
 	// TODO will be implemented later
@@ -860,17 +1256,39 @@ func (n *network) connectProxy(name gen.Atom, route gen.NetworkProxyRoute) (gen.
 	return nil, gen.ErrUnsupported
 }
 
+func (n *network) keepAliveMisses(v int) int {
+	if v > 0 {
+		return v
+	}
+	if n.softwareKeepAliveMisses > 0 {
+		return n.softwareKeepAliveMisses
+	}
+	return gen.DefaultSoftwareKeepAliveMisses
+}
+
 func (n *network) stop() error {
 	if swapped := n.running.CompareAndSwap(true, false); swapped == false {
 		return fmt.Errorf("network stack is already stopped")
 	}
+	n.ready.Store(false)
+
+	// drop only registrar-sourced static routes; user-added routes survive a stop/start
+	for _, match := range n.registrarRoutes {
+		n.staticRoutes.remove(match)
+	}
+	n.registrarRoutes = nil
+	for _, match := range n.registrarProxies {
+		n.staticProxies.remove(match)
+	}
+	n.registrarProxies = nil
 
 	n.registrar.Terminate()
-	n.registrar = nil
 
 	// stop acceptors
-	for _, a := range n.acceptors {
-		a.l.Close()
+	if accs := n.acceptors.Swap(nil); accs != nil {
+		for _, a := range *accs {
+			a.l.Close()
+		}
 	}
 
 	n.connections.Range(func(_, v any) bool {
@@ -887,40 +1305,52 @@ func (n *network) start(options gen.NetworkOptions) error {
 		return fmt.Errorf("network stack is already running")
 	}
 
-	n.mode = options.Mode
+	n.mode.Store(int32(options.Mode))
 	if options.Mode == gen.NetworkModeDisabled {
 		n.running.Store(false)
 		n.node.log.Info("network is disabled")
 		return nil
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.log.Trace("starting network...")
 	}
 
-	n.skipverify = options.InsecureSkipVerify
+	n.skipverify.Store(options.InsecureSkipVerify)
 	n.registrar = options.Registrar
 	if n.registrar == nil {
 		n.registrar = registrar.Create(registrar.Options{})
 	}
 
-	n.node.validateLicenses(n.registrar.Version())
-
 	if options.Cookie == "" {
 		n.node.log.Warning("cookie is empty (gen.NetworkOptions), used randomized value")
 		options.Cookie = lib.RandomString(16)
 	}
-	n.cookie = options.Cookie
-	n.maxmessagesize = options.MaxMessageSize
+	n.cookie.Store(&options.Cookie)
+	n.maxmessagesize.Store(int64(options.MaxMessageSize))
+	n.handshakeTimeoutDefault = options.HandshakeTimeout
+	n.handshakeMaxMessageSizeDefault = options.HandshakeMaxMessageSize
 
 	if options.Flags.Enable == false {
 		options.Flags = gen.DefaultNetworkFlags
 	}
-	n.flags = options.Flags
+	n.flags.Store(&options.Flags)
+	n.softwareKeepAliveMisses = options.SoftwareKeepAliveMisses
+	if options.FragmentSize > 0 && options.FragmentSize < 4096 {
+		n.running.Store(false)
+		return fmt.Errorf("network option FragmentSize (%d) is too small, minimum is 4096 bytes", options.FragmentSize)
+	}
+	n.fragmentSize = options.FragmentSize
+	n.fragmentTimeout = options.FragmentTimeout
+	n.maxFragmentAssemblies = options.MaxFragmentAssemblies
+
+	// register our own name so PIDs/refs that carry it encode as a compact atom-cache id
+	n.RegisterAtom(n.node.name)
 
 	if options.Mode == gen.NetworkModeHidden {
 		static, err := n.registrar.Register(n.node, gen.RegisterRoutes{})
 		if err != nil {
+			n.running.Store(false)
 			return err
 		}
 
@@ -928,16 +1358,21 @@ func (n *network) start(options gen.NetworkOptions) error {
 		for match, route := range static.Routes {
 			if err := n.AddRoute(match, route, 0); err != nil {
 				n.node.log.Error("unable to add static route %q from the registrar, ignored", match)
+				continue
 			}
+			n.registrarRoutes = append(n.registrarRoutes, match)
 		}
 		// add static proxy routes
 		for match, route := range static.Proxies {
 			if err := n.AddProxyRoute(match, route, 0); err != nil {
 				n.node.log.Error("unable to add static proxy route %q from the registrar, ignored", match)
+				continue
 			}
+			n.registrarProxies = append(n.registrarProxies, match)
 		}
 
-		if lib.Trace() {
+		n.ready.Store(true)
+		if lib.Verbose() {
 			n.node.log.Trace("network started (hidden) with registrar %s", n.registrar.Version())
 		}
 		return nil
@@ -971,15 +1406,17 @@ func (n *network) start(options gen.NetworkOptions) error {
 			continue
 		}
 		r := gen.ApplicationRoute{
-			Node:   n.node.Name(),
-			Name:   info.Name,
-			Weight: info.Weight,
-			Tags:   info.Tags,
-			Mode:   info.Mode,
+			Node:    n.node.Name(),
+			Name:    info.Name,
+			Weight:  info.Weight,
+			Tags:    info.Tags,
+			Mode:    info.Mode,
+			Version: info.Version,
 		}
 		appRoutes = append(appRoutes, r)
 	}
 	routes := []gen.Route{}
+	var acceptors []*acceptor
 
 	for _, a := range options.Acceptors {
 		if a.Handshake == nil {
@@ -1014,14 +1451,14 @@ func (n *network) start(options gen.NetworkOptions) error {
 
 		acceptor, err := n.startAcceptor(a)
 		if err != nil {
-			// stop acceptors
-			for i := range n.acceptors {
-				n.acceptors[i].l.Close()
+			for _, x := range acceptors {
+				x.l.Close()
 			}
+			n.running.Store(false)
 			return err
 		}
 
-		n.acceptors = append(n.acceptors, acceptor)
+		acceptors = append(acceptors, acceptor)
 
 		// determine port to advertise in route
 		routePort := acceptor.port
@@ -1036,7 +1473,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 			HandshakeVersion: acceptor.handshake.Version(),
 			ProtoVersion:     acceptor.proto.Version(),
 		}
-		n.node.validateLicenses(r.HandshakeVersion, r.ProtoVersion)
+
 		if a.Registrar == nil {
 			acceptor.registrar_info = n.registrar.Info
 			routes = append(routes, r)
@@ -1054,10 +1491,10 @@ func (n *network) start(options gen.NetworkOptions) error {
 		// TODO it returns static routes. they need to be handled
 		_, err = a.Registrar.Register(n.node, registerRoutes)
 		if err != nil {
-			// stop acceptors
-			for i := range n.acceptors {
-				n.acceptors[i].l.Close()
+			for _, x := range acceptors {
+				x.l.Close()
 			}
+			n.running.Store(false)
 			return fmt.Errorf(
 				"unable to register node on %s (%s): %s",
 				registrarInfo.Server,
@@ -1075,8 +1512,13 @@ func (n *network) start(options gen.NetworkOptions) error {
 
 	static, err := n.registrar.Register(n.node, registerRoutes)
 	if err != nil {
+		for _, x := range acceptors {
+			x.l.Close()
+		}
+		n.running.Store(false)
 		return fmt.Errorf("unable to register node: %s", err)
 	}
+	n.acceptors.Store(&acceptors)
 
 	// add static routes
 	for match, route := range static.Routes {
@@ -1091,7 +1533,8 @@ func (n *network) start(options gen.NetworkOptions) error {
 		}
 	}
 
-	if lib.Trace() {
+	n.ready.Store(true)
+	if lib.Verbose() {
 		n.node.log.Trace("network started with registrar %s", n.registrar.Version())
 	}
 	return nil
@@ -1115,32 +1558,39 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 	if pstart == 0 {
 		pstart = gen.DefaultPort
 	}
-	pend := a.PortRange
-	if pend == 0 {
-		pend = 50000
-	}
-	if pend < pstart {
-		pend = pstart
+	pend := uint32(65535)
+	if a.PortRange > 1 {
+		p := uint32(pstart) + uint32(a.PortRange) - 1
+		if p < 65535 {
+			pend = p
+		}
+	} else if a.PortRange == 1 {
+		pend = uint32(pstart)
 	}
 
 	acceptor := &acceptor{
-		bs:               bs,
-		proto:            a.Proto,
-		handshake:        a.Handshake,
-		cert_manager:     cert_manager,
-		max_message_size: a.MaxMessageSize,
-		atom_mapping:     make(map[gen.Atom]gen.Atom),
-		route_host:       a.RouteHost,
-		route_port:       a.RoutePort,
+		bs:                bs,
+		proto:             a.Proto,
+		handshake:         a.Handshake,
+		cert_manager:      cert_manager,
+		max_message_size:  a.MaxMessageSize,
+		atom_mapping:      make(map[gen.Atom]gen.Atom),
+		route_host:        a.RouteHost,
+		route_port:        a.RoutePort,
+		maxHandshakes:     int32(a.MaxHandshakes),
+		handshake_timeout: a.HandshakeTimeout,
+
+		handshake_max_message_size: a.HandshakeMaxMessageSize,
+		software_keepalive_misses:  n.keepAliveMisses(a.SoftwareKeepAliveMisses),
 	}
 	if a.Cookie == "" {
-		acceptor.cookie = n.cookie
+		acceptor.cookie = *n.cookie.Load()
 	}
 	for k, v := range a.AtomMapping {
 		acceptor.atom_mapping[k] = v
 	}
 
-	for i := pstart; i < pend+1; i++ {
+	for i := uint32(pstart); i <= pend; i++ {
 		hp := net.JoinHostPort(a.Host, strconv.Itoa(int(i)))
 		lcl, err := lc.Listen(context.Background(), a.TCP, hp)
 		if err != nil {
@@ -1152,7 +1602,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 			continue
 		}
 
-		acceptor.port = i
+		acceptor.port = uint16(i)
 		acceptor.l = lcl
 		break
 	}
@@ -1169,10 +1619,19 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 			MinVersion:         tls.VersionTLS12,
 		}
 
-		// check for mTLS support
+		// mTLS: re-read the CA pool and client-auth policy per incoming connection so
+		// CertAuthManager runtime updates take effect on the live listener
 		if cam, ok := acceptor.cert_manager.(gen.CertAuthManager); ok {
-			config.ClientAuth = cam.ClientAuth()
-			config.ClientCAs = cam.ClientCAs()
+			skipVerify := a.InsecureSkipVerify
+			config.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
+				return &tls.Config{
+					GetCertificate:     cam.GetCertificateFunc(),
+					InsecureSkipVerify: skipVerify,
+					MinVersion:         tls.VersionTLS12,
+					ClientAuth:         cam.ClientAuth(),
+					ClientCAs:          cam.ClientCAs(),
+				}, nil
+			}
 		}
 
 		acceptor.l = tls.NewListener(acceptor.l, config)
@@ -1185,7 +1644,7 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 
 	go n.accept(acceptor)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		n.node.Log().Trace("started acceptor on %s with handshake %s and proto %s (TLS: %t)",
 			acceptor.l.Addr(),
 			acceptor.handshake.Version(),
@@ -1200,12 +1659,23 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 }
 
 func (n *network) accept(a *acceptor) {
-	hopts := gen.HandshakeOptions{
-		Cookie:         a.cookie,
-		Flags:          a.flags,
-		MaxMessageSize: a.max_message_size,
-		CertManager:    a.cert_manager,
+	cookie := a.cookie
+	if cookie == "" {
+		cookie = *n.cookie.Load()
 	}
+
+	hopts := gen.HandshakeOptions{
+		Cookie:                  cookie,
+		Flags:                   a.flags,
+		MaxMessageSize:          a.max_message_size,
+		HandshakeMaxMessageSize: n.handshakeMaxMessageSize(a.handshake_max_message_size),
+		CertManager:             a.cert_manager,
+		CheckPending: func(peer gen.Atom) bool {
+			_, exists := n.pending.Load(peer)
+			return exists
+		},
+	}
+	// period for keepalive is already in hopts.Flags (from a.flags)
 	for {
 		c, err := a.l.Accept()
 		if err != nil {
@@ -1216,95 +1686,213 @@ func (n *network) accept(a *acceptor) {
 				a.l.Addr(), a.handshake.Version(), a.proto.Version())
 			return
 		}
-		if lib.Trace() {
+		if lib.Verbose() {
 			n.node.Log().Trace("accepted new TCP-connection from %s", c.RemoteAddr().String())
 		}
 
-		if hopts.Cookie == "" {
-			hopts.Cookie = n.cookie
+		// check concurrency limit
+		if a.maxHandshakes > 0 && a.handshaking.Add(1) > a.maxHandshakes {
+			a.handshaking.Add(-1)
+			c.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+			a.handshake.Reject(c, "busy")
+			c.Close()
+			continue
 		}
 
-		result, err := a.handshake.Accept(n.node, c, hopts)
-		if err != nil {
+		go func() {
+			if a.maxHandshakes > 0 {
+				defer a.handshaking.Add(-1)
+			}
+			n.handleAccepted(a, c, hopts)
+		}()
+	}
+}
+
+func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOptions) {
+	c.SetDeadline(time.Now().Add(n.handshakeTimeout(a.handshake_timeout)))
+	result, err := a.handshake.Negotiate(n.node, c, hopts)
+	if err != nil {
+		if err != io.EOF {
+			n.node.Log().Warning("unable to handshake with %s: %s", c.RemoteAddr().String(), err)
+		}
+		a.handshakeErrors.Add(1)
+		c.Close()
+		return
+	}
+
+	if result.Peer == "" {
+		n.node.Log().Warning("%s is not introduced itself, close connection", c.RemoteAddr().String())
+		a.handshakeErrors.Add(1)
+		c.Close()
+		return
+	}
+
+	// update atom mapping: a.atom_mapping + result.AtomMapping
+	mapping := make(map[gen.Atom]gen.Atom)
+	for k, v := range a.atom_mapping {
+		mapping[k] = v
+	}
+	for k, v := range result.AtomMapping {
+		mapping[k] = v
+	}
+	result.AtomMapping = mapping
+
+	// pool-join: Negotiate did the full short exchange. Attach this TCP to the
+	// connection registered by ConnectionID. The owner registered it before
+	// sending its introduce, so a pool-join (its initiator dials only after the
+	// primary handshake finished) always finds it. No polling.
+	if result.PeerCreation == 0 {
+		v, ok := n.connectionsByID.Load(result.ConnectionID)
+		if ok == false {
+			c.Close()
+			return
+		}
+		if err := v.(gen.Connection).Join(c, result.ConnectionID, nil, result.Tail); err != nil {
+			c.Close()
+		}
+		return
+	}
+
+	// inject options from acceptor into ConnectionOptions
+	if opts, ok := result.Custom.(handshake.ConnectionOptions); ok {
+		opts.SoftwareKeepAliveMisses = a.software_keepalive_misses
+		opts.FragmentSize = n.fragmentSize
+		opts.FragmentTimeout = n.fragmentTimeout
+		opts.MaxFragmentAssemblies = n.maxFragmentAssemblies
+		result.Custom = opts
+	}
+
+	log := createLog(n.node.Log().Level(), n.node.dolog)
+	logSource := gen.MessageLogNetwork{
+		Node:     n.node.name,
+		Peer:     result.Peer,
+		Creation: result.PeerCreation,
+	}
+	log.setSource(logSource)
+	conn, err := a.proto.NewConnection(n.node.core, result, log)
+	if err != nil {
+		n.node.Log().Warning("unable to create new connection: %s", err)
+		c.Close()
+		return
+	}
+
+	// single primary: keep one connection per ConnectionID. The incoming TCP is dropped
+	// only when a connection already exists and the local node is canonical (so the
+	// incoming is the reverse, losing direction); otherwise it establishes (so a
+	// single-direction connect works whatever the initiator's name). Register by
+	// ConnectionID BEFORE sending our introduce (Accept): the peer fills its pool only
+	// after its connect completes (after it reads our introduce), so registering first
+	// guarantees its pool-join TCPs find this connection instead of racing registration,
+	// being dropped when the ConnectionID lookup misses, and redialing. Merge decision
+	// serialized via mergeMu.
+	localIsCanonical := n.node.name < result.Peer
+	n.mergeMu.Lock()
+	owner, loaded := n.connectionsByID.LoadOrStore(result.ConnectionID, conn)
+	if loaded && localIsCanonical {
+		// a connection already exists and we are canonical: the incoming is the reverse,
+		// losing direction. Finish the peer's handshake so its connect returns promptly
+		// and adopts the owner, then drop it.
+		n.mergeMu.Unlock()
+		if _, err := a.handshake.Accept(n.node, c, hopts, result); err != nil {
 			if err != io.EOF {
-				n.node.Log().Warning("unable to handshake with %s: %s", c.RemoteAddr().String(), err)
+				n.node.Log().Warning("unable to finish handshake with %s: %s", result.Peer, err)
 			}
-			c.Close()
-			continue
+			a.handshakeErrors.Add(1)
 		}
+		conn.Terminate(nil)
+		c.Close()
+		return
+	}
+	if loaded {
+		// we are not canonical: the incoming is the canonical winner, but a provisional
+		// registered first. Take over its slot.
+		n.connectionsByID.Store(result.ConnectionID, conn)
+	}
+	n.mergeMu.Unlock()
 
-		if result.Peer == "" {
-			n.node.Log().Warning("%s is not introduced itself, close connection", c.RemoteAddr().String())
-			c.Close()
-			continue
+	// on failure restore the registry: put the provisional back (take-over) or remove
+	// our entry (fresh establish).
+	result, err = a.handshake.Accept(n.node, c, hopts, result)
+	if err != nil {
+		if err != io.EOF {
+			n.node.Log().Warning("unable to finish handshake with %s: %s", result.Peer, err)
 		}
+		a.handshakeErrors.Add(1)
+		n.mergeMu.Lock()
+		if loaded {
+			n.connectionsByID.CompareAndSwap(result.ConnectionID, conn, owner)
+		} else {
+			n.connectionsByID.CompareAndDelete(result.ConnectionID, conn)
+		}
+		n.mergeMu.Unlock()
+		conn.Terminate(nil)
+		c.Close()
+		return
+	}
+	if jerr := conn.Join(c, result.ConnectionID, nil, result.Tail); jerr != nil {
+		n.mergeMu.Lock()
+		if loaded {
+			n.connectionsByID.CompareAndSwap(result.ConnectionID, conn, owner)
+		} else {
+			n.connectionsByID.CompareAndDelete(result.ConnectionID, conn)
+		}
+		n.mergeMu.Unlock()
+		conn.Terminate(nil)
+		c.Close()
+		return
+	}
 
-		// update atom mapping: a.atom_mapping + result.AtomMapping
-		mapping := make(map[gen.Atom]gen.Atom)
-		for k, v := range a.atom_mapping {
-			mapping[k] = v
-		}
-		for k, v := range result.AtomMapping {
-			mapping[k] = v
-		}
-		result.AtomMapping = mapping
+	// primary attached: announce by name only while we still own this ConnectionID. A
+	// canonical-direction connect can take the slot over during the Accept round-trip above;
+	// if it did, this direction lost the merge, so drop it rather than route the peer name to
+	// (and serve) a superseded connection that no pool-join will ever fill.
+	n.mergeMu.Lock()
+	if cur, ok := n.connectionsByID.Load(result.ConnectionID); ok == false || cur != conn {
+		n.mergeMu.Unlock()
+		conn.Terminate(nil)
+		return
+	}
+	n.registerConnection(result.Peer, conn)
+	n.mergeMu.Unlock()
+	if loaded {
+		owner.(gen.Connection).Terminate(nil)
+	}
+	go n.serve(a.proto, conn, nil, result.ConnectionID)
 
-		// check if we already have connection with this node
-		if v, exist := n.connections.Load(result.Peer); exist {
-			conn := v.(gen.Connection)
-			if err := conn.Join(c, result.ConnectionID, nil, result.Tail); err != nil {
-				if err == gen.ErrUnsupported {
-					n.node.Log().Warning("unable to accept connection with %s (join is not supported)",
-						result.Peer)
-				} else {
-					n.node.Log().Trace("unable to join %s to the existing connection with %s: %s",
-						c.RemoteAddr(), result.Peer, err)
-				}
-				c.Close()
+	// the dialer reached our listener and is the pool filler. When we are canonical the
+	// dialer is non-canonical and waits for our go-ahead before filling. Send it only when
+	// we are not ourselves dialing the peer: a concurrent canonical-direction connect would
+	// supersede this one, and the dialer must not fill a connection that is about to die.
+	if localIsCanonical {
+		if _, dialing := n.pending.Load(result.Peer); dialing == false {
+			if ext, ok := conn.(interface{ Extend() }); ok {
+				ext.Extend()
 			}
-			continue
 		}
-
-		log := createLog(n.node.Log().Level(), n.node.dolog)
-		logSource := gen.MessageLogNetwork{
-			Node:     n.node.name,
-			Peer:     result.Peer,
-			Creation: result.PeerCreation,
-		}
-		log.setSource(logSource)
-		conn, err := a.proto.NewConnection(n.node, result, log)
-		if err != nil {
-			n.node.Log().Warning("unable to create new connection: %s", err)
-			c.Close()
-			continue
-		}
-
-		if _, err := n.registerConnection(result.Peer, conn); err != nil {
-			n.node.Log().Warning("unable to register new connection with %s: %s", result.Peer, err)
-			c.Close()
-			continue
-		}
-		conn.Join(c, result.ConnectionID, nil, result.Tail)
-		go n.serve(a.proto, conn, nil)
 	}
 }
 
-func (n *network) registerConnection(name gen.Atom, conn gen.Connection) (gen.Connection, error) {
-	if v, exist := n.connections.LoadOrStore(name, conn); exist {
-		return v.(gen.Connection), gen.ErrTaken
-	}
+func (n *network) registerConnection(name gen.Atom, conn gen.Connection) {
+	_, loaded := n.connections.Swap(name, conn)
 	n.node.log.Info("new connection with %s (%s)", name, name.CRC32())
-	// TODO create event gen.MessageNetworkEvent
-	return conn, nil
+	if loaded == false {
+		n.connectionsEstablished.Add(1)
+		n.node.RouteNodeUp(name)
+	}
 }
 
-func (n *network) unregisterConnection(name gen.Atom, reason error) {
-	n.connections.Delete(name)
+func (n *network) unregisterConnection(name gen.Atom, conn gen.Connection, connID string, reason error) {
+	n.mergeMu.Lock()
+	n.connectionsByID.CompareAndDelete(connID, conn) // keep a winner that took over this connID
+	routed := n.connections.CompareAndDelete(name, conn)
+	n.mergeMu.Unlock()
 	if reason != nil {
 		n.node.log.Info("connection with %s (%s) terminated with reason: %s", name, name.CRC32(), reason)
 	} else {
 		n.node.log.Info("connection with %s (%s) terminated", name, name.CRC32())
 	}
-	n.node.RouteNodeDown(name, reason)
-	// TODO create event gen.MessageNetworkEvent
+	if routed {
+		n.connectionsLost.Add(1)
+		n.node.RouteNodeDown(name, reason)
+	}
 }

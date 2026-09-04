@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"time"
 
-	"ergo.services/ergo/app/system/inspect"
 	"ergo.services/ergo/gen"
 )
 
@@ -16,6 +15,7 @@ var (
 		gen.Env(""),
 		gen.LogLevel(0),
 		gen.ProcessState(0),
+		gen.ProcessKind(""),
 		gen.MetaState(0),
 		gen.NetworkMode(0),
 		gen.MessagePriority(0),
@@ -28,12 +28,21 @@ var (
 
 		gen.ApplicationDepends{},
 
+		gen.Tracing{},
+		gen.TracingFlags(0),
+		gen.TracingAttribute{},
+		gen.TracingInfo{},
+		gen.TracingExporterInfo{},
+
 		gen.LoggerInfo{},
 		gen.ProcessFallback{},
 		gen.CronJobInfo{},
 		gen.CronInfo{},
 		gen.CronSchedule{},
 		gen.NodeInfo{},
+		gen.RemoteNodeShortInfo{},
+		gen.NodeShortInfo{},
+
 		gen.Compression{},
 		gen.MailboxQueues{},
 		gen.ProcessInfo{},
@@ -44,6 +53,10 @@ var (
 		gen.ApplicationOptionsExtra{},
 		gen.ApplicationInfo{},
 		gen.MetaInfo{},
+		gen.EventInfo{},
+		gen.LogField{},
+
+		gen.Error{},
 
 		gen.NetworkFlags{},
 		gen.NetworkProxyFlags{},
@@ -63,89 +76,95 @@ var (
 		gen.MessageEventStart{},
 		gen.MessageEventStop{},
 
-		// inspector messages
+		gen.MessageRegistrarNodeJoined{},
+		gen.MessageRegistrarNodeLeft{},
+		gen.MessageRegistrarConfigUpdate{},
+		gen.MessageRegistrarApplicationLoaded{},
+		gen.MessageRegistrarApplicationInitializing{},
+		gen.MessageRegistrarApplicationStarted{},
+		gen.MessageRegistrarApplicationStopping{},
+		gen.MessageRegistrarApplicationUnloaded{},
+		gen.MessageRegistrarProxyRegistered{},
+		gen.MessageRegistrarProxyUnregistered{},
 
-		inspect.RequestInspectNode{},
-		inspect.ResponseInspectNode{},
-		inspect.MessageInspectNode{},
+		gen.MessageCoreApplicationStarted{},
+		gen.MessageCoreApplicationStopped{},
+		gen.MessageCoreNodeConnected{},
+		gen.MessageCoreNodeDisconnected{},
 
-		inspect.RequestInspectNetwork{},
-		inspect.ResponseInspectNetwork{},
-		inspect.MessageInspectNetwork{},
+		gen.TracingPoint(0),
+		gen.TracingKind(0),
+		gen.TracingFlags(0),
+		gen.TracingSpan{},
 
-		inspect.RequestInspectConnection{},
-		inspect.ResponseInspectConnection{},
-		inspect.MessageInspectConnection{},
-
-		inspect.RequestInspectProcessList{},
-		inspect.ResponseInspectProcessList{},
-		inspect.MessageInspectProcessList{},
-
-		inspect.RequestInspectLog{},
-		inspect.ResponseInspectLog{},
-		inspect.MessageInspectLogNode{},
-		inspect.MessageInspectLogNetwork{},
-		inspect.MessageInspectLogProcess{},
-		inspect.MessageInspectLogMeta{},
-
-		inspect.RequestInspectProcess{},
-		inspect.ResponseInspectProcess{},
-		inspect.MessageInspectProcess{},
-
-		inspect.RequestInspectProcessState{},
-		inspect.ResponseInspectProcessState{},
-		inspect.MessageInspectProcessState{},
-
-		inspect.RequestInspectMeta{},
-		inspect.ResponseInspectMeta{},
-		inspect.MessageInspectMeta{},
-
-		inspect.RequestInspectMetaState{},
-		inspect.ResponseInspectMetaState{},
-		inspect.MessageInspectMetaState{},
-
-		inspect.RequestDoSend{},
-		inspect.ResponseDoSend{},
-
-		inspect.RequestDoSendMeta{},
-		inspect.ResponseDoSendMeta{},
-
-		inspect.RequestDoSendExit{},
-		inspect.ResponseDoSendExit{},
-
-		inspect.RequestDoSendExitMeta{},
-		inspect.ResponseDoSendExitMeta{},
-
-		inspect.RequestDoKill{},
-		inspect.ResponseDoKill{},
-
-		inspect.RequestDoSetLogLevel{},
-		inspect.RequestDoSetLogLevelProcess{},
-		inspect.RequestDoSetLogLevelMeta{},
-		inspect.ResponseDoSetLogLevel{},
-
-		inspect.RequestInspectApplicationList{},
-		inspect.ResponseInspectApplicationList{},
-		inspect.MessageInspectApplicationList{},
-
-		inspect.RequestInspectApplicationTree{},
-		inspect.ResponseInspectApplicationTree{},
-		inspect.MessageInspectApplicationTree{},
+		gen.RegisteredTypeStats{},
+		gen.RegisteredTypeInfo{},
+		gen.RegisteredErrorInfo{},
+		gen.RegisteredAtomInfo{},
 	}
 
-	// register standard errors of the Ergo Framework
+	// register standard errors of the Ergo Framework. Identity of these
+	// sentinels is preserved across the network via the EDF errCache: each
+	// peer assigns its local instance a uint16 id during handshake and maps
+	// remote ids back to its own instance by Error() string match. So
+	// errors.Is(reason, gen.ErrTimeout) keeps working after a network hop.
 	genErrors = []error{
-		gen.ErrIncorrect,
+		gen.ErrNameUnknown,
+		gen.ErrParentUnknown,
+		gen.ErrNodeTerminated,
+
+		gen.ErrProcessMailboxFull,
+		gen.ErrProcessUnknown,
+		gen.ErrProcessIncarnation,
+		gen.ErrProcessTerminated,
+
+		gen.ErrMetaUnknown,
+		gen.ErrMetaMailboxFull,
+
+		gen.ErrApplicationUnknown,
+		gen.ErrApplicationDepends,
+		gen.ErrApplicationState,
+		gen.ErrApplicationLoadPanic,
+		gen.ErrApplicationEmpty,
+		gen.ErrApplicationName,
+		gen.ErrApplicationStopping,
+		gen.ErrApplicationRunning,
+
+		gen.ErrTargetUnknown,
+		gen.ErrTargetExist,
+		gen.ErrTargetManagerOverload,
+
+		gen.ErrRegistrarTerminated,
+
+		gen.ErrAliasUnknown,
+		gen.ErrAliasOwner,
+		gen.ErrEventUnknown,
+		gen.ErrEventOwner,
+		gen.ErrTaken,
+
+		gen.ErrAtomTooLong,
+
 		gen.ErrTimeout,
 		gen.ErrUnsupported,
 		gen.ErrUnknown,
-		gen.ErrNameUnknown,
 		gen.ErrNotAllowed,
-		gen.ErrProcessUnknown,
-		gen.ErrProcessTerminated,
-		gen.ErrMetaUnknown,
-		gen.ErrApplicationUnknown,
-		gen.ErrTaken,
+		gen.ErrDiscarded,
+		gen.ErrDisabled,
+		gen.ErrBusy,
+		gen.ErrExceeded,
+
+		gen.ErrIncorrect,
+		gen.ErrMalformed,
+		gen.ErrResponseIgnored,
+		gen.ErrUnregistered,
+		gen.ErrTooLarge,
+
+		gen.ErrNetworkStopped,
+		gen.ErrNoConnection,
+		gen.ErrNoRoute,
+
+		gen.ErrInternal,
+
 		gen.TerminateReasonNormal,
 		gen.TerminateReasonShutdown,
 		gen.TerminateReasonKill,
@@ -154,137 +173,263 @@ var (
 )
 
 func init() {
-	//
-	// encoders
-	//
-	encoders.Store(reflect.TypeOf(gen.PID{}), &encoder{Prefix: []byte{edtPID}, Encode: encodePID})
-	encoders.Store(reflect.TypeOf(gen.ProcessID{}), &encoder{Prefix: []byte{edtProcessID}, Encode: encodeProcessID})
-	encoders.Store(reflect.TypeOf(gen.Ref{}), &encoder{Prefix: []byte{edtRef}, Encode: encodeRef})
-	encoders.Store(reflect.TypeOf(gen.Alias{}), &encoder{Prefix: []byte{edtAlias}, Encode: encodeAlias})
-	encoders.Store(reflect.TypeOf(gen.Event{}), &encoder{Prefix: []byte{edtEvent}, Encode: encodeEvent})
-	encoders.Store(reflect.TypeOf(true), &encoder{Prefix: []byte{edtBool}, Encode: encodeBool})
-	encoders.Store(reflect.TypeOf(gen.Atom("atom")), &encoder{Prefix: []byte{edtAtom}, Encode: encodeAtom})
-	encoders.Store(reflect.TypeOf("string"), &encoder{Prefix: []byte{edtString}, Encode: encodeString})
-	encoders.Store(reflect.TypeOf(int(0)), &encoder{Prefix: []byte{edtInt}, Encode: encodeInt})
-	encoders.Store(reflect.TypeOf(int8(0)), &encoder{Prefix: []byte{edtInt8}, Encode: encodeInt8})
-	encoders.Store(reflect.TypeOf(int16(0)), &encoder{Prefix: []byte{edtInt16}, Encode: encodeInt16})
-	encoders.Store(reflect.TypeOf(int32(0)), &encoder{Prefix: []byte{edtInt32}, Encode: encodeInt32})
-	encoders.Store(reflect.TypeOf(int64(0)), &encoder{Prefix: []byte{edtInt64}, Encode: encodeInt64})
-	encoders.Store(reflect.TypeOf(uint(0)), &encoder{Prefix: []byte{edtUint}, Encode: encodeUint})
-	encoders.Store(reflect.TypeOf(uint8(0)), &encoder{Prefix: []byte{edtUint8}, Encode: encodeUint8})
-	encoders.Store(reflect.TypeOf(uint16(0)), &encoder{Prefix: []byte{edtUint16}, Encode: encodeUint16})
-	encoders.Store(reflect.TypeOf(uint32(0)), &encoder{Prefix: []byte{edtUint32}, Encode: encodeUint32})
-	encoders.Store(reflect.TypeOf(uint64(0)), &encoder{Prefix: []byte{edtUint64}, Encode: encodeUint64})
-	encoders.Store(reflect.TypeOf([]byte(nil)), &encoder{Prefix: []byte{edtBinary}, Encode: encodeBinary})
-	encoders.Store(reflect.TypeOf(float32(0.0)), &encoder{Prefix: []byte{edtFloat32}, Encode: encodeFloat32})
-	encoders.Store(reflect.TypeOf(float64(0.0)), &encoder{Prefix: []byte{edtFloat64}, Encode: encodeFloat64})
-	encoders.Store(reflect.TypeOf(time.Time{}), &encoder{Prefix: []byte{edtTime}, Encode: encodeTime})
-	encoders.Store(anyType, &encoder{Prefix: []byte{edtAny}, Encode: encodeAny})
+	// For each built-in type: encoder/decoder are stored first so that
+	// registerInfo (which calls measureZeroSize -> Encode) can resolve them.
+	// The resulting *RegisteredTypeInfo is then attached back to the encoder
+	// and decoder via the Info field used by encodeWithStats/decodeWithStats.
 
-	// error types
-	encoders.Store(errType, &encoder{Prefix: []byte{edtError}, Encode: encodeError})
-	encoders.Store(reflect.TypeOf(fmt.Errorf("")), &encoder{Prefix: []byte{edtError}, Encode: encodeError})
-	// wrapped error has a different type
-	encoders.Store(reflect.TypeOf(fmt.Errorf("%w", nil)), &encoder{Prefix: []byte{edtError}, Encode: encodeError})
+	pidType := reflect.TypeOf(gen.PID{})
+	pidEnc := &encoder{Prefix: []byte{edtPID}, Encode: encodePID}
+	encoders.Store(pidType, pidEnc)
+	pidDec := &decoder{Type: pidType, Decode: decodePID}
+	decoders.Store(edtPID, pidDec)
+	decoders.Store(pidType, pidDec)
+	pidInfo := registerInfo(pidType, "framework", "gen.PID")
+	pidEnc.Info = pidInfo
+	pidDec.Info = pidInfo
 
-	//
-	// decoders
-	//
-	decPID := &decoder{reflect.TypeOf(gen.PID{}), decodePID}
-	decoders.Store(edtPID, decPID)
-	decoders.Store(decPID.Type, decPID)
+	processIDType := reflect.TypeOf(gen.ProcessID{})
+	processIDEnc := &encoder{Prefix: []byte{edtProcessID}, Encode: encodeProcessID}
+	encoders.Store(processIDType, processIDEnc)
+	processIDDec := &decoder{Type: processIDType, Decode: decodeProcessID}
+	decoders.Store(edtProcessID, processIDDec)
+	decoders.Store(processIDType, processIDDec)
+	processIDInfo := registerInfo(processIDType, "framework", "gen.ProcessID")
+	processIDEnc.Info = processIDInfo
+	processIDDec.Info = processIDInfo
 
-	decProcessID := &decoder{reflect.TypeOf(gen.ProcessID{}), decodeProcessID}
-	decoders.Store(edtProcessID, decProcessID)
-	decoders.Store(decProcessID.Type, decProcessID)
+	refType := reflect.TypeOf(gen.Ref{})
+	refEnc := &encoder{Prefix: []byte{edtRef}, Encode: encodeRef}
+	encoders.Store(refType, refEnc)
+	refDec := &decoder{Type: refType, Decode: decodeRef}
+	decoders.Store(edtRef, refDec)
+	decoders.Store(refType, refDec)
+	refInfo := registerInfo(refType, "framework", "gen.Ref")
+	refEnc.Info = refInfo
+	refDec.Info = refInfo
 
-	decRef := &decoder{reflect.TypeOf(gen.Ref{}), decodeRef}
-	decoders.Store(edtRef, decRef)
-	decoders.Store(decRef.Type, decRef)
+	aliasType := reflect.TypeOf(gen.Alias{})
+	aliasEnc := &encoder{Prefix: []byte{edtAlias}, Encode: encodeAlias}
+	encoders.Store(aliasType, aliasEnc)
+	aliasDec := &decoder{Type: aliasType, Decode: decodeAlias}
+	decoders.Store(edtAlias, aliasDec)
+	decoders.Store(aliasType, aliasDec)
+	aliasInfo := registerInfo(aliasType, "framework", "gen.Alias")
+	aliasEnc.Info = aliasInfo
+	aliasDec.Info = aliasInfo
 
-	decAlias := &decoder{reflect.TypeOf(gen.Alias{}), decodeAlias}
-	decoders.Store(edtAlias, decAlias)
-	decoders.Store(decAlias.Type, decAlias)
+	eventType := reflect.TypeOf(gen.Event{})
+	eventEnc := &encoder{Prefix: []byte{edtEvent}, Encode: encodeEvent}
+	encoders.Store(eventType, eventEnc)
+	eventDec := &decoder{Type: eventType, Decode: decodeEvent}
+	decoders.Store(edtEvent, eventDec)
+	decoders.Store(eventType, eventDec)
+	eventInfo := registerInfo(eventType, "framework", "gen.Event")
+	eventEnc.Info = eventInfo
+	eventDec.Info = eventInfo
 
-	decEvent := &decoder{reflect.TypeOf(gen.Event{}), decodeEvent}
-	decoders.Store(edtEvent, decEvent)
-	decoders.Store(decEvent.Type, decEvent)
+	timeType := reflect.TypeOf(time.Time{})
+	timeEnc := &encoder{Prefix: []byte{edtTime}, Encode: encodeTime}
+	encoders.Store(timeType, timeEnc)
+	timeDec := &decoder{Type: timeType, Decode: decodeTime}
+	decoders.Store(edtTime, timeDec)
+	decoders.Store(timeType, timeDec)
+	timeInfo := registerInfo(timeType, "framework", "time.Time")
+	timeEnc.Info = timeInfo
+	timeDec.Info = timeInfo
 
-	decTime := &decoder{reflect.TypeOf(time.Time{}), decodeTime}
-	decoders.Store(edtTime, decTime)
-	decoders.Store(decTime.Type, decTime)
+	boolType := reflect.TypeOf(true)
+	boolEnc := &encoder{Prefix: []byte{edtBool}, Encode: encodeBool}
+	encoders.Store(boolType, boolEnc)
+	boolDec := &decoder{Type: boolType, Decode: decodeBool}
+	decoders.Store(edtBool, boolDec)
+	decoders.Store(boolType, boolDec)
+	boolInfo := registerInfo(boolType, "bool", "bool")
+	boolEnc.Info = boolInfo
+	boolDec.Info = boolInfo
 
-	decBool := &decoder{reflect.TypeOf(true), decodeBool}
-	decoders.Store(edtBool, decBool)
-	decoders.Store(decBool.Type, decBool)
+	atomType := reflect.TypeOf(gen.Atom("atom"))
+	atomEnc := &encoder{Prefix: []byte{edtAtom}, Encode: encodeAtom}
+	encoders.Store(atomType, atomEnc)
+	atomDec := &decoder{Type: atomType, Decode: decodeAtom}
+	decoders.Store(edtAtom, atomDec)
+	decoders.Store(atomType, atomDec)
+	atomInfo := registerInfo(atomType, "framework", "gen.Atom")
+	atomEnc.Info = atomInfo
+	atomDec.Info = atomInfo
 
-	decAtom := &decoder{reflect.TypeOf(gen.Atom("atom")), decodeAtom}
-	decoders.Store(edtAtom, decAtom)
-	decoders.Store(decAtom.Type, decAtom)
+	stringType := reflect.TypeOf("string")
+	stringEnc := &encoder{Prefix: []byte{edtString}, Encode: encodeString}
+	encoders.Store(stringType, stringEnc)
+	stringDec := &decoder{Type: stringType, Decode: decodeString}
+	decoders.Store(edtString, stringDec)
+	decoders.Store(stringType, stringDec)
+	stringInfo := registerInfo(stringType, "string", "string")
+	stringEnc.Info = stringInfo
+	stringDec.Info = stringInfo
 
-	decString := &decoder{reflect.TypeOf("string"), decodeString}
-	decoders.Store(edtString, decString)
-	decoders.Store(decString.Type, decString)
+	intType := reflect.TypeOf(int(0))
+	intEnc := &encoder{Prefix: []byte{edtInt}, Encode: encodeInt}
+	encoders.Store(intType, intEnc)
+	intDec := &decoder{Type: intType, Decode: decodeInt}
+	decoders.Store(edtInt, intDec)
+	decoders.Store(intType, intDec)
+	intInfo := registerInfo(intType, "int", "int")
+	intEnc.Info = intInfo
+	intDec.Info = intInfo
 
-	decInt := &decoder{reflect.TypeOf(int(0)), decodeInt}
-	decoders.Store(edtInt, decInt)
-	decoders.Store(decInt.Type, decInt)
+	int8Type := reflect.TypeOf(int8(0))
+	int8Enc := &encoder{Prefix: []byte{edtInt8}, Encode: encodeInt8}
+	encoders.Store(int8Type, int8Enc)
+	int8Dec := &decoder{Type: int8Type, Decode: decodeInt8}
+	decoders.Store(edtInt8, int8Dec)
+	decoders.Store(int8Type, int8Dec)
+	int8Info := registerInfo(int8Type, "int8", "int8")
+	int8Enc.Info = int8Info
+	int8Dec.Info = int8Info
 
-	decInt8 := &decoder{reflect.TypeOf(int8(0)), decodeInt8}
-	decoders.Store(edtInt8, decInt8)
-	decoders.Store(decInt8.Type, decInt8)
+	int16Type := reflect.TypeOf(int16(0))
+	int16Enc := &encoder{Prefix: []byte{edtInt16}, Encode: encodeInt16}
+	encoders.Store(int16Type, int16Enc)
+	int16Dec := &decoder{Type: int16Type, Decode: decodeInt16}
+	decoders.Store(edtInt16, int16Dec)
+	decoders.Store(int16Type, int16Dec)
+	int16Info := registerInfo(int16Type, "int16", "int16")
+	int16Enc.Info = int16Info
+	int16Dec.Info = int16Info
 
-	decInt16 := &decoder{reflect.TypeOf(int16(0)), decodeInt16}
-	decoders.Store(edtInt16, decInt16)
-	decoders.Store(decInt16.Type, decInt16)
+	int32Type := reflect.TypeOf(int32(0))
+	int32Enc := &encoder{Prefix: []byte{edtInt32}, Encode: encodeInt32}
+	encoders.Store(int32Type, int32Enc)
+	int32Dec := &decoder{Type: int32Type, Decode: decodeInt32}
+	decoders.Store(edtInt32, int32Dec)
+	decoders.Store(int32Type, int32Dec)
+	int32Info := registerInfo(int32Type, "int32", "int32")
+	int32Enc.Info = int32Info
+	int32Dec.Info = int32Info
 
-	decInt32 := &decoder{reflect.TypeOf(int32(0)), decodeInt32}
-	decoders.Store(edtInt32, decInt32)
-	decoders.Store(decInt32.Type, decInt32)
+	int64Type := reflect.TypeOf(int64(0))
+	int64Enc := &encoder{Prefix: []byte{edtInt64}, Encode: encodeInt64}
+	encoders.Store(int64Type, int64Enc)
+	int64Dec := &decoder{Type: int64Type, Decode: decodeInt64}
+	decoders.Store(edtInt64, int64Dec)
+	decoders.Store(int64Type, int64Dec)
+	int64Info := registerInfo(int64Type, "int64", "int64")
+	int64Enc.Info = int64Info
+	int64Dec.Info = int64Info
 
-	decInt64 := &decoder{reflect.TypeOf(int64(0)), decodeInt64}
-	decoders.Store(edtInt64, decInt64)
-	decoders.Store(decInt64.Type, decInt64)
+	durationType := reflect.TypeOf(time.Duration(0))
+	durationEnc := &encoder{Prefix: []byte{edtInt64}, Encode: encodeInt64}
+	encoders.Store(durationType, durationEnc)
+	durationDec := &decoder{Type: durationType, Decode: decodeInt64}
+	decoders.Store(durationType, durationDec)
+	durationInfo := registerInfo(durationType, "int64", "int64")
+	durationEnc.Info = durationInfo
+	durationDec.Info = durationInfo
 
-	decUint := &decoder{reflect.TypeOf(uint(0)), decodeUint}
-	decoders.Store(edtUint, decUint)
-	decoders.Store(decUint.Type, decUint)
+	uintType := reflect.TypeOf(uint(0))
+	uintEnc := &encoder{Prefix: []byte{edtUint}, Encode: encodeUint}
+	encoders.Store(uintType, uintEnc)
+	uintDec := &decoder{Type: uintType, Decode: decodeUint}
+	decoders.Store(edtUint, uintDec)
+	decoders.Store(uintType, uintDec)
+	uintInfo := registerInfo(uintType, "uint", "uint")
+	uintEnc.Info = uintInfo
+	uintDec.Info = uintInfo
 
-	decUint8 := &decoder{reflect.TypeOf(uint8(0)), decodeUint8}
-	decoders.Store(edtUint8, decUint8)
-	decoders.Store(decUint8.Type, decUint8)
+	uint8Type := reflect.TypeOf(uint8(0))
+	uint8Enc := &encoder{Prefix: []byte{edtUint8}, Encode: encodeUint8}
+	encoders.Store(uint8Type, uint8Enc)
+	uint8Dec := &decoder{Type: uint8Type, Decode: decodeUint8}
+	decoders.Store(edtUint8, uint8Dec)
+	decoders.Store(uint8Type, uint8Dec)
+	uint8Info := registerInfo(uint8Type, "uint8", "uint8")
+	uint8Enc.Info = uint8Info
+	uint8Dec.Info = uint8Info
 
-	decUint16 := &decoder{reflect.TypeOf(uint16(0)), decodeUint16}
-	decoders.Store(edtUint16, decUint16)
-	decoders.Store(decUint16.Type, decUint16)
+	uint16Type := reflect.TypeOf(uint16(0))
+	uint16Enc := &encoder{Prefix: []byte{edtUint16}, Encode: encodeUint16}
+	encoders.Store(uint16Type, uint16Enc)
+	uint16Dec := &decoder{Type: uint16Type, Decode: decodeUint16}
+	decoders.Store(edtUint16, uint16Dec)
+	decoders.Store(uint16Type, uint16Dec)
+	uint16Info := registerInfo(uint16Type, "uint16", "uint16")
+	uint16Enc.Info = uint16Info
+	uint16Dec.Info = uint16Info
 
-	decUint32 := &decoder{reflect.TypeOf(uint32(0)), decodeUint32}
-	decoders.Store(edtUint32, decUint32)
-	decoders.Store(decUint32.Type, decUint32)
+	uint32Type := reflect.TypeOf(uint32(0))
+	uint32Enc := &encoder{Prefix: []byte{edtUint32}, Encode: encodeUint32}
+	encoders.Store(uint32Type, uint32Enc)
+	uint32Dec := &decoder{Type: uint32Type, Decode: decodeUint32}
+	decoders.Store(edtUint32, uint32Dec)
+	decoders.Store(uint32Type, uint32Dec)
+	uint32Info := registerInfo(uint32Type, "uint32", "uint32")
+	uint32Enc.Info = uint32Info
+	uint32Dec.Info = uint32Info
 
-	decUint64 := &decoder{reflect.TypeOf(uint64(0)), decodeUint64}
-	decoders.Store(edtUint64, decUint64)
-	decoders.Store(decUint64.Type, decUint64)
+	uint64Type := reflect.TypeOf(uint64(0))
+	uint64Enc := &encoder{Prefix: []byte{edtUint64}, Encode: encodeUint64}
+	encoders.Store(uint64Type, uint64Enc)
+	uint64Dec := &decoder{Type: uint64Type, Decode: decodeUint64}
+	decoders.Store(edtUint64, uint64Dec)
+	decoders.Store(uint64Type, uint64Dec)
+	uint64Info := registerInfo(uint64Type, "uint64", "uint64")
+	uint64Enc.Info = uint64Info
+	uint64Dec.Info = uint64Info
 
-	decBinary := &decoder{reflect.TypeOf([]byte(nil)), decodeBinary}
-	decoders.Store(edtBinary, decBinary)
-	decoders.Store(decBinary.Type, decBinary)
+	binaryType := reflect.TypeOf([]byte(nil))
+	binaryEnc := &encoder{Prefix: []byte{edtBinary}, Encode: encodeBinary}
+	encoders.Store(binaryType, binaryEnc)
+	binaryDec := &decoder{Type: binaryType, Decode: decodeBinary}
+	decoders.Store(edtBinary, binaryDec)
+	decoders.Store(binaryType, binaryDec)
+	binaryInfo := registerInfo(binaryType, "binary", "[]byte")
+	binaryEnc.Info = binaryInfo
+	binaryDec.Info = binaryInfo
 
-	decFloat32 := &decoder{reflect.TypeOf(float32(0.0)), decodeFloat32}
-	decoders.Store(edtFloat32, decFloat32)
-	decoders.Store(decFloat32.Type, decFloat32)
+	float32Type := reflect.TypeOf(float32(0.0))
+	float32Enc := &encoder{Prefix: []byte{edtFloat32}, Encode: encodeFloat32}
+	encoders.Store(float32Type, float32Enc)
+	float32Dec := &decoder{Type: float32Type, Decode: decodeFloat32}
+	decoders.Store(edtFloat32, float32Dec)
+	decoders.Store(float32Type, float32Dec)
+	float32Info := registerInfo(float32Type, "float32", "float32")
+	float32Enc.Info = float32Info
+	float32Dec.Info = float32Info
 
-	decFloat64 := &decoder{reflect.TypeOf(float64(0.0)), decodeFloat64}
-	decoders.Store(edtFloat64, decFloat64)
-	decoders.Store(decFloat64.Type, decFloat64)
+	float64Type := reflect.TypeOf(float64(0.0))
+	float64Enc := &encoder{Prefix: []byte{edtFloat64}, Encode: encodeFloat64}
+	encoders.Store(float64Type, float64Enc)
+	float64Dec := &decoder{Type: float64Type, Decode: decodeFloat64}
+	decoders.Store(edtFloat64, float64Dec)
+	decoders.Store(float64Type, float64Dec)
+	float64Info := registerInfo(float64Type, "float64", "float64")
+	float64Enc.Info = float64Info
+	float64Dec.Info = float64Info
 
-	decAny := &decoder{anyType, decodeAny}
-	decoders.Store(edtAny, decAny)
-	decoders.Store(anyType, decAny)
+	anyEnc := &encoder{Prefix: []byte{edtAny}, Encode: encodeAny}
+	encoders.Store(anyType, anyEnc)
+	anyDec := &decoder{Type: anyType, Decode: decodeAny}
+	decoders.Store(edtAny, anyDec)
+	decoders.Store(anyType, anyDec)
+	anyInfo := registerInfo(anyType, "any", "any")
+	anyEnc.Info = anyInfo
+	anyDec.Info = anyInfo
 
-	decErr := &decoder{errType, decodeError}
-	decoders.Store(edtError, decErr)
-	decoders.Store(decErr.Type, decErr)
+	// error types: errType, *errors.errorString, *fmt.wrapError. They share
+	// the same encoder/decoder and the same RegisteredTypeInfo; counters
+	// aggregate across all error concrete types.
+	errEnc := &encoder{Prefix: []byte{edtError}, Encode: encodeError}
+	encoders.Store(errType, errEnc)
+	encoders.Store(reflect.TypeOf(fmt.Errorf("")), errEnc)
+	encoders.Store(reflect.TypeOf(fmt.Errorf("%w", nil)), errEnc)
+	encoders.Store(reflect.TypeOf((*gen.Error)(nil)), errEnc)
+	errDec := &decoder{Type: errType, Decode: decodeError}
+	decoders.Store(edtError, errDec)
+	decoders.Store(errType, errDec)
+	errInfo := registerInfo(errType, "error", "error")
+	errEnc.Info = errInfo
+	errDec.Info = errInfo
 
 	for _, t := range genTypes {
 		err := RegisterTypeOf(t)

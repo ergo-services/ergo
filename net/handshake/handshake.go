@@ -1,12 +1,34 @@
+// Package handshake implements EHS, the Ergo handshake: mutual challenge-response
+// authentication, capability and cache exchange, and a deterministic ConnectionID.
+//
+// Primary handshake, six messages, dialer D connects to acceptor A:
+//
+//	msg1  D -> A  Hello       D salt and cookie digest
+//	msg2  A -> D  Hello       A salt and digest
+//	msg3  D -> A  Introduce   D name, creation, flags, caches
+//	msg4  A -> D  Accept      ConnectionID, pool size, pool DSN
+//	msg5  A -> D  Introduce   A name, creation, flags, caches
+//	msg6  D -> A  Accept      final ack
+//
+// The dialer runs the whole exchange in Start. The acceptor splits it: Negotiate reads
+// msg1 and msg3 and builds (but does not send) msg4 and msg5, so the node can register
+// the connection by ConnectionID first; Accept then sends msg4 and msg5 and reads msg6.
+// This register-before-introduce ordering guarantees a pool-join always finds the
+// connection (the dialer dials pool TCPs only after it reads msg5).
+//
+// Pool-join handshake, two messages, for each extra pooled TCP after the primary:
+//
+//	D -> A  Join     ConnectionID and digest
+//	A -> D  Accept   digest
+//
+// Join is the dialer side; the acceptor resolves it inside Negotiate (the Join case).
 package handshake
 
 import (
 	"encoding/binary"
 	"fmt"
-	"math"
 	"net"
 	"sync"
-	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -58,6 +80,10 @@ func (h *handshake) Version() gen.Version {
 	}
 }
 
+func (h *handshake) Reject(conn net.Conn, reason string) error {
+	return h.writeMessage(conn, MessageReject{Reason: reason})
+}
+
 func (h *handshake) writeMessage(conn net.Conn, message any) error {
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
@@ -87,20 +113,12 @@ func (h *handshake) writeMessage(conn net.Conn, message any) error {
 	return nil
 }
 
-func (h *handshake) readMessage(conn net.Conn, timeout time.Duration, chunk []byte) (any, []byte, error) {
+func (h *handshake) readMessage(conn net.Conn, chunk []byte, maxlen int) (any, []byte, error) {
 	var b [4096]byte
-
-	if timeout == 0 {
-		conn.SetReadDeadline(time.Time{})
-	}
 
 	expect := 6
 	for {
 		if len(chunk) < expect {
-			if timeout > 0 {
-				conn.SetReadDeadline(time.Now().Add(timeout))
-			}
-
 			n, err := conn.Read(b[:])
 			if err != nil {
 				return nil, nil, err
@@ -118,7 +136,7 @@ func (h *handshake) readMessage(conn net.Conn, timeout time.Duration, chunk []by
 		}
 
 		l := int(binary.BigEndian.Uint32(chunk[2:6]))
-		if l > math.MaxUint16 {
+		if l > maxlen {
 			return nil, nil, fmt.Errorf("too long handshake message")
 		}
 

@@ -12,7 +12,9 @@ Like remote spawning, remote application starting isn't automatic. Security matt
 
 ## Security Model
 
-Remote application starting is disabled by default at the framework level. To enable it, set the `EnableRemoteApplicationStart` flag in your node's network configuration:
+The gate is the application registry, not the flag. `EnableRemoteApplicationStart` is **on** in `gen.DefaultNetworkFlags`, and a node that configures no flags of its own is given those defaults, so on an ordinary node the flag is already true. What actually stops a peer is that no application can be started remotely until `network.EnableApplicationStart(name)` has allowed it.
+
+Set the flag when you want the transport-level door shut - a node that must never accept a remote application start, whatever it has enabled. Note that it is only consulted when `Flags.Enable` is true, and that supplying `Flags` yourself replaces the whole default set rather than adjusting one member of it:
 
 ```go
 node, err := ergo.StartNode("worker@localhost", gen.NodeOptions{
@@ -123,26 +125,26 @@ if err != nil {
 
 The application starts on the remote node. The start is synchronous - the call blocks until the remote node confirms the application started or returns an error.
 
-### Application Startup Modes
+### Application Modes
 
-Applications have three startup modes: Temporary, Transient, and Permanent. These modes control restart behavior when the application terminates. For remote starts, you can specify the mode explicitly:
+The mode is the application's termination policy: it decides when the termination of a group member takes the whole application down. For remote starts you can state it explicitly, overriding the mode the spec declared:
 
 ```go
-// Start as temporary (not restarted if it terminates)
+// stops when its last group member is gone
 err := remote.ApplicationStartTemporary("workers", gen.ApplicationOptions{})
 
-// Start as transient (restarted only if it terminates abnormally)
+// a member terminating abnormally stops it
 err := remote.ApplicationStartTransient("workers", gen.ApplicationOptions{})
 
-// Start as permanent (always restarted if it terminates)
+// any member terminating stops it
 err := remote.ApplicationStartPermanent("workers", gen.ApplicationOptions{})
 ```
 
 If you use `ApplicationStart` without specifying a mode, the application starts with the mode it was loaded with (set during `ApplicationLoad`).
 
-The mode affects how the remote node's application supervisor handles termination. If the application crashes, does it restart automatically? The mode determines this. Choose based on your operational requirements - critical services should be Permanent, optional services can be Temporary, and services that should restart only on failure can be Transient.
+Nothing restarts the application itself. The mode decides when it stops, never whether it comes back, and that holds for a remote start exactly as it does for a local one. Choose it by how much of the group must be alive for the service to mean anything: a permanent application is one where a missing member makes the rest pointless.
 
-For details on application modes, see [Application Startup Modes](../basics/application.md#application-startup-modes).
+For details on application modes, see [Application Modes](../basics/application.md#application-modes).
 
 ## Application Parent and Process Hierarchy
 
@@ -190,7 +192,7 @@ node, err := ergo.StartNode("scheduler@localhost", gen.NodeOptions{
 
 Now when you start an application remotely, the application's processes receive a copy of the requesting node's core environment. This enables configuration propagation - your scheduler node has configuration in its environment, and applications started remotely inherit it.
 
-**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `edf.RegisterTypeOf`. If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote application start fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables - any non-serializable value causes the entire start request to fail.
+**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `node.Network().RegisterType` (see [Network Transparency](network-transparency.md) for details on the type registry; the legacy `edf.RegisterTypeOf` still works but is deprecated). If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote application start fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables: any non-serializable value causes the entire start request to fail.
 
 ## How It Works
 
@@ -218,7 +220,7 @@ If anything fails (application not found, access denied, already running, remote
 
 **Resource contention** - An application starting on a remote node consumes that node's resources (CPU, memory, file descriptors). If multiple nodes simultaneously request starting applications on the same remote node, it could become resource-constrained. Coordinate start requests to avoid overwhelming nodes.
 
-**Application lifecycle** - Once started remotely, the application runs until explicitly stopped or until the remote node terminates. The requesting node has no automatic control over the running application. If you want to stop it later, you need to send another request (the framework doesn't currently support remote application stop, but you can implement custom coordination via messages).
+**Application lifecycle** - Once started remotely, the application runs until explicitly stopped or until the remote node terminates. The requesting node has no automatic control over the running application. `gen.RemoteNode` has no stop counterpart: to stop it later, either ask the node's system application through `manage.RequestDoAppStop`, or coordinate it with your own messages.
 
 **Supervision independence** - The application is supervised by the remote node, not by the requesting node. If the requesting node crashes, the application keeps running. If the remote node crashes, the application terminates. This independence is important for operational reasoning - the application's lifecycle is tied to where it runs, not to who started it.
 

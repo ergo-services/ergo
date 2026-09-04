@@ -4,7 +4,6 @@ package node
 
 import (
 	"errors"
-	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -17,19 +16,22 @@ func (p *process) run() {
 		int32(gen.ProcessStateRunning)) == false { // already running or terminated
 		return
 	}
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
+	atomic.AddUint64(&p.wakeups, 1)
 	go func() {
 		if lib.Recover() {
 			defer func() {
 				if rcv := recover(); rcv != nil {
-					pc, fn, line, _ := runtime.Caller(2)
-					p.log.Panic("process terminated - %#v at %s[%s:%d]",
-						rcv, runtime.FuncForPC(pc).Name(), fn, line)
+					p.log.Panic("process terminated - %#v at %s",
+						rcv, lib.PanicOrigin())
 					old := atomic.SwapInt32(&p.state, int32(gen.ProcessStateTerminated))
 					if old == int32(gen.ProcessStateTerminated) {
 						return
 					}
-					p.node.unregisterProcess(p, gen.TerminateReasonPanic)
-					p.behavior.ProcessTerminate(gen.TerminateReasonPanic)
+					atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
+					reason := p.wrapPreserveMailbox(gen.TerminateReasonPanic)
+					p.node.unregisterProcess(p, reason)
+					p.node.finishProcess(p, reason, gen.TerminateReasonPanic)
 				}
 			}()
 		}
@@ -37,7 +39,7 @@ func (p *process) run() {
 		startTime := time.Now().UnixNano()
 		// handle mailbox
 		if err := p.behavior.ProcessRun(); err != nil {
-			p.runningTime = p.runningTime + uint64(time.Now().UnixNano()-startTime)
+			atomic.AddUint64(&p.runningTime, uint64(time.Now().UnixNano()-startTime))
 			e := errors.Unwrap(err)
 			if e == nil {
 				e = err
@@ -50,14 +52,15 @@ func (p *process) run() {
 			if old == int32(gen.ProcessStateTerminated) {
 				return
 			}
-
-			p.node.unregisterProcess(p, e)
-			p.behavior.ProcessTerminate(err)
+			atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
+			reason := p.wrapPreserveMailbox(e)
+			p.node.unregisterProcess(p, reason)
+			p.node.finishProcess(p, reason, err)
 			return
 		}
 
 		// count the running time
-		p.runningTime = p.runningTime + uint64(time.Now().UnixNano()-startTime)
+		atomic.AddUint64(&p.runningTime, uint64(time.Now().UnixNano()-startTime))
 
 		// change running state to sleep
 		if atomic.CompareAndSwapInt32(
@@ -70,10 +73,13 @@ func (p *process) run() {
 			if old == int32(gen.ProcessStateTerminated) {
 				return
 			}
-			p.node.unregisterProcess(p, gen.TerminateReasonKill)
-			p.behavior.ProcessTerminate(gen.TerminateReasonKill)
+			atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
+			reason := p.wrapPreserveMailbox(gen.TerminateReasonKill)
+			p.node.unregisterProcess(p, reason)
+			p.node.finishProcess(p, reason, gen.TerminateReasonKill)
 			return
 		}
+		atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 		// check if something left in the inbox and try to handle it
 		if p.mailbox.Main.Item() == nil {
 			if p.mailbox.System.Item() == nil {
@@ -94,6 +100,7 @@ func (p *process) run() {
 			// another goroutine is already running
 			return
 		}
+		atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 		goto next
 	}()
 }

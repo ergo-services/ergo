@@ -3,8 +3,7 @@ package act
 import (
 	"fmt"
 	"reflect"
-	"runtime"
-	"strings"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -39,7 +38,10 @@ type PoolBehavior interface {
 	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
 	HandleEvent(message gen.MessageEvent) error
 
-	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
+	// HandleInspect invoked on the request made with gen.Process.Inspect(...).
+	// The returning fields are merged into the pool stats, so implement it to
+	// add the fields of your own. The pool stats use the reserved "ergo:"
+	// prefix for its keys; a returning field with such a key overrides it.
 	HandleInspect(from gen.PID, item ...string) map[string]string
 }
 
@@ -55,6 +57,13 @@ type Pool struct {
 
 	options PoolOptions
 	pool    lib.QueueMPSC
+
+	spanStart int64 // handler-entry time for the Processed span interval
+}
+
+// ProcessKind reports this process as built on act.Pool.
+func (p *Pool) ProcessKind() gen.ProcessKind {
+	return gen.ProcessKindPool
 }
 
 type PoolOptions struct {
@@ -104,8 +113,7 @@ func (p *Pool) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 
 	if p.behavior, ok = process.Behavior().(PoolBehavior); ok == false {
-		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
-		return fmt.Errorf("ProcessInit: not a PoolBehavior %s", unknown)
+		return fmt.Errorf("ProcessInit: not a PoolBehavior %s", process.BehaviorName())
 	}
 	p.Process = process
 	p.mailbox = process.Mailbox()
@@ -113,9 +121,8 @@ func (p *Pool) ProcessInit(process gen.Process, args ...any) (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				p.Log().Panic("Pool initialization failed. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				p.Log().Panic("Pool initialization failed. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()
@@ -125,12 +132,12 @@ func (p *Pool) ProcessInit(process gen.Process, args ...any) (rr error) {
 	if err != nil {
 		return err
 	}
-	p.options = options
 	if options.PoolSize < 1 {
 		options.PoolSize = defaultPoolSize
 	}
+	p.options = options
 
-	p.pool = lib.NewQueueLimitMPSC(options.PoolSize*100, false)
+	p.pool = lib.NewQueueLimitMPSC(options.PoolSize * 100)
 	wopt := gen.ProcessOptions{
 		MailboxSize: options.WorkerMailboxSize,
 		LinkParent:  true,
@@ -157,9 +164,8 @@ func (p *Pool) ProcessRun() (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				p.Log().Panic("Pool terminated. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				p.Log().Panic("Pool terminated. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()
@@ -197,7 +203,7 @@ func (p *Pool) ProcessRun() (rr error) {
 				// got new regular message. handle it
 				message = msg.(*gen.MailboxMessage)
 				if message.Type < gen.MailboxMessageTypeExit {
-					// MailboxMessageTypeRegular, MailboxMessageTypeRequest, MailboxMessageTypeEvent
+					// MailboxMessageTypeRegular, MailboxMessageTypeRequest, MailboxMessageTypeEvent, MailboxMessageTypeSpan
 					p.forward(message)
 					// it shouldn't be "released" back to the pool
 					message = nil
@@ -217,31 +223,58 @@ func (p *Pool) ProcessRun() (rr error) {
 
 		switch message.Type {
 		case gen.MailboxMessageTypeRegular:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				p.SetPropagatingTrace(message.Tracing)
+				p.spanStart = time.Now().UnixNano()
+			}
+
 			if reason := p.behavior.HandleMessage(message.From, message.Message); reason != nil {
+				p.sendSpanProcessed(message, gen.TracingKindSend, reason.Error())
 				return reason
+			}
+			p.sendSpanProcessed(message, gen.TracingKindSend, "")
+
+			if messageHasTracing {
+				p.SetPropagatingTrace(gen.Tracing{})
 			}
 
 		case gen.MailboxMessageTypeRequest:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				p.SetPropagatingTrace(message.Tracing)
+				p.spanStart = time.Now().UnixNano()
+			}
+
 			var reason error
 			var result any
 
 			result, reason = p.behavior.HandleCall(message.From, message.Ref, message.Message)
 
 			if reason != nil {
-				// if reason is "normal" and we got response - send it before termination
 				if reason == gen.TerminateReasonNormal && result != nil {
+					p.sendSpanProcessed(message, gen.TracingKindRequest, "")
 					p.SendResponse(message.From, message.Ref, result)
+				} else {
+					p.sendSpanProcessed(message, gen.TracingKindRequest, reason.Error())
 				}
 				return reason
 			}
 
 			if result == nil {
-				// async handling of sync request. response could be sent
-				// later, even by the other process
+				p.sendSpanProcessed(message, gen.TracingKindRequest, "")
+				if messageHasTracing {
+					p.SetPropagatingTrace(gen.Tracing{})
+				}
 				continue
 			}
 
+			p.sendSpanProcessed(message, gen.TracingKindRequest, "")
 			p.SendResponse(message.From, message.Ref, result)
+
+			if messageHasTracing {
+				p.SetPropagatingTrace(gen.Tracing{})
+			}
 
 		case gen.MailboxMessageTypeEvent:
 			if reason := p.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
@@ -270,8 +303,14 @@ func (p *Pool) ProcessRun() (rr error) {
 			}
 
 		case gen.MailboxMessageTypeInspect:
-			result := p.behavior.HandleInspect(message.From, message.Message.([]string)...)
+			items := message.Message.([]string)
+			// pool stats first, the behavior may override any of the fields
+			result := p.inspect()
+			for k, v := range p.behavior.HandleInspect(message.From, items...) {
+				result[k] = v
+			}
 			p.SendResponse(message.From, message.Ref, result)
+
 		}
 
 	}
@@ -289,27 +328,62 @@ func (p *Pool) HandleMessage(from gen.PID, message any) error {
 	p.Log().Warning("Pool.HandleMessage: unhandled message from %s", from)
 	return nil
 }
+
 func (p *Pool) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	p.Log().Warning("Pool.HandleCall: unhandled request from %s", from)
 	return nil, nil
 }
+
 func (p *Pool) Terminate(reason error) {}
+
 func (p *Pool) HandleEvent(message gen.MessageEvent) error {
 	p.Log().Warning("Pool.HandleEvent: unhandled event message %#v", message)
 	return nil
 }
-func (p *Pool) HandleInspect(from gen.PID, item ...string) map[string]string {
-	return map[string]string{
-		"pool_size":           fmt.Sprintf("%d", p.options.PoolSize),
-		"worker_behavior":     p.sWorkerBehavior,
-		"worker_mailbox_size": fmt.Sprintf("%d", p.options.WorkerMailboxSize),
-		"worker_restarts":     fmt.Sprintf("%d", p.restarts),
-		"messages_forwarded":  fmt.Sprintf("%d", p.forwarded),
-		"messages_unhandled":  fmt.Sprintf("%d", p.unhandled),
+
+func (p *Pool) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKind, errStr string) {
+	if message.Tracing.ID == [2]uint64{} {
+		return
 	}
+	var msgType string
+	if message.Message != nil {
+		msgType = reflect.TypeOf(message.Message).String()
+	}
+	p.SendTracingSpan(gen.TracingSpan{
+		TraceID:      message.Tracing.ID,
+		SpanID:       message.Tracing.SpanID,
+		Point:        gen.TracingPointProcessed,
+		Kind:         kind,
+		Timestamp:    p.spanStart,
+		EndTimestamp: time.Now().UnixNano(),
+		Node:         p.Node().Name(),
+		From:         message.From,
+		To:           p.PID(),
+		Ref:          message.Ref,
+		Message:      msgType,
+		Error:        errStr,
+		Attributes:   p.TracingAttributes(),
+	})
+	p.CloseTracingSpans()
+	p.ClearTracingSpanAttributes()
+}
+
+func (p *Pool) HandleInspect(from gen.PID, item ...string) map[string]string {
+	return p.inspect()
 }
 
 // private
+
+func (p *Pool) inspect() map[string]string {
+	return map[string]string{
+		"ergo:pool_size":           fmt.Sprintf("%d", p.options.PoolSize),
+		"ergo:worker_behavior":     p.sWorkerBehavior,
+		"ergo:worker_mailbox_size": fmt.Sprintf("%d", p.options.WorkerMailboxSize),
+		"ergo:worker_restarts":     fmt.Sprintf("%d", p.restarts),
+		"ergo:messages_forwarded":  fmt.Sprintf("%d", p.forwarded),
+		"ergo:messages_unhandled":  fmt.Sprintf("%d", p.unhandled),
+	}
+}
 
 func (p *Pool) forward(message *gen.MailboxMessage) {
 	var err error
@@ -336,10 +410,14 @@ func (p *Pool) forward(message *gen.MailboxMessage) {
 				p.Log().Error("unable to spawn new worker process: %s", err)
 				continue
 			}
-			p.Forward(pid, message, gen.MessagePriorityNormal)
-			p.pool.Push(pid)
-			p.forwarded++
 			p.restarts++
+			err = p.Forward(pid, message, gen.MessagePriorityNormal)
+			p.pool.Push(pid)
+			if err != nil {
+				p.Log().Error("unable to forward to the respawned worker %s: %s", pid, err)
+				continue
+			}
+			p.forwarded++
 			return
 		}
 
@@ -348,4 +426,5 @@ func (p *Pool) forward(message *gen.MailboxMessage) {
 	}
 	p.Log().Error("no available worker process. ignored message from %s", message.From)
 	p.unhandled++
+	gen.ReleaseMailboxMessage(message)
 }

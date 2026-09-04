@@ -4,6 +4,200 @@ All notable changes to this project will be documented in this file.
 This format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+#### [v3.3.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.330) 2026-09-04 [tag version v1.999.330] ####
+
+* Added **distributed tracing** - a trace context propagates across `Send`, `Call`, spawn, and every hop a message takes between nodes, with configurable sampling and cross-node clock-skew correction. Enable with `NetworkFlags.EnableTracing` (plus `NetworkFlags.EnableClockSkew` for skew correction). The new `ergo.services/application/pulse` application exports the collected spans over OTLP. See [Distributed Tracing](https://docs.ergo.services/advanced/distributed-tracing) documentation
+* Added **EDF schema evolution** - off by default; when `NetworkFlags.EnableSchemaEvolution` is enabled on both nodes, fields appended to the end of a registered struct stay wire-compatible: a peer that does not know the new trailing fields skips them, and a peer missing them zero-fills. By default EDF remains strict and any contract change requires a new package version. A single evolvable struct is bounded at just under 4GB. See [Message Versioning](https://docs.ergo.services/advanced/message-versioning) documentation
+* Added a **testing framework** under `ergo.services/ergo/testing` with four layers sharing one fluent assertion grammar: `unit` (in-process single-actor testing against a mock node), `stage` (live multi-node integration), `mock` (standalone `gen.*` mocks), and `check` (the shared assertion core). Covers positive and negative expectations, per-value matching, and observation of messages, calls, spawns, links, monitors, and events. See [Testing](https://docs.ergo.services/testing/overview) documentation
+* Added **`act.Router`** - a behavior that picks the destination from the message instead of taking the next worker in order. `RouteMessage` and `RouteCall` return the name of a route; the router resolves that name against its own routes first and the node registry second, then forwards the message with the original sender intact, so the worker answers the caller directly. A router can own its routes, spawning them at init and respawning them on death with the name staying stable; or own none and resolve every name through the registry; or mix the two. Returning `act.RouteDiscard` drops the message, and answers `gen.ErrDiscarded` to a caller. The routing table is editable while the router runs: `AddRoute`, `RemoveRoute`, `ReplaceRoute`, `EnableRoute`, `DisableRoute`, `RespawnRoute`, `Routes`. Only normal-priority traffic is routed at all: high and max priority reach the router's own `HandleMessage` / `HandleCall`, which keeps an admin path open while the routed path is busy. See [Router](https://docs.ergo.services/actors/router) documentation
+
+**Messaging and events**
+
+* Added **open events** - `EventOptions.Open` disables the token check on `SendEvent`, so any local process may publish to an event by name without holding the token returned by `RegisterEvent` (the token is still issued, just not required). `UnregisterEvent` remains restricted to the producer. Off by default. See [Events](https://docs.ergo.services/basics/events) documentation
+* Added **`gen.Error` and `gen.Errorf`** - an error that keeps its causes. `gen.Errorf` formats like `fmt.Errorf` and collects every `%w` argument into `Wrapped`, so `errors.Is` and `errors.As` still find the causes through the chain. `errors.Unwrap` does not follow it: the type implements the multi-error `Unwrap() []error`, so read `Wrapped` directly when the cause objects themselves are needed. The chain crosses the wire only when `NetworkFlags.EnableWrappedErrors` is set on both nodes; otherwise the value arrives as flat text. Registered sentinels are still what carries identity between nodes, and `*gen.Error` is built around them rather than registered itself: register the markers with `Network().RegisterError` and wrap them with `gen.Errorf`. The type also carries the mailbox that `ProcessOptions.PreserveMailbox` captures from a panicked process, a field that never leaves the node
+* Added **pointer type support** in EDF - `*int`, `*string`, `[]*T`, `map[K]*V`, pointer struct fields. Nil state preserved. Nested pointers (`**T`) not supported. Max encoding depth limit (100) prevents stack overflow on deeply nested structures. See [Network Transparency](https://docs.ergo.services/networking/network-transparency) documentation
+
+**Network**
+
+* Added **message fragmentation** for large messages. Messages exceeding the fragment size (default 65000 bytes) are automatically split for transmission and reassembled on the receiving side. Works with compression, important delivery, and all message types. With `KeepNetworkOrder` disabled, fragments are distributed across all TCP connections in the pool for maximum throughput. Both nodes must enable `EnableFragmentation` flag (enabled by default). Configure via `NetworkOptions.FragmentSize`, `FragmentTimeout`, `MaxFragmentAssemblies`. See [Network Stack](https://docs.ergo.services/networking/network-stack#message-fragmentation) documentation
+* Added **software keepalive** for inter-node connections. Application-level heartbeat detects silent failures that TCP keepalive cannot: stuck processes, broken flushers, goroutine starvation. Each side advertises its period during handshake (8 bits in `NetworkFlags`); receiver uses peer's period for timeout. Enabled by default (15s period, 3 misses, 45s timeout). Configure via `NetworkFlags.EnableSoftwareKeepAlive` (the keepalive period in seconds; 0 disables it) and `NetworkOptions.SoftwareKeepAliveMisses`. See [Network Stack](https://docs.ergo.services/networking/network-stack#software-keepalive) documentation
+* Added **handshake deadline** (5s) to prevent hung handshakes from blocking connection goroutines indefinitely
+
+**Service discovery**
+
+* Added **`Registrar.Nodes()` and `Registrar.Event()` support to the embedded registrar** - `Nodes()` lists the other nodes registered on this host plus those registered on the hosts of connected peers (cached, self excluded), and `Event()` reports `gen.MessageRegistrarNodeJoined` / `NodeLeft` for this host. See [Service Discovering](https://docs.ergo.services/networking/service-discovering) documentation
+* Added **`Network().ResolveApplication`** - a shortcut for `Network().Registrar().Resolver().ResolveApplication(name)` that returns the same `gen.ApplicationRoutes` and reports the same error as `Registrar()` when no registrar is configured. See [Service Discovering](https://docs.ergo.services/networking/service-discovering) documentation
+* Added **`Peers()`** to the `gen.NodeRegistrar` bridge interface, letting a registrar see the nodes its node is connected with
+
+**Application lifecycle**
+
+* Fixed **application teardown** - the `Terminate` callback of an application now runs after every process of that application has terminated, its own `Terminate` callback included, instead of right after the last group member left the process table. Closing a shared resource there is therefore safe: the processes of the application can use it to the end of their own `Terminate`. Along with it: processes spawned outside the group are stopped by the teardown instead of outliving the application; a group member terminating while the group is still being spawned now applies the application mode, so a permanent application no longer reaches `Running` with a member missing; `ApplicationStop` returns once the whole teardown is done and the application is already stopped; `node.Stop()` waits for the `ProcessTerminate` callbacks and for the application teardown before taking the network and the loggers down. See [Application](https://docs.ergo.services/basics/application) documentation
+* Added **`ApplicationInfo.ProcessesTotal`** - how many processes belong to the application, the group members and everything they spawned together. `Group` still lists the declared members only; the new counter is the whole set the application's teardown waits for
+
+**Observability**
+
+* Added **`gen.NodeShortInfo`** and **`Node.ShortInfo()`** - the cheap counterpart of `NodeInfo` for polling every node of a cluster: identity, process and application counters, delivery error counters, log counters, runtime memory and GC figures, the names of the loaded applications, and the node's current connections. Memory and GC values are sampled through `runtime/metrics`, so no stop-the-world pause is involved
+* Added **`gen.RemoteNodeShortInfo`** - the short form of `RemoteNodeInfo` carried by `NodeShortInfo.Peers`: peer name, connection age, message and byte counters, reconnections and TLS. Polling a cluster for the full `RemoteNodeInfo` of every connection costs seven times the memory for data a topology view never shows
+* Added **`Process.ShortInfo()`** - `gen.ProcessShortInfo` for the calling process, previously reachable only from the node level through `ProcessListShortInfo` / `ProcessRangeShortInfo`
+* Added **node short info inspector** to the system application - `inspect.RequestInspectNodeShort` answers with the first snapshot immediately and then publishes `MessageInspectNodeShort` every 3 seconds while somebody is subscribed. Nothing runs on a node nobody watches
+* Added **`Node.ProcessRangeShortInfo`** for efficient callback-based iteration over all processes with their current state
+* Removed the **stop-the-world pause from `Node.Info()`** - memory figures now come from `runtime/metrics` instead of `runtime.ReadMemStats`. The `MemoryUsed` and `MemoryAlloc` field comments were also wrong and are corrected: they hold the memory obtained from the OS and the memory occupied by live heap objects
+* Removed the **stop-the-world pause from the heap inspector** - it called `runtime.ReadMemStats` on every tick, once per second, on any node with the Observer profiler open. The goroutine dump now sizes its buffer from the goroutine count as well, so a capture no longer repeats `runtime.Stack` (and its pause) while the buffer grows
+* Added **mailbox latency measurement** (build with `-tags=latency`). `QueueMPSC.Latency()` returns the age of the oldest message in the queue (nanoseconds), -1 if disabled. `ProcessMailbox.Latency()` returns the max across all four queues. Added `MailboxLatency` field to `ProcessShortInfo` and latency fields to `MailboxQueues` in `ProcessInfo`. See [Debugging](https://docs.ergo.services/advanced/debugging) documentation
+* Added **per-type encode/decode statistics** (build with `-tags=typestats`) - tracks the count of root-level encode/decode operations and decompressed wire-byte volume per registered EDF type, exposed via `Network().RegisteredTypes()` and the Observer Types panel. Helps identify heavy message types and where compression is worth enabling. Overhead is approximately 2-3% on encode/decode throughput; zero without the tag
+* Added **per-event metrics** - `EventInfo` now includes `MessagesPublished`, `MessagesLocalSent`, `MessagesRemoteSent` counters. Added `Node.EventInfo` and `Node.EventRangeInfo` for querying event statistics. Added `EventsPublished`, `EventsReceived`, `EventsLocalSent`, `EventsRemoteSent` to `NodeInfo`. `EventsPublished` counts only local producer publishes, `EventsReceived` counts events arriving from remote nodes
+* Added **process lifecycle counters** to `gen.NodeInfo` - `ProcessesSpawned`, `ProcessesSpawnFailed`, `ProcessesTerminated` for cumulative statistics
+* Added per-process activity fields to `ProcessShortInfo` and `ProcessInfo` - `RunningTime` (cumulative nanoseconds in the Running state), `StateTime` (nanoseconds since the process entered its current state), and `Wakeups` (cumulative count of wake-ups)
+* Added **process init time measurement** - `InitTime` field in `ProcessShortInfo` and `ProcessInfo` records the time spent in `ProcessInit` callback (nanoseconds)
+* Added **heap object counters to `gen.NodeInfo`** - `HeapAllocObjects` and `HeapFreeObjects`, the cumulative number of heap objects allocated and freed, sampled through `runtime/metrics` with no stop-the-world pause. Two readings give the allocation and collection rates over the interval, and the difference between the counters is the number of objects currently alive, so a client can draw GC pressure from the node info stream instead of walking the whole memory profile for it
+* Added `ServerTime` to `gen.NodeInfo` - the node's current wall-clock time with timezone
+* Added `Reconnections` to `gen.RemoteNodeInfo` - total number of connection-pool item reconnections
+
+**Internals**
+
+* Reworked the internal **Target Manager** (`node/tm/`) into a lock-free design - the manager-wide `RWMutex` that serialized every link, monitor and event is gone, and the per-kind stores were collapsed into one storage keyed by target. A node now carries hundreds of thousands of links, monitors and event subscriptions without contention
+
+**Fixed**
+
+* Fixed **meta process alias collision** - `MakeRef` kept only the low 18 and the top 18 bits of its counter, dropping the 28 bits in between, so a ref repeated every 262144 allocations. Spawning a meta process registered its alias with no occupancy check, so on such a repeat it silently took over the entry of a live meta: messages addressed to the older one were delivered to the newer one, and once the newer one closed, its teardown removed the shared entry and left the older one unreachable with `ErrProcessUnknown` while its connection was still open. The counter is now carried in full and `SpawnMeta` returns `gen.ErrTaken` instead of overwriting. Thanks to [@bilus](https://github.com/bilus) for reporting [#265](https://github.com/ergo-services/ergo/issues/265)
+* Fixed **simultaneous connect dead loop** - two nodes dialing each other at the same time no longer cause infinite retry loops. Deterministic connection IDs and Erlang-style collision detection (`EnableSimultaneousConnect` flag) ensure exactly one connection per pair. Fixed related connection leaks
+* Fixed **silent data loss on connection pool write failure** - a transient write error could permanently break a pool item's write path without detection, causing all subsequent messages to be silently dropped while the connection appeared healthy
+* Fixed **important delivery use-after-release** - reference ID for acknowledgment was read from buffer after it was returned to the pool, causing corrupted ACK responses under load. Affected `SendImportant` for PID, ProcessID, and Alias targets
+* Fixed **`MarshalEDF` length-prefix corruption** - a custom `MarshalEDF` implementation that produced enough output to grow the encode buffer could have its length prefix written to the wrong location, corrupting the encoded value. Thanks to [@JeroenSoeters](https://github.com/JeroenSoeters) for the fix [#257](https://github.com/ergo-services/ergo/pull/257)
+* Fixed **dropped fast replies** in the EDF network protocol - a sync reply arriving before the caller began waiting could be lost; result channels are now buffered. Thanks to [@JeroenSoeters](https://github.com/JeroenSoeters) for the fix [#259](https://github.com/ergo-services/ergo/pull/259)
+* Fixed **message counters for meta processes** - meta process traffic now propagates to parent process counters, making `ProcessRangeShortInfo` aggregates balanced
+* Fixed **self-send message counter** - `messagesOut` now incremented for self-sends
+* Fixed logger to preserve Behavior name when process registers name
+
+**Deprecated**
+
+* Deprecated the package-level EDF registration helpers - `edf.RegisterTypeOf`, `edf.RegisterTypesOf`, `edf.RegisterError` and `edf.RegisterAtom` now print a deprecation warning when called directly. The canonical way is to register through the node - `node.Network().RegisterType`, `RegisterTypes`, `RegisterError` and `RegisterAtom`. See [Network Transparency](https://docs.ergo.services/networking/network-transparency) documentation
+
+**Extra library**
+
+* **Saturn** (`ergo.services/registrar/saturn` and `ergo.tools/saturn`) changed from Business Source License 1.1 to **MIT**. The central registrar and its client library are now free for production and commercial use, with no licence to purchase and no node cap. Every module of the ecosystem is MIT.
+
+**Applications**
+
+* Reworked the **Observer application** (`ergo.services/application/observer`) into a full cluster inspector. The embedded web UI (live updates over SSE) now shows node info with a live memory graph; the full process list with per-process state, mailbox depth, message latency, running time and wakeups, plus a detail view (supervision tree, links, monitors, names, aliases, environment, and live `HandleInspect` state); meta-processes; applications (start/stop/unload); the network stack (connections, routes, and the wire-type registry with inferred schemas); events; a live log stream; and on-demand goroutine and heap profiles with no special build or restart. Beyond read-only it can send messages, send exits, kill processes, change log levels and adjust per-process network settings. Because every node runs the built-in `system` application, one Observer instance can switch to and inspect any node in the cluster without deploying anything there. The same application also serves an **MCP endpoint** for AI agents: 38 tools and 13 resource lenses over the live cluster, 26 of the tools read-only, with capability ceilings that can only narrow and refusals that name the capability. A node built with `DisableManage` never starts the mutating plane at all. See [Observer](https://docs.ergo.services/extra-library/applications/observer) and [MCP](https://docs.ergo.services/advanced/mcp) documentation
+* Added the **Pulse application** (`ergo.services/application/pulse`) - an OTLP/HTTP exporter that ships the node's distributed-tracing spans to a collector (Grafana Tempo, Jaeger, etc.) with batching, a worker pool, configurable span kinds and custom headers for authentication. Ships a Grafana tracing dashboard. See [Pulse](https://docs.ergo.services/extra-library/applications/pulse) documentation
+* Added the **Radar application** (`ergo.services/application/radar`) - one drop-in application serving both Kubernetes health probes (`/health/live`, `/ready`, `/startup`) and a Prometheus `/metrics` endpoint on a single port. It wraps the `health` and `metrics` actors behind package-level helpers, so any actor can register liveness/readiness signals and send heartbeats, or register gauges/counters/histograms and top-N metrics, without importing the underlying actors. See [Radar](https://docs.ergo.services/extra-library/applications/radar) documentation
+* Added the **Grid application** (`ergo.services/application/grid`) - a distributed registry, key lifecycle monitors and per-key process groups in one application. Every node keeps a full local copy of the registry, so a lookup is a local read that returns immediately; writes are serialized per key by a shard actor and replicated to the peers in the background. Nodes started with the same `Domain` find each other through the registrar, through the peers they are already connected with, or through a static seed list, and form a mesh with nothing to wire by hand. Monitors notify an actor when a key appears, changes or disappears, by exact key, by prefix, or across the whole domain, and groups layer per-key publish/subscribe on the event bus. Grid is AP and eventually consistent: it stays available during a partition and converges when the partition heals. See [Grid](https://docs.ergo.services/extra-library/applications/grid) documentation
+
+**Actors**
+
+* Added the **Health actor** (`ergo.services/actor/health`) - serves Kubernetes liveness/readiness/startup probes. Actors register named signals (a bitmask of probes) and send heartbeats; a missed heartbeat or the registering process terminating marks the signal down and the probe returns 503. Runs its own HTTP server or registers on a shared mux. See [Health actor](https://docs.ergo.services/extra-library/actors/health) documentation
+* Expanded the **Metrics actor** (`ergo.services/actor/metrics`) well beyond the basic node/network telemetry from 3.2.0: top-N processes by mailbox depth, message latency, running time, throughput in/out, wakeups and drain ratio; mailbox-latency histograms (`-tags=latency`); process lifecycle counters (spawned / spawn-failed / terminated); per-process init time, wakeups, mailbox depth and utilization; event metrics (subscribers, published, local/remote-sent top-N, events received); log-messaging and handshake/connection-churn metrics; per-node Prometheus labels and CPU-core count; and a custom top-N API. Ships a complete Grafana cluster dashboard. See [Metrics actor](https://docs.ergo.services/extra-library/actors/metrics) documentation
+* Fixed a panic in the **Leader actor** (`ergo.services/actor/leader`) - a self-Join into a nil map, by skipping the local PID in Join and guarding vote-reply handling
+
+**Loggers**
+
+* Added the **Sentry logger** (`ergo.services/logger/sentry`) - a `gen.Logger` that forwards framework panics and errors to a Sentry project with stack traces captured at the panic site. Node/network/application errors are forwarded by default; meta and process errors are opt-in. Configurable DSN (or `$SENTRY_DSN`), environment, release, bounded queue and flush timeout. See [Sentry logger](https://docs.ergo.services/extra-library/loggers/sentry) documentation
+* Improved the **colored** and **rotate** loggers - both now render application-sourced log messages (previously unhandled); the rotate logger gains an `IncludeFields` option and meta-process behavior output, plus a colored-logger padding fix and a rotate field-leak fix
+
+**Tools**
+
+* Reworked the **`ergo` code generator** (`ergo.tools/ergo`) - generated scaffolding is now split into `*_gen.go` files (regenerated on every `ergo generate`, marked `DO NOT EDIT`) and `*_user.go` files (created once, safe to hand-edit), so re-running the generator after editing `ergo.yaml` no longer overwrites your code
+* Added **`argus`** (`ergo.tools/argus`) - a vet tool for the actor-model invariants the Go compiler cannot express: shared memory in a message, an unbounded wait in a callback, a goroutine started in a callback that reaches back into actor state, a `HandleCall` that can never reply, and thirty-one more. It runs the way `go vet` runs (`go vet -vettool=$(which argus) ./...`), over the build graph, with your build tags, cached per package. Every finding carries a tier that decides whether it fails the build (tier 1 error, tier 2 warning, tier 3 off) and a rule id that documents its own blind spots (`argus help A1002`). On a codebase that has never seen the tool, `argus baseline` records what is already there so the run goes quiet until something new appears. See [Actor Model Vet Tool](https://docs.ergo.services/tools/argus) documentation
+
+**Documentation**
+
+* New documentation articles:
+  - [FAQ](https://docs.ergo.services/faq) - the questions that come up before the first node starts
+  - [AI Agents](https://docs.ergo.services/ai-agents) - the skills and agents the framework ships for working on an Ergo codebase
+  - [Router](https://docs.ergo.services/actors/router) - the `act.Router` behavior, its routing modes and its runtime management
+  - [Testing / Overview](https://docs.ergo.services/testing/overview) - the four layers of the testing framework and which one answers which question
+  - [Testing / Check](https://docs.ergo.services/testing/check) - the assertion grammar shared by every layer
+  - [Testing / Mock](https://docs.ergo.services/testing/mock) - standalone `gen.*` mocks for code that consumes the interfaces
+  - [Distributed Tracing](https://docs.ergo.services/advanced/distributed-tracing) - samplers, business spans, exporters and what a trace covers
+  - [Inspecting Actor State](https://docs.ergo.services/advanced/inspecting-state) - `HandleInspect` and reading a live process
+  - [Inspecting With Observer](https://docs.ergo.services/advanced/observer) - the cluster inspector, panel by panel
+  - [Inspecting With an AI Agent](https://docs.ergo.services/advanced/mcp) - the MCP surface, its lenses and its capability ceilings
+  - [Actor Model Vet Tool](https://docs.ergo.services/tools/argus) - `argus`, its rules and how to adopt it on existing code
+  - [Grid](https://docs.ergo.services/extra-library/applications/grid) - the distributed registry, monitors and process groups
+  - [Pulse](https://docs.ergo.services/extra-library/applications/pulse) - the OTLP exporter for the collected spans
+  - [Radar](https://docs.ergo.services/extra-library/applications/radar) - health probes and Prometheus metrics on one port
+  - [Health actor](https://docs.ergo.services/extra-library/actors/health) - Kubernetes liveness, readiness and startup probes
+  - [Sentry logger](https://docs.ergo.services/extra-library/loggers/sentry) - forwarding panics and errors to a Sentry project
+
+**Examples**
+
+* Added the **tour** ([examples/tour](https://github.com/ergo-services/examples/tree/master/tour)) - ten steps that build one program, a task runner, from a single actor to a cluster you can interrogate. Each step is a module of its own, adds exactly one idea to the one before it, and carries a README with the output to expect and links into the chapter behind it:
+  - [01 - The first actor](https://github.com/ergo-services/examples/tree/master/tour/01-first-actor) - a mailbox, `Send` against `Call`, and state that needs no lock
+  - [02 - When a worker dies](https://github.com/ergo-services/examples/tree/master/tour/02-supervision) - a supervisor, a restart that is a new instance, and the intensity that stops it trying
+  - [03 - Making it an application](https://github.com/ergo-services/examples/tree/master/tour/03-application) - the four phases, the group and the mode, who owns a resource the processes share, and a package API instead of process names
+  - [04 - Two nodes](https://github.com/ergo-services/examples/tree/master/tour/04-network) - the node name as the whole address, the cookie, registering the types that cross, and a monitor instead of waiting for a timeout
+  - [05 - Events](https://github.com/ergo-services/examples/tree/master/tour/05-events) - one publish and several subscribers on two nodes, the buffer a late subscriber is given, and `LinkEvent` against `MonitorEvent`
+  - [06 - A pool of workers](https://github.com/ergo-services/examples/tree/master/tour/06-pool) - `act.Pool` behind the same registered name, what it does when every worker mailbox is full, and how to reach the pool rather than through it
+  - [07 - Testing it](https://github.com/ergo-services/examples/tree/master/tour/07-testing) - `testing/unit` for one actor with no node at all, `testing/stage` for the claim that needs two, and the change that made an actor testable
+  - [08 - Looking inside](https://github.com/ergo-services/examples/tree/master/tour/08-observer) - finding dropped messages in Observer, and an agent on a read-only MCP surface
+  - [09 - Talking to Erlang](https://github.com/ergo-services/examples/tree/master/tour/09-erlang) - the three components that make a node speak DIST, one process that speaks ETF, and the type mapping that decides whether it works
+  - [10 - An external program](https://github.com/ergo-services/examples/tree/master/tour/10-port) - a program in another language over a port, what happens to the actor when that program dies, and the meta-processes the framework already ships
+* Added the **observability stand** ([examples/observability](https://github.com/ergo-services/examples/tree/master/observability)) - a five-node cluster on Docker Compose, discovering itself through etcd and kept under load on purpose, so that every tool in the stack has something worth investigating rather than a quiet healthy graph. Six scenario applications per node produce the signal: mailbox latency against a deliberately slow HTTP service, network traffic that exercises compression and fragmentation, constant spawn/terminate churn with one stuck process per node, events in all five utilization states, cross-node `Send` / `Call` / forward chains under tracing, and a supervision tree eighteen levels deep with a wide fan-out for the tree window and its heatmaps. Radar exports Prometheus metrics from every node into three Grafana dashboards, Pulse ships the spans to Grafana Tempo over OTLP/HTTP, and a separate node runs Observer, serving the web UI and the MCP surface on one port. `make up` brings the whole thing up
+
+#### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2026-02-04 [tag version v1.999.320] ####
+
+* Introduced **mTLS support** - new `gen.CertAuthManager` interface for mutual TLS with CA pool management (`ClientCAs`, `RootCAs`, `ClientAuth`, `ServerName`). See [Mutual TLS](https://docs.ergo.services/networking/mutual-tls) documentation
+* Introduced **NAT support** - new `RouteHost` and `RoutePort` options in `gen.AcceptorOptions` for nodes behind NAT or load balancers. See [Behind the NAT](https://docs.ergo.services/networking/behind-the-nat) documentation
+* Introduced **spawn time control** - `InitTimeout` option in `gen.ProcessOptions` limits `ProcessInit` duration for both local and remote spawn. Remote spawn and application processes limited to max 15 seconds. See [Process](https://docs.ergo.services/basics/process) documentation
+* Introduced **zip-bomb protection** - decompression size limits to prevent memory exhaustion attacks
+* Added `gen.Ref` methods for request timeout tracking. See [Generic Types](https://docs.ergo.services/basics/generic-types#gen.ref):
+  - `Deadline` - returns deadline timestamp stored in reference
+  - `IsAlive` - checks if reference is still valid (deadline not exceeded)
+* Added `gen.Node` methods. See [Node](https://docs.ergo.services/basics/node) documentation:
+  - `ProcessPID` / `ProcessName` - resolve process PID by name and vice versa
+  - `Call`, `CallWithTimeout`, `CallWithPriority`, `CallImportant`, `CallPID`, `CallProcessID`, `CallAlias` - synchronous requests from Node interface
+  - `Inspect` / `InspectMeta` - inspect processes and meta processes
+  - `MakeRefWithDeadline` - create reference with embedded deadline
+* Added `gen.RemoteNode.ApplicationInfo` - query application information from remote nodes. See [Remote Start Application](https://docs.ergo.services/networking/remote-start-application) documentation
+* Added `gen.Process` methods. See [Process](https://docs.ergo.services/basics/process) documentation:
+  - `SendWithPriorityAfter` - delayed send with priority
+  - `SendExitAfter` / `SendExitMetaAfter` - delayed exit signals
+  - `SendResponseImportant` / `SendResponseErrorImportant` - important delivery for responses
+* Added `gen.Meta` methods. See [Meta Process](https://docs.ergo.services/basics/meta-process) documentation:
+  - `SendResponse` / `SendResponseError` - respond to requests from meta process
+  - `SendPriority` / `SetSendPriority` - message priority control
+  - `Compression` / `SetCompression` - compression settings
+  - `EnvDefault` - get environment variable with default value
+* Added `gen.ApplicationSpec` / `gen.ApplicationInfo` fields:
+  - `Tags` - labels for instance selection (blue/green, canary, maintenance). See [Tags for Instance Selection](https://docs.ergo.services/basics/application#tags-for-instance-selection)
+  - `Map` - logical role to process name mapping. See [Process Role Mapping](https://docs.ergo.services/basics/application#process-role-mapping)
+* Added **HandleInspect** implementations for all supervisor types (OFO, ARFO, SOFO)
+* Fixed **LinkChild** in `RemoteNode.Spawn` / `RemoteNode.SpawnRegister`
+* Fixed **args persistence** for Simple One For One supervisor - child processes now restart with their original spawn arguments
+* Fixed **critical bug**: terminate signals (Link/Monitor exits) were incorrectly rejected due to wrong incarnation validation in network layer. Thanks to [@qjpcpu](https://github.com/qjpcpu) for reporting [#248](https://github.com/ergo-services/ergo/issues/248)
+* Completely reworked internal **Target Manager** (`node/tm/`) - improved architecture for process, event, and node target management with comprehensive test coverage
+* Completely reworked internal **Pub/Sub** mechanism - improved reliability and performance
+* Improved **ProcessInit state** - more `gen.Process` methods now available during initialization:
+  - `Link*`, `Unlink*`, `Monitor*`, `Demonitor*`
+  - `Call*`, `Inspect`, `InspectMeta`
+  - `RegisterName`, `UnregisterName`, `RegisterEvent`, `UnregisterEvent`
+  - `SendResponse*`, `SendResponseError*`
+  - `CreateAlias`, `DeleteAlias`
+* Introduced **shutdown timeout** - `ShutdownTimeout` option in `gen.NodeOptions` (default 3 minutes). During graceful shutdown, pending processes are logged every 5 seconds with state and queue info. After timeout, node force exits with error code 1. See [Node](https://docs.ergo.services/basics/node) documentation
+* Added **pprof labels** for actor and meta process goroutines (with `--tags pprof`) - each process goroutine is labeled with its PID, each meta process with its Alias, making it easy to identify stuck processes in pprof output
+* Improved API documentation - comprehensive godoc comments for all public interfaces
+* **Documentation rewritten** - complete documentation now included in the repository (`docs/`) and available at [docs.ergo.services](https://docs.ergo.services)
+* New documentation articles:
+  - [Project Structure](https://docs.ergo.services/basics/project-structure) - organizing projects with message isolation levels, deployment patterns, and evolution strategies
+  - [Building a Cluster](https://docs.ergo.services/advanced/building-a-cluster) - step-by-step guide to distributed systems with service discovery, load balancing, and failover
+  - [Message Versioning](https://docs.ergo.services/advanced/message-versioning) - evolving message contracts in distributed clusters with explicit versioning strategies
+  - [Handle Sync](https://docs.ergo.services/advanced/handle-sync) - synchronous message handling patterns
+  - [Important Delivery](https://docs.ergo.services/advanced/important-delivery) - guaranteed delivery mechanism
+  - [Pub/Sub Internals](https://docs.ergo.services/advanced/pub-sub-internals) - event system architecture
+  - [Debugging](https://docs.ergo.services/advanced/debugging) - build tags, pprof integration, troubleshooting stuck processes
+
+* **Extra Library - Actors** (https://github.com/ergo-services/actor):
+  - Introduced **Leader** actor - distributed leader election with Raft-inspired consensus algorithm. Features: term-based disambiguation, automatic failover, split-brain prevention through majority quorum, dynamic peer discovery. See [documentation](https://docs.ergo.services/extra-library/actors/leader)
+  - Introduced **Metrics** actor - Prometheus metrics exporter that collects node/network telemetry via HTTP endpoint. Features: automatic collection of node metrics (uptime, processes, memory), network metrics per remote node, extensible for custom metrics. See [documentation](https://docs.ergo.services/extra-library/actors/metrics)
+
+* **Extra Library - Meta Processes** (https://github.com/ergo-services/meta):
+  - Introduced **SSE** (Server-Sent Events) meta-process - unidirectional server-to-client streaming over HTTP. Features: server handler for accepting connections, client connection for external SSE endpoints, full SSE spec support (event types, IDs, retry hints, multi-line data), process pool with round-robin load balancing, Last-Event-ID for reconnection. See [documentation](https://docs.ergo.services/extra-library/meta-processes/sse)
+
+* **Benchmarks** (https://github.com/ergo-services/benchmarks):
+  - Introduced **Distributed Pub/Sub** benchmark - demonstrates event delivery to 1,000,000 subscribers across 10 nodes. Achieves 2.9M msg/sec delivery rate with only 10 network messages (one per consumer node) instead of 1M
+
+
 #### [v3.1.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.310) 2025-09-04 [tag version v1.999.310] ####
 
 **New Features**

@@ -2,9 +2,7 @@ package meta
 
 import (
 	"crypto/tls"
-	"encoding/binary"
 	"fmt"
-	"io"
 	"net"
 	"strconv"
 	"sync/atomic"
@@ -28,25 +26,26 @@ func CreateTCPConnection(options TCPConnectionOptions) (gen.MetaBehavior, error)
 		options: options,
 	}
 
+	var conn net.Conn
 	if options.CertManager != nil {
 		config := &tls.Config{
 			GetCertificate:     options.CertManager.GetCertificateFunc(),
 			InsecureSkipVerify: options.InsecureSkipVerify,
 		}
-		conn, err := tls.Dial("tcp", hp, config)
+		tlsConn, err := tls.Dial("tcp", hp, config)
 		if err != nil {
 			return nil, err
 		}
-		c.conn = conn
-		return c, nil
-	}
-
-	dialer := net.Dialer{
-		KeepAlive: options.Advanced.KeepAlivePeriod,
-	}
-	conn, err := dialer.Dial("tcp", hp)
-	if err != nil {
-		return nil, err
+		conn = tlsConn
+	} else {
+		dialer := net.Dialer{
+			KeepAlive: options.Advanced.KeepAlivePeriod,
+		}
+		tcpConn, err := dialer.Dial("tcp", hp)
+		if err != nil {
+			return nil, err
+		}
+		conn = tcpConn
 	}
 	c.conn = conn
 
@@ -69,7 +68,7 @@ func CreateTCPConnection(options TCPConnectionOptions) (gen.MetaBehavior, error)
 type tcpconnection struct {
 	gen.MetaProcess
 	conn       net.Conn
-	connWriter io.Writer
+	connWriter lib.Flusher
 	options    TCPConnectionOptions
 	bytesIn    uint64
 	bytesOut   uint64
@@ -167,112 +166,16 @@ func (t *tcpconnection) readData(to any) error {
 }
 
 func (t *tcpconnection) readDataChunk(to any) error {
-	var buf []byte
-	var chunk []byte
-
 	id := t.ID()
-
-	buf = make([]byte, t.options.ReadBufferSize)
-
-	if t.options.ReadBufferPool == nil {
-		chunk = make([]byte, 0, t.options.ReadBufferSize)
-	} else {
-		chunk = t.options.ReadBufferPool.Get().([]byte)
-		chunk = chunk[:0]
+	err := readChunks(countReader{t.conn, &t.bytesIn}, t.options.ReadChunk,
+		t.options.ReadBufferSize, t.options.ReadBufferPool,
+		func(chunk []byte) error {
+			return t.Send(to, MessageTCP{ID: id, Data: chunk})
+		})
+	if err != nil {
+		t.Log().Error("unable to read chunk from tcp socket: %s", err)
 	}
-
-	cl := t.options.ReadChunk.FixedLength // chunk length
-
-	for {
-
-		n, err := t.conn.Read(buf)
-		if err != nil {
-			if n == 0 {
-				// closed stdin
-				return nil
-			}
-
-			t.Log().Error("unable to read from tcp socket: %s", err)
-			return err
-		}
-
-		if n == 0 {
-			continue
-		}
-
-		atomic.AddUint64(&t.bytesIn, uint64(n))
-
-		chunk = append(chunk, buf[:n]...)
-
-	next:
-
-		// read length value for the chunk
-		if cl == 0 {
-			// check if we got the header
-			if len(chunk) < t.options.ReadChunk.HeaderSize {
-				continue
-			}
-
-			pos := t.options.ReadChunk.HeaderLengthPosition
-			switch t.options.ReadChunk.HeaderLengthSize {
-			case 1:
-				cl = int(chunk[pos])
-			case 2:
-				cl = int(binary.BigEndian.Uint16(chunk[pos : pos+2]))
-			case 4:
-				cl = int(binary.BigEndian.Uint32(chunk[pos : pos+4]))
-			default:
-				// shouldn't reach this code
-				panic("bug")
-			}
-
-			if t.options.ReadChunk.HeaderLengthIncludesHeader == false {
-				cl += t.options.ReadChunk.HeaderSize
-			}
-
-			if t.options.ReadChunk.MaxLength > 0 {
-				if cl > t.options.ReadChunk.MaxLength {
-					t.Log().Error("chunk size %d is exceeded the limit (chunk MaxLenth: %d)", cl, t.options.ReadChunk.MaxLength)
-					return gen.ErrTooLarge
-				}
-			}
-
-		}
-
-		if len(chunk) < cl {
-			continue
-		}
-
-		// send chunk
-		message := MessageTCP{
-			ID:   id,
-			Data: chunk[:cl],
-		}
-
-		if err := t.Send(to, message); err != nil {
-			t.Log().Error("unable to send MessageTCP: %s", err)
-			return err
-		}
-
-		tail := chunk[cl:]
-
-		// prepare next chunk
-		if t.options.ReadBufferPool == nil {
-			chunk = make([]byte, 0, t.options.ReadChunk.FixedLength)
-		} else {
-			chunk = t.options.ReadBufferPool.Get().([]byte)
-			chunk = chunk[:0]
-		}
-
-		cl = t.options.ReadChunk.FixedLength
-
-		if len(tail) > 0 {
-			chunk = append(chunk, tail...)
-			goto next
-		}
-
-	}
-
+	return err
 }
 
 func (t *tcpconnection) HandleMessage(from gen.PID, message any) error {
@@ -298,6 +201,10 @@ func (t *tcpconnection) HandleCall(from gen.PID, ref gen.Ref, request any) (any,
 
 func (t *tcpconnection) Terminate(reason error) {
 	defer t.conn.Close()
+
+	if t.connWriter != nil {
+		t.connWriter.Stop()
+	}
 
 	if reason == nil {
 		return

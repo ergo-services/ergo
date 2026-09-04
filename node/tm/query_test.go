@@ -6,949 +6,566 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-// HasLink tests
+// HasLink
 
 func TestHasLink_Basic(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
 	target := gen.PID{Node: "node1", ID: 200}
 
-	// Before link
-	if tm.HasLink(consumer, target) == true {
+	if m.HasLink(consumer, target) {
 		t.Error("HasLink should return false before link")
 	}
-
-	// Create link
-	tm.LinkPID(consumer, target)
-
-	// After link
-	if tm.HasLink(consumer, target) == false {
+	m.LinkPID(consumer, target)
+	if m.HasLink(consumer, target) == false {
 		t.Error("HasLink should return true after link")
 	}
-
-	// Unlink
-	tm.UnlinkPID(consumer, target)
-
-	// After unlink
-	if tm.HasLink(consumer, target) == true {
+	m.UnlinkPID(consumer, target)
+	if m.HasLink(consumer, target) {
 		t.Error("HasLink should return false after unlink")
 	}
 }
 
 func TestHasLink_DifferentTargetTypes(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	targetPID := gen.PID{Node: "node1", ID: 200}
-	targetProcessID := gen.ProcessID{Name: "proc", Node: "node1"}
-	targetAlias := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
-	targetNode := gen.Atom("node2")
+	tPID := gen.PID{Node: "node1", ID: 200}
+	tProc := gen.ProcessID{Name: "proc", Node: "node1"}
+	tAlias := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
+	tNode := gen.Atom("node2")
 
-	// Create links
-	tm.LinkPID(consumer, targetPID)
-	tm.LinkProcessID(consumer, targetProcessID)
-	tm.LinkAlias(consumer, targetAlias)
-	tm.LinkNode(consumer, targetNode)
+	m.LinkPID(consumer, tPID)
+	m.LinkProcessID(consumer, tProc)
+	m.LinkAlias(consumer, tAlias)
+	m.LinkNode(consumer, tNode)
 
-	// Verify all exist via API
-	if tm.HasLink(consumer, targetPID) == false {
+	if m.HasLink(consumer, tPID) == false {
 		t.Error("HasLink should return true for PID")
 	}
-	if tm.HasLink(consumer, targetProcessID) == false {
+	if m.HasLink(consumer, tProc) == false {
 		t.Error("HasLink should return true for ProcessID")
 	}
-	if tm.HasLink(consumer, targetAlias) == false {
+	if m.HasLink(consumer, tAlias) == false {
 		t.Error("HasLink should return true for Alias")
 	}
-	if tm.HasLink(consumer, targetNode) == false {
+	if m.HasLink(consumer, tNode) == false {
 		t.Error("HasLink should return true for Node")
 	}
-
-	// Verify internal state: all 4 relations stored
-	if len(tm.linkRelations) != 4 {
-		t.Errorf("expected 4 linkRelations, got %d", len(tm.linkRelations))
-	}
-
-	// Verify each relation in linkRelations
-	keyPID := relationKey{consumer: consumer, target: targetPID}
-	keyProcessID := relationKey{consumer: consumer, target: targetProcessID}
-	keyAlias := relationKey{consumer: consumer, target: targetAlias}
-	keyNode := relationKey{consumer: consumer, target: targetNode}
-
-	if _, exists := tm.linkRelations[keyPID]; exists == false {
-		t.Error("linkRelations should contain PID relation")
-	}
-	if _, exists := tm.linkRelations[keyProcessID]; exists == false {
-		t.Error("linkRelations should contain ProcessID relation")
-	}
-	if _, exists := tm.linkRelations[keyAlias]; exists == false {
-		t.Error("linkRelations should contain Alias relation")
-	}
-	if _, exists := tm.linkRelations[keyNode]; exists == false {
-		t.Error("linkRelations should contain Node relation")
+	if m.totalLinks() != 4 {
+		t.Errorf("Expected 4 link relations, got %d", m.totalLinks())
 	}
 }
 
 func TestHasLink_DifferentConsumers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	consumer1 := gen.PID{Node: "node1", ID: 100}
-	consumer2 := gen.PID{Node: "node1", ID: 101}
+	m, _ := newManagerWithMock("node1")
+	c1 := gen.PID{Node: "node1", ID: 100}
+	c2 := gen.PID{Node: "node1", ID: 101}
 	target := gen.PID{Node: "node1", ID: 200}
 
-	// Only consumer1 links
-	tm.LinkPID(consumer1, target)
-
-	if tm.HasLink(consumer1, target) == false {
-		t.Error("consumer1 should have link")
+	m.LinkPID(c1, target)
+	if m.HasLink(c1, target) == false {
+		t.Error("c1 should have link")
 	}
-	if tm.HasLink(consumer2, target) == true {
-		t.Error("consumer2 should NOT have link")
+	if m.HasLink(c2, target) {
+		t.Error("c2 should NOT have link")
 	}
 }
 
-// HasMonitor tests
+// HasMonitor
 
 func TestHasMonitor_Basic(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
 	target := gen.PID{Node: "node1", ID: 200}
 
-	// Before
-	if tm.HasMonitor(consumer, target) == true {
+	if m.HasMonitor(consumer, target) {
 		t.Error("HasMonitor should return false before monitor")
 	}
-
-	// Create
-	tm.MonitorPID(consumer, target)
-
-	// After
-	if tm.HasMonitor(consumer, target) == false {
+	m.MonitorPID(consumer, target)
+	if m.HasMonitor(consumer, target) == false {
 		t.Error("HasMonitor should return true after monitor")
 	}
-
-	// Remove
-	tm.DemonitorPID(consumer, target)
-
-	// After remove
-	if tm.HasMonitor(consumer, target) == true {
+	m.DemonitorPID(consumer, target)
+	if m.HasMonitor(consumer, target) {
 		t.Error("HasMonitor should return false after demonitor")
 	}
 }
 
 func TestHasMonitor_DifferentTargetTypes(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	targetPID := gen.PID{Node: "node1", ID: 200}
-	targetProcessID := gen.ProcessID{Name: "proc", Node: "node1"}
-	targetAlias := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
-	targetNode := gen.Atom("node2")
+	tPID := gen.PID{Node: "node1", ID: 200}
+	tProc := gen.ProcessID{Name: "proc", Node: "node1"}
+	tAlias := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
+	tNode := gen.Atom("node2")
 
-	// Create monitors
-	tm.MonitorPID(consumer, targetPID)
-	tm.MonitorProcessID(consumer, targetProcessID)
-	tm.MonitorAlias(consumer, targetAlias)
-	tm.MonitorNode(consumer, targetNode)
+	m.MonitorPID(consumer, tPID)
+	m.MonitorProcessID(consumer, tProc)
+	m.MonitorAlias(consumer, tAlias)
+	m.MonitorNode(consumer, tNode)
 
-	// Verify all exist via API
-	if tm.HasMonitor(consumer, targetPID) == false {
+	if m.HasMonitor(consumer, tPID) == false {
 		t.Error("HasMonitor should return true for PID")
 	}
-	if tm.HasMonitor(consumer, targetProcessID) == false {
+	if m.HasMonitor(consumer, tProc) == false {
 		t.Error("HasMonitor should return true for ProcessID")
 	}
-	if tm.HasMonitor(consumer, targetAlias) == false {
+	if m.HasMonitor(consumer, tAlias) == false {
 		t.Error("HasMonitor should return true for Alias")
 	}
-	if tm.HasMonitor(consumer, targetNode) == false {
+	if m.HasMonitor(consumer, tNode) == false {
 		t.Error("HasMonitor should return true for Node")
 	}
-
-	// Verify internal state: all 4 relations stored
-	if len(tm.monitorRelations) != 4 {
-		t.Errorf("expected 4 monitorRelations, got %d", len(tm.monitorRelations))
-	}
-
-	// Verify each relation in monitorRelations
-	keyPID := relationKey{consumer: consumer, target: targetPID}
-	keyProcessID := relationKey{consumer: consumer, target: targetProcessID}
-	keyAlias := relationKey{consumer: consumer, target: targetAlias}
-	keyNode := relationKey{consumer: consumer, target: targetNode}
-
-	if _, exists := tm.monitorRelations[keyPID]; exists == false {
-		t.Error("monitorRelations should contain PID relation")
-	}
-	if _, exists := tm.monitorRelations[keyProcessID]; exists == false {
-		t.Error("monitorRelations should contain ProcessID relation")
-	}
-	if _, exists := tm.monitorRelations[keyAlias]; exists == false {
-		t.Error("monitorRelations should contain Alias relation")
-	}
-	if _, exists := tm.monitorRelations[keyNode]; exists == false {
-		t.Error("monitorRelations should contain Node relation")
+	if m.totalMonitors() != 4 {
+		t.Errorf("Expected 4 monitor relations, got %d", m.totalMonitors())
 	}
 }
 
 func TestHasMonitor_DifferentConsumers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
-	consumer1 := gen.PID{Node: "node1", ID: 100}
-	consumer2 := gen.PID{Node: "node1", ID: 101}
+	m, _ := newManagerWithMock("node1")
+	c1 := gen.PID{Node: "node1", ID: 100}
+	c2 := gen.PID{Node: "node1", ID: 101}
 	target := gen.PID{Node: "node1", ID: 200}
 
-	// Only consumer1 monitors
-	tm.MonitorPID(consumer1, target)
-
-	if tm.HasMonitor(consumer1, target) == false {
-		t.Error("consumer1 should have monitor")
+	m.MonitorPID(c1, target)
+	if m.HasMonitor(c1, target) == false {
+		t.Error("c1 should have monitor")
 	}
-	if tm.HasMonitor(consumer2, target) == true {
-		t.Error("consumer2 should NOT have monitor")
+	if m.HasMonitor(c2, target) {
+		t.Error("c2 should NOT have monitor")
 	}
 }
 
-// LinksFor tests
+// LinksFor
 
 func TestLinksFor_Empty(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
 
-	targets := tm.LinksFor(consumer)
-
-	if targets != nil {
+	if targets := m.LinksFor(consumer); targets != nil {
 		t.Errorf("Expected nil for no links, got %v", targets)
 	}
 }
 
 func TestLinksFor_SingleTarget(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
 	target := gen.PID{Node: "node1", ID: 200}
 
-	tm.LinkPID(consumer, target)
-
-	targets := tm.LinksFor(consumer)
-
+	m.LinkPID(consumer, target)
+	targets := m.LinksFor(consumer)
 	if len(targets) != 1 {
 		t.Fatalf("Expected 1 target, got %d", len(targets))
 	}
-
 	if targets[0] != target {
-		t.Errorf("Expected target %v, got %v", target, targets[0])
+		t.Errorf("Expected %v, got %v", target, targets[0])
 	}
 }
 
 func TestLinksFor_MultipleTargets_DifferentTypes(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	targetPID := gen.PID{Node: "node1", ID: 200}
-	targetProcessID := gen.ProcessID{Name: "proc1", Node: "node1"}
-	targetAlias := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
-	targetNode := gen.Atom("node2")
+	tPID := gen.PID{Node: "node1", ID: 200}
+	tProc := gen.ProcessID{Name: "proc1", Node: "node1"}
+	tAlias := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
+	tNode := gen.Atom("node2")
 
-	// Create links to different types
-	tm.LinkPID(consumer, targetPID)
-	tm.LinkProcessID(consumer, targetProcessID)
-	tm.LinkAlias(consumer, targetAlias)
-	tm.LinkNode(consumer, targetNode)
+	m.LinkPID(consumer, tPID)
+	m.LinkProcessID(consumer, tProc)
+	m.LinkAlias(consumer, tAlias)
+	m.LinkNode(consumer, tNode)
 
-	targets := tm.LinksFor(consumer)
-
+	targets := m.LinksFor(consumer)
 	if len(targets) != 4 {
 		t.Fatalf("Expected 4 targets, got %d", len(targets))
 	}
-
-	// Verify all targets present (order not guaranteed)
-	found := make(map[any]bool)
-	for _, target := range targets {
-		found[target] = true
+	found := map[any]bool{}
+	for _, x := range targets {
+		found[x] = true
 	}
-
-	if found[targetPID] == false {
-		t.Error("targetPID should be in results")
-	}
-	if found[targetProcessID] == false {
-		t.Error("targetProcessID should be in results")
-	}
-	if found[targetAlias] == false {
-		t.Error("targetAlias should be in results")
-	}
-	if found[targetNode] == false {
-		t.Error("targetNode should be in results")
+	if found[tPID] == false || found[tProc] == false || found[tAlias] == false || found[tNode] == false {
+		t.Errorf("missing targets in LinksFor: %v", targets)
 	}
 }
 
 func TestLinksFor_AfterRemovingOne(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	target1 := gen.PID{Node: "node1", ID: 200}
-	target2 := gen.PID{Node: "node1", ID: 201}
-	target3 := gen.PID{Node: "node1", ID: 202}
+	t1 := gen.PID{Node: "node1", ID: 200}
+	t2 := gen.PID{Node: "node1", ID: 201}
+	t3 := gen.PID{Node: "node1", ID: 202}
 
-	tm.LinkPID(consumer, target1)
-	tm.LinkPID(consumer, target2)
-	tm.LinkPID(consumer, target3)
+	m.LinkPID(consumer, t1)
+	m.LinkPID(consumer, t2)
+	m.LinkPID(consumer, t3)
+	m.UnlinkPID(consumer, t2)
 
-	// Remove one
-	tm.UnlinkPID(consumer, target2)
-
-	targets := tm.LinksFor(consumer)
-
+	targets := m.LinksFor(consumer)
 	if len(targets) != 2 {
 		t.Fatalf("Expected 2 targets after removal, got %d", len(targets))
 	}
-
-	// Verify target2 not in results
-	for _, target := range targets {
-		if target == target2 {
+	for _, x := range targets {
+		if x == t2 {
 			t.Error("Removed target should not be in results")
 		}
 	}
-
-	// Verify internal state: target2 relation removed
-	key2 := relationKey{consumer: consumer, target: target2}
-	if _, exists := tm.linkRelations[key2]; exists {
-		t.Error("linkRelations should not contain removed target2")
+	if m.hasLinkRelation(consumer, t2) {
+		t.Error("linkRelations should not contain removed t2")
 	}
-
-	// Verify targetIndex for target2 is cleaned
-	if _, exists := tm.targetIndex[target2]; exists {
-		t.Error("targetIndex for target2 should be cleaned")
-	}
-
-	// Verify remaining relations still exist
-	if len(tm.linkRelations) != 2 {
-		t.Errorf("expected 2 linkRelations remaining, got %d", len(tm.linkRelations))
+	if m.totalLinks() != 2 {
+		t.Errorf("expected 2 linkRelations remaining, got %d", m.totalLinks())
 	}
 }
 
 func TestLinksFor_AfterRemovingAll(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	target1 := gen.PID{Node: "node1", ID: 200}
-	target2 := gen.PID{Node: "node1", ID: 201}
+	t1 := gen.PID{Node: "node1", ID: 200}
+	t2 := gen.PID{Node: "node1", ID: 201}
 
-	tm.LinkPID(consumer, target1)
-	tm.LinkPID(consumer, target2)
-
-	// Remove all
-	tm.UnlinkPID(consumer, target1)
-	tm.UnlinkPID(consumer, target2)
-
-	targets := tm.LinksFor(consumer)
-
-	if targets != nil {
-		t.Errorf("Expected nil after removing all, got %v", targets)
+	m.LinkPID(consumer, t1)
+	m.LinkPID(consumer, t2)
+	m.UnlinkPID(consumer, t1)
+	m.UnlinkPID(consumer, t2)
+	// After all unlinks the reverse-index entry stays but is empty;
+	// LinksFor returns nil.
+	if targets := m.LinksFor(consumer); len(targets) != 0 {
+		t.Errorf("Expected empty after removing all, got %v", targets)
 	}
-
-	// Verify internal state: all linkRelations cleaned
-	if len(tm.linkRelations) != 0 {
-		t.Errorf("expected 0 linkRelations, got %d", len(tm.linkRelations))
-	}
-
-	// Verify all targetIndex entries cleaned
-	if _, exists := tm.targetIndex[target1]; exists {
-		t.Error("targetIndex for target1 should be cleaned")
-	}
-	if _, exists := tm.targetIndex[target2]; exists {
-		t.Error("targetIndex for target2 should be cleaned")
+	if m.totalLinks() != 0 {
+		t.Errorf("expected 0 linkRelations, got %d", m.totalLinks())
 	}
 }
 
 func TestLinksFor_MultipleConsumers_Isolation(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
+	m, _ := newManagerWithMock("node1")
+	c1 := gen.PID{Node: "node1", ID: 100}
+	c2 := gen.PID{Node: "node1", ID: 101}
+	t1 := gen.PID{Node: "node1", ID: 200}
+	t2 := gen.PID{Node: "node1", ID: 201}
 
-	consumer1 := gen.PID{Node: "node1", ID: 100}
-	consumer2 := gen.PID{Node: "node1", ID: 101}
-	target1 := gen.PID{Node: "node1", ID: 200}
-	target2 := gen.PID{Node: "node1", ID: 201}
+	m.LinkPID(c1, t1)
+	m.LinkPID(c2, t2)
 
-	// consumer1 links to target1
-	tm.LinkPID(consumer1, target1)
-
-	// consumer2 links to target2
-	tm.LinkPID(consumer2, target2)
-
-	// Get links for consumer1
-	targets1 := tm.LinksFor(consumer1)
-	if len(targets1) != 1 {
-		t.Fatalf("consumer1 should have 1 link, got %d", len(targets1))
+	t1List := m.LinksFor(c1)
+	if len(t1List) != 1 || t1List[0] != t1 {
+		t.Fatalf("c1 isolation: got %v", t1List)
 	}
-	if targets1[0] != target1 {
-		t.Error("consumer1 should only see target1")
-	}
-
-	// Get links for consumer2
-	targets2 := tm.LinksFor(consumer2)
-	if len(targets2) != 1 {
-		t.Fatalf("consumer2 should have 1 link, got %d", len(targets2))
-	}
-	if targets2[0] != target2 {
-		t.Error("consumer2 should only see target2")
+	t2List := m.LinksFor(c2)
+	if len(t2List) != 1 || t2List[0] != t2 {
+		t.Fatalf("c2 isolation: got %v", t2List)
 	}
 }
 
 func TestLinksFor_RemoteTargets(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	localTarget := gen.PID{Node: "node1", ID: 200}
-	remoteTarget := gen.PID{Node: "node2", ID: 300}
+	local := gen.PID{Node: "node1", ID: 200}
+	remote := gen.PID{Node: "node2", ID: 300}
 
-	tm.LinkPID(consumer, localTarget)
-	tm.LinkPID(consumer, remoteTarget)
+	m.LinkPID(consumer, local)
+	m.LinkPID(consumer, remote)
 
-	targets := tm.LinksFor(consumer)
-
+	targets := m.LinksFor(consumer)
 	if len(targets) != 2 {
-		t.Fatalf("Expected 2 targets (local+remote), got %d", len(targets))
+		t.Fatalf("Expected 2 targets, got %d", len(targets))
 	}
-
-	// Both local and remote should be present
-	found := make(map[any]bool)
-	for _, target := range targets {
-		found[target] = true
+	found := map[any]bool{}
+	for _, x := range targets {
+		found[x] = true
 	}
-
-	if found[localTarget] == false {
-		t.Error("Local target should be in results")
-	}
-	if found[remoteTarget] == false {
-		t.Error("Remote target should be in results")
-	}
-
-	// Verify internal state: both relations stored
-	if len(tm.linkRelations) != 2 {
-		t.Errorf("expected 2 linkRelations, got %d", len(tm.linkRelations))
-	}
-
-	// Verify targetIndex for remote target has consumer
-	entry := tm.targetIndex[remoteTarget]
-	if entry == nil {
-		t.Fatal("targetIndex for remoteTarget should exist")
-	}
-	if _, exists := entry.consumers[consumer]; exists == false {
-		t.Error("consumer should be in targetIndex.consumers for remoteTarget")
+	if found[local] == false || found[remote] == false {
+		t.Errorf("missing targets: %v", targets)
 	}
 }
 
-// MonitorsFor tests
+// MonitorsFor
 
 func TestMonitorsFor_Empty(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
 
-	targets := tm.MonitorsFor(consumer)
-
-	if targets != nil {
+	if targets := m.MonitorsFor(consumer); targets != nil {
 		t.Errorf("Expected nil for no monitors, got %v", targets)
 	}
 }
 
 func TestMonitorsFor_SingleTarget(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
 	target := gen.PID{Node: "node1", ID: 200}
 
-	tm.MonitorPID(consumer, target)
-
-	targets := tm.MonitorsFor(consumer)
-
+	m.MonitorPID(consumer, target)
+	targets := m.MonitorsFor(consumer)
 	if len(targets) != 1 {
 		t.Fatalf("Expected 1 target, got %d", len(targets))
 	}
-
 	if targets[0] != target {
-		t.Errorf("Expected target %v, got %v", target, targets[0])
+		t.Errorf("Expected %v, got %v", target, targets[0])
 	}
 }
 
 func TestMonitorsFor_MultipleTargets_DifferentTypes(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	targetPID := gen.PID{Node: "node1", ID: 200}
-	targetProcessID := gen.ProcessID{Name: "proc1", Node: "node1"}
-	targetAlias := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
-	targetNode := gen.Atom("node2")
+	tPID := gen.PID{Node: "node1", ID: 200}
+	tProc := gen.ProcessID{Name: "proc1", Node: "node1"}
+	tAlias := gen.Alias{Node: "node1", ID: [3]uint64{1, 2, 3}}
+	tNode := gen.Atom("node2")
 
-	// Create monitors to different types
-	tm.MonitorPID(consumer, targetPID)
-	tm.MonitorProcessID(consumer, targetProcessID)
-	tm.MonitorAlias(consumer, targetAlias)
-	tm.MonitorNode(consumer, targetNode)
+	m.MonitorPID(consumer, tPID)
+	m.MonitorProcessID(consumer, tProc)
+	m.MonitorAlias(consumer, tAlias)
+	m.MonitorNode(consumer, tNode)
 
-	targets := tm.MonitorsFor(consumer)
-
+	targets := m.MonitorsFor(consumer)
 	if len(targets) != 4 {
 		t.Fatalf("Expected 4 targets, got %d", len(targets))
 	}
-
-	// Verify all targets present
-	found := make(map[any]bool)
-	for _, target := range targets {
-		found[target] = true
+	found := map[any]bool{}
+	for _, x := range targets {
+		found[x] = true
 	}
-
-	if found[targetPID] == false {
-		t.Error("targetPID should be in results")
-	}
-	if found[targetProcessID] == false {
-		t.Error("targetProcessID should be in results")
-	}
-	if found[targetAlias] == false {
-		t.Error("targetAlias should be in results")
-	}
-	if found[targetNode] == false {
-		t.Error("targetNode should be in results")
+	if found[tPID] == false || found[tProc] == false || found[tAlias] == false || found[tNode] == false {
+		t.Errorf("missing targets: %v", targets)
 	}
 }
 
 func TestMonitorsFor_AfterRemovingOne(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	target1 := gen.PID{Node: "node1", ID: 200}
-	target2 := gen.PID{Node: "node1", ID: 201}
-	target3 := gen.PID{Node: "node1", ID: 202}
+	t1 := gen.PID{Node: "node1", ID: 200}
+	t2 := gen.PID{Node: "node1", ID: 201}
+	t3 := gen.PID{Node: "node1", ID: 202}
 
-	tm.MonitorPID(consumer, target1)
-	tm.MonitorPID(consumer, target2)
-	tm.MonitorPID(consumer, target3)
+	m.MonitorPID(consumer, t1)
+	m.MonitorPID(consumer, t2)
+	m.MonitorPID(consumer, t3)
+	m.DemonitorPID(consumer, t2)
 
-	// Remove one
-	tm.DemonitorPID(consumer, target2)
-
-	targets := tm.MonitorsFor(consumer)
-
+	targets := m.MonitorsFor(consumer)
 	if len(targets) != 2 {
-		t.Fatalf("Expected 2 targets after removal, got %d", len(targets))
+		t.Fatalf("Expected 2 monitors after removal, got %d", len(targets))
 	}
-
-	// Verify target2 not in results
-	for _, target := range targets {
-		if target == target2 {
-			t.Error("Removed target should not be in results")
-		}
+	if m.hasMonitorRelation(consumer, t2) {
+		t.Error("monitorRelations should not contain removed t2")
 	}
-
-	// Verify internal state: target2 relation removed
-	key2 := relationKey{consumer: consumer, target: target2}
-	if _, exists := tm.monitorRelations[key2]; exists {
-		t.Error("monitorRelations should not contain removed target2")
-	}
-
-	// Verify targetIndex for target2 is cleaned
-	if _, exists := tm.targetIndex[target2]; exists {
-		t.Error("targetIndex for target2 should be cleaned")
-	}
-
-	// Verify remaining relations still exist
-	if len(tm.monitorRelations) != 2 {
-		t.Errorf("expected 2 monitorRelations remaining, got %d", len(tm.monitorRelations))
+	if m.totalMonitors() != 2 {
+		t.Errorf("expected 2 monitorRelations remaining, got %d", m.totalMonitors())
 	}
 }
 
 func TestMonitorsFor_AfterRemovingAll(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	target1 := gen.PID{Node: "node1", ID: 200}
-	target2 := gen.PID{Node: "node1", ID: 201}
+	t1 := gen.PID{Node: "node1", ID: 200}
+	t2 := gen.PID{Node: "node1", ID: 201}
 
-	tm.MonitorPID(consumer, target1)
-	tm.MonitorPID(consumer, target2)
+	m.MonitorPID(consumer, t1)
+	m.MonitorPID(consumer, t2)
+	m.DemonitorPID(consumer, t1)
+	m.DemonitorPID(consumer, t2)
 
-	// Remove all
-	tm.DemonitorPID(consumer, target1)
-	tm.DemonitorPID(consumer, target2)
-
-	targets := tm.MonitorsFor(consumer)
-
-	if targets != nil {
-		t.Errorf("Expected nil after removing all, got %v", targets)
+	if targets := m.MonitorsFor(consumer); len(targets) != 0 {
+		t.Errorf("Expected empty after removing all, got %v", targets)
 	}
-
-	// Verify internal state: all monitorRelations cleaned
-	if len(tm.monitorRelations) != 0 {
-		t.Errorf("expected 0 monitorRelations, got %d", len(tm.monitorRelations))
-	}
-
-	// Verify all targetIndex entries cleaned
-	if _, exists := tm.targetIndex[target1]; exists {
-		t.Error("targetIndex for target1 should be cleaned")
-	}
-	if _, exists := tm.targetIndex[target2]; exists {
-		t.Error("targetIndex for target2 should be cleaned")
+	if m.totalMonitors() != 0 {
+		t.Errorf("expected 0 monitorRelations, got %d", m.totalMonitors())
 	}
 }
 
 func TestMonitorsFor_MultipleConsumers_Isolation(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
+	m, _ := newManagerWithMock("node1")
+	c1 := gen.PID{Node: "node1", ID: 100}
+	c2 := gen.PID{Node: "node1", ID: 101}
+	t1 := gen.PID{Node: "node1", ID: 200}
+	t2 := gen.PID{Node: "node1", ID: 201}
 
-	consumer1 := gen.PID{Node: "node1", ID: 100}
-	consumer2 := gen.PID{Node: "node1", ID: 101}
-	target1 := gen.PID{Node: "node1", ID: 200}
-	target2 := gen.PID{Node: "node1", ID: 201}
+	m.MonitorPID(c1, t1)
+	m.MonitorPID(c2, t2)
 
-	// consumer1 monitors target1
-	tm.MonitorPID(consumer1, target1)
-
-	// consumer2 monitors target2
-	tm.MonitorPID(consumer2, target2)
-
-	// Get monitors for consumer1
-	targets1 := tm.MonitorsFor(consumer1)
-	if len(targets1) != 1 {
-		t.Fatalf("consumer1 should have 1 monitor, got %d", len(targets1))
+	t1List := m.MonitorsFor(c1)
+	if len(t1List) != 1 || t1List[0] != t1 {
+		t.Fatalf("c1 isolation: got %v", t1List)
 	}
-	if targets1[0] != target1 {
-		t.Error("consumer1 should only see target1")
-	}
-
-	// Get monitors for consumer2
-	targets2 := tm.MonitorsFor(consumer2)
-	if len(targets2) != 1 {
-		t.Fatalf("consumer2 should have 1 monitor, got %d", len(targets2))
-	}
-	if targets2[0] != target2 {
-		t.Error("consumer2 should only see target2")
+	t2List := m.MonitorsFor(c2)
+	if len(t2List) != 1 || t2List[0] != t2 {
+		t.Fatalf("c2 isolation: got %v", t2List)
 	}
 }
 
 func TestMonitorsFor_SeparateFromLinks(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	linkedTarget := gen.PID{Node: "node1", ID: 200}
-	monitoredTarget := gen.PID{Node: "node1", ID: 201}
+	linked := gen.PID{Node: "node1", ID: 200}
+	monitored := gen.PID{Node: "node1", ID: 201}
 
-	// Link one target
-	tm.LinkPID(consumer, linkedTarget)
+	m.LinkPID(consumer, linked)
+	m.MonitorPID(consumer, monitored)
 
-	// Monitor another target
-	tm.MonitorPID(consumer, monitoredTarget)
-
-	// MonitorsFor should only return monitored target
-	monitors := tm.MonitorsFor(consumer)
-	if len(monitors) != 1 {
-		t.Fatalf("Expected 1 monitor, got %d", len(monitors))
+	monitors := m.MonitorsFor(consumer)
+	if len(monitors) != 1 || monitors[0] != monitored {
+		t.Fatalf("MonitorsFor: got %v", monitors)
 	}
-	if monitors[0] != monitoredTarget {
-		t.Error("Should only return monitored target")
-	}
-
-	// LinksFor should only return linked target
-	links := tm.LinksFor(consumer)
-	if len(links) != 1 {
-		t.Fatalf("Expected 1 link, got %d", len(links))
-	}
-	if links[0] != linkedTarget {
-		t.Error("Should only return linked target")
+	links := m.LinksFor(consumer)
+	if len(links) != 1 || links[0] != linked {
+		t.Fatalf("LinksFor: got %v", links)
 	}
 }
 
 func TestMonitorsFor_RemoteTargets(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
-	localTarget := gen.PID{Node: "node1", ID: 200}
-	remoteTarget := gen.PID{Node: "node2", ID: 300}
+	local := gen.PID{Node: "node1", ID: 200}
+	remote := gen.PID{Node: "node2", ID: 300}
 
-	tm.MonitorPID(consumer, localTarget)
-	tm.MonitorPID(consumer, remoteTarget)
+	m.MonitorPID(consumer, local)
+	m.MonitorPID(consumer, remote)
 
-	targets := tm.MonitorsFor(consumer)
-
+	targets := m.MonitorsFor(consumer)
 	if len(targets) != 2 {
-		t.Fatalf("Expected 2 targets (local+remote), got %d", len(targets))
+		t.Fatalf("Expected 2 targets, got %d", len(targets))
 	}
-
-	// Both local and remote should be present
-	found := make(map[any]bool)
-	for _, target := range targets {
-		found[target] = true
+	found := map[any]bool{}
+	for _, x := range targets {
+		found[x] = true
 	}
-
-	if found[localTarget] == false {
-		t.Error("Local target should be in results")
-	}
-	if found[remoteTarget] == false {
-		t.Error("Remote target should be in results")
-	}
-
-	// Verify internal state: both relations stored
-	if len(tm.monitorRelations) != 2 {
-		t.Errorf("expected 2 monitorRelations, got %d", len(tm.monitorRelations))
-	}
-
-	// Verify targetIndex for remote target has consumer
-	entry := tm.targetIndex[remoteTarget]
-	if entry == nil {
-		t.Fatal("targetIndex for remoteTarget should exist")
-	}
-	if _, exists := entry.consumers[consumer]; exists == false {
-		t.Error("consumer should be in targetIndex.consumers for remoteTarget")
+	if found[local] == false || found[remote] == false {
+		t.Errorf("missing targets: %v", targets)
 	}
 }
 
-// Link and Monitor to same target tests
-
 func TestLinkAndMonitor_SameTarget_SeparateRelations(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, core := newManagerWithMock("node1")
 	consumer := gen.PID{Node: "node1", ID: 100}
 	target := gen.PID{Node: "node2", ID: 200}
 
-	// Link
-	err := tm.LinkPID(consumer, target)
-	if err != nil {
+	if err := m.LinkPID(consumer, target); err != nil {
 		t.Fatalf("LinkPID failed: %v", err)
 	}
-
-	// Monitor (same consumer, same target)
-	err = tm.MonitorPID(consumer, target)
-	if err != nil {
+	if err := m.MonitorPID(consumer, target); err != nil {
 		t.Fatalf("MonitorPID failed: %v", err)
 	}
-
-	// Verify stored separately
-	key := relationKey{consumer: consumer, target: target}
-
-	if _, exists := tm.linkRelations[key]; exists == false {
-		t.Error("Link should exist in linkRelations")
+	if m.hasLinkRelation(consumer, target) == false {
+		t.Error("Link should exist")
+	}
+	if m.hasMonitorRelation(consumer, target) == false {
+		t.Error("Monitor should exist")
 	}
 
-	if _, exists := tm.monitorRelations[key]; exists == false {
-		t.Error("Monitor should exist in monitorRelations")
-	}
-
-	// Verify targetIndex has consumer (shared)
-	entry := tm.targetIndex[target]
-	if _, exists := entry.consumers[consumer]; exists == false {
-		t.Error("Consumer should be in targetIndex")
-	}
-
-	// Verify network requests
-	// LinkPID first - sends request
+	// Both wire-link and wire-monitor go out because they live in
+	// separate (target, kind) wirePresence slots.
 	if core.countSentLinks() != 1 {
-		t.Errorf("Expected 1 LinkPID, got %d", core.countSentLinks())
+		t.Errorf("Expected 1 wire LinkPID, got %d", core.countSentLinks())
 	}
-
-	// MonitorPID second - does NOT send (allowAlwaysFirst=false after Link!)
-	// This is correct - allowAlwaysFirst is per-target, not per-relation-type
-	if core.countSentMonitors() != 0 {
-		t.Logf("MonitorPID did not send network request (allowAlwaysFirst=false after Link) - this is correct")
+	if core.countSentMonitors() != 1 {
+		t.Errorf("Expected 1 wire MonitorPID, got %d", core.countSentMonitors())
 	}
 }
 
-// EventsFor tests
+// EventsFor
 
 func TestEventsFor_Basic(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	producer := gen.PID{Node: "node1", ID: 100}
 
-	// Register 3 events
-	tm.RegisterEvent(producer, "event1", gen.EventOptions{})
-	tm.RegisterEvent(producer, "event2", gen.EventOptions{})
-	tm.RegisterEvent(producer, "event3", gen.EventOptions{})
+	m.RegisterEvent(producer, "event1", gen.EventOptions{})
+	m.RegisterEvent(producer, "event2", gen.EventOptions{})
+	m.RegisterEvent(producer, "event3", gen.EventOptions{})
 
-	// Get events for producer
-	events := tm.EventsFor(producer)
-
+	events := m.EventsFor(producer)
 	if len(events) != 3 {
 		t.Errorf("Expected 3 events, got %d", len(events))
 	}
-
-	// Check all events are present
-	eventNames := make(map[gen.Atom]bool)
+	names := map[gen.Atom]bool{}
 	for _, e := range events {
-		eventNames[e.Name] = true
+		names[e.Name] = true
 	}
-
-	if eventNames["event1"] == false || eventNames["event2"] == false || eventNames["event3"] == false {
-		t.Error("Not all events returned")
+	if names["event1"] == false || names["event2"] == false || names["event3"] == false {
+		t.Errorf("missing event names: %v", names)
 	}
-
-	// Verify internal state: all events in events map
-	if len(tm.events) != 3 {
-		t.Errorf("expected 3 events in tm.events, got %d", len(tm.events))
+	if m.totalEvents() != 3 {
+		t.Errorf("expected 3 events, got %d", m.totalEvents())
 	}
-
-	// Verify producerEvents has 3 events for this producer
-	producerEvts := tm.producerEvents[producer]
-	if producerEvts == nil {
-		t.Fatal("producerEvents should exist for producer")
-	}
-	if len(producerEvts) != 3 {
-		t.Errorf("expected 3 events in producerEvents, got %d", len(producerEvts))
+	if pe := m.producerEvents(producer); len(pe) != 3 {
+		t.Errorf("expected 3 producer events, got %d", len(pe))
 	}
 }
 
 func TestEventsFor_UnknownProducer(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	producer := gen.PID{Node: "node1", ID: 100}
 	other := gen.PID{Node: "node1", ID: 200}
 
-	// Register event for producer
-	tm.RegisterEvent(producer, "test", gen.EventOptions{})
+	m.RegisterEvent(producer, "test", gen.EventOptions{})
 
-	// Get events for unknown producer
-	events := tm.EventsFor(other)
-
-	if events != nil {
+	if events := m.EventsFor(other); events != nil {
 		t.Errorf("Expected nil for unknown producer, got %v", events)
 	}
 }
 
 func TestEventsFor_AfterUnregister(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	producer := gen.PID{Node: "node1", ID: 100}
 
-	tm.RegisterEvent(producer, "event1", gen.EventOptions{})
-	tm.RegisterEvent(producer, "event2", gen.EventOptions{})
+	m.RegisterEvent(producer, "event1", gen.EventOptions{})
+	m.RegisterEvent(producer, "event2", gen.EventOptions{})
+	m.UnregisterEvent(producer, "event1")
 
-	// Unregister one
-	tm.UnregisterEvent(producer, "event1")
-
-	events := tm.EventsFor(producer)
-
+	events := m.EventsFor(producer)
 	if len(events) != 1 {
 		t.Errorf("Expected 1 event after unregister, got %d", len(events))
 	}
-
 	if events[0].Name != "event2" {
 		t.Errorf("Wrong event remaining: %v", events[0].Name)
 	}
-
-	// Verify internal state: event1 removed from events map
-	event1 := gen.Event{Node: "node1", Name: "event1"}
-	if _, exists := tm.events[event1]; exists {
-		t.Error("event1 should be removed from tm.events")
+	if m.getEventEntry(gen.Event{Node: "node1", Name: "event1"}) != nil {
+		t.Error("event1 should be removed from m.events")
 	}
-
-	// Verify event2 still in events map
-	event2 := gen.Event{Node: "node1", Name: "event2"}
-	if _, exists := tm.events[event2]; exists == false {
-		t.Error("event2 should still exist in tm.events")
-	}
-
-	// Verify producerEvents has 1 event
-	producerEvts := tm.producerEvents[producer]
-	if len(producerEvts) != 1 {
-		t.Errorf("expected 1 event in producerEvents, got %d", len(producerEvts))
+	if m.getEventEntry(gen.Event{Node: "node1", Name: "event2"}) == nil {
+		t.Error("event2 should still exist in m.events")
 	}
 }
 
 func TestEventsFor_Empty(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	producer := gen.PID{Node: "node1", ID: 100}
 
-	events := tm.EventsFor(producer)
-
-	if events != nil {
-		t.Errorf("Expected nil for producer with no events, got %v", events)
+	if events := m.EventsFor(producer); events != nil {
+		t.Errorf("Expected nil, got %v", events)
 	}
 }
 
 func TestEventsFor_AfterUnregisterAll(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
-
+	m, _ := newManagerWithMock("node1")
 	producer := gen.PID{Node: "node1", ID: 100}
 
-	tm.RegisterEvent(producer, "event1", gen.EventOptions{})
-	tm.RegisterEvent(producer, "event2", gen.EventOptions{})
+	m.RegisterEvent(producer, "event1", gen.EventOptions{})
+	m.RegisterEvent(producer, "event2", gen.EventOptions{})
+	m.UnregisterEvent(producer, "event1")
+	m.UnregisterEvent(producer, "event2")
 
-	// Unregister all
-	tm.UnregisterEvent(producer, "event1")
-	tm.UnregisterEvent(producer, "event2")
-
-	events := tm.EventsFor(producer)
-
-	if events != nil {
-		t.Errorf("Expected nil after unregister all, got %v", events)
+	if events := m.EventsFor(producer); events != nil {
+		t.Errorf("Expected nil, got %v", events)
 	}
-
-	// Verify internal state: all events removed from events map
-	event1 := gen.Event{Node: "node1", Name: "event1"}
-	event2 := gen.Event{Node: "node1", Name: "event2"}
-	if _, exists := tm.events[event1]; exists {
-		t.Error("event1 should be removed from tm.events")
-	}
-	if _, exists := tm.events[event2]; exists {
-		t.Error("event2 should be removed from tm.events")
-	}
-
-	// Verify producerEvents cleaned up
-	if _, exists := tm.producerEvents[producer]; exists {
-		t.Error("producerEvents for producer should be cleaned up")
+	if m.totalEvents() != 0 {
+		t.Errorf("expected 0 events, got %d", m.totalEvents())
 	}
 }
 
 func TestEventsFor_MultipleProducers(t *testing.T) {
-	core := newMockCore("node1")
-	tm := Create(core, Options{}).(*targetManager)
+	m, _ := newManagerWithMock("node1")
+	p1 := gen.PID{Node: "node1", ID: 100}
+	p2 := gen.PID{Node: "node1", ID: 101}
 
-	producer1 := gen.PID{Node: "node1", ID: 100}
-	producer2 := gen.PID{Node: "node1", ID: 101}
+	m.RegisterEvent(p1, "event1", gen.EventOptions{})
+	m.RegisterEvent(p1, "event2", gen.EventOptions{})
+	m.RegisterEvent(p2, "event3", gen.EventOptions{})
 
-	// Producer1 has 2 events
-	tm.RegisterEvent(producer1, "event1", gen.EventOptions{})
-	tm.RegisterEvent(producer1, "event2", gen.EventOptions{})
-
-	// Producer2 has 1 event
-	tm.RegisterEvent(producer2, "event3", gen.EventOptions{})
-
-	// Get events for producer1
-	events1 := tm.EventsFor(producer1)
-	if len(events1) != 2 {
-		t.Errorf("Expected 2 events for producer1, got %d", len(events1))
+	if events := m.EventsFor(p1); len(events) != 2 {
+		t.Errorf("Expected 2 events for p1, got %d", len(events))
 	}
-
-	// Get events for producer2
-	events2 := tm.EventsFor(producer2)
-	if len(events2) != 1 {
-		t.Errorf("Expected 1 event for producer2, got %d", len(events2))
+	if events := m.EventsFor(p2); len(events) != 1 {
+		t.Errorf("Expected 1 event for p2, got %d", len(events))
 	}
 }

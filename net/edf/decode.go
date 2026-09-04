@@ -19,12 +19,34 @@ var (
 	errType = reflect.TypeOf((*error)(nil)).Elem()
 )
 
+// maxDecodeArrayBytes caps a fixed-size array decoded from an untrusted type
+// descriptor. Unlike a slice or map, an array is allocated whole from its type
+// before any element data is read, so this is a hard limit on the array type
+// the decoder is willing to construct.
+const maxDecodeArrayBytes = 1 << 24
+
+// preallocCount returns how many elements the decoder may eagerly allocate for
+// a slice or map holding n elements of the given size. An element occupies at
+// least one byte on the wire, so the remaining packet (avail) bounds the count:
+// a bogus length can no longer force an allocation larger than the data that
+// could actually fill it. The container grows as its elements are decoded.
+func preallocCount(n, avail int, elemSize uintptr) int {
+	if elemSize < 1 {
+		elemSize = 1
+	}
+	if limit := avail / int(elemSize); n > limit {
+		return limit
+	}
+	return n
+}
+
 type stateDecode struct {
 	child   *stateDecode
 	options Options
 
 	decodeType bool
 	decoder    *decoder
+	depth      int
 }
 
 // Decode
@@ -37,31 +59,11 @@ func Decode(packet []byte, options Options) (_ any, _ []byte, ret error) {
 		}()
 	}
 
-	// Use pooled state instead of allocation
 	state := getPooledStateDecode(options)
 	defer putPooledStateDecode(state)
 	state.decodeType = true
 
-	dec, packet, err := getDecoder(packet, state)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if dec == nil {
-		return nil, packet, nil
-	}
-	state.decoder = dec
-	v := reflect.Indirect(reflect.New(dec.Type))
-
-	value, packet, err := dec.Decode(&v, packet, state)
-	if err != nil {
-		return nil, nil, fmt.Errorf("malformed EDF: %w", err)
-	}
-
-	if value == nil {
-		return v.Interface(), packet, nil
-	}
-	return value.Interface(), packet, nil
+	return decodeWithStats(packet, state)
 }
 
 func getDecoder(packet []byte, state *stateDecode) (*decoder, []byte, error) {
@@ -170,6 +172,10 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			return nil, nil, fmt.Errorf("extra data in folded type (map): %#v", f)
 		}
 
+		if decKey.Type.Comparable() == false {
+			return nil, nil, fmt.Errorf("map key type %s is not comparable", decKey.Type)
+		}
+
 		vtype := reflect.MapOf(decKey.Type, decValue.Type)
 
 		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
@@ -208,7 +214,7 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 				return nil, nil, fmt.Errorf("incorrect data length")
 			}
 
-			x := reflect.MakeMapWithSize(vtype, n)
+			x := reflect.MakeMapWithSize(vtype, preallocCount(n, len(packet), decKey.Type.Size()+decValue.Type.Size()))
 			if value == nil {
 				value = &x
 			} else {
@@ -301,12 +307,8 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 				return nil, nil, fmt.Errorf("incorrect data length")
 			}
 
-			x := reflect.MakeSlice(vtype, n, n)
-			if value == nil {
-				value = &x
-			} else {
-				value.Set(x)
-			}
+			alloc := preallocCount(n, len(packet), decItem.Type.Size())
+			x := reflect.MakeSlice(vtype, alloc, alloc)
 
 			if state.child == nil {
 				state.child = getPooledStateDecode(state.options)
@@ -314,7 +316,14 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			state = state.child
 
 			for i := 0; i < n; i++ {
-				item := value.Index(i)
+				if i == x.Len() {
+					grow := preallocCount(n-i, len(packet), decItem.Type.Size())
+					if grow < 1 {
+						grow = 1
+					}
+					x = reflect.AppendSlice(x, reflect.MakeSlice(vtype, grow, grow))
+				}
+				item := x.Index(i)
 				_, p, err := decItem.Decode(&item, packet, state)
 				if err != nil {
 					return nil, nil, err
@@ -322,6 +331,11 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 				packet = p
 			}
 
+			if value == nil {
+				value = &x
+			} else {
+				value.Set(x)
+			}
 			return value, packet, nil
 		}
 
@@ -350,6 +364,10 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 		}
 		if len(f) > 0 {
 			return nil, nil, fmt.Errorf("extra data in folded type (array): %#v", f)
+		}
+
+		if sz := int(decItem.Type.Size()); sz > 0 && n > maxDecodeArrayBytes/sz {
+			return nil, nil, fmt.Errorf("array length %d exceeds decode limit", n)
 		}
 
 		vtype := reflect.ArrayOf(n, decItem.Type)
@@ -397,6 +415,66 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 
 	case edtReg:
 		return getRegDecoder(fold[1:], state)
+
+	case edtPtr:
+		// unfold element type
+		decElem, f, err := decodeType(fold[1:], state)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to unfold type (pointer): %s", err)
+		}
+
+		ptrType := reflect.PointerTo(decElem.Type)
+
+		fdec := func(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
+			if len(packet) == 0 {
+				return nil, nil, errDecodeEOD
+			}
+
+			if packet[0] == edtNil {
+				// nil pointer
+				packet = packet[1:]
+				return nil, packet, nil
+			}
+
+			if packet[0] != edtPtr {
+				return nil, nil, fmt.Errorf("incorrect pointer type %d", packet[0])
+			}
+			packet = packet[1:]
+
+			// use child state with decodeType = false (default)
+			if state.child == nil {
+				state.child = getPooledStateDecode(state.options)
+			}
+			state = state.child
+
+			// decode element value
+			elem := reflect.Indirect(reflect.New(decElem.Type))
+			_, packet, err := decElem.Decode(&elem, packet, state)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			// create pointer and set value
+			ptr := reflect.New(decElem.Type)
+			ptr.Elem().Set(elem)
+
+			if value == nil {
+				value = &ptr
+			} else {
+				value.Set(ptr)
+			}
+			return value, packet, nil
+		}
+
+		dec := decoder{
+			Type:   ptrType,
+			Decode: fdec,
+		}
+		if state.options.Cache != nil {
+			state.options.Cache.LoadOrStore(string(fold), &dec)
+		}
+
+		return &dec, f, nil
 	}
 
 	if v, found := decoders.Load(fold[0]); found {
@@ -626,8 +704,8 @@ func decodeString(value *reflect.Value, packet []byte, state *stateDecode) (*ref
 	if len(packet) < 2 {
 		return nil, nil, errDecodeEOD
 	}
-	l := binary.BigEndian.Uint16(packet)
-	if len(packet) < int(2+l) {
+	l := int(binary.BigEndian.Uint16(packet))
+	if len(packet) < 2+l {
 		return nil, nil, errDecodeEOD
 	}
 
@@ -663,14 +741,14 @@ func decodeBinary(value *reflect.Value, packet []byte, state *stateDecode) (*ref
 		return nil, nil, errDecodeEOD
 	}
 	l := binary.BigEndian.Uint32(packet)
-	if len(packet) < int(4+l) {
+	if uint64(len(packet)) < uint64(l)+4 {
 		return nil, nil, errDecodeEOD
 	}
 
 	// we can't reuse the underlying slice since it is a part of the buffer
 	// which is bringing back to the buffer pool after all.
-	bin := append([]byte{}, packet[4:4+l]...)
-	packet = packet[4+l:]
+	bin := append([]byte{}, packet[4:4+int(l)]...)
+	packet = packet[4+int(l):]
 
 	if value == nil {
 		v := reflect.ValueOf(bin)
@@ -1179,29 +1257,73 @@ func decodeError(value *reflect.Value, packet []byte, state *stateDecode) (*refl
 	id := binary.BigEndian.Uint16(packet)
 	packet = packet[2:]
 
-	if id == math.MaxUint16 {
-		// nil value
+	switch {
+	case id == 0xFFFF:
 		return value, packet, nil
-	}
-
-	if id > math.MaxInt16 {
-		// registered error
+	case id == 0xFFFE:
+		state.depth++
+		maxDepth := state.options.MaxDepth
+		if maxDepth == 0 {
+			maxDepth = maxEncodeDepth
+		}
+		if state.depth > maxDepth {
+			state.depth--
+			return nil, nil, ErrMaxDepthExceeded
+		}
+		if len(packet) < 2 {
+			state.depth--
+			return nil, nil, errDecodeEOD
+		}
+		msgLen := int(binary.BigEndian.Uint16(packet))
+		packet = packet[2:]
+		if len(packet) < msgLen {
+			state.depth--
+			return nil, nil, errDecodeEOD
+		}
+		msg := string(packet[:msgLen])
+		packet = packet[msgLen:]
+		if len(packet) < 2 {
+			state.depth--
+			return nil, nil, errDecodeEOD
+		}
+		wcount := int(binary.BigEndian.Uint16(packet))
+		packet = packet[2:]
+		var wrapped []error
+		if wcount > 0 {
+			wrapped = make([]error, wcount)
+			prevDecodeType := state.decodeType
+			state.decodeType = false
+			for i := 0; i < wcount; i++ {
+				wv, rest, derr := decodeError(nil, packet, state)
+				if derr != nil {
+					state.decodeType = prevDecodeType
+					state.depth--
+					return nil, nil, derr
+				}
+				if wv != nil {
+					wrapped[i] = wv.Interface().(error)
+				}
+				packet = rest
+			}
+			state.decodeType = prevDecodeType
+		}
+		state.depth--
+		err = &gen.Error{Msg: msg, Wrapped: wrapped}
+	case id > math.MaxInt16:
 		if state.options.ErrCache == nil {
 			return nil, nil, fmt.Errorf("no ErrCache to decode id %d", id)
 		}
-
 		v, found := state.options.ErrCache.Load(id)
 		if found == false {
 			return nil, nil, fmt.Errorf("unknown ErrCache id %d", id)
 		}
 		err = v.(error)
-	} else {
-		// regular error. id has a length value
+	default:
 		l := int(id)
 		if len(packet) < l {
 			return nil, nil, errDecodeEOD
 		}
-		err = fmt.Errorf(string(packet[:l]))
+		err = fmt.Errorf("%s", string(packet[:l]))
 		packet = packet[l:]
 	}
 

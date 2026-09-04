@@ -70,6 +70,7 @@ type ActorBehavior interface {
     // Specialized callbacks
     HandleLog(message gen.MessageLog) error
     HandleEvent(message gen.MessageEvent) error
+    HandleSpan(message gen.TracingSpan) error
     HandleInspect(from gen.PID, item ...string) map[string]string
 }
 ```
@@ -281,7 +282,15 @@ func (w *Worker) Terminate(reason error) {
 
 At this point, the process is in `ProcessStateTerminated` and has been removed from the node. Most `gen.Process` methods return `gen.ErrNotAllowed`. You can still send messages (fire-and-forget), but you can't make calls, create links, or spawn children.
 
-If a panic occurs during `Init`, `HandleMessage`, or `HandleCall`, the framework catches it, logs the stack trace, and terminates the process with `gen.TerminateReasonPanic`. The `Terminate` callback still runs, giving you a chance to clean up.
+If a panic occurs during `Init`, `HandleMessage`, or `HandleCall`, the framework catches it and terminates the process with `gen.TerminateReasonPanic`. The `Terminate` callback still runs, giving you a chance to clean up.
+
+What gets logged is the panic value and **one** frame - the function, file and line the recovery saw - not a stack trace:
+
+```
+Actor terminated. Panic reason: "index out of range [3] with length 2" at myapp.(*Worker).HandleMessage[worker.go:42]
+```
+
+That is usually enough to find the line, but not to see how you got there. For the full picture, build with `-tags=norecover` and let the panic take the node down with Go's own stack trace, or take a goroutine dump while the actor is still alive.
 
 ## Trapping Exit Signals
 
@@ -369,11 +378,25 @@ If your actor is registered as a logger (via `node.AddLogger(pid, level)`), it r
 
 ```go
 func (w *Worker) HandleLog(message gen.MessageLog) error {
-    // Format and write log message
-    fmt.Printf("[%s] %s: %s\n", message.Level, message.PID, message.Message)
+    // The text is Format plus Args, not a preformatted string
+    text := fmt.Sprintf(message.Format, message.Args...)
+
+    // Who logged it is in Source, one of four types
+    switch src := message.Source.(type) {
+    case gen.MessageLogProcess:
+        fmt.Printf("[%s] %s: %s\n", message.Level, src.PID, text)
+    case gen.MessageLogNode:
+        fmt.Printf("[%s] %s: %s\n", message.Level, src.Node, text)
+    default:
+        fmt.Printf("[%s] %s\n", message.Level, text)
+    }
     return nil
 }
 ```
+
+`gen.MessageLog` carries `Time`, `Level`, `Source`, `Format`, `Args` and `Fields`. There is no `PID` field and no preformatted `Message`: the origin is in `Source`, which is a `gen.MessageLogProcess`, `gen.MessageLogNode`, `gen.MessageLogNetwork`, `gen.MessageLogMeta` or `gen.MessageLogApplication`, and the text is yours to format.
+
+Nor is there a stack trace in the message. A logger that wants one on a panic captures it itself, with `runtime.Callers` inside `HandleLog` - that runs synchronously in the framework's recover defer, so the panic frames are still walkable. `logger/sentry` does exactly this.
 
 Log messages have the lowest priority. They're processed after Urgent, System, and Main are empty. This prevents logging from starving regular message processing.
 
@@ -382,8 +405,8 @@ Log messages have the lowest priority. They're processed after Urgent, System, a
 If your actor subscribed to an event (via `LinkEvent` or `MonitorEvent`), it receives event messages:
 
 ```go
-func (w *Worker) HandleEvent(message gen.MessageEvent) error {
-    switch message.Name {
+func (w *Worker) HandleEvent(event gen.MessageEvent) error {
+    switch event.Event.Name {
     case "config_updated":
         w.reloadConfig()
     case "cache_invalidated":
@@ -393,7 +416,7 @@ func (w *Worker) HandleEvent(message gen.MessageEvent) error {
 }
 ```
 
-Events arrive in the System queue (high priority). Use them for cross-cutting concerns where multiple actors need to react to the same occurrence.
+Events arrive in the queue the **producer's** send priority selects, not in a queue reserved for events: `High` puts them in System, `Max` in Urgent, and anything else - including the default `Normal` - in Main. So an event is ordinary Main-queue traffic unless the publisher deliberately raised its priority. Use events for cross-cutting concerns where multiple actors need to react to the same occurrence.
 
 ### Inspection
 
@@ -420,6 +443,8 @@ info, err := node.Inspect(workerPID)
 ```
 
 Both methods only work for local processes (same node). Inspection requests go to the Urgent queue and bypass normal message processing. Keep `HandleInspect` implementation fast - don't do expensive computations or I/O. Return only string values (serialization limitation). The optional `item` parameters allow filtering which fields to return, though most implementations ignore them and return all fields.
+
+What you choose to expose here decides what can be diagnosed later, and everything built on top of it - the observer view, cluster-wide diagnostics, an AI agent correlating state with your source - is bounded by that choice. See [Inspecting Actor State](../advanced/inspecting-state.md).
 
 ## Actor Pools
 

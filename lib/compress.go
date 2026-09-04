@@ -10,11 +10,14 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"runtime"
 	"sync"
 )
 
 var (
-	gzipWriters [3]*sync.Pool
+	gzipWriters [3]chan *gzip.Writer
+	zlibWriters chan *zlib.Writer
+	lzwWriters  chan *lzw.Writer
 	gzipReaders = &sync.Pool{
 		New: func() any {
 			return nil
@@ -32,11 +35,22 @@ func CompressLZW(src *Buffer, preallocate uint) (dst *Buffer, err error) {
 	zBuffer.Allocate(int(preallocate) + 4)
 	binary.BigEndian.PutUint32(zBuffer.B[preallocate:], uint32(src.Len()))
 
-	zWriter := lzw.NewWriter(zBuffer, lzw.LSB, 8)
-	if _, err := zWriter.Write(src.B); err != nil {
+	var zWriter *lzw.Writer
+	select {
+	case zWriter = <-lzwWriters:
+		zWriter.Reset(zBuffer, lzw.LSB, 8)
+	default:
+		zWriter = lzw.NewWriter(zBuffer, lzw.LSB, 8).(*lzw.Writer)
+	}
+	_, err = zWriter.Write(src.B)
+	zWriter.Close()
+	select {
+	case lzwWriters <- zWriter:
+	default:
+	}
+	if err != nil {
 		return nil, err
 	}
-	zWriter.Close()
 	return zBuffer, nil
 }
 
@@ -50,11 +64,22 @@ func CompressZLIB(src *Buffer, preallocate uint) (dst *Buffer, err error) {
 	zBuffer.Allocate(int(preallocate) + 4)
 	binary.BigEndian.PutUint32(zBuffer.B[preallocate:], uint32(src.Len()))
 
-	zWriter := zlib.NewWriter(zBuffer)
-	if _, err := zWriter.Write(src.B); err != nil {
+	var zWriter *zlib.Writer
+	select {
+	case zWriter = <-zlibWriters:
+		zWriter.Reset(zBuffer)
+	default:
+		zWriter = zlib.NewWriter(zBuffer)
+	}
+	_, err = zWriter.Write(src.B)
+	zWriter.Close()
+	select {
+	case zlibWriters <- zWriter:
+	default:
+	}
+	if err != nil {
 		return nil, err
 	}
-	zWriter.Close()
 	return zBuffer, nil
 }
 
@@ -80,17 +105,21 @@ func CompressGZIP(src *Buffer, preallocate uint, level int) (dst *Buffer, err er
 		level = 0
 		lev = flate.DefaultCompression
 	}
-	if w, ok := gzipWriters[level].Get().(*gzip.Writer); ok {
-		zWriter = w
+	select {
+	case zWriter = <-gzipWriters[level]:
 		zWriter.Reset(zBuffer)
-	} else {
+	default:
 		zWriter, _ = gzip.NewWriterLevel(zBuffer, lev)
 	}
-	if _, err := zWriter.Write(src.B); err != nil {
+	_, err = zWriter.Write(src.B)
+	zWriter.Close()
+	select {
+	case gzipWriters[level] <- zWriter:
+	default:
+	}
+	if err != nil {
 		return nil, err
 	}
-	zWriter.Close()
-	gzipWriters[level].Put(zWriter)
 	return zBuffer, nil
 }
 
@@ -176,11 +205,13 @@ func decompress(dst []byte, reader io.Reader) error {
 }
 
 func init() {
-	for i := range gzipWriters {
-		gzipWriters[i] = &sync.Pool{
-			New: func() any {
-				return nil
-			},
-		}
+	size := 4 * runtime.GOMAXPROCS(0)
+	if size < 8 {
+		size = 8
 	}
+	for i := range gzipWriters {
+		gzipWriters[i] = make(chan *gzip.Writer, size)
+	}
+	zlibWriters = make(chan *zlib.Writer, size)
+	lzwWriters = make(chan *lzw.Writer, size)
 }

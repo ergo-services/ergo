@@ -31,6 +31,8 @@ type supARFO struct {
 	restartI       int
 	wait           map[gen.PID]bool
 
+	history []supRestartEvent
+
 	i int
 }
 
@@ -48,6 +50,7 @@ func (s *supARFO) init(spec SupervisorSpec) (supAction, error) {
 		}
 		cs.register = true
 		cs.i = s.i
+		cs.effStrategy = resolveStrategy(s.restart.Strategy, c.Restart.Strategy)
 		s.i++
 		s.spec = append(s.spec, &cs)
 	}
@@ -72,6 +75,16 @@ func (s *supARFO) childAddSpec(spec SupervisorChildSpec) (supAction, error) {
 	if err := validateChildSpec(spec); err != nil {
 		return action, err
 	}
+	t := SupervisorTypeAllForOne
+	if s.rest {
+		t = SupervisorTypeRestForOne
+	}
+	if err := validateChildRestart(spec.Restart, t); err != nil {
+		return action, fmt.Errorf("%w: %s", ErrSupervisorInvalidSpec, err)
+	}
+	if err := validateChildOptions(spec.Options, t); err != nil {
+		return action, fmt.Errorf("%w: %s", ErrSupervisorInvalidSpec, err)
+	}
 
 	for _, cs := range s.spec {
 		if cs.Name == spec.Name {
@@ -84,6 +97,7 @@ func (s *supARFO) childAddSpec(spec SupervisorChildSpec) (supAction, error) {
 	}
 	cs.register = true
 	cs.i = s.i
+	cs.effStrategy = resolveStrategy(s.restart.Strategy, spec.Restart.Strategy)
 	s.i++
 	s.spec = append(s.spec, &cs)
 
@@ -234,6 +248,13 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 
 	if s.mode == 2 { // stopping (restarting)
 
+		if specI < s.restartI {
+			// terminated child is below the restart position (e.g. an
+			// out-of-order or independent exit arrived). Lower the position so
+			// it is included in the restart range.
+			s.restartI = specI
+		}
+
 		if s.keeporder == false {
 			if len(s.wait) > 0 {
 				// return action with empty list. just wait for the child processes
@@ -244,14 +265,11 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 
 		} else {
 			if len(s.wait) > 0 {
-				// must be 0
-				panic(gen.ErrInternal)
-			}
-
-			if specI < s.restartI {
-				// terminated child is not among we are waiting for termination.
-				// update the position
-				s.restartI = specI
+				// still waiting for other children to terminate. This child died
+				// out of order (or on its own) while we were sequentially stopping
+				// the group; keep waiting for the rest.
+				action.do = supActionTerminateChildren
+				return action
 			}
 
 			terminate := s.childrenForTermination()
@@ -283,7 +301,7 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 	}
 
 	// activate restart strategy
-	switch s.restart.Strategy {
+	switch spec.effStrategy {
 	case SupervisorStrategyTemporary:
 		if spec.Significant {
 			// significant child has terminated.
@@ -353,14 +371,24 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 
 	if exceeded {
 		// exceeded intensity. start supervisor termination
+		s.shutdownReason = gen.Errorf("supervisor restart intensity exceeded (max %d in %ds): %w: %w",
+			s.restart.Intensity, s.restart.Period, gen.ErrExceeded, reason)
+
+		if len(runningChildren) == 0 {
+			action.do = supActionTerminate
+			action.reason = s.shutdownReason
+			return action
+		}
+
 		action.terminate = runningChildren
 		action.do = supActionTerminateChildren
-		action.reason = ErrSupervisorRestartsExceeded
+		action.reason = gen.ErrExceeded
 		s.wait = wait
 		s.mode = 3 // shutdown
-		s.shutdownReason = reason
 		return action
 	}
+
+	s.history = supAppendHistory(s.history, spec.Name, reason)
 
 	//
 	// activate restart strategy
@@ -389,6 +417,7 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 
 func (s *supARFO) childEnable(name gen.Atom) (supAction, error) {
 	var action supAction
+	var empty gen.PID
 	if s.mode != 0 {
 		return action, ErrSupervisorStrategyActive
 	}
@@ -401,6 +430,11 @@ func (s *supARFO) childEnable(name gen.Atom) (supAction, error) {
 		if cs.disabled == false {
 			// do nothing. its already enabled
 			return action, nil
+		}
+
+		if cs.pid != empty {
+			// still terminating after DisableChild; retry once it has stopped
+			return action, ErrSupervisorChildRunning
 		}
 
 		// it was disabled. enable it and start child process with this spec
@@ -433,11 +467,12 @@ func (s *supARFO) childDisable(name gen.Atom) (supAction, error) {
 			return action, nil
 		}
 
+		cs.disabled = true
+
 		if cs.pid == empty {
 			return action, nil
 		}
 
-		cs.disabled = true
 		action.do = supActionTerminateChildren
 		action.terminate = []gen.PID{cs.pid}
 		action.reason = gen.TerminateReasonShutdown
@@ -462,16 +497,16 @@ func (s *supARFO) inspect(items ...string) map[string]string {
 	result := make(map[string]string)
 
 	if s.rest {
-		result["type"] = "Rest For One"
+		result["ergo:type"] = "Rest For One"
 	} else {
-		result["type"] = "All For One"
+		result["ergo:type"] = "All For One"
 	}
-	result["strategy"] = s.restart.Strategy.String()
-	result["intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
-	result["period"] = fmt.Sprintf("%d", s.restart.Period)
-	result["keep_order"] = fmt.Sprintf("%t", s.keeporder)
-	result["auto_shutdown"] = fmt.Sprintf("%t", s.autoshutdown)
-	result["restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
+	result["ergo:strategy"] = s.restart.Strategy.String()
+	result["ergo:intensity"] = fmt.Sprintf("%d", s.restart.Intensity)
+	result["ergo:period"] = fmt.Sprintf("%d", s.restart.Period)
+	result["ergo:keep_order"] = fmt.Sprintf("%t", s.keeporder)
+	result["ergo:auto_shutdown"] = fmt.Sprintf("%t", s.autoshutdown)
+	result["ergo:restarts_count"] = fmt.Sprintf("%d", len(s.restarts))
 
 	totalChildren := len(s.spec)
 	runningChildren := 0
@@ -485,9 +520,11 @@ func (s *supARFO) inspect(items ...string) map[string]string {
 		}
 	}
 
-	result["children_total"] = fmt.Sprintf("%d", totalChildren)
-	result["children_running"] = fmt.Sprintf("%d", runningChildren)
-	result["children_disabled"] = fmt.Sprintf("%d", disabledChildren)
+	result["ergo:children_total"] = fmt.Sprintf("%d", totalChildren)
+	result["ergo:children_running"] = fmt.Sprintf("%d", runningChildren)
+	result["ergo:children_disabled"] = fmt.Sprintf("%d", disabledChildren)
+
+	supHistoryToInspect(s.history, result)
 
 	return result
 }

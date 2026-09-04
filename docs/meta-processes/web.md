@@ -121,14 +121,7 @@ For dynamic topology where nodes join and leave unpredictably, use application d
 func (a *APIServer) handleRequest(w http.ResponseWriter, r *http.Request) {
     // Application discovery requires central registrar (etcd or Saturn)
     // See: networking/service-discovering.md
-    registrar, err := a.node.Network().Registrar()
-    if err != nil {
-        http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
-        return
-    }
-
-    resolver := registrar.Resolver()
-    routes, err := resolver.ResolveApplication("user-service")
+    routes, err := a.node.Network().ResolveApplication("user-service")
     if err != nil || len(routes) == 0 {
         http.Error(w, "Service unavailable", http.StatusServiceUnavailable)
         return
@@ -327,6 +320,14 @@ func (w *WebService) Init(args ...any) error {
     handler := meta.CreateWebHandler(meta.WebHandlerOptions{
         Worker:         "web-worker",
         RequestTimeout: 5 * time.Second,
+
+        // Own the response for a request that never reached a worker.
+        // Nil answers plain text, which a JSON client cannot read.
+        Refusal: func(w http.ResponseWriter, r *http.Request, status int, reason error) {
+            w.Header().Set("Content-Type", "application/json")
+            w.WriteHeader(status)
+            json.NewEncoder(w).Encode(map[string]string{"error": reason.Error()})
+        },
     })
 
     // Spawn handler meta-process
@@ -374,6 +375,22 @@ When a request arrives:
 9. `ServeHTTP()` returns, connection goroutine completes
 
 Critical: `ServeHTTP()` executes in `http.Server` goroutines, not in meta-process goroutines. WebHandler's External Reader remains blocked in `Start()` waiting for termination. WebHandler's Actor Handler never spawns because no messages arrive in its mailbox.
+
+### When the request never reaches a worker
+
+Four of those steps can fail, and each has its own status. The handler answers them itself - your worker is never involved:
+
+| Status | Reason | When |
+|--------|--------|------|
+| 503 | `ErrHandlerNotInitialized` | a request arrived before the meta finished starting |
+| 503 | `ErrHandlerTerminated` | the handler meta is gone |
+| 503 | `ErrHandlerNotReady` | the handler is up but not yet serving |
+| 502 | `ErrWorkerUnreachable` | the `Send` to the worker failed - wrong name, or the worker is not running |
+| 504 | `ErrWorkerTimeout` | the message was accepted but nothing answered within `RequestTimeout` |
+
+`RequestTimeout` defaults to **5 seconds** when left at zero.
+
+How the body is written is your choice. `WebHandlerOptions.Refusal` takes over the whole response, and leaving it nil answers with `http.Error` - plain text, which a client expecting JSON or gRPC cannot read. If your endpoint has an error contract of its own, set `Refusal`.
 
 ### Worker Implementation
 
@@ -454,7 +471,9 @@ func (w *WebService) Init(args ...any) error {
 
 Pool distributes incoming requests across 20 workers. Each worker processes one request at a time. System handles 20 concurrent requests.
 
-**Capacity control**: `PoolSize × WorkerMailboxSize` defines maximum requests the backend accepts. With 20 workers and 10 mailbox size, system capacity is 220 requests (20 processing + 200 queued). Beyond this, requests are shed - pool cannot forward to workers with full mailboxes.
+**Capacity control**: the backend holds `PoolSize` requests in flight plus `PoolSize × WorkerMailboxSize` queued behind them - with 20 workers and a mailbox of 10, that is 20 in progress and 200 queued, 220 in total. A message being handled has already been taken out of its mailbox, which is why the two terms add rather than one containing the other. It is not an admission limit, and past it requests are not shed quickly.
+
+What happens instead: the pool cannot place the message, so it drops and logs it. Nothing cancels the HTTP request waiting on that message, so the handler waits out `RequestTimeout` and answers **504 Gateway Timeout**. Every excess request therefore holds a connection for the whole timeout - five seconds by default. Under sustained overload that is worse than a fast rejection: keep `RequestTimeout` short on a public endpoint, watch the pool's `ergo:messages_unhandled`, and reject at the edge if you want a real 503.
 
 This limits load on backend systems. Database handles 20 concurrent queries maximum. External API gets 20 parallel requests maximum. Worker mailboxes buffer bursts without overwhelming downstream services.
 
@@ -501,6 +520,6 @@ Move to meta-processes when you specifically need:
 
 **WebSocket or long-lived connections**: Each connection must be an addressable actor that backend logic can push updates to. The simple approach cannot do this - it's request-response only. Meta-processes make each connection an independent actor with cluster-wide addressability.
 
-**Capacity control through mailbox limits**: Backend accepts exactly `PoolSize × WorkerMailboxSize` requests, no more. Beyond this, requests are rejected. This prevents memory exhaustion during overload. The simple approach queues unbounded requests in HTTP server.
+**Capacity control through mailbox limits**: the backend holds a bounded amount of work - `PoolSize` requests in flight plus `PoolSize × WorkerMailboxSize` queued behind them - instead of letting the HTTP server queue without limit. Note what "bounded" buys you: past that point the excess is dropped and each of those requests occupies a connection until `RequestTimeout` expires, as described above. It bounds memory, not latency.
 
 The simple approach handles thousands of requests per second with proper actor distribution. Use meta-processes only when the simple approach cannot provide required capabilities.

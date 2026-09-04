@@ -255,6 +255,20 @@ func (l *defaultLogger) writeSourceObjectDirect(buf *strings.Builder, source any
 			buf.WriteByte('"')
 		}
 		buf.WriteByte('}')
+	case MessageLogApplication:
+		buf.WriteString(`{"type":"application","node":"`)
+		l.writeEscapedStringDirect(buf, src.Node.CRC32())
+		buf.WriteString(`","name":"`)
+		l.writeEscapedStringDirect(buf, string(src.Name))
+		buf.WriteString(`","mode":"`)
+		l.writeEscapedStringDirect(buf, src.Mode.String())
+		buf.WriteByte('"')
+		if l.includeBehavior {
+			buf.WriteString(`,"behavior":"`)
+			l.writeEscapedStringDirect(buf, src.Behavior)
+			buf.WriteByte('"')
+		}
+		buf.WriteByte('}')
 	default:
 		buf.WriteString(`{"type":"unknown","raw":"`)
 		l.writeEscapedStringDirect(buf, fmt.Sprintf("%#v", source))
@@ -373,6 +387,9 @@ func (l *defaultLogger) logPlainText(m MessageLog) {
 		case MessageLogMeta:
 			buf.WriteByte(' ')
 			buf.WriteString(src.Behavior)
+		case MessageLogApplication:
+			buf.WriteByte(' ')
+			buf.WriteString(src.Behavior)
 		}
 	}
 
@@ -429,6 +446,12 @@ func (l *defaultLogger) writeSourceDirect(buf *strings.Builder, source any) {
 		buf.WriteString(src.PID.String())
 	case MessageLogMeta:
 		buf.WriteString(src.Meta.String())
+	case MessageLogApplication:
+		buf.WriteString("App#<")
+		buf.WriteString(src.Node.CRC32())
+		buf.WriteString(".'")
+		buf.WriteString(string(src.Name))
+		buf.WriteString("'>")
 	default:
 		fmt.Fprintf(buf, "%#v", source)
 	}

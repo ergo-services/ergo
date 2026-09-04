@@ -42,6 +42,12 @@ type ProcessBehavior interface {
 	// Can send cleanup messages but cannot Call, Link, or create resources.
 	// This method should not block or panic.
 	ProcessTerminate(reason error)
+
+	// ProcessKind classifies the process by its base behavior. The base
+	// behaviors (act.Actor, act.Supervisor, act.Pool, act.Router,
+	// act.WebWorker) report their own kind. A custom implementation may
+	// return ProcessKindCustom or any name of its own.
+	ProcessKind() ProcessKind
 }
 
 // ProcessFactory is a function that creates a new ProcessBehavior instance.
@@ -53,6 +59,93 @@ type ProcessFactory func() ProcessBehavior
 // Call it to cancel the scheduled operation.
 // Returns true if successfully cancelled, false if timer already expired.
 type CancelFunc func() bool
+
+// ProcessKind classifies a process by its role. Reported by the required
+// ProcessBehavior.ProcessKind method, called at spawn. Free string: the
+// constants below are a shared vocabulary, any other value is valid too.
+type ProcessKind string
+
+const (
+	// ProcessKindCustom indicates the behavior does not report its kind
+	// (a raw gen.ProcessBehavior implementation). This is the default.
+	ProcessKindCustom ProcessKind = "custom"
+
+	// Structure - framework topology behaviors (auto-reported).
+
+	// ProcessKindActor indicates a process built on act.Actor.
+	ProcessKindActor ProcessKind = "actor"
+	// ProcessKindSupervisor indicates a process built on act.Supervisor.
+	ProcessKindSupervisor ProcessKind = "supervisor"
+	// ProcessKindPool indicates a process built on act.Pool.
+	ProcessKindPool ProcessKind = "pool"
+	// ProcessKindRouter indicates a process built on act.Router.
+	ProcessKindRouter ProcessKind = "router"
+
+	// Behavior / flow - execution patterns.
+
+	// ProcessKindFSM indicates a finite state machine.
+	ProcessKindFSM ProcessKind = "fsm"
+	// ProcessKindSaga indicates a distributed transaction (saga) coordinator.
+	ProcessKindSaga ProcessKind = "saga"
+	// ProcessKindWorker indicates a task worker.
+	ProcessKindWorker ProcessKind = "worker"
+	// ProcessKindScheduler indicates a scheduler / timer-driven actor.
+	ProcessKindScheduler ProcessKind = "scheduler"
+	// ProcessKindQueue indicates a queue / dispatcher / buffer.
+	ProcessKindQueue ProcessKind = "queue"
+	// ProcessKindProducer indicates a pipeline source.
+	ProcessKindProducer ProcessKind = "producer"
+	// ProcessKindConsumer indicates a pipeline sink.
+	ProcessKindConsumer ProcessKind = "consumer"
+	// ProcessKindCoordinator indicates a manager / orchestrator.
+	ProcessKindCoordinator ProcessKind = "coordinator"
+
+	// Boundary / IO - system edges.
+
+	// ProcessKindWeb indicates a process built on act.WebWorker.
+	ProcessKindWeb ProcessKind = "web"
+	// ProcessKindGateway indicates an API / edge entry point.
+	ProcessKindGateway ProcessKind = "gateway"
+	// ProcessKindProxy indicates a proxy / relay / bridge.
+	ProcessKindProxy ProcessKind = "proxy"
+	// ProcessKindStream indicates a long-lived stream (websocket/sse) handler.
+	ProcessKindStream ProcessKind = "stream"
+	// ProcessKindBroker indicates a pub/sub or event-bus broker.
+	ProcessKindBroker ProcessKind = "broker"
+	// ProcessKindClient indicates a client/connector to an external service.
+	ProcessKindClient ProcessKind = "client"
+
+	// Data / state.
+
+	// ProcessKindStore indicates a persistence / repository actor.
+	ProcessKindStore ProcessKind = "store"
+	// ProcessKindCache indicates a cache actor.
+	ProcessKindCache ProcessKind = "cache"
+	// ProcessKindSession indicates a per-connection / per-user session actor.
+	ProcessKindSession ProcessKind = "session"
+
+	// Operations / observability.
+
+	// ProcessKindMetrics indicates a metrics exporter.
+	ProcessKindMetrics ProcessKind = "metrics"
+	// ProcessKindLeader indicates a leader-election participant acting as leader.
+	ProcessKindLeader ProcessKind = "leader"
+	// ProcessKindFollower indicates a leader-election participant acting as follower.
+	ProcessKindFollower ProcessKind = "follower"
+	// ProcessKindHealth indicates a health-probe actor.
+	ProcessKindHealth ProcessKind = "health"
+	// ProcessKindMonitor indicates a watcher / monitor actor.
+	ProcessKindMonitor ProcessKind = "monitor"
+	// ProcessKindLogger indicates a logging / audit actor.
+	ProcessKindLogger ProcessKind = "logger"
+)
+
+func (k ProcessKind) String() string {
+	if k == "" {
+		return string(ProcessKindCustom)
+	}
+	return string(k)
+}
 
 // ProcessState represents the current state of a process in its lifecycle.
 // States determine which Process interface methods are available.
@@ -74,9 +167,6 @@ func (p ProcessState) String() string {
 		return "zombee"
 	}
 	return fmt.Sprintf("state#%d", int32(p))
-}
-func (p ProcessState) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + p.String() + "\""), nil
 }
 
 const (
@@ -173,6 +263,11 @@ type Process interface {
 	// Available in all states.
 	Parent() PID
 
+	// Application returns the application this process runs under.
+	// Returns nil for processes spawned outside any application.
+	// Available in all states.
+	Application() Application
+
 	// Uptime returns process uptime in seconds since creation.
 	// Available in all states.
 	Uptime() int64
@@ -198,7 +293,7 @@ type Process interface {
 	// Other processes can send messages (using Send) or make requests (using Call) to this meta process.
 	// Meta processes are lightweight and handle messages in their own goroutine.
 	// Available in: Init, Running states.
-	// Returns ErrNotAllowed in other states.
+	// Returns ErrNotAllowed in other states, ErrTaken if the alias is already registered.
 	SpawnMeta(behavior MetaBehavior, options MetaOptions) (Alias, error)
 
 	// RemoteSpawn makes a request to a remote node to spawn a new process.
@@ -310,6 +405,12 @@ type Process interface {
 	// Returns ErrNotAllowed in other states, ErrIncorrect for invalid priority.
 	SetSendPriority(priority MessagePriority) error
 
+	// SetProcessKind overrides the kind classifier of this process. By default
+	// the kind is resolved at spawn from the base behavior; an actor may set any
+	// well-known gen.ProcessKind* value (or a custom name) to self-describe.
+	// Available in: Init, Running states. Returns ErrNotAllowed in other states.
+	SetProcessKind(kind ProcessKind) error
+
 	// SetKeepNetworkOrder enables or disables maintaining delivery order over the network.
 	// Disabling this option can improve network performance in some cases.
 	// Available in: Init, Running states.
@@ -340,6 +441,18 @@ type Process interface {
 	// Available in all states.
 	ImportantDelivery() bool
 
+	// SetTracingSampler sets the tracing sampler for this process.
+	// The sampler decides per outgoing message whether to start a new trace.
+	// Only consulted when there is no active propagating trace.
+	// Use TracingSamplerDisable to turn off (default).
+	// Available in: Init, Running states.
+	SetTracingSampler(sampler TracingSampler) error
+
+	// TracingSampler returns the current tracing sampler.
+	// Returns TracingSamplerDisable if tracing is not enabled.
+	// Available in all states.
+	TracingSampler() TracingSampler
+
 	// CreateAlias creates a new alias associated with this process.
 	// Other processes can send messages or make calls using this alias.
 	// Available in: Init, Running states.
@@ -360,7 +473,8 @@ type Process interface {
 	Events() []Atom
 
 	// Send sends an asynchronous message to the target.
-	// Target can be: PID, ProcessID, Alias, Atom (process name), or string (process name).
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other type returns ErrUnsupported.
 	// Available in: Init, Running, Terminated states.
 	// Returns ErrNotAllowed in other states.
 	Send(to any, message any) error
@@ -413,6 +527,19 @@ type Process interface {
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states (creates background timer task).
 	SendWithPriorityAfter(to any, message any, priority MessagePriority, after time.Duration) (CancelFunc, error)
+
+	// SendEvery starts a periodic timer. On each period it sends the message to
+	// the target, until the returned cancel function is called (or the send fails,
+	// e.g. the target terminated). Reuses a single timer, so it does not allocate
+	// per period.
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states (creates background timer task).
+	SendEvery(to any, message any, period time.Duration) (CancelFunc, error)
+
+	// SendWithPriorityEvery is SendEvery with the specified priority.
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states (creates background timer task).
+	SendWithPriorityEvery(to any, message any, priority MessagePriority, period time.Duration) (CancelFunc, error)
 
 	// SendEvent sends an event message to all subscribers (processes that linked or monitored this event).
 	// The event must be registered first using RegisterEvent.
@@ -525,7 +652,8 @@ type Process interface {
 
 	// Call makes a synchronous request with default timeout (5 seconds).
 	// Blocks the actor goroutine until response arrives or timeout occurs.
-	// Target can be: PID, ProcessID, Alias, Atom (process name), or string (process name).
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other type returns ErrUnsupported (a plain string is not accepted).
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout.
 	Call(to any, message any) (any, error)
@@ -603,80 +731,87 @@ type Process interface {
 	// Returns ErrNotAllowed in other states, ErrEventUnknown if event not found.
 	UnregisterEvent(name Atom) error
 
-	// Link creates a bidirectional link to the target.
-	// If either process terminates, the other receives an exit message and terminates too.
-	// Target can be: PID, ProcessID, Alias, Event, or Atom (node name).
+	// Link creates a directed link to the target: this process receives an exit
+	// message (and terminates too, unless trapping exit) when the target terminates.
+	// The link is one-directional - it does not notify the target when this
+	// process terminates. For parent/child links use ProcessOptions.LinkParent / LinkChild.
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other returns ErrUnsupported; use LinkEvent / LinkNode for those.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Link(target any) error
 
-	// Unlink removes a bidirectional link to the target.
+	// Unlink removes a directed link to the target.
+	// Takes the same target types as Link.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Unlink(target any) error
 
-	// LinkPID creates a bidirectional link to the process identified by PID.
-	// If either process terminates, the other receives an exit message.
+	// LinkPID creates a directed link to the process identified by PID.
+	// This process receives an exit message when the target terminates; it does
+	// not notify the target when this process terminates.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkPID(target PID) error
 
-	// UnlinkPID removes a bidirectional link to the process identified by PID.
+	// UnlinkPID removes a directed link to the process identified by PID.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkPID(target PID) error
 
-	// LinkProcessID creates a bidirectional link to the named process.
+	// LinkProcessID creates a directed link to the named process.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkProcessID(target ProcessID) error
 
-	// UnlinkProcessID removes a bidirectional link to the named process.
+	// UnlinkProcessID removes a directed link to the named process.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkProcessID(target ProcessID) error
 
-	// LinkAlias creates a bidirectional link to the process via alias.
+	// LinkAlias creates a directed link to the process via alias.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkAlias(target Alias) error
 
-	// UnlinkAlias removes a bidirectional link to the process via alias.
+	// UnlinkAlias removes a directed link to the process via alias.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkAlias(target Alias) error
 
-	// LinkEvent creates a bidirectional link to an event.
+	// LinkEvent creates a directed link to an event.
 	// This process will receive event messages and exit if the event is unregistered.
 	// Returns the last N event messages if buffering is enabled.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkEvent(target Event) ([]MessageEvent, error)
 
-	// UnlinkEvent removes a bidirectional link to an event.
+	// UnlinkEvent removes a directed link to an event.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkEvent(target Event) error
 
-	// LinkNode creates a bidirectional link to a node.
+	// LinkNode creates a directed link to a node.
 	// If the node disconnects, this process receives an exit message.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	LinkNode(target Atom) error
 
-	// UnlinkNode removes a bidirectional link to a node.
+	// UnlinkNode removes a directed link to a node.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	UnlinkNode(target Atom) error
 
 	// Monitor creates a unidirectional monitor to the target.
 	// If the target terminates, this process receives a down message (non-fatal).
-	// Target can be: PID, ProcessID, Alias, Event, or Atom (node name).
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Any other returns ErrUnsupported; use MonitorEvent / MonitorNode for those.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Monitor(target any) error
 
 	// Demonitor removes a unidirectional monitor to the target.
+	// Takes the same target types as Monitor.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
 	Demonitor(target any) error
@@ -745,6 +880,12 @@ type Process interface {
 	// Returns ErrNotAllowed in other states.
 	Info() (ProcessInfo, error)
 
+	// ShortInfo returns essential information about this process.
+	// Includes PID, name, state, behavior type, message and mailbox counters.
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states.
+	ShortInfo() (ProcessShortInfo, error)
+
 	// MetaInfo returns summary information about the given meta process.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states.
@@ -759,6 +900,58 @@ type Process interface {
 	// Behavior returns the ProcessBehavior implementation for this process.
 	// Available in all states.
 	Behavior() ProcessBehavior
+
+	// BehaviorName returns the string name of the behavior type.
+	// Available in all states.
+	BehaviorName() string
+
+	// PropagatingTrace returns the current propagating trace context.
+	// Zero value means no active trace.
+	PropagatingTrace() Tracing
+
+	// SetPropagatingTrace sets the propagating trace context.
+	// Used by ProcessBehavior implementations to manage trace context
+	// during message handling (save/restore around handler calls).
+	SetPropagatingTrace(t Tracing)
+
+	// SetTracingAttribute sets a permanent tracing attribute on this process.
+	// Permanent attributes are included in every span emitted by this process.
+	// Uses copy-on-write: safe for concurrent readers (exporters).
+	SetTracingAttribute(key, value string)
+
+	// RemoveTracingAttribute removes a permanent tracing attribute.
+	RemoveTracingAttribute(key string)
+
+	// SetTracingSpanAttribute sets a one-shot tracing attribute for the current handler.
+	// Cleared automatically after handler returns.
+	SetTracingSpanAttribute(key, value string)
+
+	// TracingAttributes returns merged permanent + one-shot attributes.
+	// Returns a slice reference (zero alloc) when only one type exists.
+	TracingAttributes() []TracingAttribute
+
+	// ClearTracingSpanAttributes clears one-shot attributes.
+	// Used by ProcessBehavior implementations after each handler returns.
+	ClearTracingSpanAttributes()
+
+	// CloseTracingSpans closes any business span left open by the handler.
+	// Used by ProcessBehavior implementations after each handler returns.
+	CloseTracingSpans()
+
+	// SendTracingSpan delivers a tracing span to registered exporters.
+	// Used by ProcessBehavior implementations to emit Processed spans.
+	SendTracingSpan(span TracingSpan)
+
+	// StartTracingSpan opens a business span at the current trace position and
+	// returns a scope to close with End/EndError (defer it). Use only within the
+	// current handler goroutine.
+	//
+	// When the handler already runs inside a trace the span is opened as a child -
+	// passive annotation that works with or without a sampler. When there is no
+	// active trace the tracing sampler decides: with a sampler the span starts a new
+	// trace and becomes its root (initiator); without a sampler it is a no-op, so an
+	// instrumented actor never forces tracing on its own.
+	StartTracingSpan(name string) TracingSpanScope
 
 	// Forward forwards a mailbox message to another process with the specified priority.
 	// This is a low-level operation for custom message routing.
@@ -781,10 +974,6 @@ func (mp MessagePriority) String() string {
 	return "undefined"
 }
 
-func (mp MessagePriority) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + mp.String() + "\""), nil
-}
-
 const MessagePriorityNormal MessagePriority = 0 // default
 const MessagePriorityHigh MessagePriority = 1
 const MessagePriorityMax MessagePriority = 2
@@ -795,6 +984,8 @@ type MessageOptions struct {
 	Compression       Compression
 	KeepNetworkOrder  bool
 	ImportantDelivery bool
+	Tracing           Tracing
+	TracingAttributes []TracingAttribute // sender's attrs for Sent span, nil = none
 }
 
 // ProcessOptions defines configuration options for spawning a process.
@@ -821,10 +1012,10 @@ type ProcessOptions struct {
 
 	// SendPriority sets the default priority for messages sent by this process.
 	// Messages are delivered to receiver's mailbox queues in this order:
-	//  - MessagePriorityMax → Mailbox.Urgent (highest priority)
-	//  - MessagePriorityHigh → Mailbox.System
-	//  - MessagePriorityNormal (default) → Mailbox.Main
-	// Receiver processes mailbox in order: Urgent → System → Main.
+	//  - MessagePriorityMax -> Mailbox.Urgent (highest priority)
+	//  - MessagePriorityHigh -> Mailbox.System
+	//  - MessagePriorityNormal (default) -> Mailbox.Main
+	// Receiver processes mailbox in order: Urgent -> System -> Main.
 	SendPriority MessagePriority
 
 	// ImportantDelivery enables delivery confirmation for messages sent to remote nodes.
@@ -859,6 +1050,22 @@ type ProcessOptions struct {
 	// For remote spawn and application processes, maximum allowed value
 	// is DefaultRequestTimeout*3 (15 seconds), otherwise returns ErrNotAllowed.
 	InitTimeout int
+
+	// PreserveMailbox enables capture of the process mailbox into a *Error
+	// on any abnormal termination (panic, abnormal callback return, kill).
+	// The captured mailbox flows through the exit signal as Error.Mailbox.
+	// A supervisor automatically picks it up and hands it to the new
+	// incarnation on restart. Normal and Shutdown exits never trigger
+	// capture. Defaults to false (no capture).
+	PreserveMailbox bool
+
+	// Mailbox, if non-nil, is adopted by the new process as its mailbox
+	// instead of allocating fresh queues. Set automatically by supervisors
+	// on restart when the previous incarnation was spawned with
+	// PreserveMailbox enabled. Public so tests and replay tools can
+	// pre-populate a process's mailbox at spawn time. Excluded from
+	// wire encoding: a live mailbox cannot cross the network.
+	Mailbox *ProcessMailbox `edf:"-"`
 }
 
 type ProcessOptionsExtra struct {
@@ -868,9 +1075,13 @@ type ProcessOptionsExtra struct {
 	ParentLeader   PID
 	ParentEnv      map[Env]any
 	ParentLogLevel LogLevel
+	Tracing        Tracing
 
 	Register    Atom
 	Application Atom
+
+	// ApplicationGroupMember registers the process in its application group before it runs (direct group members only).
+	ApplicationGroupMember bool
 
 	// Ref with deadline for spawn timeout.
 	// Deadline stored in Ref.ID[2] as unix timestamp.
@@ -896,8 +1107,12 @@ type ProcessInfo struct {
 	// Behavior is the type name of the ProcessBehavior implementation.
 	Behavior string
 
-	// MailboxSize is the maximum mailbox queue length.
-	// Zero means unlimited.
+	// Kind classifies the process by its base behavior (actor, supervisor,
+	// pool, router, web) or custom for raw gen.ProcessBehavior implementations.
+	Kind ProcessKind
+
+	// MailboxSize is the configured maximum mailbox queue length, -1 if unlimited
+	// (ProcessOptions.MailboxSize asks for unlimited with zero).
 	MailboxSize int64
 
 	// MailboxQueues shows current message counts in each mailbox queue.
@@ -912,6 +1127,13 @@ type ProcessInfo struct {
 	// RunningTime is the cumulative time spent in Running state (nanoseconds).
 	RunningTime uint64
 
+	// InitTime is the time spent in ProcessInit callback (nanoseconds).
+	InitTime uint64
+
+	// Wakeups is the cumulative number of times the process transitioned
+	// from Sleep to Running state to handle messages.
+	Wakeups uint64
+
 	// Compression contains the compression configuration for this process.
 	Compression Compression
 
@@ -924,11 +1146,17 @@ type ProcessInfo struct {
 	// State is the current process state (Init, Sleep, Running, WaitResponse, Terminated, Zombee).
 	State ProcessState
 
+	// StateTime is the elapsed time since the process entered its current state (nanoseconds).
+	StateTime int64
+
 	// Parent is the PID of the parent process that spawned this process.
 	Parent PID
 
 	// Leader is the group leader PID (typically supervisor or application).
 	Leader PID
+
+	// Tracing contains tracing configuration for this process.
+	Tracing TracingInfo
 
 	// Fallback contains mailbox overflow handling configuration.
 	Fallback ProcessFallback
@@ -1005,6 +1233,10 @@ type ProcessShortInfo struct {
 	// Behavior is the type name of the ProcessBehavior implementation.
 	Behavior string
 
+	// Kind classifies the process by its base behavior (actor, supervisor,
+	// pool, router, web) or custom for raw gen.ProcessBehavior implementations.
+	Kind ProcessKind
+
 	// MessagesIn is the total number of messages this process received.
 	MessagesIn uint64
 
@@ -1014,14 +1246,29 @@ type ProcessShortInfo struct {
 	// MessagesMailbox is the total number of messages currently in mailbox queues.
 	MessagesMailbox uint64
 
+	// MailboxLatency is the maximum latency across all mailbox queues (nanoseconds).
+	// Returns -1 if built without -tags=latency (measurement disabled).
+	// Returns 0 if all queues are empty.
+	MailboxLatency int64
+
 	// RunningTime is the cumulative time spent in Running state (nanoseconds).
 	RunningTime uint64
+
+	// InitTime is the time spent in ProcessInit callback (nanoseconds).
+	InitTime uint64
+
+	// Wakeups is the cumulative number of times the process transitioned
+	// from Sleep to Running state to handle messages.
+	Wakeups uint64
 
 	// Uptime is the process uptime in seconds since creation.
 	Uptime int64
 
 	// State is the current process state (Init, Sleep, Running, WaitResponse, Terminated, Zombee).
 	State ProcessState
+
+	// StateTime is the elapsed time since the process entered its current state (nanoseconds).
+	StateTime int64
 
 	// Parent is the PID of the parent process that spawned this process.
 	Parent PID
@@ -1083,6 +1330,26 @@ func (pm ProcessMailbox) Len() int64 {
 	return pm.Main.Len() + pm.System.Len() + pm.Urgent.Len() + pm.Log.Len()
 }
 
+// Latency returns the maximum latency across all mailbox queues (nanoseconds).
+// Returns -1 if built without -tags=latency (measurement disabled).
+// Returns 0 if all queues are empty.
+func (pm ProcessMailbox) Latency() int64 {
+	lat := pm.Main.Latency()
+	if lat < 0 {
+		return -1
+	}
+	if l := pm.System.Latency(); l > lat {
+		lat = l
+	}
+	if l := pm.Urgent.Latency(); l > lat {
+		lat = l
+	}
+	if l := pm.Log.Latency(); l > lat {
+		lat = l
+	}
+	return lat
+}
+
 // MailboxQueues contains message counts for each mailbox queue.
 // Part of ProcessInfo and ProcessShortInfo.
 // Represents a snapshot of mailbox load at the time of query.
@@ -1099,4 +1366,20 @@ type MailboxQueues struct {
 
 	// Log is the number of logging messages in the Log queue.
 	Log int64
+
+	// LatencyMain is the latency of the oldest message in the Main queue (nanoseconds).
+	// Returns -1 if built without -tags=latency.
+	LatencyMain int64
+
+	// LatencySystem is the latency of the oldest message in the System queue (nanoseconds).
+	// Returns -1 if built without -tags=latency.
+	LatencySystem int64
+
+	// LatencyUrgent is the latency of the oldest message in the Urgent queue (nanoseconds).
+	// Returns -1 if built without -tags=latency.
+	LatencyUrgent int64
+
+	// LatencyLog is the latency of the oldest message in the Log queue (nanoseconds).
+	// Returns -1 if built without -tags=latency.
+	LatencyLog int64
 }

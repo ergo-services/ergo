@@ -1,6 +1,8 @@
 # Table of contents
 
 * [Overview](README.md)
+* [FAQ](faq.md)
+* [AI Agents](ai-agents.md)
 
 ## Basics
 
@@ -23,6 +25,7 @@
 * [Actor](actors/actor.md)
 * [Supervisor](actors/supervisor.md)
 * [Pool](actors/pool.md)
+* [Router](actors/router.md)
 * [WebWorker](actors/webworker.md)
 
 ## Meta Processes
@@ -45,6 +48,9 @@
 
 ## Testing
 
+* [Overview](testing/overview.md)
+* [Check](testing/check.md)
+* [Mock](testing/mock.md)
 * [Unit](testing/unit.md)
 * [Stage](testing/stage.md)
 
@@ -56,20 +62,29 @@
 * [Message Versioning](advanced/message-versioning.md)
 * [Building a Cluster](advanced/building-a-cluster.md)
 * [Debugging](advanced/debugging.md)
+* [Distributed Tracing](advanced/distributed-tracing.md)
+* [Inspecting Actor State](advanced/inspecting-state.md)
+* [Inspecting With Observer](advanced/observer.md)
+* [Inspecting With an AI Agent](advanced/mcp.md)
 
 ## extra library
 
 * [Actors](extra-library/actors/README.md)
+  * [Health](extra-library/actors/health.md)
   * [Leader](extra-library/actors/leader.md)
   * [Metrics](extra-library/actors/metrics.md)
 * [Applications](extra-library/applications/README.md)
   * [Observer](extra-library/applications/observer.md)
+  * [Radar](extra-library/applications/radar.md)
+  * [Pulse](extra-library/applications/pulse.md)
+  * [Grid](extra-library/applications/grid.md)
 * [Meta-Processes](extra-library/meta-processes/README.md)
   * [WebSocket](extra-library/meta-processes/websocket.md)
   * [SSE](extra-library/meta-processes/sse.md)
 * [Loggers](extra-library/loggers/README.md)
   * [Colored](extra-library/loggers/colored.md)
   * [Rotate](extra-library/loggers/rotate.md)
+  * [Sentry](extra-library/loggers/sentry.md)
 * [Registrars](extra-library/registrars/README.md)
   * [Saturn Сlient](extra-library/registrars/saturn-client.md)
   * [etcd Client](extra-library/registrars/etcd-client.md)
@@ -79,5 +94,5 @@
 ## Tools
 
 * [Boilerplate Code Generation](tools/ergo.md)
-* [Inspecting With Observer](tools/observer.md)
+* [Actor Model Vet Tool](tools/argus.md)
 * [Saturn - Central Registrar](tools/saturn.md)

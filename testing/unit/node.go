@@ -1,937 +1,1016 @@
 package unit
 
 import (
-	"fmt"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"ergo.services/ergo/gen"
-	"ergo.services/ergo/lib"
+	"ergo.services/ergo/testing/check"
 )
 
-var refCounter uint64
+// mockNode is the gen.Node returned by the mock process's Node(), and at the same
+// time the mocked runtime that backs it: it owns the recorder, the stubs, the
+// scheduled timers, the env and the node identity. Both the mock process (from =
+// its pid) and the node itself (from = the node core pid) delegate every outbound
+// operation to the route* helpers here, which record the egress as check.Records
+// and consult the stubs for the return value. This mirrors the routing core that
+// stage decorates. Network() returns a built-in stubbable mock (configured via
+// sub.Node().Network()...); Cron() returns a built-in mock cron (sub.Node().Cron()).
+//
+// Every non-egress method first consults its override (see nodeOverrides and the
+// On* setters in node_overrides.go); when unset it falls back to the default below.
+// Egress methods (Send/Call/Spawn/...) consult the typed stubs instead; their On*
+// setters live on both the node and the Subject (shared storage).
+type mockNode struct {
+	t          testing.TB
+	rec        *check.Recorder
+	stubs      *stubs
+	timers     []*timer
+	sends      []*pendingSend
+	nodeName   gen.Atom
+	creation   int64
+	logLevel   gen.LogLevel
+	nextID     uint64
+	env        map[gen.Env]any
+	netmock    *mockNetwork // built-in stubbable network (default behind Network())
+	cronmock   *mockCron    // built-in cron (default behind Cron())
+	subjectPID gen.PID      // the process under test (From for RemoteNode egress records)
+	log        *mockLog
 
-// TestNode implements gen.Node for testing
-type TestNode struct {
-	t         testing.TB
-	events    lib.QueueMPSC
-	options   TestOptions
-	log       *TestLog
-	env       map[gen.Env]any
-	loggers   map[string]gen.LoggerBehavior
-	processes map[gen.PID]*TestProcess
-	network   *TestNetwork
-	nextID    uint64
-	uptime    time.Time
-	cron      *TestCron
-	Failures
+	// registry of processes known to this node (the process under test plus every
+	// process it spawned), so the introspection queries can answer from real state
+	// instead of failing. Populated by routeSpawn and at subject creation.
+	procs map[gen.PID]*procEntry
+	names map[gen.Atom]gen.PID
+
+	// per-method overrides: when set they take precedence over the default below.
+	ov nodeOverrides
 }
 
-// TestCron implements gen.Cron interface for testing
-type TestCron struct {
-	t      testing.TB
-	events lib.QueueMPSC
-	jobs   map[gen.Atom]gen.CronJob
+var (
+	_ gen.Node          = (*mockNode)(nil)
+	_ gen.NodeRegistrar = (*mockNode)(nil)
+	_ gen.NodeHandshake = (*mockNode)(nil)
+)
 
-	// Mock time for testing cron schedules
-	mockTime    time.Time
-	useMockTime bool
+// procEntry is a process the mock node knows about.
+type procEntry struct {
+	pid    gen.PID
+	name   gen.Atom
+	parent gen.PID
+	leader gen.PID
+	state  gen.ProcessState
 }
 
-// NewTestNode creates a new test node instance
-func NewTestNode(t testing.TB, events lib.QueueMPSC, options TestOptions) *TestNode {
-	tn := &TestNode{
-		t:         t,
-		events:    events,
-		options:   options,
-		env:       make(map[gen.Env]any),
-		loggers:   make(map[string]gen.LoggerBehavior),
-		processes: make(map[gen.PID]*TestProcess),
-		nextID:    2000,
-		uptime:    time.Now(),
-		cron:      NewTestCron(t, events),
-		Failures:  newFailures(events, "node"),
+// mockCreation is the harness node epoch: timestamp-shaped, so a hand-written PID cannot collide with a minted one.
+const mockCreation int64 = 1700000000
+
+// pendingSend is a message the actor sent; a self-addressed one is delivered when
+// the test steps or drains.
+type pendingSend struct {
+	from      gen.PID
+	to        any
+	message   any
+	priority  gen.MessagePriority
+	delivered bool
+}
+
+type timer struct {
+	from      gen.PID
+	to        any
+	message   any
+	cancelled bool
+	fired     bool
+}
+
+func newMockNode(t testing.TB, name gen.Atom, o gen.NodeOptions) *mockNode {
+	env := make(map[gen.Env]any, len(o.Env))
+	for k, v := range o.Env {
+		env[k] = v
 	}
-
-	tn.log = NewTestLog(t, events, options.LogLevel)
-
-	// Copy environment
-	if options.Env != nil {
-		for k, v := range options.Env {
-			tn.env[k] = v
-		}
+	level := o.Log.Level
+	if level == gen.LogLevelDefault {
+		level = gen.LogLevelInfo
 	}
-
-	// Create a test actor for the network
-	testActor := &TestActor{
+	n := &mockNode{
 		t:        t,
-		events:   events,
-		options:  options,
-		node:     tn,
-		process:  NewTestProcess(t, events, tn, options),
-		captures: make(map[string]any),
+		rec:      check.NewRecorder(),
+		stubs:    newStubs(),
+		nodeName: name,
+		creation: mockCreation,
+		logLevel: level,
+		nextID:   1000,
+		env:      env,
+		procs:    make(map[gen.PID]*procEntry),
+		names:    make(map[gen.Atom]gen.PID),
 	}
-	tn.network = newTestNetwork(testActor)
-
-	return tn
+	n.log = newMockLog(n, n.nodePID(), n.logLevel)
+	n.netmock = newMockNetwork(n)
+	n.cronmock = newMockCron(n)
+	return n
 }
 
-// gen.Node interface implementation
+func (n *mockNode) nodePID() gen.PID { return gen.PID{Node: n.nodeName, ID: 1, Creation: n.creation} }
 
-func (tn *TestNode) Name() gen.Atom {
-	return tn.options.NodeName
+func (n *mockNode) synthPID() gen.PID {
+	n.nextID++
+	return gen.PID{Node: n.nodeName, ID: n.nextID, Creation: n.creation}
+}
+func (n *mockNode) synthAlias() gen.Alias {
+	n.nextID++
+	return gen.Alias{Node: n.nodeName, Creation: n.creation, ID: [3]uint64{n.nextID, 0, 0}}
+}
+func (n *mockNode) synthRef() gen.Ref {
+	n.nextID++
+	return gen.Ref{Node: n.nodeName, Creation: n.creation, ID: [3]uint64{n.nextID, 0, 0}}
 }
 
-func (tn *TestNode) IsAlive() bool {
+// route helpers (record + stub). The stub store is passed in (st), so each source
+// resolves from its own scope: the process from sub.stubs, the node from n.stubs,
+// a meta from its own stubs. Recording always lands in the shared journal (n.rec).
+
+func (n *mockNode) routeSend(st *stubs, from gen.PID, to any, message any, options gen.MessageOptions) error {
+	err, _ := resolveFail(st.send, to)
+	n.rec.Put(check.Send{From: from, To: to, Message: message, Options: options, Error: err})
+	if err == nil {
+		n.sends = append(n.sends, &pendingSend{from: from, to: to, message: message, priority: options.Priority})
+	}
+	return err
+}
+
+// routeCall is tier-3 strict: an unstubbed call has no sensible default (the
+// response drives the caller's logic), so it fails the test loudly.
+func (n *mockNode) routeCall(st *stubs, from gen.PID, to any, request any) (any, error) {
+	resp, err, ok := st.resolveCall(to, request)
+	if ok == false {
+		n.t.Helper()
+		n.t.Fatalf("unit: process under test called Call to %v with %#v, but no response is stubbed; add OnCall(%v).Respond(...) or .Fail(...)", to, request, to)
+	}
+	n.rec.Put(check.Call{From: from, To: to, Request: request, Response: resp, Error: err})
+	return resp, err
+}
+
+func (n *mockNode) routeSpawn(st *stubs, from gen.PID, register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions) (gen.PID, error) {
+	pid, err, ok := st.resolveSpawn(factory)
+	if ok == false {
+		pid = n.synthPID()
+	}
+	if err == nil {
+		leader := options.Leader
+		if leader == (gen.PID{}) {
+			leader = from
+		}
+		n.registerProc(&procEntry{pid: pid, name: register, parent: from, leader: leader, state: gen.ProcessStateRunning})
+	}
+	n.rec.Put(check.Spawn{Parent: from, Child: pid, Register: register, Factory: factory, Options: options, Error: err})
+	return pid, err
+}
+
+// registerProc adds a process to the node registry (and its name index).
+func (n *mockNode) registerProc(e *procEntry) {
+	n.procs[e.pid] = e
+	if e.name != "" {
+		n.names[e.name] = e.pid
+	}
+}
+
+func (n *mockNode) routeSpawnMeta(st *stubs, from gen.PID, behavior gen.MetaBehavior) (gen.Alias, error) {
+	alias, err, ok := st.resolveSpawnMeta(behavior)
+	if ok == false {
+		alias = n.synthAlias()
+	}
+	n.rec.Put(check.SpawnMeta{Parent: from, Alias: alias, Error: err})
+	return alias, err
+}
+
+func (n *mockNode) routeRemoteSpawn(st *stubs, from gen.PID, node, name, register gen.Atom, options gen.ProcessOptions) (gen.PID, error) {
+	pid, err, ok := st.resolveRemoteSpawn(node, name)
+	if ok == false {
+		pid = n.synthPID()
+	}
+	n.rec.Put(check.RemoteSpawn{Parent: from, Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
+	return pid, err
+}
+
+func (n *mockNode) routeSendExit(st *stubs, from, to gen.PID, reason error) error {
+	err, _ := resolveFail(st.exit, to)
+	n.rec.Put(check.SendExit{From: from, To: to, Reason: reason, Error: err})
+	return err
+}
+func (n *mockNode) routeSendExitMeta(st *stubs, from gen.PID, meta gen.Alias, reason error) error {
+	err, _ := resolveFail(st.exitMeta, meta)
+	n.rec.Put(check.SendExitMeta{From: from, Meta: meta, Reason: reason, Error: err})
+	return err
+}
+
+func (n *mockNode) routeSendResponse(st *stubs, from, to gen.PID, ref gen.Ref, message any, options gen.MessageOptions) error {
+	err, _ := resolveFail(st.response, to)
+	n.rec.Put(check.SendResponse{From: from, To: to, Ref: ref, Message: message, Options: options, Error: err})
+	return err
+}
+
+func (n *mockNode) routeSendEvent(from gen.PID, name gen.Atom, token gen.Ref, message any, options gen.MessageOptions) error {
+	n.rec.Put(check.SendEvent{From: from, Name: name, Token: token, Message: message, Options: options})
+	return nil
+}
+
+func (n *mockNode) routeLink(st *stubs, from gen.PID, target any) error {
+	err, _ := resolveFail(st.link, target)
+	n.rec.Put(check.Link{From: from, Target: target, Error: err})
+	return err
+}
+
+// routeLinkEvent is routeLink for an event subscription, which also returns the
+// buffered events the producer replays.
+func (n *mockNode) routeLinkEvent(st *stubs, from gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+	buffer, err, ok := resolveEventSubscribe(st.linkev, event)
+	if ok == false {
+		err, _ = resolveFail(st.link, event)
+	}
+	n.rec.Put(check.Link{From: from, Target: event, Error: err})
+	if err != nil {
+		return nil, err
+	}
+	return buffer, nil
+}
+
+// routeMonitorEvent is routeMonitor for an event subscription, which also returns
+// the buffered events the producer replays.
+func (n *mockNode) routeMonitorEvent(st *stubs, from gen.PID, event gen.Event) ([]gen.MessageEvent, error) {
+	buffer, err, ok := resolveEventSubscribe(st.monev, event)
+	if ok == false {
+		err, _ = resolveFail(st.monitor, event)
+	}
+	n.rec.Put(check.Monitor{From: from, Target: event, Error: err})
+	if err != nil {
+		return nil, err
+	}
+	return buffer, nil
+}
+
+func (n *mockNode) routeUnlink(st *stubs, from gen.PID, target any) error {
+	err, _ := resolveFail(st.unlink, target)
+	n.rec.Put(check.Unlink{From: from, Target: target, Error: err})
+	return err
+}
+func (n *mockNode) routeMonitor(st *stubs, from gen.PID, target any) error {
+	err, _ := resolveFail(st.monitor, target)
+	n.rec.Put(check.Monitor{From: from, Target: target, Error: err})
+	return err
+}
+func (n *mockNode) routeDemonitor(st *stubs, from gen.PID, target any) error {
+	err, _ := resolveFail(st.demonitor, target)
+	n.rec.Put(check.Demonitor{From: from, Target: target, Error: err})
+	return err
+}
+
+func (n *mockNode) routeForward(st *stubs, by, to, from gen.PID, message any) error {
+	err, _ := resolveFail(st.forward, to)
+	n.rec.Put(check.Forward{By: by, To: to, From: from, Message: message, Error: err})
+	return err
+}
+
+func (n *mockNode) routeCreateAlias(st *stubs, from gen.PID) (gen.Alias, error) {
+	alias, err, ok := st.resolveCreateAlias()
+	if ok == false {
+		alias = n.synthAlias()
+	}
+	n.rec.Put(check.CreateAlias{PID: from, Alias: alias, Error: err})
+	return alias, err
+}
+func (n *mockNode) routeDeleteAlias(from gen.PID, alias gen.Alias, err error) error {
+	n.rec.Put(check.DeleteAlias{PID: from, Alias: alias, Error: err})
+	return err
+}
+
+func (n *mockNode) routeRegisterEvent(st *stubs, from gen.PID, name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
+	ref, err, ok := st.resolveRegisterEvent(name)
+	if ok == false {
+		ref = n.synthRef()
+	}
+	n.rec.Put(check.RegisterEvent{PID: from, Name: name, Ref: ref, Options: options, Error: err})
+	return ref, err
+}
+func (n *mockNode) routeUnregisterEvent(from gen.PID, name gen.Atom, err error) error {
+	n.rec.Put(check.UnregisterEvent{PID: from, Name: name, Error: err})
+	return err
+}
+
+// schedule records a delayed send and returns a CancelFunc; the harness delivers
+// it when the test fires timers.
+func (n *mockNode) schedule(from gen.PID, to any, message any, after time.Duration, options gen.MessageOptions) gen.CancelFunc {
+	n.rec.Put(check.SendAfter{From: from, To: to, Message: message, After: after, Options: options})
+	return n.armTimer(from, to, message)
+}
+
+// scheduleEvery records a periodic send; the harness delivers it once on FireTimers.
+func (n *mockNode) scheduleEvery(from gen.PID, to any, message any, period time.Duration, options gen.MessageOptions) gen.CancelFunc {
+	n.rec.Put(check.SendEvery{From: from, To: to, Message: message, Period: period, Options: options})
+	return n.armTimer(from, to, message)
+}
+
+func (n *mockNode) armTimer(from gen.PID, to any, message any) gen.CancelFunc {
+	tm := &timer{from: from, to: to, message: message}
+	n.timers = append(n.timers, tm)
+	return func() bool {
+		if tm.fired || tm.cancelled {
+			return false
+		}
+		tm.cancelled = true
+		return true
+	}
+}
+
+// unsupported fails the test for a node value-query that has no sensible default
+// and no override (the process consumes the result, so a zero would mislead it).
+func (n *mockNode) unsupported(method string) {
+	n.t.Helper()
+	n.t.Fatalf("unit: process under test called Node().%s, which the mock does not provide; override it with sub.Node().On%s(...) or test via stage", method, method)
+}
+
+// gen.Node: identity / accessors
+
+func (n *mockNode) Name() gen.Atom {
+	if n.ov.name != nil {
+		return n.ov.name()
+	}
+	return n.nodeName
+}
+func (n *mockNode) IsAlive() bool {
+	if n.ov.isAlive != nil {
+		return n.ov.isAlive()
+	}
 	return true
 }
-
-func (tn *TestNode) Uptime() int64 {
-	return int64(time.Since(tn.uptime).Seconds())
-}
-
-func (tn *TestNode) Version() gen.Version {
-	return gen.Version{
-		Name:    "test-node",
-		Release: "1.0.0",
-		License: "MIT",
+func (n *mockNode) Uptime() int64 {
+	if n.ov.uptime != nil {
+		return n.ov.uptime()
 	}
+	return 0
 }
-
-func (tn *TestNode) FrameworkVersion() gen.Version {
-	return gen.Version{
-		Name:    "ergo-testing",
-		Release: "1.0.0",
-		License: "MIT",
+func (n *mockNode) Version() gen.Version {
+	if n.ov.version != nil {
+		return n.ov.version()
 	}
+	return gen.Version{}
 }
-
-func (tn *TestNode) Info() (gen.NodeInfo, error) {
-	return gen.NodeInfo{
-		Name:      tn.options.NodeName,
-		Uptime:    tn.Uptime(),
-		Version:   tn.Version(),
-		Framework: tn.FrameworkVersion(),
-		Env:       tn.EnvList(),
-		LogLevel:  tn.log.Level(),
-	}, nil
-}
-
-func (tn *TestNode) EnvList() map[gen.Env]any {
-	result := make(map[gen.Env]any)
-	for k, v := range tn.env {
-		result[k] = v
+func (n *mockNode) FrameworkVersion() gen.Version {
+	if n.ov.frameworkVersion != nil {
+		return n.ov.frameworkVersion()
 	}
-	return result
+	return gen.Version{}
+}
+func (n *mockNode) PID() gen.PID {
+	if n.ov.pid != nil {
+		return n.ov.pid()
+	}
+	return n.nodePID()
+}
+func (n *mockNode) Creation() int64 {
+	if n.ov.creation != nil {
+		return n.ov.creation()
+	}
+	return n.creation
+}
+func (n *mockNode) Peers() []gen.Atom {
+	if n.ov.peers != nil {
+		return n.ov.peers()
+	}
+	return n.Network().Nodes()
+}
+func (n *mockNode) Log() gen.Log {
+	if n.ov.log != nil {
+		return n.ov.log()
+	}
+	return n.log
+}
+func (n *mockNode) Commercial() []gen.Version {
+	if n.ov.commercial != nil {
+		return n.ov.commercial()
+	}
+	return nil
 }
 
-func (tn *TestNode) SetEnv(name gen.Env, value any) {
+func (n *mockNode) EnvList() map[gen.Env]any {
+	if n.ov.envList != nil {
+		return n.ov.envList()
+	}
+	return n.env
+}
+func (n *mockNode) SetEnv(name gen.Env, value any) {
+	if n.ov.setEnv != nil {
+		n.ov.setEnv(name, value)
+		return
+	}
 	if value == nil {
-		delete(tn.env, name)
-	} else {
-		tn.env[name] = value
+		delete(n.env, name)
+		return
 	}
+	n.env[name] = value
 }
-
-func (tn *TestNode) Env(name gen.Env) (any, bool) {
-	value, found := tn.env[name]
-	return value, found
+func (n *mockNode) Env(name gen.Env) (any, bool) {
+	if n.ov.env != nil {
+		return n.ov.env(name)
+	}
+	v, ok := n.env[name]
+	return v, ok
 }
-
-func (tn *TestNode) EnvDefault(name gen.Env, def any) any {
-	if value, found := tn.env[name]; found {
-		return value
+func (n *mockNode) EnvDefault(name gen.Env, def any) any {
+	if n.ov.envDefault != nil {
+		return n.ov.envDefault(name, def)
+	}
+	if v, ok := n.env[name]; ok {
+		return v
 	}
 	return def
 }
 
-func (tn *TestNode) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
-	if err := tn.CheckMethodFailure("Spawn", factory, options, args); err != nil {
-		return gen.PID{}, err
+// refs
+
+func (n *mockNode) MakeRef() gen.Ref {
+	if n.ov.makeRef != nil {
+		return n.ov.makeRef()
 	}
-
-	tn.nextID++
-	pid := gen.PID{
-		Node:     tn.options.NodeName,
-		ID:       tn.nextID,
-		Creation: tn.options.NodeCreation,
+	return n.synthRef()
+}
+func (n *mockNode) MakeRefWithDeadline(deadline int64) (gen.Ref, error) {
+	if n.ov.makeRefWithDeadline != nil {
+		return n.ov.makeRefWithDeadline(deadline)
 	}
-
-	tn.events.Push(SpawnEvent{
-		Factory: factory,
-		Options: options,
-		Args:    args,
-		Result:  pid,
-	})
-
-	return pid, nil
+	return n.synthRef(), nil
 }
 
-func (tn *TestNode) SpawnRegister(
-	register gen.Atom,
-	factory gen.ProcessFactory,
-	options gen.ProcessOptions,
-	args ...any,
-) (gen.PID, error) {
-	if err := tn.CheckMethodFailure("SpawnRegister", factory, options, args); err != nil {
-		return gen.PID{}, err
-	}
+// network / cron / managers (injection)
 
-	pid, err := tn.Spawn(factory, options, args...)
-	if err != nil {
-		return pid, err
-	}
-
-	tn.events.Push(RegisterNameEvent{
-		Name: register,
-		PID:  pid,
-	})
-
-	return pid, nil
+func (n *mockNode) Network() gen.Network {
+	return n.netmock
 }
-
-func (tn *TestNode) RegisterName(name gen.Atom, pid gen.PID) error {
-	// Check for failure injection
-	if err := tn.CheckMethodFailure("RegisterName", name, pid); err != nil {
-		return err
+func (n *mockNode) Cron() gen.Cron {
+	return n.cronmock
+}
+func (n *mockNode) CertManager() gen.CertManager {
+	if n.ov.certManager != nil {
+		return n.ov.certManager()
 	}
-
-	tn.events.Push(RegisterNameEvent{
-		Name: name,
-		PID:  pid,
-	})
 	return nil
 }
-
-func (tn *TestNode) UnregisterName(name gen.Atom) (gen.PID, error) {
-	tn.events.Push(UnregisterNameEvent{Name: name})
-	return gen.PID{}, nil
-}
-
-func (tn *TestNode) MetaInfo(meta gen.Alias) (gen.MetaInfo, error) {
-	return gen.MetaInfo{
-		ID: meta,
-	}, nil
-}
-
-func (tn *TestNode) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
-	return gen.ProcessInfo{
-		PID:   pid,
-		State: gen.ProcessStateRunning,
-	}, nil
-}
-
-func (tn *TestNode) ProcessList() ([]gen.PID, error) {
-	var pids []gen.PID
-	for pid := range tn.processes {
-		pids = append(pids, pid)
+func (n *mockNode) Security() gen.SecurityOptions {
+	if n.ov.security != nil {
+		return n.ov.security()
 	}
-	return pids, nil
-}
-
-func (tn *TestNode) ProcessListShortInfo(start, limit int) ([]gen.ProcessShortInfo, error) {
-	var infos []gen.ProcessShortInfo
-	for pid := range tn.processes {
-		infos = append(infos, gen.ProcessShortInfo{
-			PID:   pid,
-			State: gen.ProcessStateRunning,
-		})
-	}
-	return infos, nil
-}
-
-func (tn *TestNode) ProcessName(pid gen.PID) (gen.Atom, error) {
-	// Simple stub - returns empty name
-	return "", nil
-}
-
-func (tn *TestNode) ProcessPID(name gen.Atom) (gen.PID, error) {
-	// Simple stub - returns error
-	return gen.PID{}, gen.ErrProcessUnknown
-}
-
-func (tn *TestNode) ProcessState(pid gen.PID) (gen.ProcessState, error) {
-	return gen.ProcessStateRunning, nil
-}
-
-// Application methods
-func (tn *TestNode) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (gen.Atom, error) {
-	spec, err := app.Load(tn, args...)
-	if err != nil {
-		return "", err
-	}
-
-	// Record the load event
-	tn.events.Push(SpawnEvent{
-		Factory: nil, // ApplicationBehavior is not ProcessFactory
-		Options: gen.ProcessOptions{},
-		Args:    args,
-		Result:  gen.PID{Node: tn.options.NodeName, ID: 0, Creation: tn.options.NodeCreation},
-	})
-
-	return spec.Name, nil
-}
-
-func (tn *TestNode) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) {
-	return gen.ApplicationInfo{
-		Name:  name,
-		State: gen.ApplicationStateRunning,
-	}, nil
-}
-
-func (tn *TestNode) ApplicationUnload(name gen.Atom) error {
-	// Check for failure injection
-	if err := tn.CheckMethodFailure("ApplicationUnload", name); err != nil {
-		return err
-	}
-
-	tn.events.Push(UnregisterNameEvent{Name: name})
-	return nil
-}
-
-func (tn *TestNode) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
-	// Check for failure injection
-	if err := tn.CheckMethodFailure("ApplicationStart", name, options); err != nil {
-		return err
-	}
-
-	tn.events.Push(SpawnEvent{
-		Factory: nil,
-		Options: gen.ProcessOptions{},
-		Args:    []any{name, options},
-		Result:  gen.PID{},
-	})
-	return nil
-}
-
-func (tn *TestNode) ApplicationStartTemporary(name gen.Atom, options gen.ApplicationOptions) error {
-	return tn.ApplicationStart(name, options)
-}
-
-func (tn *TestNode) ApplicationStartTransient(name gen.Atom, options gen.ApplicationOptions) error {
-	return tn.ApplicationStart(name, options)
-}
-
-func (tn *TestNode) ApplicationStartPermanent(name gen.Atom, options gen.ApplicationOptions) error {
-	return tn.ApplicationStart(name, options)
-}
-
-func (tn *TestNode) ApplicationStop(name gen.Atom) error {
-	tn.events.Push(ExitEvent{
-		To:     gen.PID{},
-		Reason: gen.TerminateReasonShutdown,
-	})
-	return nil
-}
-
-func (tn *TestNode) ApplicationStopForce(name gen.Atom) error {
-	tn.events.Push(ExitEvent{
-		To:     gen.PID{},
-		Reason: gen.TerminateReasonKill,
-	})
-	return nil
-}
-
-func (tn *TestNode) ApplicationStopWithTimeout(name gen.Atom, timeout time.Duration) error {
-	return tn.ApplicationStop(name)
-}
-
-func (tn *TestNode) Applications() []gen.Atom {
-	return []gen.Atom{}
-}
-
-func (tn *TestNode) ApplicationsRunning() []gen.Atom {
-	return []gen.Atom{}
-}
-
-// ApplicationProcessList returns the list of processes that belongs to the given application.
-func (tn *TestNode) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, error) {
-	tn.events.Push(SpawnEvent{
-		Factory: nil,
-		Options: gen.ProcessOptions{},
-		Args:    []any{name, limit},
-		Result:  gen.PID{},
-	})
-
-	// Return empty list for testing - can be customized per test case
-	return []gen.PID{}, nil
-}
-
-// ApplicationProcessListShortInfo returns the list of processes that belongs to the given application.
-func (tn *TestNode) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, error) {
-	tn.events.Push(SpawnEvent{
-		Factory: nil,
-		Options: gen.ProcessOptions{},
-		Args:    []any{name, limit},
-		Result:  gen.PID{},
-	})
-
-	// Return empty list for testing - can be customized per test case
-	return []gen.ProcessShortInfo{}, nil
-}
-
-// Network methods
-func (tn *TestNode) NetworkStart(options gen.NetworkOptions) error {
-	return nil
-}
-
-func (tn *TestNode) NetworkStop() error {
-	return nil
-}
-
-func (tn *TestNode) Network() gen.Network {
-	return tn.network
-}
-
-// Cron returns the test cron interface
-func (tn *TestNode) Cron() gen.Cron {
-	return tn.cron
-}
-
-func (tn *TestNode) CertManager() gen.CertManager {
-	return nil
-}
-
-func (tn *TestNode) Security() gen.SecurityOptions {
 	return gen.SecurityOptions{}
 }
-
-func (tn *TestNode) Stop() {
-	// No-op for testing
-}
-
-func (tn *TestNode) StopForce() {
-	// No-op for testing
-}
-
-func (tn *TestNode) Wait() {
-	// No-op for testing
-}
-
-func (tn *TestNode) WaitWithTimeout(timeout time.Duration) error {
-	return nil
-}
-
-func (tn *TestNode) Kill(pid gen.PID) error {
-	// Check for failure injection
-	if err := tn.CheckMethodFailure("Kill", pid); err != nil {
-		return err
+func (n *mockNode) NetworkStart(options gen.NetworkOptions) error {
+	if n.ov.networkStart != nil {
+		return n.ov.networkStart(options)
 	}
-
-	tn.events.Push(ExitEvent{
-		To:     pid,
-		Reason: gen.TerminateReasonKill,
-	})
 	return nil
 }
-
-func (tn *TestNode) Send(to any, message any) error {
-	// Check for failure injection
-	if err := tn.CheckMethodFailure("Send", to, message); err != nil {
-		return err
+func (n *mockNode) NetworkStop() error {
+	if n.ov.networkStop != nil {
+		return n.ov.networkStop()
 	}
-
-	tn.events.Push(SendEvent{
-		From:    tn.PID(),
-		To:      to,
-		Message: message,
-	})
 	return nil
 }
 
-func (tn *TestNode) SendImportant(to any, message any) error {
-	tn.events.Push(SendEvent{
-		From:      tn.PID(),
-		To:        to,
-		Message:   message,
-		Important: true,
-	})
-	return nil
+// egress (record + stub, sender = node core pid)
+
+func (n *mockNode) Send(to any, message any) error {
+	return n.routeSend(n.stubs, n.nodePID(), to, message, gen.MessageOptions{})
+}
+func (n *mockNode) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
+	return n.routeSend(n.stubs, n.nodePID(), to, message, gen.MessageOptions{Priority: priority})
+}
+func (n *mockNode) SendExit(pid gen.PID, reason error) error {
+	return n.routeSendExit(n.stubs, n.nodePID(), pid, reason)
+}
+func (n *mockNode) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
+	return n.routeSendEvent(n.nodePID(), name, token, message, options)
 }
 
-func (tn *TestNode) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	tn.events.Push(SendEvent{
-		From:     tn.PID(),
-		To:       to,
-		Message:  message,
-		Priority: priority,
-	})
-	return nil
+func (n *mockNode) Call(to any, request any) (any, error) {
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
+}
+func (n *mockNode) CallWithTimeout(to any, request any, timeout int) (any, error) {
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
+}
+func (n *mockNode) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
+}
+func (n *mockNode) CallImportant(to any, request any) (any, error) {
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
+}
+func (n *mockNode) CallPID(to gen.PID, request any, timeout int) (any, error) {
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
+}
+func (n *mockNode) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
+}
+func (n *mockNode) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
+	return n.routeCall(n.stubs, n.nodePID(), to, request)
 }
 
-func (tn *TestNode) SendWithOptions(to any, options gen.MessageOptions, message any) error {
-	tn.events.Push(SendEvent{
-		From:     tn.PID(),
-		To:       to,
-		Message:  message,
-		Priority: options.Priority,
-		Ref:      options.Ref,
-	})
-	return nil
+func (n *mockNode) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	return n.routeSpawn(n.stubs, n.nodePID(), "", factory, options)
+}
+func (n *mockNode) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
+	return n.routeSpawn(n.stubs, n.nodePID(), register, factory, options)
 }
 
-func (tn *TestNode) Call(to any, request any) (any, error) {
-	tn.events.Push(CallEvent{
-		From:     tn.PID(),
-		To:       to,
-		Request:  request,
-		Timeout:  gen.DefaultRequestTimeout,
-		Priority: gen.MessagePriorityNormal,
-	})
-	return nil, nil
-}
-
-func (tn *TestNode) CallWithTimeout(to any, request any, timeout int) (any, error) {
-	tn.events.Push(CallEvent{
-		From:     tn.PID(),
-		To:       to,
-		Request:  request,
-		Timeout:  timeout,
-		Priority: gen.MessagePriorityNormal,
-	})
-	return nil, nil
-}
-
-func (tn *TestNode) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
-	tn.events.Push(CallEvent{
-		From:     tn.PID(),
-		To:       to,
-		Request:  request,
-		Timeout:  gen.DefaultRequestTimeout,
-		Priority: priority,
-	})
-	return nil, nil
-}
-
-func (tn *TestNode) CallImportant(to any, request any) (any, error) {
-	tn.events.Push(CallEvent{
-		From:      tn.PID(),
-		To:        to,
-		Request:   request,
-		Timeout:   gen.DefaultRequestTimeout,
-		Priority:  gen.MessagePriorityNormal,
-		Important: true,
-	})
-	return nil, nil
-}
-
-func (tn *TestNode) CallPID(to gen.PID, request any, timeout int) (any, error) {
-	tn.events.Push(CallEvent{
-		From:     tn.PID(),
-		To:       to,
-		Request:  request,
-		Timeout:  timeout,
-		Priority: gen.MessagePriorityNormal,
-	})
-	return nil, nil
-}
-
-func (tn *TestNode) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
-	tn.events.Push(CallEvent{
-		From:     tn.PID(),
-		To:       to,
-		Request:  request,
-		Timeout:  timeout,
-		Priority: gen.MessagePriorityNormal,
-	})
-	return nil, nil
-}
-
-func (tn *TestNode) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
-	tn.events.Push(CallEvent{
-		From:     tn.PID(),
-		To:       to,
-		Request:  request,
-		Timeout:  timeout,
-		Priority: gen.MessagePriorityNormal,
-	})
-	return nil, nil
-}
-
-func (tn *TestNode) Inspect(target gen.PID, item ...string) (map[string]string, error) {
-	result := map[string]string{}
-	tn.events.Push(InspectEvent{
-		From:   tn.PID(),
-		Target: target,
-		Items:  item,
-		Result: result,
-	})
-	return result, nil
-}
-
-func (tn *TestNode) InspectMeta(alias gen.Alias, item ...string) (map[string]string, error) {
-	result := map[string]string{}
-	tn.events.Push(InspectMetaEvent{
-		From:   tn.PID(),
-		Target: alias,
-		Items:  item,
-		Result: result,
-	})
-	return result, nil
-}
-
-func (tn *TestNode) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error {
-	tn.events.Push(SendEventEvent{
-		Name:    name,
-		Token:   token,
-		Message: message,
-		Options: options,
-	})
-	return nil
-}
-
-func (tn *TestNode) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
-	ref := makeTestRefWithCreation(tn.options.NodeName, tn.options.NodeCreation)
-	tn.events.Push(RegisterEvent{
-		Name:    name,
-		Options: options,
-		Result:  ref,
-	})
-	return ref, nil
-}
-
-func (tn *TestNode) UnregisterEvent(name gen.Atom) error {
-	tn.events.Push(UnregisterNameEvent{Name: name})
-	return nil
-}
-
-func (tn *TestNode) SendExit(pid gen.PID, reason error) error {
-	// Check for failure injection
-	if err := tn.CheckMethodFailure("SendExit", pid, reason); err != nil {
-		return err
+func (n *mockNode) Kill(pid gen.PID) error {
+	if n.ov.kill != nil {
+		return n.ov.kill(pid)
 	}
-
-	tn.events.Push(ExitEvent{
-		To:     pid,
-		Reason: reason,
-	})
+	e, ok := n.procs[pid]
+	if ok == false {
+		return gen.ErrProcessUnknown
+	}
+	if e.name != "" {
+		delete(n.names, e.name)
+	}
+	delete(n.procs, pid)
 	return nil
 }
 
-func (tn *TestNode) Log() gen.Log {
-	return tn.log
-}
+// name registry
 
-func (tn *TestNode) LogLevelProcess(pid gen.PID) (gen.LogLevel, error) {
-	return gen.LogLevelInfo, nil
-}
-
-func (tn *TestNode) SetLogLevelProcess(pid gen.PID, level gen.LogLevel) error {
-	return nil
-}
-
-func (tn *TestNode) LogLevelMeta(meta gen.Alias) (gen.LogLevel, error) {
-	return gen.LogLevelInfo, nil
-}
-
-func (tn *TestNode) SetLogLevelMeta(meta gen.Alias, level gen.LogLevel) error {
-	return nil
-}
-
-func (tn *TestNode) Loggers() []string {
-	var names []string
-	for name := range tn.loggers {
-		names = append(names, name)
+func (n *mockNode) RegisterName(name gen.Atom, pid gen.PID) error {
+	if n.ov.registerName != nil {
+		return n.ov.registerName(name, pid)
 	}
-	return names
-}
-
-func (tn *TestNode) LoggerAddPID(pid gen.PID, name string, filter ...gen.LogLevel) error {
-	return nil
-}
-
-func (tn *TestNode) LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.LogLevel) error {
-	tn.loggers[name] = logger
-	return nil
-}
-
-func (tn *TestNode) LoggerDeletePID(pid gen.PID) {
-	// No-op for testing
-}
-
-func (tn *TestNode) LoggerDelete(name string) {
-	delete(tn.loggers, name)
-}
-
-func (tn *TestNode) LoggerLevels(name string) []gen.LogLevel {
-	return []gen.LogLevel{gen.LogLevelInfo}
-}
-
-func (tn *TestNode) MakeRef() gen.Ref {
-	return makeTestRefWithCreation(tn.options.NodeName, tn.options.NodeCreation)
-}
-
-func (tn *TestNode) MakeRefWithDeadline(deadline int64) (gen.Ref, error) {
-	if deadline < 1 {
-		return gen.Ref{}, gen.ErrIncorrect
+	if len(name) > 255 {
+		return gen.ErrAtomTooLong
 	}
-
-	now := time.Now().Unix()
-	if deadline <= now {
-		return gen.Ref{}, gen.ErrIncorrect
+	e, ok := n.procs[pid]
+	if ok == false {
+		return gen.ErrProcessUnknown
 	}
-
-	ref := makeTestRefWithCreation(tn.options.NodeName, tn.options.NodeCreation)
-	ref.ID[2] = uint64(deadline)
-	return ref, nil
-}
-
-func (tn *TestNode) Commercial() []gen.Version {
-	return []gen.Version{}
-}
-
-func (tn *TestNode) PID() gen.PID {
-	return gen.PID{
-		Node:     tn.options.NodeName,
-		ID:       1,
-		Creation: tn.options.NodeCreation,
+	if e.state == gen.ProcessStateTerminated {
+		return gen.ErrProcessTerminated // mirrors the real runtime: no register for a dead process
 	}
-}
-
-func (tn *TestNode) Creation() int64 {
-	return tn.options.NodeCreation
-}
-
-func (tn *TestNode) SetCTRLC(enable bool) {
-	// No-op for testing
-}
-
-// Note: Failures interface methods are now embedded and automatically available
-
-// Additional test-specific methods
-
-func (tn *TestNode) AddProcess(process *TestProcess) {
-	tn.processes[process.PID()] = process
-}
-
-func (tn *TestNode) RemoveProcess(pid gen.PID) {
-	delete(tn.processes, pid)
-}
-
-// Helper function to create test references with consistent creation time
-func makeTestRefWithCreation(nodeName gen.Atom, creation int64) gen.Ref {
-	// Get unique ID using atomic operation
-	id := atomic.AddUint64(&refCounter, 1)
-
-	return gen.Ref{
-		Node:     nodeName,
-		Creation: creation,
-		ID:       [3]uint64{id, 0, 0},
+	if e.name != "" {
+		return gen.ErrTaken // a process may hold only one registered name
 	}
-}
-
-// NewTestCron creates a new test cron instance
-func NewTestCron(t testing.TB, events lib.QueueMPSC) *TestCron {
-	return &TestCron{
-		t:      t,
-		events: events,
-		jobs:   make(map[gen.Atom]gen.CronJob),
-	}
-}
-
-// AddJob adds new job
-func (tc *TestCron) AddJob(job gen.CronJob) error {
-	tc.t.Helper()
-
-	if job.Name == "" {
-		return fmt.Errorf("empty job name")
-	}
-
-	if job.Action == nil {
-		return fmt.Errorf("empty action")
-	}
-
-	if _, exists := tc.jobs[job.Name]; exists {
+	if _, taken := n.names[name]; taken {
 		return gen.ErrTaken
 	}
+	n.names[name] = pid
+	e.name = name
+	return nil
+}
+func (n *mockNode) UnregisterName(name gen.Atom) (gen.PID, error) {
+	if n.ov.unregisterName != nil {
+		return n.ov.unregisterName(name)
+	}
+	pid, ok := n.names[name]
+	if ok == false {
+		return gen.PID{}, gen.ErrNameUnknown
+	}
+	delete(n.names, name)
+	if e, ok := n.procs[pid]; ok {
+		e.name = ""
+	}
+	return pid, nil
+}
 
-	tc.jobs[job.Name] = job
+// events
 
-	// Record event
-	event := CronJobAddEvent{Job: job}
-	tc.events.Push(event)
+func (n *mockNode) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Ref, error) {
+	return n.routeRegisterEvent(n.stubs, n.nodePID(), name, options)
+}
+func (n *mockNode) UnregisterEvent(name gen.Atom) error {
+	var err error
+	if n.ov.unregisterEvent != nil {
+		err = n.ov.unregisterEvent(name)
+	}
+	return n.routeUnregisterEvent(n.nodePID(), name, err)
+}
+func (n *mockNode) EventInfo(event gen.Event) (gen.EventInfo, error) {
+	if n.ov.eventInfo != nil {
+		return n.ov.eventInfo(event)
+	}
+	n.unsupported("EventInfo")
+	return gen.EventInfo{}, nil
+}
+func (n *mockNode) EventRangeInfo(fn func(gen.EventInfo) bool) error {
+	if n.ov.eventRangeInfo != nil {
+		return n.ov.eventRangeInfo(fn)
+	}
+	return nil
+}
+func (n *mockNode) EventListInfo(timestamp int64, limit int, filter ...func(gen.EventInfo) bool) ([]gen.EventInfo, error) {
+	if n.ov.eventListInfo != nil {
+		return n.ov.eventListInfo(timestamp, limit, filter...)
+	}
+	return nil, nil
+}
 
+// process introspection
+//
+// The Process* queries answer from the node registry (the process under test plus
+// every process it spawned), so a process can spawn a child and immediately query it
+// within the same callback. An unknown target yields gen.ErrProcessUnknown, exactly
+// as a real node would. Override any of them with sub.Node().On<Method>(...) when the
+// registry-backed default does not fit.
+
+func (n *mockNode) Info() (gen.NodeInfo, error) {
+	if n.ov.info != nil {
+		return n.ov.info()
+	}
+	n.unsupported("Info")
+	return gen.NodeInfo{}, nil
+}
+func (n *mockNode) ShortInfo() (gen.NodeShortInfo, error) {
+	if n.ov.shortInfo != nil {
+		return n.ov.shortInfo()
+	}
+	n.unsupported("ShortInfo")
+	return gen.NodeShortInfo{}, nil
+}
+func (n *mockNode) MetaInfo(meta gen.Alias) (gen.MetaInfo, error) {
+	if n.ov.metaInfo != nil {
+		return n.ov.metaInfo(meta)
+	}
+	n.unsupported("MetaInfo")
+	return gen.MetaInfo{}, nil
+}
+func (n *mockNode) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
+	if n.ov.processInfo != nil {
+		return n.ov.processInfo(pid)
+	}
+	e, ok := n.procs[pid]
+	if ok == false {
+		return gen.ProcessInfo{}, gen.ErrProcessUnknown
+	}
+	return gen.ProcessInfo{PID: e.pid, Name: e.name, Parent: e.parent, Leader: e.leader, State: e.state, Env: n.env}, nil
+}
+func (n *mockNode) ProcessList() ([]gen.PID, error) {
+	if n.ov.processList != nil {
+		return n.ov.processList()
+	}
+	list := make([]gen.PID, 0, len(n.procs))
+	for pid := range n.procs {
+		list = append(list, pid)
+	}
+	return list, nil
+}
+func (n *mockNode) ProcessListShortInfo(start, limit int, filter ...func(gen.ProcessShortInfo) bool) ([]gen.ProcessShortInfo, error) {
+	if n.ov.processListShortInfo != nil {
+		return n.ov.processListShortInfo(start, limit, filter...)
+	}
+	n.unsupported("ProcessListShortInfo")
+	return nil, nil
+}
+func (n *mockNode) ProcessRangeShortInfo(fn func(gen.ProcessShortInfo) bool) error {
+	if n.ov.processRangeShortInfo != nil {
+		return n.ov.processRangeShortInfo(fn)
+	}
+	return nil
+}
+func (n *mockNode) ProcessName(pid gen.PID) (gen.Atom, error) {
+	if n.ov.processName != nil {
+		return n.ov.processName(pid)
+	}
+	e, ok := n.procs[pid]
+	if ok == false {
+		return "", gen.ErrProcessUnknown
+	}
+	return e.name, nil
+}
+func (n *mockNode) ProcessPID(name gen.Atom) (gen.PID, error) {
+	if n.ov.processPID != nil {
+		return n.ov.processPID(name)
+	}
+	pid, ok := n.names[name]
+	if ok == false {
+		return gen.PID{}, gen.ErrProcessUnknown
+	}
+	return pid, nil
+}
+func (n *mockNode) ProcessState(pid gen.PID) (gen.ProcessState, error) {
+	if n.ov.processState != nil {
+		return n.ov.processState(pid)
+	}
+	e, ok := n.procs[pid]
+	if ok == false {
+		return 0, gen.ErrProcessUnknown
+	}
+	return e.state, nil
+}
+
+// applications
+
+func (n *mockNode) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (gen.Atom, error) {
+	if n.ov.applicationLoad != nil {
+		return n.ov.applicationLoad(app, args...)
+	}
+	return "", nil
+}
+func (n *mockNode) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) {
+	if n.ov.applicationInfo != nil {
+		return n.ov.applicationInfo(name)
+	}
+	n.unsupported("ApplicationInfo")
+	return gen.ApplicationInfo{}, nil
+}
+func (n *mockNode) ApplicationProcessList(name gen.Atom, limit int) ([]gen.PID, error) {
+	if n.ov.applicationProcessList != nil {
+		return n.ov.applicationProcessList(name, limit)
+	}
+	n.unsupported("ApplicationProcessList")
+	return nil, nil
+}
+func (n *mockNode) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]gen.ProcessShortInfo, int, error) {
+	if n.ov.applicationProcessListShortInfo != nil {
+		return n.ov.applicationProcessListShortInfo(name, limit)
+	}
+	n.unsupported("ApplicationProcessListShortInfo")
+	return nil, 0, nil
+}
+func (n *mockNode) ApplicationUnload(name gen.Atom) error {
+	if n.ov.applicationUnload != nil {
+		return n.ov.applicationUnload(name)
+	}
+	return nil
+}
+func (n *mockNode) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
+	if n.ov.applicationStart != nil {
+		return n.ov.applicationStart(name, options)
+	}
+	return nil
+}
+func (n *mockNode) ApplicationStartTemporary(name gen.Atom, options gen.ApplicationOptions) error {
+	if n.ov.applicationStartTemporary != nil {
+		return n.ov.applicationStartTemporary(name, options)
+	}
+	return nil
+}
+func (n *mockNode) ApplicationStartTransient(name gen.Atom, options gen.ApplicationOptions) error {
+	if n.ov.applicationStartTransient != nil {
+		return n.ov.applicationStartTransient(name, options)
+	}
+	return nil
+}
+func (n *mockNode) ApplicationStartPermanent(name gen.Atom, options gen.ApplicationOptions) error {
+	if n.ov.applicationStartPermanent != nil {
+		return n.ov.applicationStartPermanent(name, options)
+	}
+	return nil
+}
+func (n *mockNode) ApplicationStop(name gen.Atom) error {
+	if n.ov.applicationStop != nil {
+		return n.ov.applicationStop(name)
+	}
+	return nil
+}
+func (n *mockNode) ApplicationStopForce(name gen.Atom) error {
+	if n.ov.applicationStopForce != nil {
+		return n.ov.applicationStopForce(name)
+	}
+	return nil
+}
+func (n *mockNode) ApplicationStopWithTimeout(name gen.Atom, timeout time.Duration) error {
+	if n.ov.applicationStopWithTimeout != nil {
+		return n.ov.applicationStopWithTimeout(name, timeout)
+	}
+	return nil
+}
+func (n *mockNode) Applications() []gen.Atom {
+	if n.ov.applications != nil {
+		return n.ov.applications()
+	}
+	return nil
+}
+func (n *mockNode) ApplicationsRunning() []gen.Atom {
+	if n.ov.applicationsRunning != nil {
+		return n.ov.applicationsRunning()
+	}
 	return nil
 }
 
-// RemoveJob removes job
-func (tc *TestCron) RemoveJob(name gen.Atom) error {
-	tc.t.Helper()
+// inspect
 
-	if _, exists := tc.jobs[name]; !exists {
-		return gen.ErrUnknown
+func (n *mockNode) Inspect(target gen.PID, item ...string) (map[string]string, error) {
+	if n.ov.inspect != nil {
+		return n.ov.inspect(target, item...)
 	}
+	n.unsupported("Inspect")
+	return nil, nil
+}
+func (n *mockNode) InspectMeta(alias gen.Alias, item ...string) (map[string]string, error) {
+	if n.ov.inspectMeta != nil {
+		return n.ov.inspectMeta(alias, item...)
+	}
+	n.unsupported("InspectMeta")
+	return nil, nil
+}
 
-	delete(tc.jobs, name)
+// per-process / per-meta settings
 
-	// Record event
-	event := CronJobRemoveEvent{Name: name}
-	tc.events.Push(event)
-
+func (n *mockNode) SetProcessLogLevel(pid gen.PID, level gen.LogLevel) error {
+	if n.ov.setProcessLogLevel != nil {
+		return n.ov.setProcessLogLevel(pid, level)
+	}
+	return nil
+}
+func (n *mockNode) SetProcessSendPriority(pid gen.PID, priority gen.MessagePriority) error {
+	if n.ov.setProcessSendPriority != nil {
+		return n.ov.setProcessSendPriority(pid, priority)
+	}
+	return nil
+}
+func (n *mockNode) SetProcessCompression(pid gen.PID, enabled bool) error {
+	if n.ov.setProcessCompression != nil {
+		return n.ov.setProcessCompression(pid, enabled)
+	}
+	return nil
+}
+func (n *mockNode) SetProcessCompressionType(pid gen.PID, ctype gen.CompressionType) error {
+	if n.ov.setProcessCompressionType != nil {
+		return n.ov.setProcessCompressionType(pid, ctype)
+	}
+	return nil
+}
+func (n *mockNode) SetProcessCompressionLevel(pid gen.PID, level gen.CompressionLevel) error {
+	if n.ov.setProcessCompressionLevel != nil {
+		return n.ov.setProcessCompressionLevel(pid, level)
+	}
+	return nil
+}
+func (n *mockNode) SetProcessCompressionThreshold(pid gen.PID, threshold int) error {
+	if n.ov.setProcessCompressionThreshold != nil {
+		return n.ov.setProcessCompressionThreshold(pid, threshold)
+	}
+	return nil
+}
+func (n *mockNode) SetProcessKeepNetworkOrder(pid gen.PID, order bool) error {
+	if n.ov.setProcessKeepNetworkOrder != nil {
+		return n.ov.setProcessKeepNetworkOrder(pid, order)
+	}
+	return nil
+}
+func (n *mockNode) SetProcessImportantDelivery(pid gen.PID, important bool) error {
+	if n.ov.setProcessImportantDelivery != nil {
+		return n.ov.setProcessImportantDelivery(pid, important)
+	}
+	return nil
+}
+func (n *mockNode) SetMetaLogLevel(meta gen.Alias, level gen.LogLevel) error {
+	if n.ov.setMetaLogLevel != nil {
+		return n.ov.setMetaLogLevel(meta, level)
+	}
+	return nil
+}
+func (n *mockNode) SetMetaSendPriority(meta gen.Alias, priority gen.MessagePriority) error {
+	if n.ov.setMetaSendPriority != nil {
+		return n.ov.setMetaSendPriority(meta, priority)
+	}
 	return nil
 }
 
-// EnableJob enables previously disabled job
-func (tc *TestCron) EnableJob(name gen.Atom) error {
-	tc.t.Helper()
+// loggers
 
-	if _, exists := tc.jobs[name]; !exists {
-		return gen.ErrUnknown
+func (n *mockNode) Loggers() []string {
+	if n.ov.loggers != nil {
+		return n.ov.loggers()
 	}
-
-	// Record event
-	event := CronJobEnableEvent{Name: name}
-	tc.events.Push(event)
-
+	return nil
+}
+func (n *mockNode) LoggerAddPID(pid gen.PID, name string, filter ...gen.LogLevel) error {
+	if n.ov.loggerAddPID != nil {
+		return n.ov.loggerAddPID(pid, name, filter...)
+	}
+	return nil
+}
+func (n *mockNode) LoggerAdd(name string, logger gen.LoggerBehavior, filter ...gen.LogLevel) error {
+	if n.ov.loggerAdd != nil {
+		return n.ov.loggerAdd(name, logger, filter...)
+	}
+	return nil
+}
+func (n *mockNode) LoggerDeletePID(pid gen.PID) {
+	if n.ov.loggerDeletePID != nil {
+		n.ov.loggerDeletePID(pid)
+		return
+	}
+}
+func (n *mockNode) LoggerDelete(name string) {
+	if n.ov.loggerDelete != nil {
+		n.ov.loggerDelete(name)
+		return
+	}
+}
+func (n *mockNode) LoggerLevels(name string) []gen.LogLevel {
+	if n.ov.loggerLevels != nil {
+		return n.ov.loggerLevels(name)
+	}
 	return nil
 }
 
-// DisableJob disables job
-func (tc *TestCron) DisableJob(name gen.Atom) error {
-	tc.t.Helper()
+// tracing
 
-	if _, exists := tc.jobs[name]; !exists {
-		return gen.ErrUnknown
+func (n *mockNode) TracingExporterAddPID(pid gen.PID, name string, flags gen.TracingFlags) error {
+	if n.ov.tracingExporterAddPID != nil {
+		return n.ov.tracingExporterAddPID(pid, name, flags)
 	}
-
-	// Record event
-	event := CronJobDisableEvent{Name: name}
-	tc.events.Push(event)
-
+	return nil
+}
+func (n *mockNode) TracingExporterAdd(name string, exporter gen.TracingBehavior, flags gen.TracingFlags) error {
+	if n.ov.tracingExporterAdd != nil {
+		return n.ov.tracingExporterAdd(name, exporter, flags)
+	}
+	return nil
+}
+func (n *mockNode) TracingExporterDeletePID(pid gen.PID) {
+	if n.ov.tracingExporterDeletePID != nil {
+		n.ov.tracingExporterDeletePID(pid)
+		return
+	}
+}
+func (n *mockNode) TracingExporterDelete(name string) {
+	if n.ov.tracingExporterDelete != nil {
+		n.ov.tracingExporterDelete(name)
+		return
+	}
+}
+func (n *mockNode) TracingExporters() []string {
+	if n.ov.tracingExporters != nil {
+		return n.ov.tracingExporters()
+	}
+	return nil
+}
+func (n *mockNode) TracingExporterFlags(name string) gen.TracingFlags {
+	if n.ov.tracingExporterFlags != nil {
+		return n.ov.tracingExporterFlags(name)
+	}
+	return 0
+}
+func (n *mockNode) SetTracingSampler(sampler gen.TracingSampler) error {
+	if n.ov.setTracingSampler != nil {
+		return n.ov.setTracingSampler(sampler)
+	}
+	return nil
+}
+func (n *mockNode) SetTracingAttribute(key, value string) {
+	if n.ov.setTracingAttribute != nil {
+		n.ov.setTracingAttribute(key, value)
+		return
+	}
+}
+func (n *mockNode) RemoveTracingAttribute(key string) {
+	if n.ov.removeTracingAttribute != nil {
+		n.ov.removeTracingAttribute(key)
+		return
+	}
+}
+func (n *mockNode) TracingSampler() gen.TracingSampler {
+	if n.ov.tracingSampler != nil {
+		return n.ov.tracingSampler()
+	}
+	return nil
+}
+func (n *mockNode) SetProcessTracingSampler(pid gen.PID, sampler gen.TracingSampler) error {
+	if n.ov.setProcessTracingSampler != nil {
+		return n.ov.setProcessTracingSampler(pid, sampler)
+	}
 	return nil
 }
 
-// Info returns information about the jobs
-func (tc *TestCron) Info() gen.CronInfo {
-	var info gen.CronInfo
+// lifecycle
 
-	// Use mock time if set, otherwise use current time
-	now := time.Now()
-	if tc.useMockTime {
-		now = tc.mockTime
+func (n *mockNode) Stop() {
+	if n.ov.stop != nil {
+		n.ov.stop()
+		return
 	}
-
-	info.Next = now.Add(time.Minute).Truncate(time.Minute)
-	info.Spool = []gen.Atom{}
-	info.Jobs = []gen.CronJobInfo{}
-
-	for name, job := range tc.jobs {
-		jobInfo := gen.CronJobInfo{
-			Name:       name,
-			Spec:       job.Spec,
-			Location:   job.Location.String(),
-			ActionInfo: job.Action.Info(),
-			Disabled:   false, // In test mode, jobs are always enabled unless explicitly disabled
-			Fallback:   job.Fallback,
-		}
-		info.Jobs = append(info.Jobs, jobInfo)
-	}
-
-	return info
 }
-
-// JobInfo returns information for the given job
-func (tc *TestCron) JobInfo(name gen.Atom) (gen.CronJobInfo, error) {
-	var jobInfo gen.CronJobInfo
-
-	job, exists := tc.jobs[name]
-	if !exists {
-		return jobInfo, gen.ErrUnknown
+func (n *mockNode) StopWithTimeout(timeout time.Duration) {
+	if n.ov.stopWithTimeout != nil {
+		n.ov.stopWithTimeout(timeout)
+		return
 	}
-
-	jobInfo = gen.CronJobInfo{
-		Name:       name,
-		Spec:       job.Spec,
-		Location:   job.Location.String(),
-		ActionInfo: job.Action.Info(),
-		Disabled:   false,
-		Fallback:   job.Fallback,
-	}
-
-	return jobInfo, nil
 }
-
-// Schedule returns a list of jobs planned to be run for the given period
-func (tc *TestCron) Schedule(since time.Time, duration time.Duration) []gen.CronSchedule {
-	var schedule []gen.CronSchedule
-
-	// For testing purposes, return a simplified schedule
-	// In real testing, you would parse the cron spec and calculate actual schedules
-	start := since.Truncate(time.Minute)
-	end := start.Add(duration)
-
-	for now := start; now.Before(end); now = now.Add(time.Minute) {
-		cronSchedule := gen.CronSchedule{
-			Time: now,
-			Jobs: []gen.Atom{},
-		}
-
-		// For simplicity in testing, we'll say all jobs run every minute
-		// Real implementation would parse cron specs
-		for name := range tc.jobs {
-			cronSchedule.Jobs = append(cronSchedule.Jobs, name)
-		}
-
-		if len(cronSchedule.Jobs) > 0 {
-			schedule = append(schedule, cronSchedule)
-		}
+func (n *mockNode) StopForce() {
+	if n.ov.stopForce != nil {
+		n.ov.stopForce()
+		return
 	}
-
-	return schedule
 }
-
-// JobSchedule returns a list of scheduled run times for the given job and period
-func (tc *TestCron) JobSchedule(job gen.Atom, since time.Time, duration time.Duration) ([]time.Time, error) {
-	if _, exists := tc.jobs[job]; !exists {
-		return nil, gen.ErrUnknown
+func (n *mockNode) Wait() {
+	if n.ov.wait != nil {
+		n.ov.wait()
+		return
 	}
-
-	var schedule []time.Time
-	start := since.Truncate(time.Minute)
-	end := start.Add(duration)
-
-	// For testing purposes, return every minute (simplified)
-	for now := start; now.Before(end); now = now.Add(time.Minute) {
-		schedule = append(schedule, now)
-	}
-
-	return schedule, nil
 }
-
-// SetMockTime allows setting a mock time for testing time-dependent cron functionality
-func (tc *TestCron) SetMockTime(t time.Time) {
-	tc.mockTime = t
-	tc.useMockTime = true
-}
-
-// UseMockTime enables or disables mock time usage
-func (tc *TestCron) UseMockTime(use bool) {
-	tc.useMockTime = use
-}
-
-// TriggerJob manually triggers a cron job for testing purposes
-func (tc *TestCron) TriggerJob(name gen.Atom) error {
-	tc.t.Helper()
-
-	job, exists := tc.jobs[name]
-	if !exists {
-		return gen.ErrUnknown
+func (n *mockNode) WaitWithTimeout(timeout time.Duration) error {
+	if n.ov.waitWithTimeout != nil {
+		return n.ov.waitWithTimeout(timeout)
 	}
-
-	// Use mock time if set, otherwise use current time
-	actionTime := time.Now()
-	if tc.useMockTime {
-		actionTime = tc.mockTime
-	}
-
-	// Record execution event
-	event := CronJobExecutionEvent{
-		Name:       name,
-		Time:       actionTime,
-		ActionInfo: job.Action.Info(),
-	}
-	tc.events.Push(event)
-
 	return nil
+}
+func (n *mockNode) SetCTRLC(enable bool) {
+	if n.ov.setCTRLC != nil {
+		n.ov.setCTRLC(enable)
+		return
+	}
 }

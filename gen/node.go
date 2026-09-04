@@ -42,6 +42,12 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states.
 	Info() (NodeInfo, error)
 
+	// ShortInfo returns essential node information.
+	// Includes uptime, process and application counters, memory, runtime and peers.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states.
+	ShortInfo() (NodeShortInfo, error)
+
 	// EnvList returns a map of configured node environment variables.
 	// Available in all states.
 	EnvList() map[Env]any
@@ -83,7 +89,7 @@ type Node interface {
 	// UnregisterName removes the name association.
 	// Returns the PID that was associated with this name.
 	// Available in: Running state only.
-	// Returns ErrNodeTerminated in other states, ErrProcessUnknown if name not found.
+	// Returns ErrNodeTerminated in other states, ErrNameUnknown if name not found.
 	UnregisterName(name Atom) (PID, error)
 
 	// MetaInfo returns detailed information about the given meta process.
@@ -103,10 +109,18 @@ type Node interface {
 
 	// ProcessListShortInfo returns a list of processes with essential information.
 	// The start and limit parameters filter by process ID range.
+	// A limit of 0 applies the default of 100; a negative limit returns ErrIncorrect.
 	// More efficient than ProcessList + ProcessInfo for each.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
-	ProcessListShortInfo(start, limit int) ([]ProcessShortInfo, error)
+	ProcessListShortInfo(start, limit int, filter ...func(ProcessShortInfo) bool) ([]ProcessShortInfo, error)
+
+	// ProcessRangeShortInfo iterates over all processes calling fn for each.
+	// The callback receives ProcessShortInfo and returns true to continue
+	// or false to stop iteration.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states.
+	ProcessRangeShortInfo(fn func(ProcessShortInfo) bool) error
 
 	// ProcessName returns the registered name for the given PID.
 	// Returns empty Atom if the process has no registered name.
@@ -141,18 +155,23 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states, ErrApplicationUnknown if not found.
 	ApplicationInfo(name Atom) (ApplicationInfo, error)
 
-	// ApplicationProcessList returns all processes belonging to the application.
-	// Includes all processes started by the application and its children (recursive).
+	// ApplicationProcessList returns PIDs of the application's processes, including
+	// those spawned by its members (recursive), in ascending id order.
+	// A limit of 0 returns all of them; a positive limit caps the result; a
+	// negative limit returns ErrIncorrect.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationProcessList(name Atom, limit int) ([]PID, error)
 
 	// ApplicationProcessListShortInfo returns process list with essential information.
-	// Includes all processes from application and its children.
+	// Includes all processes from application and its children, in ascending id order.
+	// A limit of 0 applies the default of 100; a negative limit returns ErrIncorrect.
+	// The second return value is the number of matching processes omitted because
+	// the limit was reached (0 means the whole list was returned).
 	// More efficient than ApplicationProcessList + ProcessInfo for each.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
-	ApplicationProcessListShortInfo(name Atom, limit int) ([]ProcessShortInfo, error)
+	ApplicationProcessListShortInfo(name Atom, limit int) ([]ProcessShortInfo, int, error)
 
 	// ApplicationUnload unloads an application from the node.
 	// Application must be stopped before unloading.
@@ -168,38 +187,42 @@ type Node interface {
 	ApplicationStart(name Atom, options ApplicationOptions) error
 
 	// ApplicationStartTemporary starts the application in temporary mode.
-	// Overrides ApplicationSpec.Mode. Temporary: stops when any child terminates abnormally.
+	// Overrides ApplicationSpec.Mode. Temporary: stops when the last group member terminates.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationStartTemporary(name Atom, options ApplicationOptions) error
 
 	// ApplicationStartTransient starts the application in transient mode.
-	// Overrides ApplicationSpec.Mode. Transient: stops only on abnormal child termination.
+	// Overrides ApplicationSpec.Mode. Transient: stops on abnormal termination of a group
+	// member, otherwise when the last member terminates.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationStartTransient(name Atom, options ApplicationOptions) error
 
 	// ApplicationStartPermanent starts the application in permanent mode.
-	// Overrides ApplicationSpec.Mode. Permanent: never stops on child termination.
+	// Overrides ApplicationSpec.Mode. Permanent: stops when any group member terminates,
+	// whatever the reason.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationStartPermanent(name Atom, options ApplicationOptions) error
 
-	// ApplicationStop stops the application gracefully.
-	// Waits for all children to terminate (default timeout: 5 seconds).
-	// Application can be unloaded after stopping.
+	// ApplicationStop stops the application gracefully: the Stop callback, the exit of the
+	// group members, the termination of every process the application owns, and finally the
+	// Terminate callback. Returns once that is done, so the application is already stopped
+	// and can be unloaded. Waits up to 5 seconds; use ApplicationStopWithTimeout for longer.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states, ErrApplicationStopping if still stopping.
 	ApplicationStop(name Atom) error
 
-	// ApplicationStopForce forcefully kills all application children.
-	// Does not wait for graceful termination.
+	// ApplicationStopForce kills the processes of the application instead of asking them to
+	// stop, and skips the Stop callback. Returns without waiting; the Terminate callback
+	// still runs, once the last process of the application is gone.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	ApplicationStopForce(name Atom) error
 
-	// ApplicationStopWithTimeout stops the application with custom timeout.
-	// Waits for all children to terminate within the specified duration.
+	// ApplicationStopWithTimeout stops the application as ApplicationStop does, waiting the
+	// given duration for the teardown to complete.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states, ErrApplicationStopping on timeout.
 	ApplicationStopWithTimeout(name Atom, timeout time.Duration) error
@@ -243,9 +266,17 @@ type Node interface {
 	Security() SecurityOptions
 
 	// Stop initiates graceful node shutdown.
-	// Waits for all processes and applications to terminate.
+	// Waits for all processes and applications to terminate, up to
+	// NodeOptions.ShutdownTimeout. On timeout remaining processes are
+	// force-killed.
 	// Can be called from any state (idempotent).
 	Stop()
+
+	// StopWithTimeout initiates graceful node shutdown with a caller-provided
+	// shutdown deadline, overriding NodeOptions.ShutdownTimeout. On timeout
+	// remaining processes are force-killed.
+	// Can be called from any state (idempotent).
+	StopWithTimeout(timeout time.Duration)
 
 	// StopForce forcefully kills all processes and stops the node immediately.
 	// No graceful shutdown.
@@ -269,7 +300,8 @@ type Node interface {
 	Kill(pid PID) error
 
 	// Send sends an asynchronous message to the target.
-	// Sender is the node's core PID. Target can be: PID, ProcessID, Alias, Atom, or string.
+	// Sender is the node's core PID. Target can be: PID, ProcessID, Alias, Atom
+	// (local registered name). Any other type returns ErrUnsupported.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
 	Send(to any, message any) error
@@ -297,6 +329,25 @@ type Node interface {
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states, ErrEventUnknown if not found.
 	UnregisterEvent(name Atom) error
+
+	// EventInfo returns information about the given event.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states, ErrEventUnknown if not found.
+	EventInfo(event Event) (EventInfo, error)
+
+	// EventRangeInfo iterates over all registered events calling fn for each.
+	// The callback receives EventInfo and returns true to continue
+	// or false to stop iteration.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states.
+	EventRangeInfo(fn func(EventInfo) bool) error
+
+	// EventListInfo returns a paginated list of events in registration order.
+	// timestamp: 0 = from oldest, -1 = from newest, >0 = from events created at or after this time (unix nanos).
+	// limit: >0 = forward (oldest first), <0 = backward (newest first), abs(limit) results max.
+	// filter: optional function to include only matching events.
+	// Available in: Running state only.
+	EventListInfo(timestamp int64, limit int, filter ...func(EventInfo) bool) ([]EventInfo, error)
 
 	// SendExit sends a graceful termination request to the process.
 	// Sender is the node's core PID.
@@ -378,25 +429,47 @@ type Node interface {
 	// Available in all states.
 	Log() Log
 
-	// LogLevelProcess returns the logging level for the given process.
+	// SetProcessLogLevel sets the logging level for the given process.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
-	LogLevelProcess(pid PID) (LogLevel, error)
+	SetProcessLogLevel(pid PID, level LogLevel) error
 
-	// SetLogLevelProcess sets the logging level for the given process.
+	// SetProcessSendPriority sets the default message sending priority for the given process.
 	// Available in: Running state only.
-	// Returns ErrNodeTerminated in other states.
-	SetLogLevelProcess(pid PID, level LogLevel) error
+	SetProcessSendPriority(pid PID, priority MessagePriority) error
 
-	// LogLevelMeta returns the logging level for the given meta process.
+	// SetProcessCompression enables or disables compression for the given process.
 	// Available in: Running state only.
-	// Returns ErrNodeTerminated in other states.
-	LogLevelMeta(meta Alias) (LogLevel, error)
+	SetProcessCompression(pid PID, enabled bool) error
 
-	// SetLogLevelMeta sets the logging level for the given meta process.
+	// SetProcessCompressionType sets the compression type for the given process.
+	// Available in: Running state only.
+	SetProcessCompressionType(pid PID, ctype CompressionType) error
+
+	// SetProcessCompressionLevel sets the compression level for the given process.
+	// Available in: Running state only.
+	SetProcessCompressionLevel(pid PID, level CompressionLevel) error
+
+	// SetProcessCompressionThreshold sets the minimum message size that triggers compression for the given process.
+	// Available in: Running state only.
+	SetProcessCompressionThreshold(pid PID, threshold int) error
+
+	// SetProcessKeepNetworkOrder enables or disables maintaining delivery order over the network for the given process.
+	// Available in: Running state only.
+	SetProcessKeepNetworkOrder(pid PID, order bool) error
+
+	// SetProcessImportantDelivery enables or disables the important delivery flag for the given process.
+	// Available in: Running state only.
+	SetProcessImportantDelivery(pid PID, important bool) error
+
+	// SetMetaLogLevel sets the logging level for the given meta process.
 	// Available in: Running state only.
 	// Returns ErrNodeTerminated in other states.
-	SetLogLevelMeta(meta Alias, level LogLevel) error
+	SetMetaLogLevel(meta Alias, level LogLevel) error
+
+	// SetMetaSendPriority sets the default message sending priority for the given meta process.
+	// Available in: Running state only.
+	SetMetaSendPriority(meta Alias, priority MessagePriority) error
 
 	// Loggers returns a list of registered logger names.
 	// Available in all states.
@@ -445,6 +518,53 @@ type Node interface {
 	// Available in all states.
 	LoggerLevels(name string) []LogLevel
 
+	// TracingExporterAddPID registers a process as a tracing exporter.
+	// The process will receive TracingSpan messages.
+	// Available in: Running state only.
+	// Returns ErrTaken if name already registered.
+	TracingExporterAddPID(pid PID, name string, flags TracingFlags) error
+
+	// TracingExporterAdd registers a custom tracing exporter implementation.
+	// Available in: Running state only.
+	// Returns ErrTaken if name already registered.
+	TracingExporterAdd(name string, exporter TracingBehavior, flags TracingFlags) error
+
+	// TracingExporterDeletePID removes a process-based tracing exporter.
+	// Available in all states.
+	TracingExporterDeletePID(pid PID)
+
+	// TracingExporterDelete removes a tracing exporter.
+	// Calls exporter.Terminate() if exporter exists.
+	// Available in all states.
+	TracingExporterDelete(name string)
+
+	// TracingExporters returns a list of registered tracing exporter names.
+	// Available in all states.
+	TracingExporters() []string
+
+	// TracingExporterFlags returns the flags for the given tracing exporter.
+	// Available in all states.
+	TracingExporterFlags(name string) TracingFlags
+
+	// SetTracingSampler sets the tracing sampler for node-level Send/Call.
+	// Use TracingSamplerDisable to turn off.
+	// Available in: Running state only.
+	SetTracingSampler(sampler TracingSampler) error
+
+	// SetTracingAttribute sets a permanent tracing attribute on the node.
+	SetTracingAttribute(key, value string)
+
+	// RemoveTracingAttribute removes a permanent tracing attribute from the node.
+	RemoveTracingAttribute(key string)
+
+	// TracingSampler returns the current tracing sampler for the node.
+	// Available in all states.
+	TracingSampler() TracingSampler
+
+	// SetProcessTracingSampler sets the tracing sampler for the given process.
+	// Available in: Running state only.
+	SetProcessTracingSampler(pid PID, sampler TracingSampler) error
+
 	// MakeRef creates a unique reference within this node.
 	// Used for Call requests, event tokens, and correlation.
 	// Available in: Running state only.
@@ -485,12 +605,16 @@ type Node interface {
 type NodeRegistrar interface {
 	Name() Atom
 	Creation() int64
+
+	// Peers returns the remote nodes this node has a connection with.
+	Peers() []Atom
 	SetEnv(name Env, value any)
 	RegisterEvent(name Atom, options EventOptions) (Ref, error)
 	UnregisterEvent(name Atom) error
 	SendEvent(name Atom, token Ref, options MessageOptions, message any) error
 	Log() Log
 	Stop()
+	StopWithTimeout(timeout time.Duration)
 	StopForce()
 }
 
@@ -549,6 +673,28 @@ type NodeOptions struct {
 	// Reported in node.Version() and during network handshakes.
 	// Includes Name, Release, License, Commit details.
 	Version Version
+
+	// Tracing configures tracing exporters at node startup.
+	Tracing TracingOptions
+
+	// Events lists node-level events to register before starting any application.
+	// All events declared here are registered with the node as producer
+	// (Open is forced to true) and live until the node stops. Use this to
+	// establish node-wide event buses that application processes can subscribe
+	// to from Init() without the race of waiting for a producer process to
+	// register the event first.
+	Events []NodeEventSpec
+}
+
+// NodeEventSpec declares a node-level event to be registered during node
+// startup, before any application starts.
+type NodeEventSpec struct {
+	// Name is the event name. Must be unique within the node event namespace.
+	Name Atom
+
+	// Buffer is the ring buffer size for recent MessageEvent values.
+	// Zero means no buffer.
+	Buffer int
 }
 
 // SecurityOptions controls information exposure and security policies.
@@ -643,10 +789,6 @@ func (cl CompressionLevel) String() string {
 	}
 }
 
-func (cl CompressionLevel) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + cl.String() + "\""), nil
-}
-
 func (ct CompressionType) ID() uint8 {
 	switch ct {
 	case CompressionTypeLZW:
@@ -714,6 +856,20 @@ type NodeInfo struct {
 	// Loggers lists all registered loggers with their configuration.
 	Loggers []LoggerInfo
 
+	// Tracing contains node-level tracing configuration.
+	Tracing TracingInfo
+
+	// TracingExporters lists all registered tracing exporters.
+	TracingExporters []TracingExporterInfo
+
+	// LogMessages contains cumulative log message counts by level.
+	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
+	LogMessages [6]uint64
+
+	// TracingSpans contains cumulative tracing span counts by kind.
+	// Indexed as: [0]=Send, [1]=Request, [2]=Response, [3]=Spawn, [4]=Terminate
+	TracingSpans [5]uint64
+
 	// Cron contains cron scheduler information (jobs, schedule, next run).
 	Cron CronInfo
 
@@ -723,8 +879,32 @@ type NodeInfo struct {
 	// ProcessesRunning is the number of processes currently in Running state.
 	ProcessesRunning int64
 
+	// ProcessesWaitResponse is the number of processes blocked in a synchronous Call.
+	ProcessesWaitResponse int64
+
 	// ProcessesZombee is the number of killed processes (Zombee state).
 	ProcessesZombee int64
+
+	// ProcessesSpawned is the cumulative number of successfully spawned processes.
+	ProcessesSpawned uint64
+
+	// ProcessesSpawnFailed is the cumulative number of failed spawn attempts.
+	ProcessesSpawnFailed uint64
+
+	// ProcessesTerminated is the cumulative number of terminated processes.
+	ProcessesTerminated uint64
+
+	// SendErrorsLocal is the cumulative number of local send delivery errors.
+	SendErrorsLocal uint64
+
+	// SendErrorsRemote is the cumulative number of remote send delivery errors.
+	SendErrorsRemote uint64
+
+	// CallErrorsLocal is the cumulative number of local call delivery errors.
+	CallErrorsLocal uint64
+
+	// CallErrorsRemote is the cumulative number of remote call delivery errors.
+	CallErrorsRemote uint64
 
 	// RegisteredAliases is the total number of registered aliases.
 	RegisteredAliases int64
@@ -735,23 +915,185 @@ type NodeInfo struct {
 	// RegisteredEvents is the total number of registered events.
 	RegisteredEvents int64
 
+	// EventsPublished is the cumulative number of events published by local producers.
+	EventsPublished int64
+
+	// EventsReceived is the cumulative number of events received from remote nodes.
+	EventsReceived int64
+
+	// EventsLocalSent is the cumulative number of event messages sent to local subscribers.
+	EventsLocalSent int64
+
+	// EventsRemoteSent is the cumulative number of event messages sent to remote subscribers.
+	EventsRemoteSent int64
+
 	// ApplicationsTotal is the total number of loaded applications.
 	ApplicationsTotal int64
 
 	// ApplicationsRunning is the number of currently running applications.
 	ApplicationsRunning int64
 
-	// MemoryUsed is the current memory usage in bytes (from runtime.MemStats.Alloc).
+	// MemoryUsed is the total memory obtained from the OS, in bytes.
 	MemoryUsed uint64
 
-	// MemoryAlloc is the cumulative bytes allocated (from runtime.MemStats.TotalAlloc).
+	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
 	MemoryAlloc uint64
+
+	// MemoryLimit is the soft memory limit set via GOMEMLIMIT, in bytes.
+	// MaxInt64 means no limit is set.
+	MemoryLimit uint64
+
+	// HeapLive is the heap memory occupied as of the last garbage collection, in bytes.
+	HeapLive uint64
+
+	// HeapGoal is the heap size that triggers the next garbage collection, in bytes.
+	HeapGoal uint64
+
+	// Goroutines is the current number of goroutines.
+	Goroutines int64
+
+	// GCCycles is the cumulative number of completed garbage collection cycles.
+	GCCycles uint64
+
+	// CPUTimeGC is the cumulative CPU time spent in garbage collection, in seconds.
+	CPUTimeGC float64
+
+	// CPUTimeTotal is the cumulative CPU time available to the process, in seconds,
+	// as defined by GOMAXPROCS. Includes idle time.
+	CPUTimeTotal float64
 
 	// UserTime is the user CPU time in nanoseconds.
 	UserTime int64
 
 	// SystemTime is the system CPU time in nanoseconds.
 	SystemTime int64
+
+	// ServerTime is the current server time with timezone.
+	// Useful in Observer and MCP for correlating logs across nodes in different timezones.
+	ServerTime time.Time
+
+	// HeapAllocObjects is the cumulative number of heap objects allocated. Sampling it
+	// twice gives the allocation rate over the interval; the counter itself only grows.
+	HeapAllocObjects uint64
+
+	// HeapFreeObjects is the cumulative number of heap objects freed. The difference
+	// with HeapAllocObjects is the number of objects currently alive.
+	HeapFreeObjects uint64
+}
+
+// NodeShortInfo contains essential information about a node.
+// Retrieved via node.ShortInfo().
+type NodeShortInfo struct {
+	// Name is the node name.
+	Name Atom
+
+	// Creation is the node incarnation identifier. A different value means
+	// the node has been restarted.
+	Creation int64
+
+	// Uptime is the node uptime in seconds since start.
+	Uptime int64
+
+	// Version is the node version information.
+	Version Version
+
+	// Framework is the Ergo framework version.
+	Framework Version
+
+	// Mode is the current network mode (Enabled, Hidden, or Disabled).
+	Mode NetworkMode
+
+	// LogLevel is the default logging level for the node.
+	LogLevel LogLevel
+
+	// ProcessesTotal is the total number of processes on this node.
+	ProcessesTotal int64
+
+	// ProcessesRunning is the number of processes currently in Running state.
+	ProcessesRunning int64
+
+	// ProcessesWaitResponse is the number of processes blocked in a synchronous Call.
+	ProcessesWaitResponse int64
+
+	// ProcessesZombee is the number of killed processes (Zombee state).
+	ProcessesZombee int64
+
+	// ProcessesSpawned is the cumulative number of successfully spawned processes.
+	ProcessesSpawned uint64
+
+	// ProcessesSpawnFailed is the cumulative number of failed spawn attempts.
+	ProcessesSpawnFailed uint64
+
+	// ProcessesTerminated is the cumulative number of terminated processes.
+	ProcessesTerminated uint64
+
+	// ApplicationsTotal is the total number of loaded applications.
+	ApplicationsTotal int64
+
+	// ApplicationsRunning is the number of currently running applications.
+	ApplicationsRunning int64
+
+	// SendErrorsLocal is the cumulative number of local send delivery errors.
+	SendErrorsLocal uint64
+
+	// SendErrorsRemote is the cumulative number of remote send delivery errors.
+	SendErrorsRemote uint64
+
+	// CallErrorsLocal is the cumulative number of local call delivery errors.
+	CallErrorsLocal uint64
+
+	// CallErrorsRemote is the cumulative number of remote call delivery errors.
+	CallErrorsRemote uint64
+
+	// LogMessages contains cumulative log message counts by level.
+	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
+	LogMessages [6]uint64
+
+	// MemoryUsed is the total memory obtained from the OS, in bytes.
+	MemoryUsed uint64
+
+	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
+	MemoryAlloc uint64
+
+	// MemoryLimit is the soft memory limit set via GOMEMLIMIT, in bytes.
+	// MaxInt64 means no limit is set.
+	MemoryLimit uint64
+
+	// HeapLive is the heap memory occupied as of the last garbage collection, in bytes.
+	HeapLive uint64
+
+	// HeapGoal is the heap size that triggers the next garbage collection, in bytes.
+	HeapGoal uint64
+
+	// Goroutines is the current number of goroutines.
+	Goroutines int64
+
+	// GCCycles is the cumulative number of completed garbage collection cycles.
+	GCCycles uint64
+
+	// CPUTimeGC is the cumulative CPU time spent in garbage collection, in seconds.
+	CPUTimeGC float64
+
+	// CPUTimeTotal is the cumulative CPU time available to the process, in seconds,
+	// as defined by GOMAXPROCS. Includes idle time.
+	CPUTimeTotal float64
+
+	// UserTime is the user CPU time in nanoseconds.
+	UserTime int64
+
+	// SystemTime is the system CPU time in nanoseconds.
+	SystemTime int64
+
+	// Applications lists the applications loaded on this node. The set of
+	// applications is what makes a node's role, so it groups nodes the way
+	// naming conventions cannot.
+	Applications []Atom
+
+	// Peers describes the connections this node currently has.
+	Peers []RemoteNodeShortInfo
+
+	// ServerTime is the current server time with timezone.
+	ServerTime time.Time
 }
 
 // LoggerInfo describes a registered logger.
@@ -767,4 +1109,20 @@ type LoggerInfo struct {
 	// Levels lists the log levels this logger is filtering.
 	// Empty means logger receives all log levels.
 	Levels []LogLevel
+}
+
+// TracingExporterInfo contains information about a registered tracing exporter.
+type TracingExporterInfo struct {
+	// Name is the unique exporter identifier.
+	Name string
+
+	// Behavior is the exporter type name.
+	Behavior string
+
+	// Flags is the tracing granularity for this exporter.
+	Flags TracingFlags
+
+	// DroppedSpans counts spans dropped because the exporter's queue was full
+	// (a slow or blocked object exporter). Always zero for process-based exporters.
+	DroppedSpans uint64
 }

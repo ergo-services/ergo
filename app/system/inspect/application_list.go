@@ -1,8 +1,6 @@
 package inspect
 
 import (
-	"fmt"
-
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 )
@@ -16,21 +14,37 @@ type application_list struct {
 	token gen.Ref
 
 	generating bool
+	loopID     uint64
 	event      gen.Atom
 }
 
 func (ial *application_list) Init(args ...any) error {
 	ial.Log().SetLogger("default")
+	ial.SetProcessKind(gen.ProcessKindMonitor)
 	ial.Log().Debug("application list inspector started")
-	// RegisterEvent is not allowed here
-	ial.Send(ial.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(inspectApplicationList)
+	token, err := ial.RegisterEvent(evname, eopts)
+	if err != nil {
+		ial.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	ial.Log().Info("registered event %s", evname)
+	ial.event = evname
+	ial.token = token
+	ial.SendAfter(ial.PID(), shutdown{}, inspectApplicationListIdlePeriod)
+
 	return nil
 }
 
 func (ial *application_list) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if ial.generating == false {
+		if m.id != ial.loopID || ial.generating == false {
 			ial.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -60,7 +74,7 @@ func (ial *application_list) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		ial.SendAfter(ial.PID(), generate{}, inspectApplicationListPeriod)
+		ial.SendAfter(ial.PID(), generate{id: ial.loopID}, inspectApplicationListPeriod)
 
 	case requestInspect:
 		response := ResponseInspectApplicationList{
@@ -72,23 +86,6 @@ func (ial *application_list) HandleMessage(from gen.PID, message any) error {
 		ial.SendResponse(m.pid, m.ref, response)
 		ial.Log().Debug("sent response for the inspect application list request to: %s", m.pid)
 
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s", inspectApplicationList))
-		token, err := ial.RegisterEvent(evname, eopts)
-		if err != nil {
-			ial.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		ial.Log().Info("registered event %s", evname)
-		ial.event = evname
-
-		ial.token = token
-		ial.SendAfter(ial.PID(), shutdown{}, inspectApplicationListIdlePeriod)
-
 	case shutdown:
 		if ial.generating {
 			ial.Log().Debug("ignore shutdown. generating is active")
@@ -98,7 +95,8 @@ func (ial *application_list) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		ial.Log().Debug("got first subscriber. start generating events...")
-		ial.Send(ial.PID(), generate{})
+		ial.loopID++
+		ial.Send(ial.PID(), generate{id: ial.loopID})
 		ial.generating = true
 
 	case gen.MessageEventStop: // no subscribers

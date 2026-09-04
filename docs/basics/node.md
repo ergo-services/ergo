@@ -10,13 +10,13 @@ When you start a node, you're launching a complete system with several subsystem
 
 ## What a Node Provides
 
-**Process Management** - The node tracks every process running on it. When you spawn a process, the node assigns it a unique PID, registers it in the process table, and manages its lifecycle. When a process terminates, the node cleans up its resources and notifies any processes that were linked or monitoring it.
+**Process Management** - The node tracks every process running on it. When you spawn a process, the node assigns it a unique PID, registers it in the process table, and manages its lifecycle. When a process terminates, the node cleans up its resources and notifies any processes that were linked or monitoring it. The node provides `ProcessRangeShortInfo` for efficient iteration over all processes with their current state, including mailbox latency when built with `-tags=latency`.
 
 **Message Routing** - When a process sends a message, the node figures out where it needs to go. Local process? Route it directly to the mailbox. Remote process? Establish a network connection if needed and send it there. The sender doesn't need to know these details.
 
 **Network Stack** - The node handles all network communication. It discovers other nodes, establishes connections, encodes messages, and manages the complexity of distributed communication. This is what makes network transparency possible.
 
-**Pub/Sub System** - Links, monitors, and events all work through a publisher/subscriber mechanism in the node core. When a process terminates or an event fires, the node knows who's subscribed and delivers the notifications.
+**Pub/Sub System** - Links, monitors, and events all work through a publisher/subscriber mechanism in the node core. When a process terminates or an event fires, the node knows who's subscribed and delivers the notifications. The node provides `EventInfo` to query statistics for a specific event and `EventRangeInfo` for callback-based iteration over all registered events with their per-event counters (messages published, local/remote deliveries).
 
 **Logging** - Every log message goes through the node, which fans it out to registered loggers. This centralized logging makes it easy to capture, filter, and route log output.
 
@@ -78,7 +78,7 @@ Environment variables are case-insensitive. Whether you set "database_url" or "D
 
 Stopping a node can be graceful or forced.
 
-Graceful shutdown sends exit signals to all processes and waits for them to clean up. Processes receive `gen.TerminateReasonShutdown` and can save state, close connections, or send final messages before terminating. Once all processes have stopped, the network stack shuts down, and the node exits.
+Graceful shutdown stops the running applications first, each one through its own `Stop` and `Terminate` callbacks, then sends exit signals to whatever processes are left. Processes receive `gen.TerminateReasonShutdown` and can save state, close connections, or send final messages before terminating, and the node waits for their `ProcessTerminate` callbacks to return rather than only for them to leave the process table. Once everything has stopped, the network stack shuts down, the loggers are closed, and the node exits.
 
 Forced shutdown kills all processes immediately without waiting for cleanup. This is useful when you need to stop quickly, but processes don't get a chance to clean up properly.
 
@@ -86,9 +86,11 @@ One subtlety: if you call `Stop` from within a process, you create a deadlock. T
 
 ### Shutdown Timeout
 
-Graceful shutdown can hang indefinitely if a process is stuck - perhaps blocked on a channel, waiting for an external resource, or caught in incorrect logic. To prevent this, the node has a shutdown timeout. If processes don't terminate within this period, the node force exits with error code 1.
+Graceful shutdown can hang indefinitely if a process is stuck - perhaps blocked on a channel, waiting for an external resource, or caught in incorrect logic. To prevent this, the node has a shutdown timeout.
 
-The default timeout is 3 minutes. You can change it through `gen.NodeOptions`:
+When the timeout expires, the node escalates: it force-kills any remaining processes and waits a short settle window (5 seconds) for them to unregister. If they still refuse to die, the node hard-exits with error code 1 after logging the surviving processes.
+
+The default timeout is 3 minutes. You can change it globally through `gen.NodeOptions`:
 
 ```go
 options := gen.NodeOptions{
@@ -96,16 +98,24 @@ options := gen.NodeOptions{
 }
 ```
 
+or per call via `StopWithTimeout`, which overrides the node-level value for that invocation:
+
+```go
+node.StopWithTimeout(10 * time.Second)
+```
+
 During shutdown, the node logs which processes are still running. Every 5 seconds, it prints a warning with the first 10 pending processes, showing their PID, registered name (if any), behavior type, state, and mailbox queue length. This diagnostic output helps identify what's blocking the shutdown:
 
 ```
-[warning] node 'myapp@localhost' is still waiting for 3 process(es) to terminate:
+[warning] node 'myapp@localhost' is still waiting for process(es) to terminate:
 [warning]   <ABC123.0.1004> ('worker_1', main.Worker) state: running, queue: 1
 [warning]   <ABC123.0.1005> ('worker_2', main.Worker) state: running, queue: 0
 [warning]   <ABC123.0.1006> (main.Worker) state: running, queue: 5
 ```
 
 The state tells you what the process is doing: `running` means it's handling a message, `sleep` means it's idle waiting for messages. The queue count shows how many messages are waiting. A process stuck in `running` with a growing queue indicates it's blocked in a callback and not processing its mailbox.
+
+When the timeout fires, the same listing is printed at error level along with the force-kill notice, and the post-settle hard-exit report (if reached) shows whichever processes survived the kill so you can identify culprits that ignore termination signals.
 
 ## Node Incarnation
 

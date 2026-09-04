@@ -17,22 +17,38 @@ type connection struct {
 
 	event      gen.Atom
 	generating bool
+	loopID     uint64
 	remote     gen.Atom
 }
 
 func (ic *connection) Init(args ...any) error {
 	ic.remote = args[0].(gen.Atom)
 	ic.Log().SetLogger("default")
+	ic.SetProcessKind(gen.ProcessKindMonitor)
 	ic.Log().Debug("connection inspector started")
-	// RegisterEvent is not allowed here
-	ic.Send(ic.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectConnection, ic.remote))
+	token, err := ic.RegisterEvent(evname, eopts)
+	if err != nil {
+		ic.Log().Error("unable to register connection event: %s", err)
+		return err
+	}
+	ic.Log().Info("registered event %s", inspectNetwork)
+	ic.event = evname
+	ic.token = token
+	ic.SendAfter(ic.PID(), shutdown{}, inspectConnectionIdlePeriod)
+
 	return nil
 }
 
 func (ic *connection) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if ic.generating == false {
+		if m.id != ic.loopID || ic.generating == false {
 			ic.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -60,7 +76,7 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 		if ev.Disconnected {
 			return gen.TerminateReasonNormal
 		}
-		ic.SendAfter(ic.PID(), generate{}, inspectNetworkPeriod)
+		ic.SendAfter(ic.PID(), generate{id: ic.loopID}, inspectConnectionPeriod)
 
 	case requestInspect:
 		response := ResponseInspectConnection{
@@ -80,23 +96,6 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s", inspectConnection, ic.remote))
-		token, err := ic.RegisterEvent(evname, eopts)
-		if err != nil {
-			ic.Log().Error("unable to register connection event: %s", err)
-			return err
-		}
-		ic.Log().Info("registered event %s", inspectNetwork)
-		ic.event = evname
-
-		ic.token = token
-		ic.SendAfter(ic.PID(), shutdown{}, inspectNetworkIdlePeriod)
-
 	case shutdown:
 		if ic.generating {
 			ic.Log().Debug("ignore shutdown. generating is active")
@@ -106,14 +105,15 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		ic.Log().Debug("got first subscriber. start generating events...")
-		ic.Send(ic.PID(), generate{})
+		ic.loopID++
+		ic.Send(ic.PID(), generate{id: ic.loopID})
 		ic.generating = true
 
 	case gen.MessageEventStop: // no subscribers
 		ic.Log().Debug("no subscribers. stop generating")
 		if ic.generating {
 			ic.generating = false
-			ic.SendAfter(ic.PID(), shutdown{}, inspectNetworkIdlePeriod)
+			ic.SendAfter(ic.PID(), shutdown{}, inspectConnectionIdlePeriod)
 		}
 
 	default:

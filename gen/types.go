@@ -31,6 +31,10 @@ func (a Atom) Host() string {
 	return ""
 }
 
+func (a Atom) CRC32Sum() uint32 {
+	return crc32.Checksum([]byte(a), crc32q)
+}
+
 func (a Atom) CRC32() string {
 	if v, exist := crc32cache.Load(a); exist {
 		return v.(string)
@@ -63,10 +67,6 @@ func (p PID) String() string {
 	return string(buf)
 }
 
-func (p PID) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + p.String() + "\""), nil
-}
-
 // ProcessID long notation of registered process {process_name, node_name}
 type ProcessID struct {
 	Name Atom
@@ -82,9 +82,6 @@ func (p ProcessID) String() string {
 	buf = append(buf, p.Name...)
 	buf = append(buf, '>')
 	return string(buf)
-}
-func (p ProcessID) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + p.String() + "\""), nil
 }
 
 // Ref
@@ -129,10 +126,6 @@ func (r Ref) IsAlive() bool {
 	return true
 }
 
-func (r Ref) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + r.String() + "\""), nil
-}
-
 // Alias
 type Alias Ref
 
@@ -151,10 +144,6 @@ func (a Alias) String() string {
 	return string(buf)
 }
 
-func (a Alias) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + a.String() + "\""), nil
-}
-
 // Event
 type Event struct {
 	Name Atom
@@ -162,8 +151,24 @@ type Event struct {
 }
 
 type EventOptions struct {
+	// Notify controls whether the producer receives MessageEventStart and
+	// MessageEventStop when the subscriber count crosses zero. Ignored for
+	// node-level events (producer is corePID), since the node core does not
+	// consume such messages.
 	Notify bool
+
+	// Buffer is the size of the ring buffer that stores the most recent
+	// MessageEvent values. New subscribers receive the buffer contents on
+	// Link or Monitor. Zero means no buffer.
 	Buffer int
+
+	// Open disables the token check on SendEvent. When true, any local process
+	// can publish to this event by name, regardless of the token value. The
+	// token returned by RegisterEvent is still generated but not required for
+	// publishing. The owner check on UnregisterEvent is unaffected: only the
+	// registering process (or the node, for node-level events) can unregister.
+	// Default: false.
+	Open bool
 }
 
 // String
@@ -176,8 +181,72 @@ func (e Event) String() string {
 	buf = append(buf, '>')
 	return string(buf)
 }
-func (e Event) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + e.String() + "\""), nil
+
+// RegisteredTypeInfo describes a type registered with a wire-format proto.
+type RegisteredTypeInfo struct {
+	// ID is the per-proto registration order. Strictly monotonic; gaps possible.
+	ID uint64
+	// Name is the canonical wire-format name within the proto.
+	Name string
+	// Kind classifies the type for filters/badges (bool, int, struct, marshaler, ...).
+	Kind string
+	// Schema is a Go-syntax shape of the type.
+	Schema string
+	// Proto is the proto version owning this entry, set by the aggregator.
+	Proto string
+	// MinSize is the wire-format size in bytes of a zero-value of this type
+	// when sent as a top-level message (including the type-tag prefix).
+	// Real values may be larger if SizeVariable is true.
+	MinSize uint32
+	// SizeVariable is true if the type contains string/slice/map/pointer/
+	// interface fields whose encoded size depends on the actual value.
+	SizeVariable bool
+	// Stats holds per-type usage counters. Populated only when the proto
+	// implementation activates them (e.g. EDF when built with -tags=typestats).
+	// When Stats.Enabled is false, all counter fields remain zero.
+	Stats RegisteredTypeStats
+}
+
+// RegisteredTypeStats holds per-type usage counters incremented on root
+// encode/decode operations. Activation is controlled by the proto
+// implementation. When Enabled is false, all counter fields are zero
+// and unchanged across operations.
+type RegisteredTypeStats struct {
+	Enabled      bool
+	Encoded      int64
+	Decoded      int64
+	EncodedBytes int64
+	DecodedBytes int64
+}
+
+// RegisteredErrorInfo describes one sentinel error in a proto's wire-format
+// error registry. Enumerated via Network.RegisteredErrors, whose main use is
+// answering "is this sentinel registered here" - the question behind an
+// errors.Is that stopped matching after a node hop.
+type RegisteredErrorInfo struct {
+	// ID is the local wire-format cache id. It is NOT comparable between
+	// nodes: the actual per-connection mapping is negotiated at handshake, so
+	// two nodes may hold different ids for the same sentinel. Compare Text.
+	ID uint16
+	// Text is the sentinel's Error() string - the only identifier stable
+	// across nodes.
+	Text string
+	// Proto is the proto version owning this entry, set by the aggregator.
+	Proto string
+}
+
+// RegisteredAtomInfo describes one atom in a proto's wire-format atom cache.
+// Enumerated via Network.RegisteredAtoms. Unlike errors, an unregistered atom
+// never breaks correctness - it is encoded in full every time - so this
+// answers whether a wire-size optimization actually took effect.
+type RegisteredAtomInfo struct {
+	// ID is the local wire-format cache id, not comparable between nodes for
+	// the same reason as RegisteredErrorInfo.ID.
+	ID uint16
+	// Name is the atom itself.
+	Name Atom
+	// Proto is the proto version owning this entry, set by the aggregator.
+	Proto string
 }
 
 // Env
@@ -185,9 +254,6 @@ type Env string
 
 func (e Env) String() string {
 	return strings.ToUpper(string(e))
-}
-func (e Env) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + e.String() + "\""), nil
 }
 
 // Version
@@ -239,10 +305,6 @@ func (l LogLevel) String() string {
 		return "system"
 	}
 	return "unknown log level"
-}
-
-func (l LogLevel) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + l.String() + "\""), nil
 }
 
 const (

@@ -1,5 +1,9 @@
 package gen
 
+import (
+	"time"
+)
+
 type ApplicationMode int
 type ApplicationState int32
 
@@ -11,6 +15,9 @@ const (
 	ApplicationStateLoaded   ApplicationState = 1
 	ApplicationStateRunning  ApplicationState = 2
 	ApplicationStateStopping ApplicationState = 3
+
+	// internal state transition from "load" to "running"; not exposed to the registrar
+	ApplicationStateInitializing ApplicationState = 10
 )
 
 func (am ApplicationMode) String() string {
@@ -24,37 +31,108 @@ func (am ApplicationMode) String() string {
 	}
 }
 
-func (am ApplicationMode) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + am.String() + "\""), nil
-}
-
 func (as ApplicationState) String() string {
 	switch as {
-	case ApplicationStateStopping:
-		return "stopping"
+	case ApplicationStateInitializing:
+		return "initializing"
 	case ApplicationStateRunning:
 		return "running"
+	case ApplicationStateStopping:
+		return "stopping"
 	default:
 		return "loaded"
 	}
 }
 
-func (as ApplicationState) MarshalJSON() ([]byte, error) {
-	return []byte("\"" + as.String() + "\""), nil
+// Application is the runtime view of a loaded application on a node.
+// Returned by Process.Application() so processes can introspect the
+// containing application and mutate dynamic fields (tags, weight) that
+// propagate to the registrar. Also passed to ApplicationBehavior.PreLoad
+// for the embedded base to bind.
+type Application interface {
+	Name() Atom
+	Mode() ApplicationMode
+	State() ApplicationState
+	Node() Node
+	Log() Log
+
+	// Env returns a value from the application's effective environment. While the
+	// application is running this is the node core env, ApplicationSpec.Env, and the
+	// per-start ApplicationOptions.Env merged in that order (later layers win); while
+	// not running it is ApplicationSpec.Env.
+	Env(key Env) (any, bool)
+	// EnvList returns a copy of the application's effective environment (see Env).
+	EnvList() map[Env]any
+
+	Tags() []Atom
+	AddTag(tag Atom) error
+	RemoveTag(tag Atom) error
+	SetTags(tags []Atom) error
+
+	Weight() int
+	// SetWeight updates the route weight. A negative weight takes the
+	// application out of resolve results (out of rotation); any non-negative
+	// weight restores it.
+	SetWeight(w int) error
+
+	// Behavior returns the application behavior implementation. Used by
+	// app.Application.PreLoad to dispatch the user's Load callback, and by the
+	// processes of the application to reach what their application owns:
+	// process.Application().Behavior().(*MyApp).
+	Behavior() ApplicationBehavior
 }
 
+// ApplicationBehavior is the application lifecycle interface.
+// User types must embed app.Application to inherit PreLoad and default
+// no-op implementations of Init/Start/Stop/Terminate, then implement Load.
 type ApplicationBehavior interface {
-	// Load invoked on loading application using method ApplicationLoad of gen.Node interface.
-	Load(node Node, args ...any) (ApplicationSpec, error)
-	// Start invoked once the application started
-	Start(mode ApplicationMode)
-	// Terminate invoked once the application stopped
+	// PreLoad is the framework entry point. Implemented by app.Application
+	// via embed: binds the runtime application and dispatches to Load.
+	// DO NOT OVERRIDE.
+	PreLoad(app Application, args ...any) (ApplicationSpec, error)
+
+	// Load returns the application spec. User must implement.
+	// The runtime Application is bound when Load is called; use a.Log(),
+	// a.Node(), etc. via the app.Application embed.
+	Load(args ...any) (ApplicationSpec, error)
+
+	// Init runs pre-start: open resources needed by Group processes.
+	// ref.IsAlive() == false means InitTimeout exceeded; unwind and return
+	// gen.ErrTimeout. Non-nil error aborts start; Terminate is NOT called.
+	Init(ref Ref, mode ApplicationMode) error
+
+	// Start runs post-start: register health checks, export metrics.
+	// ref deadline is StartTimeout.
+	Start(ref Ref, mode ApplicationMode)
+
+	// Stop runs pre-stop: drain, deregister, flush. Blocks subsequent
+	// Group exit until return or StopTimeout expiry. Skipped if the
+	// application never reached the running state, and on a forced stop.
+	Stop(ref Ref, reason error)
+
+	// Terminate runs post-stop: close resources opened in Init. It runs
+	// once every process of the application has terminated, including
+	// their own termination callbacks, so a process may use these
+	// resources until it is gone. Not called if Init returned an error.
 	Terminate(reason error)
 }
 
 type ApplicationOptions struct {
+	// Env is a per-start set of environment variables merged on top of the node core
+	// env and ApplicationSpec.Env for this start. Inherited by the application's
+	// processes and reflected by Application.Env()/EnvList() while running. Each start
+	// supplies its own Env; values do not carry over between starts.
 	Env      map[Env]any
 	LogLevel LogLevel
+
+	// InitTimeout overrides ApplicationSpec.InitTimeout if non-zero.
+	InitTimeout time.Duration
+
+	// StartTimeout overrides ApplicationSpec.StartTimeout if non-zero.
+	StartTimeout time.Duration
+
+	// StopTimeout overrides ApplicationSpec.StopTimeout if non-zero.
+	StopTimeout time.Duration
 }
 
 type ApplicationOptionsExtra struct {
@@ -81,8 +159,16 @@ type ApplicationSpec struct {
 	// Depends lists application dependencies (other applications or network).
 	Depends ApplicationDepends
 
+	// Network declares wire-format values this application contributes
+	// to the node's network. Processed during ApplicationLoad, before
+	// any process in the application is spawned. Entries are silently
+	// ignored if the node's network mode is NetworkModeDisabled.
+	Network ApplicationNetwork
+
 	// Env contains application-level environment variables.
 	// Inherited by all processes within the application.
+	// With the node env (merged at load) it forms the base of the effective
+	// environment reported by Application.Env()/EnvList().
 	Env map[Env]any
 
 	// Group lists the processes that belong to this application.
@@ -111,6 +197,15 @@ type ApplicationSpec struct {
 
 	// LogLevel sets the default logging level for application processes.
 	LogLevel LogLevel
+
+	// InitTimeout limits the Init callback. 0 -> DefaultApplicationInitTimeout.
+	InitTimeout time.Duration
+
+	// StartTimeout limits the Start callback. 0 -> DefaultApplicationStartTimeout.
+	StartTimeout time.Duration
+
+	// StopTimeout limits the Stop callback. 0 -> DefaultApplicationStopTimeout.
+	StopTimeout time.Duration
 }
 
 // ApplicationMemberSpec defines a process that belongs to an application.
@@ -137,6 +232,23 @@ type ApplicationDepends struct {
 
 	// Network indicates if network connectivity is required before starting.
 	Network bool
+}
+
+// ApplicationNetwork groups the network-scoped declarations of an
+// application. All entries are processed during ApplicationLoad,
+// before any process in the application is spawned, and only when
+// the node's network mode is not NetworkModeDisabled.
+type ApplicationNetwork struct {
+	// RegisterTypes are Go types registered with every TypeRegistry-capable
+	// proto on the node. Order is irrelevant; protos resolve inter-type
+	// dependencies internally.
+	RegisterTypes []any
+
+	// RegisterErrors are sentinel errors registered for wire transport.
+	RegisterErrors []error
+
+	// RegisterAtoms are atoms registered in the wire-format atom cache.
+	RegisterAtoms []Atom
 }
 
 // ApplicationInfo contains runtime information about an application.
@@ -168,7 +280,7 @@ type ApplicationInfo struct {
 	// Version specifies the application version.
 	Version Version
 
-	// Env contains application-level environment variables.
+	// Env is the application's effective environment (see Application.Env).
 	// Only populated if NodeOptions.Security.ExposeEnvInfo is enabled.
 	Env map[Env]any
 
@@ -189,6 +301,14 @@ type ApplicationInfo struct {
 	// Uptime is the number of seconds since application started.
 	Uptime int64
 
-	// Group lists all process PIDs belonging to this application.
+	// Group lists the PIDs of the direct group members declared in
+	// ApplicationSpec.Group. Processes spawned deeper in the tree belong to
+	// the application too, but are not listed here: use
+	// Node.ApplicationProcessList for all of them.
 	Group []PID
+
+	// ProcessesTotal is the number of processes belonging to this application:
+	// the group members plus everything they spawned. The application is fully
+	// stopped only when it reaches zero, which is when Terminate runs.
+	ProcessesTotal int
 }

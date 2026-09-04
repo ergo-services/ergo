@@ -3,8 +3,10 @@ package edf
 import (
 	//  "encoding/binary"
 	"fmt"
+	"math"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"ergo.services/ergo/gen"
@@ -31,6 +33,18 @@ type testRegMap map[bool]string
 type testRegStruct struct{ A bool }
 type testRegSlice []bool
 type testRegArray [3]bool
+
+type testRegTagSkipExported struct {
+	ID   int64
+	Name string
+	Skip *int `edf:"-"`
+}
+
+type testRegTagSkipUnexported struct {
+	ID    int64
+	Name  string
+	cache map[string]int `edf:"-"`
+}
 
 type regCases struct {
 	name  string
@@ -135,5 +149,32 @@ func TestRegCacheTypes(t *testing.T) {
 				t.Fatal("incorrect value")
 			}
 		})
+	}
+}
+
+func TestRegTagSkipExportedField(t *testing.T) {
+	if err := RegisterTypeOf(testRegTagSkipExported{}); err != nil && err != gen.ErrTaken {
+		t.Fatalf("register failed for struct with edf:\"-\" on exported field: %v", err)
+	}
+}
+
+func TestRegTagSkipUnexportedField(t *testing.T) {
+	if err := RegisterTypeOf(testRegTagSkipUnexported{}); err != nil && err != gen.ErrTaken {
+		t.Fatalf("register failed for struct with edf:\"-\" on unexported field: %v", err)
+	}
+}
+
+type edfOverflowType int
+
+// Registering a type once the 16-bit reg-cache id space is exhausted must
+// surface an error, not silently register with a full-name fallback. Regression
+// for the discarded addRegCache error: the overflow now propagates.
+func TestRegisterTypeCacheOverflow(t *testing.T) {
+	old := atomic.LoadUint32(&regCacheID)
+	atomic.StoreUint32(&regCacheID, math.MaxUint16)
+	defer atomic.StoreUint32(&regCacheID, old)
+
+	if err := registerType(reflect.TypeOf(edfOverflowType(0))); err == nil {
+		t.Fatal("registering past the 65535-type cache limit must return an error")
 	}
 }

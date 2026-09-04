@@ -16,31 +16,67 @@ type process_list struct {
 	act.Actor
 	token gen.Ref
 
-	start      int
-	limit      int
+	start       int
+	limit       int
+	name        string
+	behavior    string
+	application string
+	state       string
+	minMailbox  uint64
+
 	generating bool
+	loopID     uint64
 	event      gen.Atom
 }
 
 func (ipl *process_list) Init(args ...any) error {
 	ipl.start = args[0].(int)
 	ipl.limit = args[1].(int)
+	ipl.name = args[2].(string)
+	ipl.behavior = args[3].(string)
+	ipl.application = args[4].(string)
+	ipl.state = args[5].(string)
+	ipl.minMailbox = args[6].(uint64)
+
 	ipl.Log().SetLogger("default")
+	ipl.SetProcessKind(gen.ProcessKindMonitor)
 	ipl.Log().Debug("process list inspector started. %d...%d", ipl.start, ipl.start+ipl.limit-1)
-	// RegisterEvent is not allowed here
-	ipl.Send(ipl.PID(), register{})
+	ipl.SetCompression(true)
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1,
+	}
+	hash := filterHash(ipl.name, ipl.behavior, ipl.application, ipl.state, ipl.minMailbox, ipl.limit)
+	evname := gen.Atom(fmt.Sprintf("%s_%d_%s", inspectProcessList, ipl.start, hash))
+	token, err := ipl.RegisterEvent(evname, eopts)
+	if err != nil {
+		ipl.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	ipl.Log().Info("registered event %s", evname)
+	ipl.event = evname
+	ipl.token = token
+	ipl.SendAfter(ipl.PID(), shutdown{}, inspectProcessListIdlePeriod)
+
 	return nil
 }
+
 func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if ipl.generating == false {
+		if m.id != ipl.loopID || ipl.generating == false {
 			ipl.Log().Debug("generating canceled")
-			break // cancelled
+			break
 		}
 		ipl.Log().Debug("generating event")
 
-		list, err := ipl.Node().ProcessListShortInfo(ipl.start, ipl.limit)
+		var filter []func(gen.ProcessShortInfo) bool
+		if f := ipl.filter(); f.set() {
+			filter = append(filter, f.match)
+		}
+
+		list, err := ipl.Node().ProcessListShortInfo(ipl.start, ipl.limit, filter...)
 		if err != nil {
 			return err
 		}
@@ -59,7 +95,7 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		ipl.SendAfter(ipl.PID(), generate{}, inspectProcessListPeriod)
+		ipl.SendAfter(ipl.PID(), generate{id: ipl.loopID}, inspectProcessListPeriod)
 
 	case requestInspect:
 		response := ResponseInspectProcessList{
@@ -71,36 +107,20 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 		ipl.SendResponse(m.pid, m.ref, response)
 		ipl.Log().Debug("sent response for the inspect process list request to: %s", m.pid)
 
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%d_%d", inspectProcessList, ipl.start, ipl.start+ipl.limit-1))
-		token, err := ipl.RegisterEvent(evname, eopts)
-		if err != nil {
-			ipl.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		ipl.Log().Info("registered event %s", evname)
-		ipl.event = evname
-
-		ipl.token = token
-		ipl.SendAfter(ipl.PID(), shutdown{}, inspectProcessListIdlePeriod)
-
 	case shutdown:
 		if ipl.generating {
 			ipl.Log().Debug("ignore shutdown. generating is active")
-			break // ignore.
+			break
 		}
 		return gen.TerminateReasonNormal
 
-	case gen.MessageEventStart: // got first subscriber
+	case gen.MessageEventStart:
 		ipl.Log().Debug("got first subscriber. start generating events...")
-		ipl.Send(ipl.PID(), generate{})
+		ipl.loopID++
+		ipl.Send(ipl.PID(), generate{id: ipl.loopID})
 		ipl.generating = true
 
-	case gen.MessageEventStop: // no subscribers
+	case gen.MessageEventStop:
 		ipl.Log().Debug("no subscribers. stop generating")
 		if ipl.generating {
 			ipl.generating = false
@@ -116,4 +136,11 @@ func (ipl *process_list) HandleMessage(from gen.PID, message any) error {
 
 func (ipl *process_list) Terminate(reason error) {
 	ipl.Log().Debug("process list inspector terminated: %s", reason)
+}
+
+func (ipl *process_list) filter() processFilter {
+	return processFilter{
+		Name: ipl.name, Behavior: ipl.behavior, Application: ipl.application,
+		State: ipl.state, MinMailbox: ipl.minMailbox,
+	}
 }

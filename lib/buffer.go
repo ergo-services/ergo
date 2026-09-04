@@ -5,7 +5,6 @@ import (
 	"io"
 	"math"
 	"sync"
-	"sync/atomic"
 )
 
 // Buffer
@@ -25,30 +24,17 @@ var (
 			return b
 		},
 	}
-	buffersTaken        uint64 = 0
-	buffersTakenSize    uint64 = 0
-	buffersReturned     uint64 = 0
-	buffersReturnedSize uint64 = 0
 )
-
-func StatBuffers() {
-	fmt.Printf("taken: %d (size: %d)\n", buffersTaken, buffersTakenSize)
-	fmt.Printf("returned: %d (size: %d)\n", buffersReturned, buffersReturnedSize)
-}
 
 // TakeBuffer
 func TakeBuffer() *Buffer {
 	b := buffers.Get().(*Buffer)
-	atomic.AddUint64(&buffersTaken, 1)
-	atomic.AddUint64(&buffersTakenSize, uint64(cap(b.B)))
 	return b
 }
 
 // ReleaseBuffer
 func ReleaseBuffer(b *Buffer) {
 	b.B = b.original[:0]
-	atomic.AddUint64(&buffersReturned, 1)
-	atomic.AddUint64(&buffersReturnedSize, uint64(cap(b.B)))
 	buffers.Put(b)
 }
 

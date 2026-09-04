@@ -30,10 +30,10 @@ A `gen.PID` uniquely identifies a process. It contains the node name where the p
 ```go
 pid := gen.PID{Node: "node@localhost", ID: 1001, Creation: 1685523227}
 fmt.Printf("%s", pid)
-// Output: <90A29F11.0.1001>
+// Output: <2C323E75.0.1001>
 ```
 
-The hash (90A29F11) is a CRC32 of the node name. This keeps the printed form compact while remaining unique.
+The leading hash is a CRC32 of the node name, computed with the framework's own polynomial table rather than a standard one, so `node@localhost` always prints as `2C323E75`. It keeps the printed form compact while staying distinct per node. The two numbers after it are the halves of the single `ID` field - high 32 bits, then low - so a small ID prints its high half as `0`. `Creation` is not in the printed form at all.
 
 ### gen.ProcessID
 
@@ -42,8 +42,10 @@ A `gen.ProcessID` identifies a process by its registered name rather than `gen.P
 ```go
 processID := gen.ProcessID{Name: "worker", Node: "node@localhost"}
 fmt.Printf("%s", processID)
-// Output: <90A29F11.'worker'>
+// Output: <2C323E75.worker>
 ```
+
+The name is appended as-is here. Only `gen.Atom` quotes itself when printed.
 
 ### gen.Ref
 
@@ -54,7 +56,7 @@ A `gen.Ref` is guaranteed unique within a node for its lifetime. The structure i
 ```go
 ref := node.MakeRef()
 fmt.Printf("%s", ref)
-// Output: Ref#<90A29F11.128194.23952.0>
+// Output: Ref#<2C323E75.128194.23952.0>
 ```
 
 References can also embed deadlines (stored in ID[2]) for timeout tracking. Recipients can check `ref.IsAlive()` to see if a request is still valid.
@@ -66,9 +68,12 @@ References can also embed deadlines (stored in ID[2]) for timeout tracking. Reci
 Aliases use the same structure as references but print with a different prefix:
 
 ```go
-alias := process.CreateAlias()
+alias, err := process.CreateAlias()
+if err != nil {
+    return err
+}
 fmt.Printf("%s", alias)
-// Output: Alias#<90A29F11.128194.23952.0>
+// Output: Alias#<2C323E75.128194.23952.0>
 ```
 
 ### gen.Event
@@ -78,7 +83,7 @@ fmt.Printf("%s", alias)
 ```go
 event := gen.Event{Name: "user_login", Node: "node@localhost"}
 fmt.Printf("%s", event)
-// Output: Event#<90A29F11:'user_login'>
+// Output: Event#<2C323E75:user_login>
 ```
 
 ### gen.Env
@@ -92,6 +97,84 @@ fmt.Printf("%s", env)
 ```
 
 This allows processes to inherit environment variables from parents, leaders, and the node, with consistent naming regardless of how they're specified.
+
+## Errors
+
+### gen.Error
+
+`gen.Error` is a wrapping error type used as a process exit reason. It carries a message, the causes it wraps - whose identity is observable through `errors.Is` and survives a trip across the network - and an optional captured mailbox.
+
+```go
+type Error struct {
+    Msg     string
+    Wrapped []error
+    Mailbox *ProcessMailbox
+}
+```
+
+- `Msg` is the message text. `gen.Errorf` fills it with `fmt.Errorf` output, which means the causes' own text ends up inside it as well.
+- `Wrapped` holds the errors the `%w` substitutions referred to, in argument order. Reading them is described below.
+- `Mailbox` carries the captured mailbox of a panicked process for replay on supervisor restart. Excluded from network encoding via `edf:"-"`, so it never crosses the wire.
+
+Most user code never constructs `*gen.Error` directly. Use `gen.Errorf` instead, which mirrors `fmt.Errorf` and produces a `*gen.Error` with the wrap chain preserved:
+
+```go
+return gen.Errorf("user %d: %w", userID, ErrPaymentDeclined)
+```
+
+`gen.Errorf` composes a value at the point of failure. It is not a way to declare a sentinel: package-level markers must be `errors.New` values, because a `*gen.Error` cannot be registered for the wire and loses its identity across a node hop. See [Encoding Errors](../networking/network-transparency.md#encoding-errors).
+
+`Wrapped` is what tells apart the three basic shapes `gen.Errorf` can produce. A single cause is the common one:
+
+```go
+err := gen.Errorf("unable to update user %s: %w", id, ErrInvalidArgument)
+// Msg     = "unable to update user u42: invalid argument"
+// Wrapped = [ErrInvalidArgument]
+```
+
+Several causes at one level state independent facts about the same failure. This is a set rather than a chain: `Wrapped[0]` carries no special meaning, and the order follows the order of the arguments, not the position of the verbs in the format string:
+
+```go
+err := gen.Errorf("request refused: %w %w", ErrInvalidArgument, ErrRetryable)
+// Msg     = "request refused: invalid argument retryable"
+// Wrapped = [ErrInvalidArgument, ErrRetryable]
+```
+
+Nesting happens when a `*gen.Error` is itself wrapped. Every level renders the inner text into its own `Msg`, so the text accumulates as the chain grows:
+
+```go
+inner := gen.Errorf("unable to update user %s: %w", id, ErrInvalidArgument)
+outer := gen.Errorf("request %d failed: %w", reqID, inner)
+// outer.Msg     = "request 7 failed: unable to update user u42: invalid argument"
+// outer.Wrapped = [inner]
+```
+
+The shapes mix freely - a nested error may carry several causes of its own, at any depth - and the way to read them does not depend on which one you got. To ask whether a failure is of a given kind, use `errors.Is`. To pull out a value of a known type, use `errors.As`. Both visit every cause depth-first:
+
+```go
+if errors.Is(reason, gen.ErrExceeded) {
+    // subtree died because its restart budget overflowed
+}
+if errors.Is(reason, ErrPaymentDeclined) {
+    // matched a marker from anywhere in the wrap chain
+}
+```
+
+`errors.Unwrap` is not on that list. It calls only the `Unwrap() error` form, and `gen.Error` implements `Unwrap() []error` in order to carry several causes, so `errors.Unwrap` returns nil for every shape above - including a single cause, where nothing at the call site hints at the multi-error form. `errors.Join` behaves the same way for the same reason.
+
+When the cause objects themselves are needed, assert to `*gen.Error` and read `Wrapped`, checking its length rather than indexing it straight away. `gen.Errorf` leaves the list empty whenever a `%w` argument was nil or was not an error, and in both cases the message still reads plausibly:
+
+```go
+gen.Errorf("failed: %w", nil)   // Msg = "failed: %!w(<nil>)", Wrapped = []
+gen.Errorf("failed: %s", cause) // %s instead of %w: text is fine, Wrapped = []
+```
+
+One thing not to do is recover a single level's own text by subtracting an inner error's text from the outer `Msg`. The wrap chain preserves identity, not the boundaries between the pieces of the message, and the format string those pieces were glued with is not part of any contract. When a receiver needs a value separately from the message, that value has to travel as a value: a registered marker if it is one of an enumerable set, a typed field beside the error for anything else.
+
+The framework uses `gen.Error` in two places today:
+
+- **Restart intensity exceeded.** The supervisor's exit reason on overflow is built with `gen.Errorf("supervisor restart intensity exceeded (max %d in %ds): %w: %w", intensity, period, gen.ErrExceeded, lastChildReason)`. Both `gen.ErrExceeded` and the original child reason are reachable via `errors.Is`. See [Restart Intensity](../actors/supervisor.md#restart-intensity).
+- **Mailbox preservation across panic restart.** When a process spawned with `Options.PreserveMailbox: true` terminates abnormally, the runtime captures its mailbox into `Mailbox` and wraps the original reason in `Wrapped`. The supervising parent automatically picks it up and hands it to the restart. See [Mailbox Preservation](process.md#mailbox-preservation).
 
 ## Core Interfaces
 
@@ -149,6 +232,24 @@ pid, err := remoteNode.Spawn("worker", gen.ProcessOptions{}, args)
 ```
 
 The remote operations require the target node to have enabled the corresponding permissions.
+
+### gen.Application
+
+The `gen.Application` interface is the runtime view of a loaded application. It exposes application metadata (name, env, mode, state) and mutators for dynamic fields (tags, weight) that propagate to the registrar.
+
+Application behaviors should embed `app.Application` rather than implementing the interface manually. The embed provides the framework entry point, default lifecycle callbacks, and the runtime binding. From inside callbacks the interface methods are available via the embed:
+
+```go
+type MyApp struct {
+    app.Application
+}
+
+func (a *MyApp) Start(ref gen.Ref, mode gen.ApplicationMode) {
+    a.AddTag("ready")  // visible to the cluster via the registrar
+}
+```
+
+Processes within the application can access the same interface through `Process.Application()`.
 
 ## Type Design Philosophy
 

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 )
 
 func TestDecodeBool(t *testing.T) {
@@ -3611,5 +3612,194 @@ func TestDecodeRegArrayRegArray(t *testing.T) {
 		fmt.Printf("exp %#v\n", expect)
 		fmt.Printf("got %#v\n", value)
 		t.Fatal("incorrect value")
+	}
+}
+
+func TestRoundTripGenErrorSingleWrap(t *testing.T) {
+	marker := errors.New("payment declined")
+	encCache := new(sync.Map)
+	encCache.Store(marker, uint16(0x8005))
+	decCache := new(sync.Map)
+	decCache.Store(uint16(0x8005), marker)
+
+	src := &gen.Error{Msg: "user 42: payment declined", Wrapped: []error{marker}}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	if err := Encode(src, b, Options{ErrCache: encCache, WrappedErrorsSupported: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := Decode(b.B, Options{ErrCache: decCache, WrappedErrorsSupported: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, ok := got.(*gen.Error)
+	if ok == false {
+		t.Fatalf("decoded value is %T, want *gen.Error", got)
+	}
+	if dec.Msg != src.Msg {
+		t.Errorf("Msg mismatch: got %q want %q", dec.Msg, src.Msg)
+	}
+	if errors.Is(dec, marker) == false {
+		t.Errorf("errors.Is must find marker after round-trip via cache identity")
+	}
+	if dec.Mailbox != nil {
+		t.Errorf("Mailbox must be nil after wire round-trip")
+	}
+}
+
+func TestRoundTripGenErrorNested(t *testing.T) {
+	mA := errors.New("restart intensity exceeded")
+	mB := errors.New("payment declined")
+	encCache := new(sync.Map)
+	encCache.Store(mA, uint16(0x8005))
+	encCache.Store(mB, uint16(0x8006))
+	decCache := new(sync.Map)
+	decCache.Store(uint16(0x8005), mA)
+	decCache.Store(uint16(0x8006), mB)
+
+	inner := &gen.Error{Msg: "user 42: payment declined", Wrapped: []error{mB}}
+	outer := &gen.Error{Msg: "restart intensity exceeded: user 42: payment declined", Wrapped: []error{mA, inner}}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	if err := Encode(outer, b, Options{ErrCache: encCache, WrappedErrorsSupported: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := Decode(b.B, Options{ErrCache: decCache, WrappedErrorsSupported: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, ok := got.(*gen.Error)
+	if ok == false {
+		t.Fatalf("decoded value is %T, want *gen.Error", got)
+	}
+	if dec.Msg != outer.Msg {
+		t.Errorf("outer Msg mismatch")
+	}
+	if errors.Is(dec, mA) == false {
+		t.Errorf("errors.Is must find outer marker mA")
+	}
+	if errors.Is(dec, mB) == false {
+		t.Errorf("errors.Is must find inner marker mB through nested gen.Error")
+	}
+}
+
+func TestRoundTripGenErrorNilWrappedEntry(t *testing.T) {
+	marker := errors.New("m")
+	encCache := new(sync.Map)
+	encCache.Store(marker, uint16(0x8007))
+	decCache := new(sync.Map)
+	decCache.Store(uint16(0x8007), marker)
+
+	src := &gen.Error{Msg: "with nil", Wrapped: []error{marker, nil, marker}}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	if err := Encode(src, b, Options{ErrCache: encCache, WrappedErrorsSupported: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := Decode(b.B, Options{ErrCache: decCache, WrappedErrorsSupported: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := got.(*gen.Error)
+	if len(dec.Wrapped) != 3 {
+		t.Fatalf("Wrapped len=%d, want 3", len(dec.Wrapped))
+	}
+	if dec.Wrapped[1] != nil {
+		t.Errorf("Wrapped[1] must remain nil; got %v", dec.Wrapped[1])
+	}
+}
+
+func TestRoundTripGenErrorEmptyWrapped(t *testing.T) {
+	src := &gen.Error{Msg: "plain"}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	if err := Encode(src, b, Options{WrappedErrorsSupported: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := Decode(b.B, Options{WrappedErrorsSupported: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := got.(*gen.Error)
+	if dec.Msg != "plain" {
+		t.Errorf("Msg mismatch: %q", dec.Msg)
+	}
+	if len(dec.Wrapped) != 0 {
+		t.Errorf("Wrapped must be empty; got %v", dec.Wrapped)
+	}
+}
+
+func TestRoundTripGenErrorUnregisteredWrapped(t *testing.T) {
+	marker := errors.New("unregistered marker")
+
+	src := &gen.Error{Msg: "wrap: unregistered marker", Wrapped: []error{marker}}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	if err := Encode(src, b, Options{WrappedErrorsSupported: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := Decode(b.B, Options{WrappedErrorsSupported: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec := got.(*gen.Error)
+	if errors.Is(dec, marker) {
+		t.Errorf("identity must NOT be preserved for unregistered marker")
+	}
+	if dec.Wrapped[0].Error() != "unregistered marker" {
+		t.Errorf("inline-decoded Wrapped[0] string mismatch: %q", dec.Wrapped[0].Error())
+	}
+}
+
+type myStructWithGenErrorValue struct {
+	Name string
+	E    gen.Error
+}
+
+func TestRoundTripUserStructWithGenErrorValue(t *testing.T) {
+	if err := RegisterTypeOf(myStructWithGenErrorValue{}); err != nil && err != gen.ErrTaken {
+		t.Fatal(err)
+	}
+
+	marker := errors.New("oops")
+	encCache := new(sync.Map)
+	encCache.Store(marker, uint16(0x8009))
+	decCache := new(sync.Map)
+	decCache.Store(uint16(0x8009), marker)
+
+	src := myStructWithGenErrorValue{
+		Name: "x",
+		E:    gen.Error{Msg: "oops", Wrapped: []error{marker}},
+	}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+	if err := Encode(src, b, Options{ErrCache: encCache, WrappedErrorsSupported: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, _, err := Decode(b.B, Options{ErrCache: decCache, WrappedErrorsSupported: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dec, ok := got.(myStructWithGenErrorValue)
+	if ok == false {
+		t.Fatalf("decoded value is %T", got)
+	}
+	if dec.E.Msg != "oops" {
+		t.Errorf("Msg mismatch: %q", dec.E.Msg)
+	}
+	if len(dec.E.Wrapped) != 1 || dec.E.Wrapped[0] != marker {
+		t.Errorf("Wrapped mismatch: %v", dec.E.Wrapped)
 	}
 }

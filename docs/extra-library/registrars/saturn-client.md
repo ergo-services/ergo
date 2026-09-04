@@ -46,7 +46,7 @@ Additionally, this library registers a `gen.Event` and generates messages based 
 * `saturn.EventApplicationLoaded` - An application was loaded on a remote node. Use `ResolveApplication` from the `gen.Resolver` interface to get application details
 * `saturn.EventApplicationStarted` - Triggered when an application starts on a remote node.
 * `saturn.EventApplicationStopping` - Triggered when an application begins stopping on a remote node.
-* `satrun.EventApplicationStopped` - Triggered when an application is stopped on a remote node.
+* `saturn.EventApplicationStopped` - Triggered when an application is stopped on a remote node.
 * `saturn.EventApplicationUnloaded` - Triggered when an application is unloaded on a remote node&#x20;
 * `saturn.EventConfigUpdate` - The node's configuration was updated&#x20;
 
@@ -87,11 +87,13 @@ To get information about available applications in the cluster, use the `Resolve
 
 ```go
 type ApplicationRoute struct {
-	Node   Atom
-	Name   Atom
-	Weight int
-	Mode   ApplicationMode
-	State  ApplicationState
+	Node    Atom
+	Name    Atom
+	Weight  int
+	Mode    ApplicationMode
+	Tags    []Atom
+	State   ApplicationState
+	Version Version
 }
 ```
 
@@ -99,6 +101,8 @@ type ApplicationRoute struct {
 * `Node` The name of the node where the application is loaded or running
 * `Weight` The weight assigned to the application in `gen.ApplicationSpec`
 * `Mode` The application's startup mode (`gen.ApplicationModeTemporary`, `gen.ApplicationModePermanent`, `gen.ApplicationModeTransient`)..&#x20;
-* `State` The current state of the application (`gen.ApplicationStateLoaded`, `gen.ApplicationStateRunning`, `gen.ApplicationStateStopping`)&#x20;
+* `State` The current state of the application (`gen.ApplicationStateLoaded`, `gen.ApplicationStateInitializing`, `gen.ApplicationStateRunning`, `gen.ApplicationStateStopping`)&#x20;
+* `Tags` Labels for filtering and selecting instances - the field a blue/green, canary or maintenance selection is made on
+* `Version` Lets a resolver tell instances of the same application apart during a rolling upgrade
 
 You can access the `gen.Resolver` interface using the `Resolver` method from the `gen.Registrar` interface.

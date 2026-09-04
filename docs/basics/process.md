@@ -8,6 +8,8 @@ A process is an actor - a lightweight entity that handles messages sequentially 
 
 Every process has a mailbox where incoming messages wait to be processed. The mailbox contains four queues with different priorities: Urgent for critical system messages, System for framework control, Main for regular application messages, and Log for logging. When the process wakes up to handle messages, it processes them in priority order, taking from Urgent first, then System, then Main, and finally Log.
 
+When built with `-tags=latency`, each queue tracks the age of its oldest unprocessed message. `ProcessMailbox.Latency()` returns the maximum latency across all four queues in nanoseconds, or -1 if the tag is not enabled. This helps identify processes that are falling behind on message processing. See [Debugging](../advanced/debugging.md) for details.
+
 The process runs only when it has messages to handle. When the mailbox is empty, the process sleeps, consuming no CPU. When a message arrives, the process wakes, handles the message, and sleeps again if nothing else is waiting. This efficiency is why you can have thousands of processes in a single application.
 
 ## Identifying Processes
@@ -30,7 +32,7 @@ After initialization succeeds, the process enters Sleep and is ready to receive 
 
 If the process makes a synchronous call, it enters WaitResponse while waiting for the reply. Once the response arrives, it returns to Running and continues processing.
 
-Eventually the process terminates. This can happen in several ways: it returns an error from its message handler, it receives an exit signal, the node kills it, or a panic occurs. The ProcessTerminate callback runs, allowing cleanup. Then the process is removed from the node, and its resources are freed.
+Eventually the process terminates. This can happen in several ways: it returns an error from its message handler, it receives an exit signal, the node kills it, or a panic occurs. The process is removed from the node first, so everything linked to or monitoring it is notified, and then the ProcessTerminate callback runs for cleanup. The process is fully gone once that callback returns.
 
 ## Starting Processes
 
@@ -58,7 +60,7 @@ Two options deserve explanation: `LinkParent` and `LinkChild`. These options pro
 
 ## Message Handling
 
-Processes are defined by implementing the `gen.ProcessBehavior` interface. This is a low-level interface with three callbacks: `ProcessInit` for initialization, `ProcessRun` for the message processing loop, and `ProcessTerminate` for cleanup.
+Processes are defined by implementing the `gen.ProcessBehavior` interface. This is a low-level interface with four methods: `ProcessInit` for initialization, `ProcessRun` for the message processing loop, `ProcessTerminate` for cleanup, and `ProcessKind`, which classifies the process and is called unconditionally at spawn. All four are required - a type implementing only the first three does not satisfy the interface.
 
 In practice, you rarely implement `gen.ProcessBehavior` directly. Instead, you use `act.Actor`, which implements `gen.ProcessBehavior` and provides a more convenient abstraction. `act.Actor` gives you `HandleMessage` and `HandleCall` callbacks - straightforward methods where you write your message handling logic without worrying about the mailbox mechanics.
 
@@ -80,6 +82,14 @@ The `ProcessTerminate` callback runs during shutdown. Use it for cleanup: close 
 
 `act.Actor` handles the `ProcessRun` loop for you, calling your `HandleMessage` and `HandleCall` methods as messages arrive. This separation between the low-level interface (`gen.ProcessBehavior`) and the high-level abstraction (`act.Actor`) keeps the framework flexible while making common cases simple.
 
+## Timed and Periodic Messages
+
+Sometimes a process needs to act later, or on a schedule, rather than in response to an incoming message. The wrong way is to start a `time.Timer` or `time.Ticker` inside a callback: it fires on its own goroutine, outside the mailbox, and touching process state from there breaks the single-threaded guarantee.
+
+Instead, let the process message itself. `SendAfter` delivers a message to a target once after a delay; `SendEvery` delivers it repeatedly on a fixed period, reusing a single timer so it does not allocate on each tick. Both return a cancel function, and both route the message through the mailbox - it is handled in `HandleMessage` like any other, on the process's own goroutine and in order. The delivery options (priority, compression, network order) are captured when you schedule, not re-read on each fire.
+
+A `SendEvery` ticker lives as long as its owner: it stops when the process terminates or when you call its cancel function. A failed tick - the target is busy or already gone - does not stop it; transient failures are retried on the next period, and if you need to know that the target died, monitor it rather than infer it from a gap in ticks.
+
 ## Environment Variables
 
 Processes inherit environment variables when they spawn. At that moment, variables are copied from multiple sources and merged with a priority order: node variables (lowest priority), then application, then leader, then parent, then variables specified in `gen.ProcessOptions` (highest priority). If the same variable exists in multiple sources, the higher priority value wins.
@@ -94,9 +104,49 @@ Use `SetEnv` to modify variables during Init or Running states. Pass `nil` as th
 
 ## Termination
 
-Processes typically terminate themselves by returning an error from `ProcessRun`. In `act.Actor`, this manifests as returning an error from `HandleMessage`, `HandleCall`, or other handler callbacks. Return `gen.TerminateReasonNormal` for clean shutdown, or any other error to indicate why termination occurred. The process transitions to Terminated, runs its `ProcessTerminate` callback for cleanup, and is removed from the node.
+Processes typically terminate themselves by returning an error from `ProcessRun`. In `act.Actor`, this manifests as returning an error from `HandleMessage`, `HandleCall`, or other handler callbacks. Return `gen.TerminateReasonNormal` for clean shutdown, or any other error to indicate why termination occurred. The process transitions to Terminated, is removed from the node, and then runs its `ProcessTerminate` callback for cleanup.
 
-If a panic occurs during message handling, the framework catches it, logs the stack trace, and terminates the process with `gen.TerminateReasonPanic`. The `ProcessTerminate` callback still runs, giving the process a chance to clean up despite the panic.
+If a panic occurs during message handling, the framework catches it and terminates the process with `gen.TerminateReasonPanic`. The `ProcessTerminate` callback still runs, giving the process a chance to clean up despite the panic. What is logged is the panic value plus the single frame the recovery saw, not a stack trace - see [Actors](../actors/actor.md#termination) for what to do when one frame is not enough.
+
+### Mailbox Preservation
+
+When a process dies, its mailbox is discarded by default. Anything queued but unprocessed is lost. For short-lived or one-shot processes this is fine. For continuously working actors it can be very painful:
+
+- A task worker pulling from an external queue panics on one bad task. The 50 other queued tasks in its mailbox evaporate. They have to be re-fetched from upstream if upstream still has them, or they are gone.
+- A per-session actor (chat user, IoT device, game session) crashes during a code push. Messages buffered for it between crash and restart vanish.
+- A batch aggregator collecting events for a periodic flush dies mid-batch. The unflushed accumulator is gone with no record of what was inside.
+- A sequencer enforcing ordering across multiple sources crashes mid-stream. The reorder buffer is lost.
+
+Mailbox preservation gives an "actor restarts but keeps its inbox" semantic. It turns the default behavior from at-most-once for queued messages to at-least-once. Enable it with one flag at spawn:
+
+```go
+node.Spawn(createWorker, gen.ProcessOptions{
+    PreserveMailbox: true,
+})
+```
+
+With the flag set, any abnormal termination (panic, callback error, forced `Kill`, exit cascade from a linked process) captures the mailbox into a `*gen.Error` exit reason. The original error is preserved as `Wrapped[0]`, so `errors.Is(reason, originalErr)` keeps working. A supervising parent automatically picks it up and hands it to the restart. The new incarnation runs `Init` on fresh struct state, then its `ProcessRun` loop pulls the surviving messages from the queues in priority order, exactly as if they had just arrived.
+
+This is not a replacement for an external durable queue (Kafka, NATS, etc.). External queues give reliable delivery into the actor; mailbox preservation gives reliable handling within the actor across its own restarts. They complement each other.
+
+**What is preserved.** All four priority queues (Urgent, System, Main, Log), in original FIFO order, with their tracing information.
+
+**What is not preserved.**
+- The triggering message (the one the actor was processing when it failed). Replaying it would create a panic-restart-panic loop on poison-pill inputs, so the framework deliberately drops it. Upstream must replay if needed.
+- The actor's struct fields. In-process state lives only as long as the incarnation does; the new instance runs `Init` from scratch.
+- Outgoing Calls in flight. The ref is tied to the dead PID; responses arriving after death are dropped.
+
+**Normal exits skip capture.** `gen.TerminateReasonNormal` and `gen.TerminateReasonShutdown` mean the actor itself decided to stop, and re-feeding its queue would contradict that decision.
+
+**At-least-once caveat.** Because the surviving messages are re-delivered to a new instance, partially completed side effects from the dead incarnation can be re-attempted by the new one. If your handler is not idempotent (or doesn't deduplicate by some message id), you can end up with duplicate side effects. This is the standard at-least-once trade-off: you trade duplicates for losses.
+
+**Same-node only.** A live mailbox does not cross the network: the `Mailbox` field on `gen.Error` is excluded from EDF wire encoding. Remote spawns and remote exit signals see it as nil. Mailbox preservation is a local feature.
+
+**When to enable.** Task workers, per-request/per-connection handlers, per-session actors, aggregators. Anywhere unprocessed messages in queue represent unfinished work that must not silently disappear.
+
+**When not to enable.** Strongly stateful actors with non-idempotent side effects that don't deduplicate. Memory-constrained scenarios where a large preserved mailbox would pin too much memory between crash and restart. One-shot init scripts that must restart from a clean state.
+
+A common production setup is `PreserveMailbox: true` together with a per-spec or per-instance restart budget and `OnExceedDisable`, so a poison-pill input cannot loop the worker through its budget and take the supervisor down. See [Mailbox Preservation Across Restart](../actors/supervisor.md#mailbox-preservation-across-restart) on the Supervisor page for the full supervisor-side contract, validation rules, and a worked example.
 
 Processes can also be terminated externally. Sending an exit signal with `SendExit` delivers a high-priority termination request to the process's Urgent queue. Actors can trap these signals and handle them as regular messages, allowing graceful shutdown. This is how supervision trees restart workers - send an exit signal, wait for clean termination, then spawn a replacement.
 

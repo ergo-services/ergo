@@ -1,8 +1,8 @@
 package node
 
 import (
-	"runtime"
 	"sync/atomic"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -24,8 +24,8 @@ type meta struct {
 	messagesIn  uint64
 	messagesOut uint64
 
-	priority    gen.MessagePriority
-	compression bool
+	priority    atomic.Int32 // gen.MessagePriority; mutable from node-level setter
+	compression atomic.Bool  // mutable via SetCompression concurrently with senders
 
 	creation int64 // used for the meta process Uptime method only
 	state    int32
@@ -40,27 +40,53 @@ func (m *meta) Parent() gen.PID {
 }
 
 func (m *meta) SendPriority() gen.MessagePriority {
-	return m.priority
+	return gen.MessagePriority(m.priority.Load())
 }
 
 func (m *meta) SetSendPriority(priority gen.MessagePriority) error {
-	m.priority = priority
+	state := atomic.LoadInt32(&m.state)
+	if gen.MetaState(state) != gen.MetaStateRunning {
+		return gen.ErrNotAllowed
+	}
+	m.priority.Store(int32(priority))
 	return nil
 }
 
 func (m *meta) Send(to any, message any) error {
-	if err := m.send(to, message); err != nil {
+	if err := m.send(to, message, gen.MessagePriority(m.priority.Load())); err != nil {
 		return err
 	}
 	return nil
 }
 
 func (m *meta) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	var prev gen.MessagePriority
-	prev, m.priority = m.priority, priority
-	err := m.send(to, message)
-	m.priority = prev
-	return err
+	return m.send(to, message, priority)
+}
+
+func (m *meta) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
+	return m.sendDeferred(to, message, gen.MessagePriority(m.priority.Load()), after, false)
+}
+
+func (m *meta) SendWithPriorityAfter(
+	to any,
+	message any,
+	priority gen.MessagePriority,
+	after time.Duration,
+) (gen.CancelFunc, error) {
+	return m.sendDeferred(to, message, priority, after, false)
+}
+
+func (m *meta) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+	return m.sendDeferred(to, message, gen.MessagePriority(m.priority.Load()), period, true)
+}
+
+func (m *meta) SendWithPriorityEvery(
+	to any,
+	message any,
+	priority gen.MessagePriority,
+	period time.Duration,
+) (gen.CancelFunc, error) {
+	return m.sendDeferred(to, message, priority, period, true)
 }
 
 func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
@@ -69,15 +95,16 @@ func (m *meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {
 		return gen.ErrNotAllowed
 	}
 
-	compression := m.p.compression
-	compression.Enable = m.compression
+	compression := *m.p.compression.Load()
+	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{
-		Priority:         m.priority,
+		Ref:              ref,
+		Priority:         gen.MessagePriority(m.priority.Load()),
 		Compression:      compression,
-		KeepNetworkOrder: m.p.keeporder,
+		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
-	if err := m.p.node.RouteSendResponse(m.p.pid, to, options, message); err != nil {
+	if err := m.p.core.RouteSendResponse(m.p.pid, to, options, message); err != nil {
 		return err
 	}
 	atomic.AddUint64(&m.messagesOut, 1)
@@ -90,16 +117,16 @@ func (m *meta) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
 		return gen.ErrNotAllowed
 	}
 
-	compression := m.p.compression
-	compression.Enable = m.compression
+	compression := *m.p.compression.Load()
+	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{
 		Ref:              ref,
-		Priority:         m.priority,
+		Priority:         gen.MessagePriority(m.priority.Load()),
 		Compression:      compression,
-		KeepNetworkOrder: m.p.keeporder,
+		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
-	if rerr := m.p.node.RouteSendResponse(m.p.pid, to, options, err); rerr != nil {
+	if rerr := m.p.core.RouteSendResponseError(m.p.pid, to, options, err); rerr != nil {
 		return rerr
 	}
 	atomic.AddUint64(&m.messagesOut, 1)
@@ -137,7 +164,7 @@ func (m *meta) Log() gen.Log {
 }
 
 func (m *meta) Compression() bool {
-	return m.compression
+	return m.compression.Load()
 }
 
 func (m *meta) SetCompression(enabled bool) error {
@@ -145,18 +172,74 @@ func (m *meta) SetCompression(enabled bool) error {
 	if gen.MetaState(state) != gen.MetaStateRunning {
 		return gen.ErrNotAllowed
 	}
-	m.compression = enabled
+	m.compression.Store(enabled)
 	return nil
 }
 
-func (m *meta) send(to any, message any) error {
-	compression := m.p.compression
-	compression.Enable = m.compression
+// sendDeferred schedules a delayed send: once after d (repeat=false) or every d (repeat=true).
+func (m *meta) sendDeferred(to any, message any, priority gen.MessagePriority, d time.Duration, repeat bool) (gen.CancelFunc, error) {
+	if gen.MetaState(atomic.LoadInt32(&m.state)) == gen.MetaStateTerminated {
+		return nil, gen.ErrNotAllowed
+	}
+	if repeat && d <= 0 {
+		return nil, gen.ErrIncorrect
+	}
+	switch to.(type) {
+	case gen.PID, gen.ProcessID, gen.Alias, gen.Atom:
+	default:
+		return nil, gen.ErrIncorrect
+	}
+
+	if repeat == false {
+		return time.AfterFunc(d, func() {
+			if m.alive() == false {
+				return
+			}
+			if lib.Verbose() {
+				m.log.Trace("send after %s to %s (priority %s)", d, to, priority)
+			}
+			m.send(to, message, priority)
+		}).Stop, nil
+	}
+
+	var stopped atomic.Bool
+	var t *time.Timer
+	// armed far out first so the callback can't read t before it is set
+	t = time.AfterFunc(time.Hour, func() {
+		if stopped.Load() || m.alive() == false {
+			t.Stop()
+			return
+		}
+		if lib.Verbose() {
+			m.log.Trace("send every %s to %s (priority %s)", d, to, priority)
+		}
+		m.send(to, message, priority)
+		if stopped.Load() == false {
+			t.Reset(d)
+		}
+	})
+	t.Reset(d)
+	return func() bool {
+		t.Stop()
+		return stopped.Swap(true) == false
+	}, nil
+}
+
+func (m *meta) alive() bool {
+	if gen.MetaState(atomic.LoadInt32(&m.state)) == gen.MetaStateTerminated {
+		return false
+	}
+	return m.p.isAlive()
+}
+
+func (m *meta) send(to any, message any, priority gen.MessagePriority) error {
+	compression := *m.p.compression.Load()
+	compression.Enable = m.compression.Load()
 
 	options := gen.MessageOptions{
-		Priority:         m.priority,
+		Priority:         priority,
 		Compression:      compression,
-		KeepNetworkOrder: m.p.keeporder,
+		KeepNetworkOrder: m.p.keeporder.Load(),
 	}
 
 	switch t := to.(type) {
@@ -170,7 +253,7 @@ func (m *meta) send(to any, message any) error {
 			qm.Message = message
 
 			var queue lib.QueueMPSC
-			switch m.priority {
+			switch priority {
 			case gen.MessagePriorityHigh:
 				queue = m.p.mailbox.System
 			case gen.MessagePriorityMax:
@@ -193,19 +276,38 @@ func (m *meta) send(to any, message any) error {
 			return nil
 		}
 
-		if err := m.p.node.RouteSendPID(m.p.pid, t, options, message); err != nil {
+		if err := m.p.core.RouteSendPID(m.p.pid, t, options, message); err != nil {
 			return err
 		}
 	case gen.Atom:
-		if err := m.p.node.RouteSendProcessID(m.p.pid, gen.ProcessID{Name: t}, options, message); err != nil {
+		if err := m.p.core.RouteSendProcessID(m.p.pid, gen.ProcessID{Name: t}, options, message); err != nil {
 			return err
 		}
 	case gen.ProcessID:
-		if err := m.p.node.RouteSendProcessID(m.p.pid, t, options, message); err != nil {
+		if err := m.p.core.RouteSendProcessID(m.p.pid, t, options, message); err != nil {
 			return err
 		}
 	case gen.Alias:
-		if err := m.p.node.RouteSendAlias(m.p.pid, t, options, message); err != nil {
+		if t == m.id {
+			// self-send to own alias: skip the node-level alias lookup
+			// (mirrors the gen.PID self-send fast path above)
+			qm := gen.TakeMailboxMessage()
+			qm.From = m.p.pid
+			qm.Type = gen.MailboxMessageTypeRegular
+			qm.Target = to
+			qm.Message = message
+
+			if ok := m.main.Push(qm); ok == false {
+				return gen.ErrMetaMailboxFull
+			}
+			atomic.AddUint64(&m.messagesIn, 1)
+			m.handle()
+
+			atomic.AddUint64(&m.messagesOut, 1)
+			return nil
+		}
+
+		if err := m.p.core.RouteSendAlias(m.p.pid, t, options, message); err != nil {
 			return err
 		}
 	default:
@@ -220,9 +322,8 @@ func (m *meta) init() (r error) {
 	if lib.Recover() {
 		defer func() {
 			if rcv := recover(); rcv != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				m.log.Panic("init meta %s failed - %#v at %s[%s:%d]", m.id,
-					rcv, runtime.FuncForPC(pc).Name(), fn, line)
+				m.log.Panic("init meta %s failed - %#v at %s", m.id,
+					rcv, lib.PanicOrigin())
 				r = gen.TerminateReasonPanic
 			}
 		}()

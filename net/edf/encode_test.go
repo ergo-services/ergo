@@ -3994,3 +3994,46 @@ func TestEncodeStructWithMap(t *testing.T) {
 		t.Fatal("incorrect value")
 	}
 }
+
+func TestEncodeGenErrorWrappedDisabled(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	ge := &gen.Error{Msg: "user 42: payment declined", Wrapped: []error{errors.New("payment declined")}}
+
+	if err := Encode(ge, b, Options{}); err != nil {
+		t.Fatal(err)
+	}
+
+	expect := []byte{edtError, 0, 25}
+	expect = append(expect, "user 42: payment declined"...)
+	if !reflect.DeepEqual(b.B, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", b.B)
+		t.Fatal("incorrect value")
+	}
+}
+
+func TestEncodeGenErrorWrappedEnabled(t *testing.T) {
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	marker := errors.New("payment declined")
+	errCache := new(sync.Map)
+	errCache.Store(marker, uint16(0x8005))
+
+	ge := &gen.Error{Msg: "user 42: payment declined", Wrapped: []error{marker}}
+
+	if err := Encode(ge, b, Options{ErrCache: errCache, WrappedErrorsSupported: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	expect := []byte{edtError, 0xff, 0xfe, 0, 25}
+	expect = append(expect, "user 42: payment declined"...)
+	expect = append(expect, 0, 1, 0x80, 0x05)
+	if !reflect.DeepEqual(b.B, expect) {
+		fmt.Printf("exp %#v\n", expect)
+		fmt.Printf("got %#v\n", b.B)
+		t.Fatal("incorrect value")
+	}
+}

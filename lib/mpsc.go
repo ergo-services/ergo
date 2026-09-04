@@ -1,9 +1,10 @@
+//go:build !latency
+
 // High-performance lock-free implementation of MPSC queue (Multiple Producers Single Consumer)
 
 package lib
 
 import (
-	"math"
 	"sync/atomic"
 	"unsafe"
 )
@@ -20,21 +21,7 @@ type queueLimitMPSC struct {
 	tail   *itemMPSC
 	length int64
 	limit  int64
-	flush  bool
 	lock   uint32
-}
-
-type QueueMPSC interface {
-	Push(value any) bool
-	Pop() (any, bool)
-	Item() ItemMPSC
-	// Len returns the number of items in the queue
-	Len() int64
-	// Size returns the limit for the queue. -1 - for unlimited
-	Size() int64
-
-	Lock() bool
-	Unlock() bool
 }
 
 func NewQueueMPSC() QueueMPSC {
@@ -45,27 +32,19 @@ func NewQueueMPSC() QueueMPSC {
 	}
 }
 
-// NewQueueLimitMPSC creates MPSC queue with limited length. Enabling "flush" options
-// makes this queue flush out the tail item if the limit has been reached.
-// Warning: enabled "flush" option also makes this queue unusable
-// for the concurrent environment
-func NewQueueLimitMPSC(limit int64, flush bool) QueueMPSC {
+// NewQueueLimitMPSC creates an MPSC queue bounded to the given length: Push returns
+// false once the queue already holds limit items. A limit below 1 returns an unbounded
+// queue (NewQueueMPSC).
+func NewQueueLimitMPSC(limit int64) QueueMPSC {
 	if limit < 1 {
-		limit = math.MaxInt64
+		return NewQueueMPSC()
 	}
 	emptyItem := &itemMPSC{}
 	return &queueLimitMPSC{
 		limit: limit,
-		flush: flush,
 		head:  emptyItem,
 		tail:  emptyItem,
 	}
-}
-
-type ItemMPSC interface {
-	Next() ItemMPSC
-	Value() any
-	Clear()
 }
 
 type itemMPSC struct {
@@ -84,18 +63,14 @@ func (q *queueMPSC) Push(value any) bool {
 }
 
 func (q *queueLimitMPSC) Push(value any) bool {
-	if q.Len()+1 > q.limit {
-		if q.flush == false {
-			return false
-		}
-		// flush one item to keep the length within the limit
-		q.Pop()
+	// reserve a slot atomically so concurrent producers cannot exceed the limit
+	if atomic.AddInt64(&q.length, 1) > q.limit {
+		atomic.AddInt64(&q.length, -1)
+		return false
 	}
-
 	i := &itemMPSC{
 		value: value,
 	}
-	atomic.AddInt64(&q.length, 1)
 	old_head := (*itemMPSC)(atomic.SwapPointer((*unsafe.Pointer)(unsafe.Pointer(&q.head)), unsafe.Pointer(i)))
 	atomic.StorePointer((*unsafe.Pointer)(unsafe.Pointer(&old_head.next)), unsafe.Pointer(i))
 	return true
@@ -137,6 +112,10 @@ func (q *queueMPSC) Size() int64 {
 	return -1 // unlimited
 }
 
+func (q *queueMPSC) Latency() int64 {
+	return -1
+}
+
 func (q *queueMPSC) Lock() bool {
 	return atomic.SwapUint32(&q.lock, 1) == 0
 }
@@ -152,6 +131,10 @@ func (q *queueLimitMPSC) Len() int64 {
 
 func (q *queueLimitMPSC) Size() int64 {
 	return q.limit
+}
+
+func (q *queueLimitMPSC) Latency() int64 {
+	return -1
 }
 
 func (q *queueLimitMPSC) Lock() bool {

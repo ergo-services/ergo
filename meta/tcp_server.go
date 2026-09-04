@@ -51,6 +51,19 @@ func CreateTCPServer(options TCPServerOptions) (gen.MetaBehavior, error) {
 			GetCertificate:     options.CertManager.GetCertificateFunc(),
 			InsecureSkipVerify: options.InsecureSkipVerify,
 		}
+		// mTLS: re-read the CA pool and client-auth policy per incoming connection so
+		// CertAuthManager runtime updates take effect on the live listener
+		if cam, ok := options.CertManager.(gen.CertAuthManager); ok {
+			skipVerify := options.InsecureSkipVerify
+			config.GetConfigForClient = func(*tls.ClientHelloInfo) (*tls.Config, error) {
+				return &tls.Config{
+					GetCertificate:     cam.GetCertificateFunc(),
+					InsecureSkipVerify: skipVerify,
+					ClientAuth:         cam.ClientAuth(),
+					ClientCAs:          cam.ClientCAs(),
+				}, nil
+			}
+		}
 		listener = tls.NewListener(listener, config)
 	}
 

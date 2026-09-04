@@ -8,22 +8,33 @@ import (
 )
 
 const (
-	latency time.Duration = 300 * time.Nanosecond
+	latency   time.Duration = 500 * time.Nanosecond
+	bufioSize int           = 65536
 )
 
-func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time.Duration) io.Writer {
+type Flusher interface {
+	io.Writer
+	Reset(io.Writer)
+	Stop()
+}
+
+func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time.Duration) Flusher {
 	f := &flusher{
-		writer: bufio.NewWriter(w),
+		writer: bufio.NewWriterSize(w, bufioSize),
 	}
-	// first time it should be longer
-	f.timer = time.AfterFunc(latency*10, func() {
+	callback := func() {
 		f.Lock()
 		defer f.Unlock()
+
+		if f.stopped {
+			return
+		}
 
 		if f.pending == false {
 			// nothing to write. send keepalive.
 			f.writer.Write(keepalive)
 			if err := f.writer.Flush(); err != nil {
+				f.err = err
 				return
 			}
 
@@ -31,32 +42,46 @@ func NewFlusherWithKeepAlive(w io.Writer, keepalive []byte, keepalivePeriod time
 			return
 		}
 
-		f.writer.Flush()
+		if err := f.writer.Flush(); err != nil {
+			f.err = err
+			return
+		}
 		f.pending = false
-		f.timer.Reset(latency)
-	})
+		f.timer.Reset(keepalivePeriod)
+	}
+	f.Lock()
+	f.timer = time.AfterFunc(latency*10, callback)
+	f.Unlock()
 
 	return f
-
 }
 
-func NewFlusher(w io.Writer) io.Writer {
+func NewFlusher(w io.Writer) Flusher {
 	f := &flusher{
-		writer: bufio.NewWriter(w),
+		writer: bufio.NewWriterSize(w, bufioSize),
 	}
-	f.timer = time.AfterFunc(latency, func() {
+	callback := func() {
 		f.Lock()
 		defer f.Unlock()
 
-		if f.pending == false {
-			// nothing to write
+		if f.stopped {
 			return
 		}
 
-		f.writer.Flush()
+		if f.pending == false {
+			return
+		}
+
+		if err := f.writer.Flush(); err != nil {
+			f.err = err
+			return
+		}
 		f.pending = false
 		f.timer.Reset(latency)
-	})
+	}
+	f.Lock()
+	f.timer = time.AfterFunc(latency, callback)
+	f.Unlock()
 	return f
 }
 
@@ -65,21 +90,25 @@ type flusher struct {
 	timer   *time.Timer
 	writer  *bufio.Writer
 	pending bool
+	stopped bool
+	err     error
 }
 
 func (f *flusher) Write(b []byte) (n int, err error) {
 	f.Lock()
 	defer f.Unlock()
 
+	if f.err != nil {
+		return 0, f.err
+	}
+
 	l := len(b)
 
-	// write data to the buffer
 	for {
 		n, e := f.writer.Write(b)
 		if e != nil {
 			return n, e
 		}
-		// check if something left
 		l -= n
 		if l > 0 {
 			continue
@@ -91,12 +120,31 @@ func (f *flusher) Write(b []byte) (n int, err error) {
 		return len(b), nil
 	}
 
-	// if f.writer.Size() > 65000 {
-	// 	f.writer.Flush()
-	// 	return len(b), nil
-	// }
-
 	f.pending = true
 	f.timer.Reset(latency)
 	return len(b), nil
+}
+
+func (f *flusher) Stop() {
+	f.Lock()
+	defer f.Unlock()
+	f.stopped = true
+	if f.pending && f.err == nil {
+		if err := f.writer.Flush(); err != nil {
+			f.err = err
+		}
+		f.pending = false
+	}
+	if f.timer != nil {
+		f.timer.Stop()
+	}
+}
+
+func (f *flusher) Reset(w io.Writer) {
+	f.Lock()
+	defer f.Unlock()
+	f.writer.Reset(w)
+	f.pending = false
+	f.stopped = false
+	f.err = nil
 }

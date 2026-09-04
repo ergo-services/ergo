@@ -14,11 +14,15 @@ import (
 
 type process struct {
 	node *node
+	// core is the routing surface for egress; equals node.core (the node itself,
+	// or a decorator in testing/stage). Internals (spawn, registry, logging) still
+	// go through node directly.
+	core gen.Core
 	pid  gen.PID
 
 	name        gen.Atom
 	registered  atomic.Bool
-	application gen.Atom
+	application gen.Application
 
 	// used for the process Uptime method only. PID value uses node creation value.
 	creation int64
@@ -28,23 +32,33 @@ type process struct {
 
 	behavior  gen.ProcessBehavior
 	sbehavior string
+	kind      gen.ProcessKind
 
-	state int32
+	state        int32
+	stateEntered int64 // Unix nanoseconds when current state was entered
 
 	parent   gen.PID
 	leader   gen.PID
 	fallback gen.ProcessFallback
 
-	mailbox   gen.ProcessMailbox
-	priority  gen.MessagePriority
-	keeporder bool
-	important bool
+	mailbox         gen.ProcessMailbox
+	priority        atomic.Int32 // gen.MessagePriority; mutable from node-level setters
+	keeporder       atomic.Bool
+	important       atomic.Bool
+	preserveMailbox bool
 
 	messagesIn  uint64
 	messagesOut uint64
 	runningTime uint64
+	initTime    uint64
+	wakeups     uint64
 
-	compression gen.Compression
+	compression      atomic.Pointer[gen.Compression]
+	tracing          gen.Tracing
+	tracingSampler   atomic.Pointer[gen.TracingSampler]
+	tracingAttrs     atomic.Pointer[[]gen.TracingAttribute] // permanent, COW; pointer always non-nil
+	tracingSpanAttrs []gen.TracingAttribute                 // one-shot, nil after handler
+	tracingSpanStack []*tracingSpanScope                    // open business spans (handler goroutine only)
 
 	env sync.Map
 
@@ -58,7 +72,11 @@ type process struct {
 	log *log
 
 	// if act as a logger
-	loggername string
+	loggername  string
+	loggerlevel gen.LogLevel
+
+	// if act as a tracing exporter
+	tracingExporterName atomic.Pointer[string] // mutable from node-level setters
 }
 
 type response struct {
@@ -87,8 +105,56 @@ func (p *process) Leader() gen.PID {
 	return p.leader
 }
 
+func (p *process) Application() gen.Application {
+	return p.application
+}
+
+// appName returns the application name or empty atom if app is nil.
+func appName(a gen.Application) gen.Atom {
+	if a == nil {
+		return ""
+	}
+	return a.Name()
+}
+
 func (p *process) Parent() gen.PID {
 	return p.parent
+}
+
+// shortInfo builds the essential information about this process.
+func (p *process) shortInfo() gen.ProcessShortInfo {
+	messagesMailbox := p.mailbox.Main.Len() +
+		p.mailbox.System.Len() +
+		p.mailbox.Urgent.Len() +
+		p.mailbox.Log.Len()
+
+	return gen.ProcessShortInfo{
+		PID:             p.pid,
+		Name:            p.name,
+		Application:     appName(p.application),
+		Behavior:        p.sbehavior,
+		Kind:            p.kind,
+		MessagesIn:      atomic.LoadUint64(&p.messagesIn),
+		MessagesOut:     atomic.LoadUint64(&p.messagesOut),
+		MessagesMailbox: uint64(messagesMailbox),
+		MailboxLatency:  p.mailbox.Latency(),
+		RunningTime:     atomic.LoadUint64(&p.runningTime),
+		InitTime:        atomic.LoadUint64(&p.initTime),
+		Wakeups:         atomic.LoadUint64(&p.wakeups),
+		Uptime:          p.Uptime(),
+		State:           p.State(),
+		StateTime:       time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered),
+		Parent:          p.parent,
+		Leader:          p.leader,
+		LogLevel:        p.log.Level(),
+	}
+}
+
+func (p *process) ShortInfo() (gen.ProcessShortInfo, error) {
+	if p.isStateIRT() == false {
+		return gen.ProcessShortInfo{}, gen.ErrNotAllowed
+	}
+	return p.shortInfo(), nil
 }
 
 func (p *process) Uptime() int64 {
@@ -120,11 +186,13 @@ func (p *process) Spawn(
 		ParentPID:      p.pid,
 		ParentLeader:   p.leader,
 		ParentEnv:      p.EnvList(),
-		ParentLogLevel: p.log.level,
-		Application:    p.application,
+		ParentLogLevel: p.log.Level(),
+		Application:    appName(p.application),
 		Args:           args,
 		Ref:            ref,
 	}
+
+	opts.Tracing = p.tracing
 
 	pid, err := p.node.spawn(factory, opts)
 	if err != nil {
@@ -167,11 +235,14 @@ func (p *process) SpawnRegister(
 		ParentLeader:   p.leader,
 		ParentEnv:      p.EnvList(),
 		Register:       register,
-		ParentLogLevel: p.log.level,
-		Application:    p.application,
+		ParentLogLevel: p.log.Level(),
+		Application:    appName(p.application),
 		Args:           args,
 		Ref:            ref,
 	}
+
+	opts.Tracing = p.tracing
+
 	pid, err := p.node.spawn(factory, opts)
 	if err != nil {
 		return pid, err
@@ -202,21 +273,21 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	}
 
 	m := &meta{
-		p:           p,
-		behavior:    behavior,
-		compression: options.Compression,
+		p:        p,
+		behavior: behavior,
 	}
+	m.compression.Store(options.Compression)
 	switch options.SendPriority {
 	case gen.MessagePriorityHigh:
-		m.priority = gen.MessagePriorityHigh
+		m.priority.Store(int32(gen.MessagePriorityHigh))
 	case gen.MessagePriorityMax:
-		m.priority = gen.MessagePriorityMax
+		m.priority.Store(int32(gen.MessagePriorityMax))
 	default:
-		m.priority = gen.MessagePriorityNormal
+		m.priority.Store(int32(gen.MessagePriorityNormal))
 	}
 	if options.MailboxSize > 0 {
-		m.main = lib.NewQueueLimitMPSC(options.MailboxSize, false)
-		m.system = lib.NewQueueLimitMPSC(options.MailboxSize, false)
+		m.main = lib.NewQueueLimitMPSC(options.MailboxSize)
+		m.system = lib.NewQueueLimitMPSC(options.MailboxSize)
 	} else {
 		m.main = lib.NewQueueMPSC()
 		m.system = lib.NewQueueMPSC()
@@ -237,13 +308,23 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	}
 	m.log.setSource(logSource)
 
-	if err := m.init(); err != nil {
+	// register to be able routing messages to this meta process
+	if _, exist := p.metas.LoadOrStore(m.id, m); exist {
+		return alias, gen.ErrTaken
+	}
+	if err := p.node.registerAlias(m.id, p); err != nil {
+		p.metas.Delete(m.id)
 		return alias, err
 	}
 
-	// register to be able routing messages to this meta process
-	p.metas.Store(m.id, m)
-	p.node.aliases.Store(m.id, p)
+	if err := m.init(); err != nil {
+		p.node.unregisterAlias(m.id, p)
+		p.metas.Delete(m.id)
+		return alias, err
+	}
+
+	m.creation = time.Now().Unix()
+
 	go m.start()
 
 	return m.id, nil
@@ -268,14 +349,14 @@ func (p *process) RemoteSpawn(
 		ProcessOptions: options,
 		ParentPID:      p.pid,
 		ParentLeader:   p.leader,
-		ParentLogLevel: p.log.level,
-		Application:    p.application,
+		ParentLogLevel: p.log.Level(),
+		Application:    appName(p.application),
 		Args:           args,
 	}
 	if p.node.Security().ExposeEnvRemoteSpawn {
 		opts.ParentEnv = p.EnvList()
 	}
-	pid, err := p.node.RouteSpawn(node, name, opts, p.Node().Name())
+	pid, err := p.core.RouteSpawn(node, name, opts, p.Node().Name())
 	if err != nil {
 		return gen.PID{}, err
 	}
@@ -306,14 +387,14 @@ func (p *process) RemoteSpawnRegister(
 		ParentPID:      p.pid,
 		ParentLeader:   p.leader,
 		Register:       register,
-		ParentLogLevel: p.log.level,
-		Application:    p.application,
+		ParentLogLevel: p.log.Level(),
+		Application:    appName(p.application),
 		Args:           args,
 	}
 	if p.node.Security().ExposeEnvRemoteSpawn {
 		opts.ParentEnv = p.EnvList()
 	}
-	pid, err := p.node.RouteSpawn(node, name, opts, p.Node().Name())
+	pid, err := p.core.RouteSpawn(node, name, opts, p.Node().Name())
 	if err != nil {
 		return gen.PID{}, err
 	}
@@ -339,7 +420,7 @@ func (p *process) RegisterName(name gen.Atom) error {
 		return err
 	}
 
-	p.log.setSource(gen.MessageLogProcess{Node: p.node.name, PID: p.pid, Name: p.name})
+	p.log.setSource(gen.MessageLogProcess{Node: p.node.name, PID: p.pid, Name: p.name, Behavior: p.sbehavior})
 	return nil
 }
 
@@ -383,20 +464,33 @@ func (p *process) EnvDefault(name gen.Env, defaultValue any) any {
 	return defaultValue
 }
 
+// updateCompression applies f to a copy of the current compression settings and
+// publishes it atomically, retrying if a concurrent setter raced in.
+func (p *process) updateCompression(f func(c *gen.Compression)) {
+	for {
+		old := p.compression.Load()
+		nc := *old
+		f(&nc)
+		if p.compression.CompareAndSwap(old, &nc) {
+			return
+		}
+	}
+}
+
 func (p *process) Compression() bool {
-	return p.compression.Enable
+	return p.compression.Load().Enable
 }
 
 func (p *process) SetCompression(enable bool) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	p.compression.Enable = enable
+	p.updateCompression(func(c *gen.Compression) { c.Enable = enable })
 	return nil
 }
 
 func (p *process) CompressionType() gen.CompressionType {
-	return p.compression.Type
+	return p.compression.Load().Type
 }
 
 func (p *process) SetCompressionType(ctype gen.CompressionType) error {
@@ -412,12 +506,12 @@ func (p *process) SetCompressionType(ctype gen.CompressionType) error {
 		return gen.ErrIncorrect
 	}
 
-	p.compression.Type = ctype
+	p.updateCompression(func(c *gen.Compression) { c.Type = ctype })
 	return nil
 }
 
 func (p *process) CompressionLevel() gen.CompressionLevel {
-	return p.compression.Level
+	return p.compression.Load().Level
 }
 
 func (p *process) SetCompressionLevel(level gen.CompressionLevel) error {
@@ -433,12 +527,12 @@ func (p *process) SetCompressionLevel(level gen.CompressionLevel) error {
 		return gen.ErrIncorrect
 	}
 
-	p.compression.Level = level
+	p.updateCompression(func(c *gen.Compression) { c.Level = level })
 	return nil
 }
 
 func (p *process) CompressionThreshold() int {
-	return p.compression.Threshold
+	return p.compression.Load().Threshold
 }
 
 func (p *process) SetCompressionThreshold(threshold int) error {
@@ -448,12 +542,12 @@ func (p *process) SetCompressionThreshold(threshold int) error {
 	if threshold < gen.DefaultCompressionThreshold {
 		return gen.ErrIncorrect
 	}
-	p.compression.Threshold = threshold
+	p.updateCompression(func(c *gen.Compression) { c.Threshold = threshold })
 	return nil
 }
 
 func (p *process) SendPriority() gen.MessagePriority {
-	return p.priority
+	return gen.MessagePriority(p.priority.Load())
 }
 
 func (p *process) SetSendPriority(priority gen.MessagePriority) error {
@@ -468,7 +562,15 @@ func (p *process) SetSendPriority(priority gen.MessagePriority) error {
 	default:
 		return gen.ErrIncorrect
 	}
-	p.priority = priority
+	p.priority.Store(int32(priority))
+	return nil
+}
+
+func (p *process) SetProcessKind(kind gen.ProcessKind) error {
+	if p.isStateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	p.kind = kind
 	return nil
 }
 
@@ -477,12 +579,12 @@ func (p *process) SetKeepNetworkOrder(order bool) error {
 		return gen.ErrNotAllowed
 	}
 
-	p.keeporder = order
+	p.keeporder.Store(order)
 	return nil
 }
 
 func (p *process) KeepNetworkOrder() bool {
-	return p.keeporder
+	return p.keeporder.Load()
 }
 
 func (p *process) SetImportantDelivery(important bool) error {
@@ -490,12 +592,75 @@ func (p *process) SetImportantDelivery(important bool) error {
 		return gen.ErrNotAllowed
 	}
 
-	p.important = important
+	p.important.Store(important)
 	return nil
 }
 
 func (p *process) ImportantDelivery() bool {
-	return p.important
+	return p.important.Load()
+}
+
+func (p *process) SetTracingSampler(sampler gen.TracingSampler) error {
+	if p.isStateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	if sampler == gen.TracingSamplerDisable {
+		p.tracingSampler.Store(nil)
+		return nil
+	}
+	p.tracingSampler.Store(&sampler)
+	return nil
+}
+
+func (p *process) TracingSampler() gen.TracingSampler {
+	s := p.tracingSampler.Load()
+	if s == nil {
+		return gen.TracingSamplerDisable
+	}
+	return *s
+}
+
+func (p *process) PropagatingTrace() gen.Tracing {
+	return p.tracing
+}
+
+func (p *process) SetPropagatingTrace(t gen.Tracing) {
+	p.tracing = t
+}
+
+func (p *process) propagatingTrace() gen.Tracing {
+	if p.tracing.ID != [2]uint64{} {
+		t := p.tracing
+		t.Behavior = p.sbehavior
+		return t
+	}
+	// do not start new traces during Init phase
+	if atomic.LoadInt32(&p.state) == int32(gen.ProcessStateInit) {
+		return gen.Tracing{}
+	}
+	if s := p.tracingSampler.Load(); s != nil && (*s).Sample() {
+		t := p.node.MakeTraceID()
+		t.Behavior = p.sbehavior
+		return t
+	}
+	return gen.Tracing{}
+}
+
+// messageOptions builds the base send options from process state; the caller sets Ref after.
+func (p *process) messageOptions(priority gen.MessagePriority, important, tracing bool) gen.MessageOptions {
+	options := gen.MessageOptions{
+		Priority:          priority,
+		Compression:       *p.compression.Load(),
+		KeepNetworkOrder:  p.keeporder.Load(),
+		ImportantDelivery: important,
+	}
+	if tracing {
+		options.Tracing = p.propagatingTrace()
+		if options.Tracing.ID != [2]uint64{} {
+			p.applyTracingAttrs(&options)
+		}
+	}
+	return options
 }
 
 func (p *process) CreateAlias() (gen.Alias, error) {
@@ -520,13 +685,13 @@ func (p *process) DeleteAlias(alias gen.Alias) error {
 		return err
 	}
 
-	p.node.RouteTerminateAlias(alias, gen.ErrUnregistered)
+	p.core.RouteTerminateAlias(alias, gen.ErrUnregistered)
 
 	for i, a := range p.aliases {
 		if a != alias {
 			continue
 		}
-		p.aliases[0] = p.aliases[i]
+		p.aliases[i] = p.aliases[0]
 		p.aliases = p.aliases[1:]
 		break
 	}
@@ -540,96 +705,50 @@ func (p *process) Aliases() []gen.Alias {
 }
 
 func (p *process) SendWithPriority(to any, message any, priority gen.MessagePriority) error {
-	var prev gen.MessagePriority
-	prev, p.priority = p.priority, priority
-	err := p.Send(to, message)
-	p.priority = prev
-	return err
+	return p.sendTo(to, message, priority, p.important.Load())
 }
 
 func (p *process) Send(to any, message any) error {
-	switch t := to.(type) {
-	case gen.PID:
-		return p.SendPID(t, message)
-	case gen.ProcessID:
-		return p.SendProcessID(t, message)
-	case gen.Alias:
-		return p.SendAlias(t, message)
-	case gen.Atom:
-		return p.SendProcessID(gen.ProcessID{Name: t, Node: p.node.name}, message)
-	case string:
-		return p.SendProcessID(gen.ProcessID{Name: gen.Atom(t), Node: p.node.name}, message)
-	}
-
-	return gen.ErrUnsupported
+	return p.sendTo(to, message, gen.MessagePriority(p.priority.Load()), p.important.Load())
 }
 
 func (p *process) SendImportant(to any, message any) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
+	return p.sendTo(to, message, gen.MessagePriority(p.priority.Load()), true)
+}
 
-	var important bool
-	important, p.important = p.important, true
-	err := p.Send(to, message)
-	p.important = important
+// sendTo dispatches an immediate send by target type with the given priority and important flag.
+func (p *process) sendTo(to any, message any, priority gen.MessagePriority, important bool) error {
+	switch t := to.(type) {
+	case gen.PID:
+		return p.sendPID(t, message, priority, important)
+	case gen.ProcessID:
+		return p.sendProcessID(t, message, priority, important)
+	case gen.Alias:
+		return p.sendAlias(t, message, priority, important)
+	case gen.Atom:
+		return p.sendProcessID(gen.ProcessID{Name: t, Node: p.node.name}, message, priority, important)
+	}
 
-	return err
+	return gen.ErrUnsupported
 }
 
 func (p *process) SendPID(to gen.PID, message any) error {
+	return p.sendPID(to, message, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) sendPID(to gen.PID, message any, priority gen.MessagePriority, important bool) error {
 	// allow to send in Init, Running, Terminated states
 	if p.isStateIRT() == false {
 		return gen.ErrNotAllowed
 	}
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendPID to %s", to)
 	}
 
-	// Sending to itself being in initialization stage:
-	//
-	// - we can't route this message to itself (via RouteSendPID) if this process
-	//   is in the initialization stage since it isn't registered yet.
-	// - message can be routed by the process name (via RouteSendProcessID)
-	//   because it is already registered before the invoking ProcessInit callback,
-	//   which means we should not do this trick in SendProcessID method.
-	//
-	// So here, we should check if it is sending to itself and route this message manually
-	// right into the process mailbox.
-
-	if to == p.pid {
-		// sending to itself
-		qm := gen.TakeMailboxMessage()
-		qm.From = p.pid
-		qm.Type = gen.MailboxMessageTypeRegular
-		qm.Target = to
-		qm.Message = message
-
-		var queue lib.QueueMPSC
-		switch p.priority {
-		case gen.MessagePriorityHigh:
-			queue = p.mailbox.System
-		case gen.MessagePriorityMax:
-			queue = p.mailbox.Urgent
-		default:
-			queue = p.mailbox.Main
-		}
-
-		if ok := queue.Push(qm); ok == false {
-			return gen.ErrProcessMailboxFull
-		}
-
-		atomic.AddUint64(&p.messagesIn, 1)
-		p.run()
-		return nil
-	}
-
-	options := gen.MessageOptions{
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
-	}
+	options := p.messageOptions(priority, important, true)
 
 	if options.ImportantDelivery {
 		ref := p.node.MakeRef()
@@ -639,7 +758,7 @@ func (p *process) SendPID(to gen.PID, message any) error {
 		options.Ref.ID[2] = 0
 	}
 
-	if err := p.node.RouteSendPID(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteSendPID(p.pid, to, options, message); err != nil {
 		return err
 	}
 
@@ -662,20 +781,19 @@ func (p *process) SendPID(to gen.PID, message any) error {
 }
 
 func (p *process) SendProcessID(to gen.ProcessID, message any) error {
+	return p.sendProcessID(to, message, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) sendProcessID(to gen.ProcessID, message any, priority gen.MessagePriority, important bool) error {
 	if p.isStateIRT() == false {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendProcessID to %s", to)
 	}
 
-	options := gen.MessageOptions{
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
-	}
+	options := p.messageOptions(priority, important, true)
 
 	if options.ImportantDelivery {
 		ref := p.node.MakeRef()
@@ -685,7 +803,7 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 		options.Ref.ID[2] = 0
 	}
 
-	if err := p.node.RouteSendProcessID(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteSendProcessID(p.pid, to, options, message); err != nil {
 		return err
 	}
 
@@ -708,20 +826,19 @@ func (p *process) SendProcessID(to gen.ProcessID, message any) error {
 }
 
 func (p *process) SendAlias(to gen.Alias, message any) error {
+	return p.sendAlias(to, message, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) sendAlias(to gen.Alias, message any, priority gen.MessagePriority, important bool) error {
 	if p.isStateIRT() == false {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendAlias to %s", to)
 	}
 
-	options := gen.MessageOptions{
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
-	}
+	options := p.messageOptions(priority, important, true)
 
 	if options.ImportantDelivery {
 		ref := p.node.MakeRef()
@@ -731,7 +848,7 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 		options.Ref.ID[2] = 0
 	}
 
-	if err := p.node.RouteSendAlias(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteSendAlias(p.pid, to, options, message); err != nil {
 		return err
 	}
 
@@ -753,38 +870,23 @@ func (p *process) SendAlias(to gen.Alias, message any) error {
 	return err
 }
 
-func (p *process) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
-	if p.isStateIR() == false {
-		return nil, gen.ErrNotAllowed
+func (p *process) sendHelper(to any, options gen.MessageOptions, message any) func() error {
+	switch t := to.(type) {
+	case gen.PID:
+		return func() error { return p.core.RouteSendPID(p.pid, t, options, message) }
+	case gen.ProcessID:
+		return func() error { return p.core.RouteSendProcessID(p.pid, t, options, message) }
+	case gen.Alias:
+		return func() error { return p.core.RouteSendAlias(p.pid, t, options, message) }
+	case gen.Atom:
+		dst := gen.ProcessID{Name: t, Node: p.node.name}
+		return func() error { return p.core.RouteSendProcessID(p.pid, dst, options, message) }
 	}
-	return time.AfterFunc(after, func() {
-		var err error
-		if lib.Trace() {
-			p.log.Trace("SendAfter %s to %s", after, to)
-		}
-		// we can't use p.Send(...) because it checks the process state
-		// and returns gen.ErrNotAllowed, so use p.node.Route* methods for that
-		options := gen.MessageOptions{
-			Priority:         p.priority,
-			Compression:      p.compression,
-			KeepNetworkOrder: p.keeporder,
-			// ImportantDelivery: ignore on sending with delay
-		}
-		switch t := to.(type) {
-		case gen.Atom:
-			err = p.node.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
-		case gen.PID:
-			err = p.node.RouteSendPID(p.pid, t, options, message)
-		case gen.ProcessID:
-			err = p.node.RouteSendProcessID(p.pid, t, options, message)
-		case gen.Alias:
-			err = p.node.RouteSendAlias(p.pid, t, options, message)
-		}
+	return nil
+}
 
-		if err == nil {
-			atomic.AddUint64(&p.messagesOut, 1)
-		}
-	}).Stop, nil
+func (p *process) SendAfter(to any, message any, after time.Duration) (gen.CancelFunc, error) {
+	return p.sendDeferred(to, message, gen.MessagePriority(p.priority.Load()), after, false)
 }
 
 func (p *process) SendWithPriorityAfter(
@@ -793,37 +895,71 @@ func (p *process) SendWithPriorityAfter(
 	priority gen.MessagePriority,
 	after time.Duration,
 ) (gen.CancelFunc, error) {
+	return p.sendDeferred(to, message, priority, after, false)
+}
+
+// sendDeferred schedules a delayed send: once after d (repeat=false) or every d (repeat=true); no important/tracing.
+func (p *process) sendDeferred(to any, message any, priority gen.MessagePriority, d time.Duration, repeat bool) (gen.CancelFunc, error) {
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return time.AfterFunc(after, func() {
-		var err error
-		if lib.Trace() {
-			p.log.Trace("SendWithPriorityAfter %s to %s with priority %s", after, to, priority)
-		}
-		// we can't use p.Send(...) because it checks the process state
-		// and returns gen.ErrNotAllowed, so use p.node.Route* methods for that
-		options := gen.MessageOptions{
-			Priority:         priority,
-			Compression:      p.compression,
-			KeepNetworkOrder: p.keeporder,
-			// ImportantDelivery: ignore on sending with delay
-		}
-		switch t := to.(type) {
-		case gen.Atom:
-			err = p.node.RouteSendProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, message)
-		case gen.PID:
-			err = p.node.RouteSendPID(p.pid, t, options, message)
-		case gen.ProcessID:
-			err = p.node.RouteSendProcessID(p.pid, t, options, message)
-		case gen.Alias:
-			err = p.node.RouteSendAlias(p.pid, t, options, message)
-		}
+	if repeat && d <= 0 {
+		return nil, gen.ErrIncorrect
+	}
+	// snapshot options once at schedule time; every tick reuses the same priority/order/compression
+	options := p.messageOptions(priority, false, false)
+	send := p.sendHelper(to, options, message)
+	if send == nil {
+		return nil, gen.ErrIncorrect
+	}
 
-		if err == nil {
+	if repeat == false {
+		return time.AfterFunc(d, func() {
+			if lib.Verbose() {
+				p.log.Trace("send after %s to %s (priority %s)", d, to, priority)
+			}
+			if send() == nil {
+				atomic.AddUint64(&p.messagesOut, 1)
+			}
+		}).Stop, nil
+	}
+
+	var stopped atomic.Bool
+	var t *time.Timer
+	// arm far out first, then Reset, so the callback can't read t before it is set
+	t = time.AfterFunc(time.Hour, func() {
+		if stopped.Load() || p.isAlive() == false {
+			t.Stop()
+			return
+		}
+		if lib.Verbose() {
+			p.log.Trace("send every %s to %s (priority %s)", d, to, priority)
+		}
+		if send() == nil {
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
-	}).Stop, nil
+		if stopped.Load() == false {
+			t.Reset(d)
+		}
+	})
+	t.Reset(d)
+	return func() bool {
+		t.Stop()
+		return stopped.Swap(true) == false
+	}, nil
+}
+
+func (p *process) SendEvery(to any, message any, period time.Duration) (gen.CancelFunc, error) {
+	return p.sendDeferred(to, message, gen.MessagePriority(p.priority.Load()), period, true)
+}
+
+func (p *process) SendWithPriorityEvery(
+	to any,
+	message any,
+	priority gen.MessagePriority,
+	period time.Duration,
+) (gen.CancelFunc, error) {
+	return p.sendDeferred(to, message, priority, period, true)
 }
 
 func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
@@ -831,15 +967,11 @@ func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("process SendEvent %s with token %s", name, token)
 	}
 
-	options := gen.MessageOptions{
-		Priority:         p.priority,
-		Compression:      p.compression,
-		KeepNetworkOrder: p.keeporder,
-	}
+	options := p.messageOptions(gen.MessagePriority(p.priority.Load()), false, true)
 
 	em := gen.MessageEvent{
 		Event:     gen.Event{Name: name, Node: p.node.name},
@@ -847,11 +979,10 @@ func (p *process) SendEvent(name gen.Atom, token gen.Ref, message any) error {
 		Message:   message,
 	}
 
-	if err := p.node.RouteSendEvent(p.pid, token, options, em); err != nil {
+	if err := p.core.RouteSendEvent(p.pid, token, options, em); err != nil {
 		return err
 	}
 
-	atomic.AddUint64(&p.messagesOut, 1)
 	return nil
 }
 
@@ -870,10 +1001,10 @@ func (p *process) SendExit(to gen.PID, reason error) error {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("SendExit to %s", to)
 	}
-	err := p.node.RouteSendExit(p.pid, to, reason)
+	err := p.core.RouteSendExit(p.pid, to, reason)
 	if err != nil {
 		return err
 	}
@@ -897,11 +1028,11 @@ func (p *process) SendExitAfter(to gen.PID, reason error, after time.Duration) (
 	}
 
 	return time.AfterFunc(after, func() {
-		if lib.Trace() {
+		if lib.Verbose() {
 			p.log.Trace("SendExitAfter %s to %s with reason %q", after, to, reason)
 		}
 
-		err := p.node.RouteSendExit(p.pid, to, reason)
+		err := p.core.RouteSendExit(p.pid, to, reason)
 		if err == nil {
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
@@ -944,6 +1075,7 @@ func (p *process) SendExitMeta(alias gen.Alias, reason error) error {
 	}
 
 	atomic.AddUint64(&m.messagesIn, 1)
+	atomic.AddUint64(&metap.messagesIn, 1)
 	atomic.AddUint64(&p.messagesOut, 1)
 	m.handle()
 	return nil
@@ -975,7 +1107,7 @@ func (p *process) SendExitMetaAfter(alias gen.Alias, reason error, after time.Du
 	}
 
 	return time.AfterFunc(after, func() {
-		if lib.Trace() {
+		if lib.Verbose() {
 			p.log.Trace("SendExitMetaAfter %s to %s with reason %q", after, alias, reason)
 		}
 
@@ -1006,131 +1138,122 @@ func (p *process) SendExitMetaAfter(alias gen.Alias, reason error, after time.Du
 		}
 
 		atomic.AddUint64(&m.messagesIn, 1)
+		atomic.AddUint64(&metap.messagesIn, 1)
 		atomic.AddUint64(&p.messagesOut, 1)
 		m.handle()
 	}).Stop, nil
 }
 
 func (p *process) SendResponse(to gen.PID, ref gen.Ref, message any) error {
-	if p.isStateIR() == false {
-		return gen.ErrNotAllowed
-	}
-	if lib.Trace() {
-		p.log.Trace("SendResponse to %s with %s", to, ref)
-	}
-	options := gen.MessageOptions{
-		Ref:               ref,
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
-	}
-	atomic.AddUint64(&p.messagesOut, 1)
-	return p.node.RouteSendResponse(p.pid, to, options, message)
+	return p.sendResponse(to, ref, message, p.important.Load())
 }
 
 func (p *process) SendResponseImportant(to gen.PID, ref gen.Ref, message any) error {
+	return p.sendResponse(to, ref, message, true)
+}
+
+func (p *process) sendResponse(to gen.PID, ref gen.Ref, message any, important bool) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	if lib.Trace() {
-		p.log.Trace("SendResponseImportant to %s with %s", to, ref)
+	if lib.Verbose() {
+		p.log.Trace("send response to %s with %s", to, ref)
 	}
-	options := gen.MessageOptions{
-		Ref:               ref,
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: true,
-	}
-	if err := p.node.RouteSendResponse(p.pid, to, options, message); err != nil {
+	options := p.messageOptions(gen.MessagePriority(p.priority.Load()), important, true)
+	options.Ref = ref
+	if err := p.core.RouteSendResponse(p.pid, to, options, message); err != nil {
 		return err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 
-	_, err := p.waitResponse(options.Ref, gen.DefaultRequestTimeout)
+	if important == false {
+		return nil
+	}
+	// The caller-supplied ref may carry a remote node prefix when responding to a
+	// cross-node Call (or a ref wrapped across several nodes). The peer's auto-ack
+	// travels back with just the IDs; our side reconstructs the incoming ref with the
+	// local node prefix before delivering it to waitResponse. So wait on a local-prefix
+	// view of the same IDs; the caller's ref stays unchanged on the wire.
+	ackRef := gen.Ref{
+		Node:     p.node.Name(),
+		Creation: p.node.Creation(),
+		ID:       options.Ref.ID,
+	}
+	_, err := p.waitResponse(ackRef, gen.DefaultRequestTimeout)
 	return err
 }
 
 func (p *process) SendResponseError(to gen.PID, ref gen.Ref, err error) error {
-	if p.isStateIR() == false {
-		return gen.ErrNotAllowed
-	}
-	if lib.Trace() {
-		p.log.Trace("SendResponseError to %s with %s", to, ref)
-	}
-	options := gen.MessageOptions{
-		Ref:               ref,
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
-	}
-	atomic.AddUint64(&p.messagesOut, 1)
-	return p.node.RouteSendResponseError(p.pid, to, options, err)
+	return p.sendResponseError(to, ref, err, p.important.Load())
 }
 
 func (p *process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error) error {
+	return p.sendResponseError(to, ref, err, true)
+}
+
+func (p *process) sendResponseError(to gen.PID, ref gen.Ref, e error, important bool) error {
 	if p.isStateIR() == false {
 		return gen.ErrNotAllowed
 	}
-	if lib.Trace() {
-		p.log.Trace("SendResponseErrorImportant to %s with %s", to, ref)
+	if lib.Verbose() {
+		p.log.Trace("send response error to %s with %s", to, ref)
 	}
-	options := gen.MessageOptions{
-		Ref:               ref,
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: true,
-	}
-	if err := p.node.RouteSendResponseError(p.pid, to, options, err); err != nil {
-		return err
+	options := p.messageOptions(gen.MessagePriority(p.priority.Load()), important, true)
+	options.Ref = ref
+	if routeErr := p.core.RouteSendResponseError(p.pid, to, options, e); routeErr != nil {
+		return routeErr
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 
-	_, err = p.waitResponse(options.Ref, gen.DefaultRequestTimeout)
-	return err
+	if important == false {
+		return nil
+	}
+	// See sendResponse for the ack-ref reconstruction rationale.
+	ackRef := gen.Ref{
+		Node:     p.node.Name(),
+		Creation: p.node.Creation(),
+		ID:       options.Ref.ID,
+	}
+	_, ackErr := p.waitResponse(ackRef, gen.DefaultRequestTimeout)
+	return ackErr
 }
 
 func (p *process) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
-	var prev gen.MessagePriority
-	prev, p.priority = p.priority, priority
-	value, err := p.CallWithTimeout(to, request, gen.DefaultRequestTimeout)
-	p.priority = prev
-	return value, err
+	return p.callTo(to, request, gen.DefaultRequestTimeout, priority, p.important.Load())
 }
 
 func (p *process) CallImportant(to any, request any) (any, error) {
-	var important bool
-
-	important, p.important = p.important, true
-	result, err := p.CallWithTimeout(to, request, gen.DefaultRequestTimeout)
-	p.important = important
-
-	return result, err
+	return p.callTo(to, request, gen.DefaultRequestTimeout, gen.MessagePriority(p.priority.Load()), true)
 }
 
 func (p *process) Call(to any, request any) (any, error) {
 	return p.CallWithTimeout(to, request, gen.DefaultRequestTimeout)
 }
 func (p *process) CallWithTimeout(to any, request any, timeout int) (any, error) {
+	return p.callTo(to, request, timeout, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+// callTo dispatches a synchronous call by target type with the given priority and important flag.
+func (p *process) callTo(to any, request any, timeout int, priority gen.MessagePriority, important bool) (any, error) {
 	switch t := to.(type) {
 	case gen.Atom:
-		return p.CallProcessID(gen.ProcessID{Name: t, Node: p.node.name}, request, timeout)
+		return p.callProcessID(gen.ProcessID{Name: t, Node: p.node.name}, request, timeout, priority, important)
 	case gen.PID:
-		return p.CallPID(t, request, timeout)
+		return p.callPID(t, request, timeout, priority, important)
 	case gen.ProcessID:
-		return p.CallProcessID(t, request, timeout)
+		return p.callProcessID(t, request, timeout, priority, important)
 	case gen.Alias:
-		return p.CallAlias(t, request, timeout)
+		return p.callAlias(t, request, timeout, priority, important)
 	}
 
 	return nil, gen.ErrUnsupported
-
 }
 
 func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
+	return p.callPID(to, message, timeout, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) callPID(to gen.PID, message any, timeout int, priority gen.MessagePriority, important bool) (any, error) {
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
@@ -1148,19 +1271,14 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 		return nil, err
 	}
 
-	options := gen.MessageOptions{
-		Ref:               ref,
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
-	}
+	options := p.messageOptions(priority, important, true)
+	options.Ref = ref
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("CallPID to %s with %s", to, options.Ref)
 	}
 
-	if err := p.node.RouteCallPID(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteCallPID(p.pid, to, options, message); err != nil {
 		return nil, err
 	}
 
@@ -1169,6 +1287,10 @@ func (p *process) CallPID(to gen.PID, message any, timeout int) (any, error) {
 }
 
 func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any, error) {
+	return p.callProcessID(to, message, timeout, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) callProcessID(to gen.ProcessID, message any, timeout int, priority gen.MessagePriority, important bool) (any, error) {
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
@@ -1183,17 +1305,13 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 		return nil, err
 	}
 
-	options := gen.MessageOptions{
-		Ref:               ref,
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
-	}
-	if lib.Trace() {
+	options := p.messageOptions(priority, important, true)
+	options.Ref = ref
+
+	if lib.Verbose() {
 		p.log.Trace("CallProcessID %s with %s", to, options.Ref)
 	}
-	if err := p.node.RouteCallProcessID(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteCallProcessID(p.pid, to, options, message); err != nil {
 		return nil, err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
@@ -1201,6 +1319,10 @@ func (p *process) CallProcessID(to gen.ProcessID, message any, timeout int) (any
 }
 
 func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error) {
+	return p.callAlias(to, message, timeout, gen.MessagePriority(p.priority.Load()), p.important.Load())
+}
+
+func (p *process) callAlias(to gen.Alias, message any, timeout int, priority gen.MessagePriority, important bool) (any, error) {
 	if p.isStateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
@@ -1215,19 +1337,14 @@ func (p *process) CallAlias(to gen.Alias, message any, timeout int) (any, error)
 		return nil, err
 	}
 
-	options := gen.MessageOptions{
-		Ref:               ref,
-		Priority:          p.priority,
-		Compression:       p.compression,
-		KeepNetworkOrder:  p.keeporder,
-		ImportantDelivery: p.important,
-	}
+	options := p.messageOptions(priority, important, true)
+	options.Ref = ref
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("CallAlias %s with %s", to, options.Ref)
 	}
 
-	if err := p.node.RouteCallAlias(p.pid, to, options, message); err != nil {
+	if err := p.core.RouteCallAlias(p.pid, to, options, message); err != nil {
 		return nil, err
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
@@ -1268,7 +1385,7 @@ func (p *process) Inspect(target gen.PID, item ...string) (map[string]string, er
 	atomic.AddUint64(&p.messagesOut, 1)
 	atomic.AddUint64(&targetp.messagesIn, 1)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("Inspect %s with %s", target, ref)
 	}
 
@@ -1320,8 +1437,9 @@ func (p *process) InspectMeta(alias gen.Alias, item ...string) (map[string]strin
 	}
 	atomic.AddUint64(&p.messagesOut, 1)
 	atomic.AddUint64(&m.messagesIn, 1)
+	atomic.AddUint64(&metap.messagesIn, 1)
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		m.log.Trace("Inspect meta %s with %s", alias, ref)
 	}
 
@@ -1340,7 +1458,7 @@ func (p *process) RegisterEvent(name gen.Atom, options gen.EventOptions) (gen.Re
 		return empty, gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("process RegisterEvent %s", name)
 	}
 
@@ -1352,7 +1470,7 @@ func (p *process) UnregisterEvent(name gen.Atom) error {
 		return gen.ErrNotAllowed
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("process UnregisterEvent %s", name)
 	}
 
@@ -1410,11 +1528,11 @@ func (p *process) LinkPID(target gen.PID) error {
 		return gen.ErrTargetExist
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("LinkPID with %s", target)
 	}
 
-	if err := p.node.RouteLinkPID(p.pid, target); err != nil {
+	if err := p.core.RouteLinkPID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1436,11 +1554,11 @@ func (p *process) UnlinkPID(target gen.PID) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("UnlinkPID with %s", target)
 	}
 
-	if err := p.node.RouteUnlinkPID(p.pid, target); err != nil {
+	if err := p.core.RouteUnlinkPID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1460,11 +1578,11 @@ func (p *process) LinkProcessID(target gen.ProcessID) error {
 		return gen.ErrTargetExist
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		p.log.Trace("LinkProcessID with %s", target)
 	}
 
-	if err := p.node.RouteLinkProcessID(p.pid, target); err != nil {
+	if err := p.core.RouteLinkProcessID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1486,7 +1604,7 @@ func (p *process) UnlinkProcessID(target gen.ProcessID) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteUnlinkProcessID(p.pid, target); err != nil {
+	if err := p.core.RouteUnlinkProcessID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1508,7 +1626,7 @@ func (p *process) LinkAlias(target gen.Alias) error {
 		return gen.ErrTargetExist
 	}
 
-	if err := p.node.RouteLinkAlias(p.pid, target); err != nil {
+	if err := p.core.RouteLinkAlias(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1530,7 +1648,7 @@ func (p *process) UnlinkAlias(target gen.Alias) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteUnlinkAlias(p.pid, target); err != nil {
+	if err := p.core.RouteUnlinkAlias(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1551,7 +1669,7 @@ func (p *process) LinkEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		return nil, gen.ErrTargetExist
 	}
 
-	lastEventMessages, err := p.node.RouteLinkEvent(p.pid, target)
+	lastEventMessages, err := p.core.RouteLinkEvent(p.pid, target)
 	if err != nil {
 		return nil, err
 	}
@@ -1574,7 +1692,7 @@ func (p *process) UnlinkEvent(target gen.Event) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteUnlinkEvent(p.pid, target); err != nil {
+	if err := p.core.RouteUnlinkEvent(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1656,11 +1774,15 @@ func (p *process) MonitorPID(target gen.PID) error {
 		return gen.ErrNotAllowed
 	}
 
+	if target == p.pid {
+		return gen.ErrNotAllowed
+	}
+
 	if p.node.targets.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
-	if err := p.node.RouteMonitorPID(p.pid, target); err != nil {
+	if err := p.core.RouteMonitorPID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1682,7 +1804,7 @@ func (p *process) DemonitorPID(target gen.PID) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteDemonitorPID(p.pid, target); err != nil {
+	if err := p.core.RouteDemonitorPID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1694,11 +1816,15 @@ func (p *process) MonitorProcessID(target gen.ProcessID) error {
 		return gen.ErrNotAllowed
 	}
 
+	if target.Name == p.name && target.Node == p.node.name {
+		return gen.ErrNotAllowed
+	}
+
 	if p.node.targets.HasMonitor(p.pid, target) {
 		return gen.ErrTargetExist
 	}
 
-	if err := p.node.RouteMonitorProcessID(p.pid, target); err != nil {
+	if err := p.core.RouteMonitorProcessID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1720,7 +1846,7 @@ func (p *process) DemonitorProcessID(target gen.ProcessID) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteDemonitorProcessID(p.pid, target); err != nil {
+	if err := p.core.RouteDemonitorProcessID(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1736,7 +1862,7 @@ func (p *process) MonitorAlias(target gen.Alias) error {
 		return gen.ErrTargetExist
 	}
 
-	if err := p.node.RouteMonitorAlias(p.pid, target); err != nil {
+	if err := p.core.RouteMonitorAlias(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1758,7 +1884,7 @@ func (p *process) DemonitorAlias(target gen.Alias) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteDemonitorAlias(p.pid, target); err != nil {
+	if err := p.core.RouteDemonitorAlias(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1779,7 +1905,7 @@ func (p *process) MonitorEvent(target gen.Event) ([]gen.MessageEvent, error) {
 		return nil, gen.ErrTargetExist
 	}
 
-	lastEventMessages, err := p.node.RouteMonitorEvent(p.pid, target)
+	lastEventMessages, err := p.core.RouteMonitorEvent(p.pid, target)
 	if err != nil {
 		return nil, err
 	}
@@ -1802,7 +1928,7 @@ func (p *process) DemonitorEvent(target gen.Event) error {
 		return gen.ErrTargetUnknown
 	}
 
-	if err := p.node.RouteDemonitorEvent(p.pid, target); err != nil {
+	if err := p.core.RouteDemonitorEvent(p.pid, target); err != nil {
 		return err
 	}
 
@@ -1868,8 +1994,247 @@ func (p *process) Mailbox() gen.ProcessMailbox {
 	return p.mailbox
 }
 
+func (p *process) wrapPreserveMailbox(reason error) error {
+	if p.preserveMailbox == false {
+		return reason
+	}
+	if reason == gen.TerminateReasonNormal || reason == gen.TerminateReasonShutdown {
+		return reason
+	}
+	if ge, ok := reason.(*gen.Error); ok {
+		if ge.Mailbox == nil {
+			ge.Mailbox = &p.mailbox
+		}
+		return ge
+	}
+	return &gen.Error{Msg: reason.Error(), Wrapped: []error{reason}, Mailbox: &p.mailbox}
+}
+
 func (p *process) Behavior() gen.ProcessBehavior {
 	return p.behavior
+}
+
+func (p *process) BehaviorName() string {
+	return p.sbehavior
+}
+
+func (p *process) SetTracingAttribute(key, value string) {
+	if strings.HasPrefix(key, "ergo.") {
+		return
+	}
+	// COW: copy slice, overwrite existing key or append
+	cur := *p.tracingAttrs.Load()
+	for i, a := range cur {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(cur))
+			copy(attrs, cur)
+			attrs[i] = gen.TracingAttribute{Key: key, Value: value}
+			p.tracingAttrs.Store(&attrs)
+			return
+		}
+	}
+	attrs := make([]gen.TracingAttribute, len(cur)+1)
+	copy(attrs, cur)
+	attrs[len(attrs)-1] = gen.TracingAttribute{Key: key, Value: value}
+	p.tracingAttrs.Store(&attrs)
+}
+
+func (p *process) RemoveTracingAttribute(key string) {
+	cur := *p.tracingAttrs.Load()
+	for i, a := range cur {
+		if a.Key == key {
+			attrs := make([]gen.TracingAttribute, len(cur)-1)
+			copy(attrs, cur[:i])
+			copy(attrs[i:], cur[i+1:])
+			p.tracingAttrs.Store(&attrs)
+			return
+		}
+	}
+}
+
+func (p *process) SetTracingSpanAttribute(key, value string) {
+	if strings.HasPrefix(key, "ergo.") {
+		return
+	}
+	for i, a := range p.tracingSpanAttrs {
+		if a.Key == key {
+			p.tracingSpanAttrs[i].Value = value
+			return
+		}
+	}
+	p.tracingSpanAttrs = append(p.tracingSpanAttrs, gen.TracingAttribute{Key: key, Value: value})
+}
+
+func (p *process) TracingAttributes() []gen.TracingAttribute {
+	attrs := *p.tracingAttrs.Load()
+	if len(attrs) == 0 {
+		return p.tracingSpanAttrs
+	}
+	if len(p.tracingSpanAttrs) == 0 {
+		return attrs
+	}
+	m := make([]gen.TracingAttribute, 0, len(attrs)+len(p.tracingSpanAttrs))
+	return append(append(m, attrs...), p.tracingSpanAttrs...)
+}
+
+func (p *process) ClearTracingSpanAttributes() {
+	if p.tracingSpanAttrs != nil {
+		p.tracingSpanAttrs = nil
+	}
+}
+
+func (p *process) applyTracingAttrs(options *gen.MessageOptions) {
+	attrs := p.TracingAttributes()
+	if len(attrs) == 0 {
+		return
+	}
+	options.TracingAttributes = attrs
+}
+
+func (p *process) SendTracingSpan(span gen.TracingSpan) {
+	p.node.sendTracingSpan(span)
+}
+
+func (p *process) StartTracingSpan(name string) gen.TracingSpanScope {
+	saved := p.tracing
+	if p.tracing.ID == [2]uint64{} {
+		// no active trace - start one via the sampler so a business span at an
+		// initiator becomes a trace root (severed/delayed contexts land here)
+		t := p.propagatingTrace()
+		if t.ID == [2]uint64{} {
+			return gen.TracingSpanScopeNoop
+		}
+		p.tracing = t
+	}
+	parentPoint := gen.TracingPointProcessed
+	if len(p.tracingSpanStack) > 0 {
+		parentPoint = gen.TracingPointSpan
+	}
+	sc := &tracingSpanScope{
+		p:           p,
+		saved:       saved,
+		traceID:     p.tracing.ID,
+		spanID:      atomic.AddUint64(&p.node.spanID, 1),
+		parentPoint: parentPoint,
+		name:        name,
+		start:       time.Now().UnixNano(),
+	}
+	p.tracingSpanStack = append(p.tracingSpanStack, sc)
+	p.tracing.SpanID = sc.spanID
+	return sc
+}
+
+// CloseTracingSpans emits any business span left open by the handler (marked
+// ergo.span.unended) and restores the trace position. Called by behavior loops.
+func (p *process) CloseTracingSpans() {
+	n := len(p.tracingSpanStack)
+	if n == 0 {
+		return
+	}
+	end := time.Now().UnixNano()
+	restore := p.tracingSpanStack[0].saved
+	for i := n - 1; i >= 0; i-- {
+		s := p.tracingSpanStack[i]
+		s.ended = true
+		s.attrs = append(s.attrs, gen.TracingAttribute{Key: "ergo.span.unended", Value: "true"})
+		p.emitSpanScope(s, "", end)
+	}
+	p.tracingSpanStack = p.tracingSpanStack[:0]
+	p.tracing = restore
+}
+
+func (p *process) emitSpanScope(s *tracingSpanScope, errStr string, end int64) {
+	p.node.sendTracingSpan(gen.TracingSpan{
+		TraceID:      s.traceID,
+		SpanID:       s.spanID,
+		ParentSpanID: s.saved.SpanID,
+		ParentPoint:  s.parentPoint,
+		Point:        gen.TracingPointSpan,
+		Timestamp:    s.start,
+		EndTimestamp: end,
+		Node:         p.node.name,
+		From:         p.pid,
+		To:           p.pid,
+		Behavior:     p.sbehavior,
+		Message:      s.name,
+		Error:        errStr,
+		Attributes:   p.spanScopeAttrs(s),
+	})
+}
+
+func (p *process) spanScopeAttrs(s *tracingSpanScope) []gen.TracingAttribute {
+	perm := *p.tracingAttrs.Load()
+	if len(perm) == 0 {
+		return s.attrs
+	}
+	if len(s.attrs) == 0 {
+		return perm
+	}
+	merged := make([]gen.TracingAttribute, 0, len(perm)+len(s.attrs))
+	merged = append(merged, perm...)
+	return append(merged, s.attrs...)
+}
+
+func (p *process) popSpanScope(s *tracingSpanScope) {
+	n := len(p.tracingSpanStack)
+	if n == 0 {
+		return
+	}
+	if p.tracingSpanStack[n-1] == s {
+		p.tracingSpanStack = p.tracingSpanStack[:n-1]
+		p.tracing = s.saved
+		return
+	}
+	for i := range p.tracingSpanStack {
+		if p.tracingSpanStack[i] == s {
+			p.tracingSpanStack = append(p.tracingSpanStack[:i], p.tracingSpanStack[i+1:]...)
+			return
+		}
+	}
+}
+
+type tracingSpanScope struct {
+	p           *process
+	saved       gen.Tracing // p.tracing as it was before this span (restored on End)
+	traceID     [2]uint64
+	spanID      uint64
+	parentPoint gen.TracingPoint
+	name        string
+	start       int64
+	attrs       []gen.TracingAttribute
+	ended       bool
+}
+
+func (s *tracingSpanScope) SetAttribute(key, value string) {
+	if strings.HasPrefix(key, "ergo.") {
+		return
+	}
+	for i := range s.attrs {
+		if s.attrs[i].Key == key {
+			s.attrs[i].Value = value
+			return
+		}
+	}
+	s.attrs = append(s.attrs, gen.TracingAttribute{Key: key, Value: value})
+}
+
+func (s *tracingSpanScope) End() { s.end("") }
+
+func (s *tracingSpanScope) EndError(err error) {
+	if err == nil {
+		s.end("")
+		return
+	}
+	s.end(err.Error())
+}
+
+func (s *tracingSpanScope) end(errStr string) {
+	if s.ended {
+		return
+	}
+	s.ended = true
+	s.p.emitSpanScope(s, errStr, time.Now().UnixNano())
+	s.p.popSpanScope(s)
 }
 
 func (p *process) Forward(
@@ -1877,6 +2242,10 @@ func (p *process) Forward(
 	message *gen.MailboxMessage,
 	priority gen.MessagePriority,
 ) error {
+	if p.State() != gen.ProcessStateRunning {
+		return gen.ErrNotAllowed
+	}
+
 	var queue lib.QueueMPSC
 
 	// local
@@ -1906,6 +2275,7 @@ func (p *process) Forward(
 	fp.run()
 	return nil
 }
+
 // internal
 
 func (p *process) isAlive() bool {
@@ -1937,7 +2307,7 @@ func (p *process) isStateIRT() bool {
 }
 
 func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
-	var response any
+	var result any
 	var err error
 
 	// swap to wait response state
@@ -1947,6 +2317,7 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 		atomic.StoreInt32(&p.state, prevState)
 		return nil, gen.ErrNotAllowed
 	}
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 
 	timer := lib.TakeTimer()
 	defer lib.ReleaseTimer(timer)
@@ -1957,37 +2328,64 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 		timer.Reset(time.Second * time.Duration(timeout))
 	}
 
-retry:
-	select {
-	case <-timer.C:
-		if lib.Trace() {
-			p.log.Trace("request with ref %s is timed out", ref)
-		}
-		err = gen.ErrTimeout
-	case r := <-p.response:
+	// take consumes one response and decides if it matches the awaited ref.
+	// Returns true if applied. Stale responses (different ref) are dropped
+	// and traced; these come from a previous waitResponse that timed out
+	// after the peer had already produced its reply.
+	take := func(r response) bool {
 		if r.ref != ref {
-			// we got a late response to the previous request that has been timed
-			// out earlier and we made another request with the new reference - Ref.
-			// just drop it and wait one more time
-			if lib.Trace() {
+			if lib.Verbose() {
 				p.log.Trace("got late response on request with ref %s (exp %s). dropped", r.ref, ref)
 			}
-			goto retry
+			return false
 		}
-		response = r.message
+		result = r.message
 		err = r.err
 		if r.important {
-			// send ack for important response
 			options := gen.MessageOptions{
-				Ref: r.ref,
+				Tracing: p.propagatingTrace(),
+				Ref:     r.ref,
 			}
-			p.node.RouteSendResponseError(p.pid, r.from, options, err)
+			if options.Tracing.ID != [2]uint64{} {
+				p.applyTracingAttrs(&options)
+			}
+			p.core.RouteSendResponseError(p.pid, r.from, options, nil)
+		}
+		return true
+	}
+
+	for {
+		select {
+		case r := <-p.response:
+			if take(r) {
+				goto done
+			}
+		case <-timer.C:
+			// Timer/response race: select may have picked timer.C while a
+			// matching response was already in the buffer. Drain non-blocking
+			// before declaring timeout.
+			for {
+				select {
+				case r := <-p.response:
+					if take(r) {
+						goto done
+					}
+				default:
+					if lib.Verbose() {
+						p.log.Trace("request with ref %s is timed out", ref)
+					}
+					err = gen.ErrTimeout
+					goto done
+				}
+			}
 		}
 	}
 
+done:
 	// restore to previous state (init or running)
 	if swapped := atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateWaitResponse), prevState); swapped == false {
 		return nil, gen.ErrProcessTerminated
 	}
-	return response, err
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
+	return result, err
 }

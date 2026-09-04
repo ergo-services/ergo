@@ -21,11 +21,32 @@ token, err := process.RegisterEvent("price_update", gen.EventOptions{
 })
 ```
 
-The `Notify` option controls whether the producer receives notifications about subscriber changes. When enabled, the producer receives `gen.MessageEventStart` when the first subscriber appears and `gen.MessageEventStop` when the last subscriber leaves. This allows the producer to start or stop expensive operations based on demand. If nobody's watching the price feed, why fetch prices?
+The `Notify` option controls whether the producer receives notifications about subscriber changes. When enabled, the producer receives `gen.MessageEventStart` when the first subscriber appears and `gen.MessageEventStop` when the last subscriber leaves. This allows the producer to start or stop expensive operations based on demand. If nobody's watching the price feed, why fetch prices? This option is ignored for events registered at the node level, since the node core does not consume such messages.
 
 The `Buffer` option specifies how many recent events to keep. When a new subscriber joins, it receives the buffered events as a catch-up mechanism. Set this to zero if events are only relevant at the moment they're published. Set it to a reasonable number if new subscribers should see recent history.
 
 Events are identified by name and node. The combination must be unique. Two processes on the same node can't register events with the same name. But processes on different nodes can register events with the same name - they're different events.
+
+## Open Events
+
+*Introduced in v3.3.0.*
+
+By default, only the token holder can publish to an event. This prevents unauthorized processes from publishing events they don't own. For events that represent an internal node-wide bus, this protection is sometimes more friction than benefit. You end up distributing the token across multiple processes, or through environment variables, just so known participants can publish.
+
+The `Open` option disables the token check on publish.
+
+```go
+token, _ := process.RegisterEvent("app.events", gen.EventOptions{
+    Open:   true,
+    Buffer: 50,
+})
+```
+
+Any local process can now publish to this event by name, regardless of the token value. The owner check on `UnregisterEvent` is unaffected. Only the registering process (or the node, for node-level events) can unregister.
+
+Consider a bus inside the node where application events land: "order created", "user signed up", "payment received". They come from different modules, and subscribers (notifier, analytics, search indexer) pick up whichever ones matter. Nobody owns the bus. Handing a shared token to every emitter is plumbing that protects nothing.
+
+Open events trade the typo and bug protection that the token provides for simpler distribution. A process can accidentally publish to an event it was never supposed to touch. Use this option when the event is deliberately a shared bus and the token ceremony adds no real security in your context.
 
 ## Publishing Events
 
@@ -75,6 +96,82 @@ The producer can explicitly unregister an event with `UnregisterEvent`. This tri
 
 If a subscriber terminates or unsubscribes (via `UnlinkEvent` or `DemonitorEvent`), the producer doesn't receive notification unless `Notify` was enabled. With `Notify`, the producer receives `gen.MessageEventStop` when the last subscriber leaves.
 
+## Node-Level Events
+
+All examples so far registered events from a process. That process is the producer, and the event exists only as long as the process runs. When the process terminates, the event is unregistered and subscribers receive termination notifications. If another process later registers the same event name, subscribers must subscribe again.
+
+Some events belong to the node itself, not to any particular process. Application events, health signals, internal buses. You want these events to exist for the entire lifetime of the node, regardless of which process currently publishes. The `gen.Node` interface provides `RegisterEvent` for this.
+
+```go
+token, err := node.RegisterEvent("notifications", gen.EventOptions{
+    Open:   true,
+    Buffer: 100,
+})
+```
+
+The event's producer is the node core. It survives any publisher process coming and going. A process that restarts continues publishing to the same event after restart. Subscribers are not affected.
+
+### Race on Subscription
+
+*Introduced in v3.3.0.*
+
+There is a timing problem with process-registered events. If a subscriber's `Init()` tries to `LinkEvent` before the producer process has called `RegisterEvent`, the link fails with `gen.ErrEventUnknown`. The subscriber then needs retry logic or some other coordination mechanism.
+
+The `NodeOptions.Events` field registers node-level events before any application is started.
+
+```go
+options := gen.NodeOptions{
+    Events: []gen.NodeEventSpec{
+        {Name: "notifications", Buffer: 100},
+        {Name: "audit", Buffer: 10},
+    },
+    Applications: []gen.ApplicationBehavior{...},
+}
+
+node, err := ergo.StartNode("mynode@localhost", options)
+```
+
+Events declared here are registered as open events with the node as producer. By the time the first application starts, these events already exist. Any process can subscribe from `Init()` without a race. Any process can publish by name.
+
+If your event requires the token check and you only want a specific process to publish, register it imperatively via `node.RegisterEvent(..., gen.EventOptions{Open: false})` and distribute the token through environment variables or process arguments.
+
+### The Node's Own Event Bus
+
+*Introduced in v3.3.0.*
+
+The node runs one node-level event for you, always: `gen.CoreEvent`. You do not register it and you never publish to it. The node publishes the facts of its own lifecycle there, and any process can subscribe to react to them without polling.
+
+Today the node reports four things on this bus: an application reached the running state, an application stopped (carrying the reason it stopped), a remote node connected, and a remote node disconnected. You subscribe the same way you subscribe to any event, then handle the message types you care about:
+
+```go
+func (a *watcher) Init(args ...any) error {
+    _, err := a.MonitorEvent(gen.Event{Name: gen.CoreEvent})
+    return err
+}
+
+func (a *watcher) HandleEvent(event gen.MessageEvent) error {
+    switch m := event.Message.(type) {
+    case gen.MessageCoreApplicationStopped:
+        a.Log().Warning("application %s stopped: %s", m.Name, m.Reason)
+    case gen.MessageCoreNodeDisconnected:
+        a.Log().Warning("node %s disconnected: %s", m.Name, m.Reason)
+    }
+    return nil
+}
+```
+
+A subscriber reacts only to the transitions it cares about and ignores the rest. The bus keeps the last 1000 events, and `MonitorEvent` returns that buffer on subscription (the example above discards it with `_`). A subscriber that needs recent history reads those returned events and processes them at its discretion, so a process that subscribes after an application has already stopped still learns of the stop, and a restarted observer does not start blind.
+
+Since events are network-transparent, this bus is at its most useful across nodes. Name a remote node and you watch its lifecycle from anywhere:
+
+```go
+a.MonitorEvent(gen.Event{Name: gen.CoreEvent, Node: "worker1@host"})
+```
+
+A single observer process can subscribe to the `gen.CoreEvent` of every node in the cluster and learn, in one place and with no polling and no protocol of its own, when each node's applications start and stop and when each node gains or loses a peer. And if a watched node becomes unreachable, the monitor on its event fires with reason `gen.ErrNoConnection`, so the disappearance of the node is delivered to you through the same subscription.
+
+This bus is local to each node and is available even with networking disabled. It tells you about one node: its own applications and the peers connected to it. Cluster-wide facts, such as a node joining or leaving the cluster or an application's availability across the cluster, are reported separately by the registrar (see [Service Discovering](../networking/service-discovering.md)).
+
 ## Network Transparency
 
 Events work across nodes seamlessly. A producer on node A can publish events that subscribers on nodes B, C, and D receive. The framework handles the network distribution.
@@ -103,6 +200,38 @@ Each `gen.MessageEvent` contains:
 - **Timestamp** - When the event was published (nanoseconds since epoch)
 
 Subscribers receive these wrapped messages and extract the application data. The wrapping provides context: which event this came from, when it was published, allowing subscribers to handle events from multiple sources or correlate timing.
+
+## Event Statistics
+
+Each registered event tracks per-event counters: how many messages were published, how many were delivered to local subscribers, and how many were sent to remote nodes. These counters are available through `Node.EventInfo` and `Node.EventRangeInfo`.
+
+To query a specific event:
+
+```go
+info, err := node.EventInfo(gen.Event{Name: "price_update", Node: "node@host"})
+// info.MessagesPublished  - total messages published to this event
+// info.MessagesLocalSent  - messages delivered to local subscribers
+// info.MessagesRemoteSent - messages sent to remote subscriber nodes
+// info.Subscribers        - current subscriber count
+```
+
+To iterate over all registered events on the node:
+
+```go
+node.EventRangeInfo(func(info gen.EventInfo) bool {
+    fmt.Printf("event %s: published %d, local %d, remote %d\n",
+        info.Event.Name,
+        info.MessagesPublished,
+        info.MessagesLocalSent,
+        info.MessagesRemoteSent,
+    )
+    return true // continue iteration
+})
+```
+
+Node-level aggregate counters are also available in `gen.NodeInfo` via `node.Info()`: `EventsPublished` (local producer publishes), `EventsReceived` (events arriving from remote nodes), `EventsLocalSent`, and `EventsRemoteSent`.
+
+The [Metrics actor](../extra-library/actors/metrics.md) automatically exports these counters as Prometheus metrics, along with per-event top-N breakdowns by subscribers, published, local deliveries, and remote sent. It also tracks event utilization state: whether events are actively used, waiting on demand, or idle.
 
 ## Practical Patterns
 

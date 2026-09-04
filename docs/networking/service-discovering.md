@@ -31,14 +31,48 @@ When a node's registrar runs in server mode, it:
 - Listens on UDP 0.0.0.0:4499 (all interfaces) for resolution queries from any host
 - Maintains a registry of which nodes are running and how to reach them
 - Responds to queries with current connection information
+- Answers node listing queries with the nodes registered on it
+- Pushes membership changes to its registered clients over their registration links
 
 When a node's registrar runs in client mode, it:
 - Connects via TCP to the local registrar server at localhost:4499
 - Forwards its own registration to the server over TCP
 - Performs discovery queries via UDP (to localhost for same-host, to remote hosts for cross-host)
 - Maintains the TCP connection until termination (for registration keepalive)
+- Receives membership changes pushed by the server over that same connection
 
 This dual-mode design provides automatic failover. If the server node terminates, its TCP connections close. The remaining nodes detect the disconnection, and they race to bind port 4499. The winner becomes the new server. The others reconnect as clients. Discovery continues without manual intervention.
+
+### Listing Nodes and Membership Events
+
+`Registrar.Nodes()` returns the other nodes the registrar knows about, excluding the node
+itself. For the embedded registrar the answer covers the nodes registered on this host plus
+the nodes registered on the hosts of the peers this node is connected with - one UDP query
+per known host, cached for a few seconds. A host nobody in the cluster talks to stays
+invisible: the embedded registrar keeps no state shared between hosts.
+
+`Registrar.Event()` returns an event carrying `gen.MessageRegistrarNodeJoined` and
+`gen.MessageRegistrarNodeLeft`. For the embedded registrar the scope is this host, because
+registration is accepted over loopback only - a node learns immediately about nodes appearing
+and leaving on its own machine, and learns about the rest through `Nodes()` and through the
+peer lists of the nodes it already knows.
+
+```go
+registrar, err := node.Network().Registrar()
+if err != nil {
+    return err
+}
+
+nodes, err := registrar.Nodes()      // other nodes, without this one
+event, err := registrar.Event()      // membership changes
+process.MonitorEvent(event)
+```
+
+Central registrars answer both with cluster-wide scope: etcd and Saturn keep a mirror of the
+whole registry, so `Nodes()` returns every node and the event reports every join and leave.
+This difference in scope is worth designing around - code that must see the entire cluster
+should combine the event with a periodic `Nodes()` call rather than relying on notifications
+alone.
 
 ## Registration
 
@@ -101,7 +135,7 @@ What gets registered:
 - List of acceptors this node is running
 - For each acceptor: port number, handshake version, protocol version, TLS flag
 
-The TCP connection from client to server stays open. It serves two purposes: maintaining registration (if the connection drops, the node is considered dead) and enabling the server to push updates (though the current implementation doesn't use this capability).
+The TCP connection from client to server stays open, and it serves two purposes. It maintains the registration - if the connection drops, the node is considered dead. And the server pushes membership changes down it: when a node joins or leaves, every other registration link is told, and the receiving client re-emits that as `gen.MessageRegistrarNodeJoined` or `gen.MessageRegistrarNodeLeft` on the node's core event. Subscribe to those rather than polling if you want to react to a peer appearing or going away.
 
 If a node tries to register a name that's already taken, the registrar returns `gen.ErrTaken`. Node names must be unique within a host. Across hosts, the same name is fine - node names include the hostname for disambiguation.
 
@@ -115,7 +149,7 @@ The resolution mechanism depends on whether the querying node is running the reg
 
 **If the node is a registrar client**, resolution uses UDP regardless of whether the target is same-host or cross-host. The node extracts the hostname from the target node name (worker@otherhost becomes otherhost), sends a UDP packet to that host on port 4499, and waits for a response. For same-host queries, this means UDP to localhost:4499. For cross-host queries, it's UDP to the remote host. The registrar server (wherever it is) looks up the node and sends back the acceptor list via UDP reply.
 
-This UDP-based resolution is stateless. No connection is maintained. Each query is independent. This keeps it lightweight but means there's no push notification when remote nodes change - you only discover changes when you query again. The TCP connection between client and server is used only for registration and keepalive, not for resolution queries.
+This UDP-based resolution is stateless. No connection is maintained, and each query is independent, which keeps it lightweight. Resolution itself is pull-only: a UDP answer tells you where a node listens now and nothing about later. Membership changes do arrive without asking, but over the TCP registration link rather than this path - as the joined and left events described above.
 
 The resolution response includes everything needed to establish a connection:
 - Acceptor port number
@@ -151,7 +185,34 @@ routes, err := resolver.ResolveApplication("workers")
 // routes contains all nodes running "workers" application
 ```
 
-The response includes the node name, application state, running mode, and a weight value. Multiple nodes can run the same application - the resolver returns all of them.
+When you only need the routes, `node.Network().ResolveApplication(name)` is a shortcut for the same chain. It returns the same `gen.ApplicationRoutes` and reports the same error as `Registrar()` when no registrar is configured:
+
+```go
+routes, err := node.Network().ResolveApplication("workers")
+```
+
+The response is a `gen.ApplicationRoutes` value (a slice of `gen.ApplicationRoute` with chainable filter methods). It includes the node name, application state, running mode, weight, tags, and the application version for each instance. Multiple nodes can run the same application; the resolver returns all of them.
+
+The version comes from `Version` in the application's `gen.ApplicationSpec` and is registered with the route automatically, so during a rolling upgrade the two releases of the same application are distinguishable at resolve time without tagging them by hand:
+
+```go
+routes, _ := node.Network().ResolveApplication("workers")
+for _, route := range routes {
+    node.Log().Info("%s runs %s %s", route.Node, route.Name, route.Version.Release)
+}
+```
+
+Narrow the result by tag, state, or both:
+
+```go
+routes, _ := node.Network().ResolveApplication("workers")
+ready := routes.
+    WithTags("ready").
+    WithoutTags("draining").
+    WithState(gen.ApplicationStateRunning)
+```
+
+Each filter returns a fresh `ApplicationRoutes`. The original slice is unchanged, so the same response can be filtered multiple ways.
 
 ### Load Balancing with Weights
 
@@ -160,8 +221,8 @@ Weights enable intelligent load distribution across application instances.
 When multiple nodes run the same application, each registration includes a weight. Higher weights indicate preference - nodes with more resources, better performance, or strategic positioning get higher weights. When you resolve an application, you get all instances with their weights:
 
 ```go
-routes, _ := resolver.ResolveApplication("workers")
-// routes = []gen.ApplicationRoute{
+routes, _ := node.Network().ResolveApplication("workers")
+// routes = gen.ApplicationRoutes{
 //   {Name: "workers", Node: "worker1@host1", Weight: 100, Mode: Permanent, State: Running},
 //   {Name: "workers", Node: "worker2@host2", Weight: 50,  Mode: Permanent, State: Running},
 //   {Name: "workers", Node: "worker3@host3", Weight: 200, Mode: Permanent, State: Running},
@@ -178,7 +239,26 @@ You choose which instance to use based on your load balancing strategy:
 
 **Geographic routing** - Set weights based on proximity. Same datacenter gets weight 100, same region gets 50, cross-region gets 10.
 
-The weight is metadata - the registrar doesn't enforce any particular strategy. Your application decides how to interpret weights.
+The weight is advisory metadata, so you can implement any of the strategies above from the full list.
+
+With **etcd** you usually do not need to: its `ResolveApplication` orders the instances by smooth weighted round-robin, so the one at index `[0]` is the weighted pick for that call. Take `routes[0]` each time and traffic is distributed by weight with no extra code.
+
+**Saturn does not do this.** Its `ResolveApplication` filters out negative weights and returns the routes as it holds them, in no particular order and with no rotation state - so `routes[0]` is not a weighted pick there, and picking by weight is the caller's job. Do not write code that relies on the ordering unless you know which registrar is behind it.
+
+Weight controls how often an instance is picked:
+
+- **Higher weight** is chosen proportionally more often. In the list above `worker3` (200) wins roughly twice as often as `worker1` (100) and four times as often as `worker2` (50).
+- **Lower positive weight** is chosen proportionally less often, but stays in rotation.
+- **Zero or unset** counts as `1`, so a forgotten weight never drops an instance from rotation.
+- **Negative** takes the instance out of rotation entirely: the resolver drops it from the results, so callers never see it.
+
+Because weight is a dynamic field, a running instance can change its own weight, or take itself out of rotation and rejoin later, without unregistering:
+
+```go
+app := process.Application()
+app.SetWeight(-1)  // stop receiving traffic; the instance keeps running
+app.SetWeight(100) // back in rotation
+```
 
 ### Use Cases for Application Discovery
 
@@ -243,15 +323,15 @@ import "ergo.services/registrar/saturn"
 registrar, _ := node.Network().Registrar()
 event, err := registrar.Event()
 if err != nil {
-    // registrar doesn't support events (embedded registrar only)
+    // this registrar does not support events
 }
 
 // Link to the event to receive notifications
 process.LinkEvent(event)
 
 // In your HandleEvent callback (etcd example):
-func (w *Worker) HandleEvent(message gen.MessageEvent) error {
-    switch ev := message.Message.(type) {
+func (w *Worker) HandleEvent(event gen.MessageEvent) error {
+    switch ev := event.Message.(type) {
     
     case etcd.EventConfigUpdate:
         // Configuration item changed
@@ -306,7 +386,8 @@ func (w *Worker) HandleEvent(message gen.MessageEvent) error {
 
 Each registrar defines its own event types in its package (`ergo.services/registrar/etcd` or `ergo.services/registrar/saturn`). The event structures are identical, but you must use the correct package import for your registrar. This lets you react to cluster changes in real-time.
 
-**Embedded registrar** doesn't support events.
+**The embedded registrar** supports events too, with a narrower scope: it reports nodes
+joining and leaving this host. See [Listing Nodes and Membership Events](#listing-nodes-and-membership-events).
 
 With event notifications from etcd or Saturn registrars, nodes learn about configuration changes within milliseconds.
 
@@ -342,7 +423,8 @@ For cross-host discovery, the same failover mechanism applies to each host indep
 
 ## Limitations of the Embedded Registrar
 
-The embedded registrar is minimal by design. It provides route resolution only. What it doesn't provide:
+The embedded registrar is minimal by design. It provides route resolution, node listing and
+membership events. What it doesn't provide:
 
 **No application discovery** - You can discover where nodes are, but not where specific applications are running. Want to find which nodes are running the "workers" application? You have to query every node individually or maintain that mapping yourself.
 
@@ -350,7 +432,10 @@ The embedded registrar is minimal by design. It provides route resolution only. 
 
 **No centralized configuration** - Configuration lives with each node. There's no cluster-wide config store. If you want to change a setting across the cluster, you modify each node individually through node environment variables or configuration files.
 
-**No event notifications** - Discovery is pull-based. You query when you need information. The registrar doesn't push updates when things change. If a node joins or leaves, or an application starts or stops, you only discover the change when you query again.
+**Host-scoped events** - Membership events cover this host only, since registration is
+accepted over loopback. A node appearing on another machine is not announced; it shows up on
+the next `Nodes()` call, or through the peer list of a node already known. Application
+lifecycle and configuration changes are not reported at all.
 
 **No topology awareness** - The registrar doesn't understand your cluster structure. It treats all nodes equally. If you have nodes in different datacenters or regions, the registrar provides no metadata to help you route efficiently based on proximity or cost.
 
@@ -364,9 +449,11 @@ External registrars replace the embedded implementation with centralized discove
 
 **etcd registrar** (`ergo.services/registrar/etcd`) uses etcd as the discovery backend. All nodes register their routes in etcd on startup. All discovery queries go to etcd. This centralizes cluster state: any node can discover any other node, applications can advertise their deployment locations, configuration can be stored in etcd's key-value store.
 
-The etcd registrar implementation maintains registration through HTTP polling - each node makes a registration request every second to keep its entry alive. This works well for small to medium clusters (50-70 nodes) but creates overhead at larger scales. The polling approach reflects etcd's design for web services rather than continuous cluster communication. Despite this limitation, etcd provides proven reliability, extensive tooling, and operational familiarity for teams already using etcd in their infrastructure.
+The etcd registrar does not poll. A node's registration is an etcd **lease**, renewed over the client's gRPC keep-alive stream, and cluster changes arrive on a **prefix watch** - so a peer appearing or leaving is pushed, not discovered on the next tick. The lease is what makes a dead node disappear on its own: stop renewing and the registration expires with the TTL.
 
-**Saturn registrar** (`ergo.services/registrar/saturn`) is purpose-built for Ergo clusters. It's an external Raft-based registry designed specifically for the framework's communication patterns. Instead of polling, Saturn maintains persistent connections and pushes updates immediately when cluster state changes. This makes it more efficient at scale - Saturn can handle clusters with thousands of nodes without the overhead of constant HTTP polling. The immediate event propagation means nodes learn about topology changes instantly rather than waiting for the next poll interval.
+What limits it at scale is etcd itself rather than a polling loop - the write load of many nodes renewing and watching the same prefix. It is a good fit up to roughly 50-70 nodes, and it brings proven reliability, extensive tooling and operational familiarity for teams already running etcd.
+
+**Saturn registrar** (`ergo.services/registrar/saturn`) is purpose-built for Ergo clusters. It's an external Raft-based registry designed specifically for the framework's communication patterns, holding one persistent connection per node and pushing updates as cluster state changes. Both registrars push rather than poll; the difference at scale is the cost per node of holding the registration, and Saturn is built for clusters of thousands where etcd's write load becomes the ceiling.
 
 Which registrar you choose depends on your deployment:
 - Small clusters (< 10 nodes), same host or trusted network: embedded registrar
@@ -399,12 +486,19 @@ For external registrars, configuration includes the service endpoint:
 ```go
 import "ergo.services/registrar/etcd"
 
+// etcd.Create returns (gen.Registrar, error) - unlike the embedded
+// registrar.Create above, which returns a single value
+registrar, err := etcd.Create(etcd.Options{
+    Endpoints: []string{"etcd1:2379", "etcd2:2379", "etcd3:2379"},
+    // ... authentication, TLS, etc
+})
+if err != nil {
+    panic(err)
+}
+
 node, err := ergo.StartNode("myapp@prod.example.com", gen.NodeOptions{
     Network: gen.NetworkOptions{
-        Registrar: etcd.Create(etcd.Options{
-            Endpoints: []string{"etcd1:2379", "etcd2:2379", "etcd3:2379"},
-            // ... authentication, TLS, etc
-        }),
+        Registrar: registrar,
     },
 })
 ```

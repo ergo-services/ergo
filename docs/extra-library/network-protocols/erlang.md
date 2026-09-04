@@ -4,11 +4,11 @@ description: Erlang network stack
 
 # Erlang
 
-This package implements the Erlang network stack, including the DIST protocol, ETF data format, EPMD registrar functionality, and the Handshake mechanism.&#x20;
+This package implements the Erlang network stack, including the DIST protocol, ETF data format, EPMD registrar functionality, and the Handshake mechanism.
 
-It is compatible with OTP-23 to OTP-27. The source code is available on the project's GitHub page at [https://github.com/ergo-services/proto](https://github.com/ergo-services/proto) in the `erlang23` directory.&#x20;
+It is compatible with OTP-23 to OTP-29. The source code is available on the project's GitHub page at [https://github.com/ergo-services/proto](https://github.com/ergo-services/proto) in the `erlang23` directory.
 
-Note that the source code is distributed under the _Business Source License 1.1_ and cannot be used for production or commercial purposes without a license, which can be purchased on the project's sponsor page.
+The source code is distributed under the MIT License, like the rest of the framework, and is free to use in commercial projects without restrictions.
 
 ### EPMD
 
@@ -31,49 +31,60 @@ To use this package, include `ergo.services/proto/erlang23/handshake`.
 
 ### DIST protocol
 
-The `ergo.services/proto/erlang/dist` package implements the `gen.NetworkProto` and `gen.Connection` interfaces. To create it, use the `dist.Create` function and provide `dist.Options` as an argument, where you can specify the `FragmentationUnit` size in bytes. This value is used for fragmenting large messages. The default size is set to `65000` bytes.
+The `ergo.services/proto/erlang23/dist` package implements the `gen.NetworkProto` and `gen.Connection` interfaces. To create it, use the `dist.Create` function and provide `dist.Options` as an argument, where you can specify the `FragmentationUnit` size in bytes. This value is used for fragmenting large messages. `65000` bytes is both the default and the **floor**: a smaller value is silently raised to it, with no error and no log line, so asking for 8000 gets you 65000.
 
-To use this package, include `ergo.services/proto/erlang/dist`.&#x20;
+The Erlang DIST proto deliberately does **not** implement `gen.TypeRegistry`, because the Erlang external term format (ETF) carries primitives, atoms, lists, tuples, and binaries directly on the wire without a separate type-registration step. Use `etf.RegisterTypeOf` (described below) to teach the Erlang decoder how to map incoming tuples or atoms to your Go types.
 
-### ETF data format&#x20;
+Note what that means for `node.Network().RegisterType` and for `ApplicationSpec.Network.RegisterTypes`: they do not reach the Erlang wire, and they do not tell you so. A node always keeps the native proto registered alongside whatever you configured, so those calls find a TypeRegistry to write into and return `nil` even on a node that speaks nothing but DIST. An application whose spec lists its wire types therefore loads without complaint, and the types are in the EDF registry that this node never uses. For the Erlang side, `etf.RegisterTypeOf` is the only registration that counts.
+
+To use this package, include `ergo.services/proto/erlang23/dist`.
+
+### ETF data format
 
 Erlang uses the _ETF (Erlang Term Format)_ for encoding messages transmitted over the network. Due to differences in data types between Golang and Erlang, decoding received messages involves converting the data to their corresponding Golang types:
 
 * `number` -> `int64`
 * `float` number -> `float64`
 * `big number` -> `big.Int`  from `math/big`, or to `int64`/`uint64`
-* `map` -> `map[any]any`
+* `map` -> `etf.Map` (`map[any]any`)
 * `binary` -> `[]byte`
-* `list` -> `etf.List` (`[]any`)
+* `list` -> `etf.List` (`[]any`), **or `string`** - see below
 * `tuple` -> `etf.Tuple` (`[]any`) or a registered struct type
-* `string` -> `[]any`.  convert to string using `etf.TermToString`
 * `atom` -> `gen.Atom`
-* `pid` -> `gen.Pid`
+* `pid` -> `gen.PID`
 * `ref` -> `gen.Ref`
 * `ref` (alias) -> `gen.Alias`
 * `atom` = true/false -> `bool`
+
+These are named types, and a type assertion is exact: a map arrives as `etf.Map`, so `.(map[any]any)` fails on it even though `etf.Map` is defined as `map[any]any`. The same goes for numbers - every Erlang integer is an `int64`, so `.(int)` never matches. Neither mistake produces an error you can see; the assertion just reports `false` and your code takes whatever branch it has for bad input.
+
+**Erlang has no string type, and that leaks into Go.** A list of integers between 0 and 255 is sent as `STRING_EXT` and arrives as a Go `string`; any other list arrives as an `etf.List`. So `"hello"` from an Erlang shell is a Go `string`, and so is `[1,2,3]` - it reaches you as `"\x01\x02\x03"`. Meanwhile `[1000,2000]` is an `etf.List{1000, 2000}`, because those values do not fit a byte. Nothing announces which of the two you are getting.
+
+`etf.TermToString` exists for exactly this: it accepts `string`, `etf.List`, `[]byte` and `gen.Atom` and returns the text, so a callback that wants a string can stop caring which shape arrived. When you control both sides, sending a binary (`<<"hello">>`) instead of a charlist removes the ambiguity altogether: it always arrives as `[]byte`.
 
 When encoding data in the _Erlang ETF format_:
 
 * `map` -> `map` `#{}`
 * `slice`/`array` -> `list` `[]`
 * `struct` -> `map` with field names as keys (considering `etf:` tags on struct fields)
-* registered type of `struct` -> `tuple` with the first element being the registered struct name, followed by field values in order.&#x20;
+* registered type of `struct` -> `tuple` with the first element being the registered struct name, followed by field values in order.
 * `[]byte` -> `binary`
 * `int*`/`float*`/`big.Int` -> `number`
-* `string` -> `string`
+* `string` -> a charlist (`STRING_EXT`), which is what Erlang calls a string. Above 65535 bytes the encoder refuses it with `etf.ErrStringTooLong`
+* `etf.String` -> `binary`, for when you want `<<"...">>` on the Erlang side
+* `etf.Charlist` -> a charlist encoded from `[]rune`, so text outside Latin-1 survives
 * `gen.Atom` -> `atom`
-* `gen.Pid` -> `pid`
+* `gen.PID` -> `pid`
 * `gen.Ref` -> `ref`
 * `gen.Alias -> ref` (alias)
 * `bool` -> `atom` true/false
 
 You can also use the functions `etf.TermIntoStruct` and `etf.TermProplistIntoStruct` for decoding data. These functions take into account `etf:` tags on struct fields, allowing the values to map correctly to the corresponding struct fields when decoding `proplist` data.
 
-To automatically decode data into a struct, you can register the struct type using `etf.RegisterTypeOf`. This function takes the object of the type being registered and decoding options `etf.RegisterTypeOption`. The options include:
+To automatically decode data into a struct, you can register the struct type using `etf.RegisterTypeOf`. This function takes the object of the type being registered and decoding options `etf.RegisterTypeOptions`. The options include:
 
-* `Name` - The name of the registered type. By default, the type name is taken using the `reflect` package in the format `#/pkg/path/TypeName`&#x20;
-* `Strict` - Determines whether the data must strictly match the struct. If disabled, non-matching data will be decoded into `any`.&#x20;
+* `Name` - The name of the registered type. By default it is taken from the `reflect` package as `#` followed by the package path and the type name, for example `#github.com/myorg/myapp/MyValue`
+* `Strict` - Determines whether the data must match the struct. With `Strict: false` non-matching data is decoded into `any`. With `Strict: true` a mismatch **panics** during decoding - an overflow or a wrong destination type raises it - so do not enable it for input you do not control.
 
 To be automatically decoded the data sent from Erlang must be a tuple, with the first element being an atom whose value matches the type name registered in Golang. For example:
 
@@ -132,9 +143,24 @@ func main() {
 }
 ```
 
-In this case, all outgoing and incoming connections will be handled by the Erlang network stack. For a complete example, you can refer to the repository at [https://github.com/ergo-services/examples](https://github.com/ergo-services/examples), specifically the `erlang` project
+In this case, all outgoing and incoming connections will be handled by the Erlang network stack. For a complete example, see the [Erlang step of the tour](https://github.com/ergo-services/examples/tree/master/tour/09-erlang): an application that Erlang drives through `gen_server:call`, with the type mapping above put to work in one place.
 
 <figure><img src="../../.gitbook/assets/image.png" alt=""><figcaption></figcaption></figure>
+
+#### `net_adm:ping` says `pang`
+
+The first thing anyone tries from the Erlang shell is a ping, and it fails on a node that works perfectly:
+
+```erlang
+1> net_adm:ping('ergo@localhost').
+pang
+```
+
+A `gen_server:call` to a process on that same node, typed immediately afterwards, answers normally.
+
+`ping` does not test the connection. It calls the `net_kernel` process on the other node with `{is_auth, node()}` and expects `yes`; on anything else it runs `erlang:disconnect_node` and returns `pang`. An Ergo node has no `net_kernel`, so nothing answers - and the disconnect is why a connection may appear in the log and go again just before the one you actually use. Judge the link by whether messages arrive, not by `ping`.
+
+The rest of Erlang's introspection is the same story in reverse: `observer:start()`, `recon` and the shell's process listings read structures that only a BEAM node has. An Ergo node is not a BEAM node, and the [Observer](../applications/observer.md) application does not read an Erlang one either - it inspects nodes through the `system` application every Ergo node runs, which an Erlang node does not have. Each side keeps its own tools; what crosses between them is messages.
 
 If you want to maintain the ability to accept connections from Ergo nodes while using the Erlang network stack as a main one, you need to add an acceptor in the `gen.NetworkOptions` settings:
 
@@ -169,11 +195,11 @@ func main() {
     node, err := ergo.StartNode(gen.Atom(OptionNodeName), options)
 ```
 
-Please note that if the list of acceptors is empty when starting the node, it will launch an acceptor with the network stack using `Registrar`, `Handshake`, and `Proto` from `gen.NetworkOptions`.&#x20;
+Please note that if the list of acceptors is empty when starting the node, it will launch an acceptor with the network stack using `Registrar`, `Handshake`, and `Proto` from `gen.NetworkOptions`.
 
-If you set the `options.Network.Acceptor`, you must explicitly define the parameters for all necessary acceptors. In the example, `acceptorErlang` is created with empty `gen.AcceptorOptions` (the Erlang stack from `gen.NetworkOptions` will be used), while for `acceptorErgo`, the Ergo Framework stack (`Registrar`, `Handshake`, and `Proto`) is explicitly defined.
+If you set `options.Network.Acceptors`, you must explicitly define the parameters for all necessary acceptors. In the example, `acceptorErlang` is created with empty `gen.AcceptorOptions` (the Erlang stack from `gen.NetworkOptions` will be used), while for `acceptorErgo`, the Ergo Framework stack (`Registrar`, `Handshake`, and `Proto`) is explicitly defined.
 
-In this example, you can establish incoming and outgoing connections using the Erlang network stack. However, the Ergo Framework network stack can only be used for incoming connections. To create outgoing network connections using the Ergo Framework stack, you need to configure a static route for a group of nodes by defining a match pattern:&#x20;
+In this example, you can establish incoming and outgoing connections using the Erlang network stack. However, the Ergo Framework network stack can only be used for incoming connections. To create outgoing network connections using the Ergo Framework stack, you need to configure a static route for a group of nodes by defining a match pattern:
 
 ```go
 ...
@@ -189,7 +215,7 @@ if err := node.Network().AddRoute(match, route, 1); err != nil {
 }
 ```
 
-For more detailed information, please refer to the [Static Routes](../../networking/static-routes.md) section.&#x20;
+For more detailed information, please refer to the [Static Routes](../../networking/static-routes.md) section.
 
 ### Erlang-node in Ergo-cluster
 
@@ -270,14 +296,14 @@ The callback method `HandleInfo` is invoked when an asynchronous message is rece
 
 If your actor only needs to handle regular messages from Erlang processes, you can use the standard `act.Actor` and process asynchronous messages in the `HandleMessage` callback method.
 
-To start a process based on `erlang23.GenServer`, create an object embedding `erlang23.GenServer` and implement a factory function for it.&#x20;
+To start a process based on `erlang23.GenServer`, create an object embedding `erlang23.GenServer` and implement a factory function for it.
 
 Example:
 
 ```go
 import "ergo.services/proto/erlang23"
 
-func factory_MyActor gen.ProcessBehavior {
+func factory_MyActor() gen.ProcessBehavior {
     return &MyActor{}
 }
 
@@ -286,7 +312,7 @@ type MyActor struct {
 }
 ```
 
-To send a cast message, use the `Cast` method of `erlnag23.GenServer`.
+To send a cast message, use the `Cast` method of `erlang23.GenServer`.
 
 ```go
 func (ma *MyActor) HandleInfo(message any) error {

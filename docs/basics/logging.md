@@ -36,7 +36,7 @@ The framework provides six severity levels, ordered from most to least verbose:
 
 `gen.LogLevelError` - Errors that prevent specific operations but don't crash the system. Failed requests, unavailable resources, validation failures.
 
-`gen.LogLevelPanic` - Critical errors requiring immediate attention. Despite the name, logging at this level doesn't trigger a panic - it's just the highest severity marker.
+`gen.LogLevelPanic` - Recovered panics inside actor callbacks. The highest severity marker.
 
 Setting a level creates a threshold. Set a process to `gen.LogLevelWarning` and it logs warnings, errors, and panics, but suppresses info, debug, and trace. Each level implicitly includes all higher severity levels.
 
@@ -46,13 +46,19 @@ Two special levels control behavior rather than representing severity:
 
 `gen.LogLevelDisabled` - Stops all logging from the source. The framework doesn't even create log messages. Use this to completely silence a source without removing loggers.
 
+One more constant exists and is worth knowing about only so it does not surprise you: `gen.LogLevelSystem`. It sits below Trace, prints as `system`, and is included in `gen.DefaultLogLevels`, so a logger built from the defaults subscribes to it. Nothing in the framework writes at that level - `gen.Log` has no method for it - so it is reserved capacity rather than a level you can use or expect to see.
+
 Trace deserves special mention. It's so verbose that enabling it accidentally could flood storage. You can't enable it dynamically via `SetLevel`. It must be set at startup through `gen.NodeOptions.Log.Level` or `gen.ProcessOptions.LogLevel`. This restriction prevents operational mistakes.
+
+Panic also deserves explanation. The framework recovers Go panics that occur inside actor callbacks and logs them at this level. A nil pointer dereference in `HandleMessage`, a failed type assertion in `HandleCall`, an index out of bounds in `Init` are all structural problems in actor code, not operational failures. Logging them at Panic level separates them from the business and technical errors you log at Error level. The framework catches these so your node keeps running, but the Panic log entry tells you something in your code needs fixing. Note that Go's standard library `log.Panic()` actually triggers a panic, while Ergo's `Log().Panic()` simply logs at the Panic severity level without panicking. If you are building actors with `act.Actor`, `act.Supervisor`, or `act.Pool`, you won't need to log at this level yourself. The framework handles it. It becomes relevant only if you implement an actor directly through the `gen.ProcessBehavior` interface and want to recover panics in your own processing loop.
 
 The node starts at `gen.LogLevelInfo`. Processes inherit this unless their spawn options specify otherwise. After startup, you can adjust a process's level dynamically with `SetLevel`, allowing surgical verbosity changes during debugging.
 
 ## Identifying Log Sources
 
-The logging subsystem differentiates between four source types: node, process, meta process, and network. Each carries its source information in a typed structure - `gen.MessageLogNode`, `gen.MessageLogProcess`, `gen.MessageLogMeta`, or `gen.MessageLogNetwork`. This typing allows custom loggers to handle different sources differently, perhaps routing network logs to one destination and process logs to another.
+The logging subsystem differentiates between five source types: node, process, meta process, network, and application. Each carries its source information in a typed structure - `gen.MessageLogNode`, `gen.MessageLogProcess`, `gen.MessageLogMeta`, `gen.MessageLogNetwork` or `gen.MessageLogApplication`. This typing allows custom loggers to handle different sources differently, perhaps routing network logs to one destination and process logs to another.
+
+A custom logger's type switch has to cover all five: application lines are what you see as `App#<hash.'name'>` in default output, and they arrive as `gen.MessageLogApplication{Node, Name, Mode, Behavior}`.
 
 The default logger formats each source type distinctly in its output:
 
@@ -119,7 +125,16 @@ With `IncludeFields` enabled in the logger configuration, output shows:
                     fields order_id:12345 customer_id:67890
 ```
 
-Fields appear on a separate line below the message, prefixed with "fields" and aligned with the timestamp. Multiple fields are space-separated, each formatted as `key:value`. In JSON output, fields become separate JSON properties at the message's top level.
+Fields appear on a separate line below the message, prefixed with "fields" and aligned with the timestamp. Multiple fields are space-separated, each formatted as `key:value`.
+
+In JSON output they are not promoted to the top level. They go into a nested `fields` object, and every value is written as a string - numbers and booleans included:
+
+```json
+{"time":1788430075197809000,"level":"info","source":{"type":"node","node":"B6473ECD"},
+ "message":"processing order","fields":{"order_id":"12345","paid":"true"}}
+```
+
+Worth knowing before writing a query against these logs: `paid` is `"true"` and not `true`, `order_id` is `"12345"` and not a number.
 
 Fields only appear in output if the logger is configured to include them. The default logger requires `gen.NodeOptions.Log.DefaultLogger.IncludeFields = true`. Without this, fields are tracked internally but not displayed - useful if some loggers need fields while others don't.
 
@@ -254,6 +269,8 @@ This queuing prevents blocking. If the logger process is busy or the logging log
 
 One detail matters: when a logger process terminates, it's automatically removed from the logging system. No need to call `LoggerDeletePID` explicitly.
 
+Two more that surprise people. Registering a process as a logger **silences that process's own logging**: `LoggerAddPID` saves its current level and sets it to `gen.LogLevelDisabled`, so a logger actor that also calls `Log().Error(...)` for its own diagnostics writes nothing. This prevents a logger from logging its way into a loop; `LoggerDeletePID` restores the saved level. And registering the same PID twice returns `gen.ErrNotAllowed` rather than replacing the first registration.
+
 ## Using Multiple Loggers
 
 The fan-out architecture supports multiple loggers operating simultaneously with different purposes.
@@ -282,10 +299,10 @@ Different processes often need different verbosity. Most processes log at Info. 
 
 ```go
 // Debugging a specific process
-node.SetLogLevelProcess(suspiciousPID, gen.LogLevelDebug)
+node.SetProcessLogLevel(suspiciousPID, gen.LogLevelDebug)
 
 // Later, restore normal level
-node.SetLogLevelProcess(suspiciousPID, gen.LogLevelInfo)
+node.SetProcessLogLevel(suspiciousPID, gen.LogLevelInfo)
 ```
 
 For processes generating high-volume logs, route them to a dedicated logger using a hidden logger. A trading engine logging every order would overwhelm general logs:
@@ -305,12 +322,14 @@ Process-based loggers enable sophisticated handling. A logger process can aggreg
 
 ## Logger Implementations
 
-The framework provides two logger implementations in separate packages for common needs:
+The framework provides three logger implementations in separate packages for common needs:
 
 **Colored** (`ergo.services/logger/colored`) - Terminal output with ANSI colors. Highlights Ergo types (PIDs, Atoms, Refs) and colorizes log levels (yellow for warnings, red for errors, etc.). Visual clarity for development, but has performance overhead. Not suitable for high-volume production logging.
 
-**Rotate** (`ergo.services/logger/rotate`) - File logging with automatic rotation. Supports size-based and time-based rotation. Compresses old logs with gzip. Configurable retention policies. Production-ready for long-running systems generating substantial logs.
+**Rotate** (`ergo.services/logger/rotate`) - File logging with automatic rotation. Rotation is **time-based only**: `Period` decides when a new file starts, floored to one minute, and there is no size trigger. `Depth` caps how many files are kept and `Compress` gzips the retired ones. Production-ready for long-running systems generating substantial logs.
 
-Both integrate with the logging system through `node.LoggerAdd`. You can combine them - colored for console during development, rotate for persistent storage, both receiving the same filtered log stream.
+**Sentry** (`ergo.services/logger/sentry`) - Forwards panics and errors to a Sentry project. Captures the panic origin stack and tags events by ergo subsystem. Centralized error tracking and alerting for production deployments. Operates alongside your console or file logger rather than replacing them.
 
-For implementation details and configuration options, see [Colored](../extra-library/loggers/colored.md) and [Rotate](../extra-library/loggers/rotate.md) in the extra library documentation.
+All three integrate with the logging system through `node.LoggerAdd`. You can combine them - colored for console during development, rotate for persistent storage, sentry for centralized error tracking - each receiving the same filtered log stream.
+
+For implementation details and configuration options, see [Colored](../extra-library/loggers/colored.md), [Rotate](../extra-library/loggers/rotate.md) and [Sentry](../extra-library/loggers/sentry.md) in the extra library documentation.

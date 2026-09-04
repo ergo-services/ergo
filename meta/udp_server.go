@@ -83,8 +83,12 @@ func (u *udpserver) Start() error {
 		if u.bufpool == nil {
 			buf = make([]byte, u.bufferSize)
 		} else {
-			b := u.bufpool.Get()
-			buf = b.([]byte)
+			buf = u.bufpool.Get().([]byte)
+			if cap(buf) < u.bufferSize {
+				buf = make([]byte, u.bufferSize)
+			} else {
+				buf = buf[:u.bufferSize]
+			}
 		}
 		n, addr, err := u.pc.ReadFrom(buf)
 		if n > 0 {

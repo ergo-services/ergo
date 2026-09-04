@@ -47,12 +47,12 @@ With `norecover`, panics propagate normally, providing full stack traces and all
 - Tracking down type assertion failures
 - Understanding the call sequence leading to a panic
 
-### The `trace` Tag
+### The `verbose` Tag
 
-The `trace` tag enables verbose logging of framework internals:
+The `verbose` tag enables verbose logging of framework internals:
 
 ```bash
-go run --tags trace ./cmd
+go run --tags verbose ./cmd
 ```
 
 This produces detailed output about:
@@ -72,15 +72,78 @@ options := gen.NodeOptions{
 }
 ```
 
+### The `latency` Tag
+
+The `latency` tag enables mailbox latency measurement for all processes:
+
+```bash
+go run --tags latency ./cmd
+```
+
+This activates:
+
+- **Monotonic timestamp** on every message pushed into the MPSC queue
+- **`QueueMPSC.Latency()`** returns the age (in nanoseconds) of the oldest unprocessed message in the queue
+- **`ProcessMailbox.Latency()`** returns the maximum latency across all four mailbox queues (Main, System, Urgent, Log)
+- **`MailboxLatency` field** in `ProcessShortInfo` for per-process latency snapshots
+- **`Node.ProcessRangeShortInfo()`** for efficient iteration over all processes with their latency data
+
+Without the tag, `Latency()` returns -1 (disabled) and there is zero runtime overhead: no timestamps are recorded, no atomic operations are added to the message path.
+
+The overhead with the tag enabled is approximately 10-25% on micro-benchmarks (LOCAL 1-1 scenario with a single producer and consumer exchanging messages). In real applications with many processes, the overhead is lower because the cost is amortized across concurrent operations.
+
+Latency measurement answers the question "how long has the oldest message been sitting in this process's mailbox?" A high value means the process is not keeping up with incoming messages: it is either overloaded, stuck in a long-running callback, or blocked. This is particularly useful for:
+
+- Identifying backpressure in actor pipelines
+- Detecting stuck processes before they cause cascading failures
+- Finding hotspot processes in large clusters
+
+For cluster-wide observability with Prometheus and Grafana, see the [Metrics actor](../extra-library/actors/metrics.md) which integrates latency data into distribution, top-N, and per-node panels when built with the `latency` tag.
+
+### The `typestats` Tag
+
+The `typestats` tag enables per-type encode/decode statistics:
+
+```bash
+go run --tags typestats ./cmd
+```
+
+This activates:
+
+- **Encoded/Decoded counts** per registered EDF type for root-level operations (calls at the message boundary, not nested fields)
+- **EncodedBytes/DecodedBytes** measured as decompressed wire size, pre-compression on encode and post-decompression on decode, including the type-prefix header
+- **`Stats.Enabled` flag** in `gen.RegisteredTypeInfo` set to `true` to signal counters are active
+- Counters visible via **`Network().RegisteredTypes()`** API and the **Observer Types panel**
+
+Without the tag, counters remain zero, `Stats.Enabled` is `false`, and there is zero runtime overhead. Encode and decode go through pass-through wrappers that the Go inliner reduces to direct calls.
+
+The overhead with the tag enabled is approximately 2-3% on encode/decode throughput, from two `atomic.AddInt64` operations per root call.
+
+A counter increments only when a value of that type is the message itself, the top of an `Encode` or `Decode` call. Built-in primitives like `gen.PID`, `gen.Atom`, `gen.Ref` typically appear as fields inside other messages, so their bytes contribute to the parent message's byte total, not to their own counters. Encoded and Decoded are independent: a node may receive some types only and send others only.
+
+Use case: identify message types that dominate network traffic. The average byte size per operation (`EncodedBytes / Encoded`) indicates whether a type is a candidate for compression at the producer process. Types with a high average are strong candidates for compressing at the source; types with a low average are not worth the framing overhead.
+
 ### Combining Tags
 
 Tags can be combined for comprehensive debugging:
 
 ```bash
-go run --tags "pprof,norecover,trace" ./cmd
+go run --tags "pprof,norecover,verbose" ./cmd
 ```
 
-This enables all debugging features simultaneously. Use this combination when investigating complex issues that span multiple subsystems.
+or with latency measurement:
+
+```bash
+go run --tags "pprof,latency" ./cmd
+```
+
+or with type statistics:
+
+```bash
+go run --tags "pprof,latency,typestats" ./cmd
+```
+
+This enables all specified features simultaneously. Use combinations when investigating complex issues that span multiple subsystems.
 
 ## Profiler Integration
 
@@ -125,6 +188,43 @@ The output shows:
 - The identifier label (PID for actors, Alias for meta processes)
 - The exact location in your code where the goroutine is currently executing
 
+### Labels In A Plain Goroutine Dump
+
+The `?debug=1` profile above groups goroutines by stack and prints the labels as `# labels:`
+lines. A plain dump - `?debug=2`, `runtime.Stack`, or the traceback of an unrecovered panic -
+is a different format, and until Go 1.27 it carried no labels at all.
+
+Since Go 1.27 the labels are printed in the header line of every goroutine, after the state:
+
+```
+goroutine 38669 [chan receive] {pid: "<ABC123.0.1041>"}:
+ergo.services/ergo/act.(*Actor).ProcessRun(0x140003c2000)
+	/path/act/actor.go:259 +0x758
+...
+
+goroutine 24812 [IO wait] {meta: "Alias#<ABC123.107118.6819740677833.0>", role: reader}:
+internal/poll.runtime_pollWait(0x112aec600, 0x72)
+	/usr/local/go/src/runtime/netpoll.go:351 +0xa0
+...
+```
+
+The runtime gates this on the `tracebacklabels` setting, whose default follows the `go` version
+your module declares: a module on `go 1.21` gets the pre-1.27 behaviour and no labels. Ask for
+them either with a directive in the main package:
+
+```go
+//go:debug tracebacklabels=1
+
+package main
+```
+
+or with `GODEBUG=tracebacklabels=1` in the environment. The build tag is still required - it is
+what attaches the labels in the first place; the setting only decides whether a plain dump
+prints them.
+
+This is what makes the next section work: a dump taken with `?debug=2` can be searched by PID
+only when the labels are in it.
+
 ### Debugging Stuck Processes
 
 During graceful shutdown, Ergo Framework logs processes that are taking too long to terminate. These logs include PIDs that can be matched against profiler output.
@@ -132,11 +232,13 @@ During graceful shutdown, Ergo Framework logs processes that are taking too long
 Consider a shutdown scenario where the node reports:
 
 ```
-[warning] shutdown: waiting for 3 processes
-[warning]   <ABC123.0.1005> state=running queue=5
-[warning]   <ABC123.0.1012> state=running queue=0
-[warning]   <ABC123.0.1018> state=sleep queue=0
+[warning] node myapp@localhost is still waiting for process(es) to terminate:
+[warning]   <ABC123.0.1005> (worker, myapp.Worker) state: running, queue: 5
+[warning]   <ABC123.0.1012> (myapp.DBConn) state: running, queue: 0
+[warning]   <ABC123.0.1018> (myapp.Reporter) state: sleep, queue: 0
 ```
+
+A ticker repeats that snapshot every five seconds while the node waits, at most ten processes per snapshot plus an `...and N more` line. The parenthesis holds the registered name and behavior when the process has a name, and the behavior alone when it does not.
 
 To investigate why `<ABC123.0.1005>` is stuck:
 
@@ -301,9 +403,11 @@ main.(*MyActor).HandleMessage(0x140001a2000, {0x100d12345, 0x140001b0000})
 
 This shows exactly which line in your code triggered the panic.
 
+In production, `norecover` is not appropriate: the framework's panic recovery is what keeps the node running after a faulty callback. To surface the same panic origin without crashing the node, register the [Sentry logger](../extra-library/loggers/sentry.md) - it captures every recovered panic with its origin stack trace and forwards it to a centralized issue tracker. Recurring panics group by root cause automatically.
+
 ## Observer Integration
 
-The [Observer](https://docs.ergo.services/tools/observer) tool provides a web interface for inspecting running nodes. While not strictly a debugging tool, it complements profiler-based debugging by providing:
+The [Observer](../extra-library/applications/observer.md) application embeds into a node and provides a web interface for inspecting it and the rest of the cluster. While not strictly a debugging tool, it complements profiler-based debugging by providing:
 
 - Real-time process list with state and mailbox sizes
 - Application and supervision tree visualization
@@ -347,9 +451,10 @@ Observer runs at `http://localhost:9911` by default when included in your node.
 
 Debugging actor systems requires tools that bridge the gap between logical actors and runtime goroutines. Ergo Framework provides this bridge through:
 
-- **Build tags** that enable profiling and diagnostics without production overhead
+- **Build tags** that enable profiling, diagnostics, and latency measurement without production overhead
 - **Goroutine labels** that link runtime goroutines to their actor (PID) and meta process (Alias) identities
 - **Shutdown diagnostics** that identify processes preventing clean termination
 - **Observer integration** for visual inspection of running systems
 
 Combined with Go's standard profiling tools, these capabilities enable effective debugging of even complex distributed systems.
+

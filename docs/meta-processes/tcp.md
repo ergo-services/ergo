@@ -399,7 +399,7 @@ options := meta.TCPServerOptions{
 
 The OS sends TCP keepalive probes every 60 seconds when the connection is idle. If the peer doesn't respond, the connection is closed. This detects dead connections (network partition, crashed peer) without application involvement.
 
-Set `KeepAlivePeriod` to 0 to disable TCP keepalive (default). Set it to -1 for OS default behavior (typically 2 hours on Linux, varies by platform).
+The value is handed straight to `net.ListenConfig.KeepAlive` (and to `net.Dialer.KeepAlive` for a client connection), so it carries Go's meaning rather than an inverted one. Leaving `KeepAlivePeriod` unset is the **zero** value, and zero means keepalive is **enabled** with the operating system's own period - typically two hours on Linux, varying by platform. A positive duration sets the probe period explicitly. To turn keepalive off, set it **negative**.
 
 TCP keepalive (OS-level) and write buffer keepalive (application-level) serve different purposes:
 - **TCP keepalive**: Detects dead connections
@@ -476,11 +476,11 @@ TCP meta-processes support inspection for debugging:
 
 ```go
 // Inspect server
-serverInfo, _ := process.Call(serverID, gen.Inspect{})
+serverInfo, _ := process.InspectMeta(serverID)
 // Returns: map[string]string{"listener": "0.0.0.0:8080"}
 
 // Inspect connection
-connInfo, _ := process.Call(connID, gen.Inspect{})
+connInfo, _ := process.InspectMeta(connID)
 // Returns: map[string]string{
 //     "local":     "192.168.1.10:8080",
 //     "remote":    "192.168.1.20:54321",
@@ -489,6 +489,8 @@ connInfo, _ := process.Call(connID, gen.Inspect{})
 //     "bytes out": "524288",
 // }
 ```
+
+A meta process is inspected by its alias through `InspectMeta`, not by a `Call`. The request travels the meta's system queue and is answered by its `HandleInspect`, which a `Call` never reaches. `gen.Node` carries the same method for callers that are not processes.
 
 Use this for monitoring, debugging, or displaying connection status in management interfaces.
 

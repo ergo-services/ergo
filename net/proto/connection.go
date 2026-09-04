@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
 	"net"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +21,14 @@ const (
 	// lib.Buffer has 4096 of capacity
 	// 256 messages could have at least 1Mb of allocated memory
 	limitMemRecvQueues int64 = 1024 * 1024 * 512
+
+	skewRingSize = 16
+
+	// routeQueuesPerConn is the number of per-connection queues that drain
+	// protoMessageAny payloads. Matches the default TM shard count so the
+	// queue index equals the TM shard index for any given target.
+	// Must be a power of two.
+	routeQueuesPerConn = 16
 )
 
 type connection struct {
@@ -44,12 +50,18 @@ type connection struct {
 
 	pool_dsn  []string
 	pool_size int
+	tls       bool
 
 	pool_mutex sync.RWMutex
 	pool       []*pool_item
 
 	recvQueues        []lib.QueueMPSC
 	allocatedInQueues int64
+
+	// route queues drain protoMessageAny payloads (Link/Monitor/Spawn/...) so
+	// that decoding goroutines never block on synchronous core/TM/spawn work.
+	// Aligned with TM shard count and hashing so each queue maps to one shard.
+	routeQueues [routeQueuesPerConn]lib.QueueMPSC
 
 	encodeOptions edf.Options
 	decodeOptions edf.Options
@@ -64,16 +76,105 @@ type connection struct {
 	transitIn   uint64
 	transitOut  uint64
 
+	reconnections uint64
+
+	softwareKeepAlive        bool
+	softwareKeepAliveMessage []byte
+	softwareKeepAlivePeriod  time.Duration // how often I send
+	softwareKeepAliveMisses  int
+	softwareKeepAliveTimeout time.Duration // how long I wait (peer period * misses)
+
+	// clock skew measurement
+	clockSkew bool
+
+	// tracing propagation
+	tracing bool
+
+	// fragmentation
+	fragmentation         bool
+	fragmentSize          int
+	fragmentTimeout       time.Duration
+	maxFragmentAssemblies int
+	nextSequenceID        atomic.Uint32
+
+	// ordered fragment assembly (per recv queue, no mutex)
+	orderedFragments []map[uint32]*fragmentAssembly
+
+	// unordered fragment assembly (order = 0 only)
+	sharedFragMu    sync.Mutex
+	sharedFragments map[uint32]*fragmentAssembly
+	sharedFragTimer *time.Timer
+
+	// fragment statistics
+	fragmentsSent        atomic.Uint64
+	fragmentMessagesSent atomic.Uint64
+	fragmentsReceived    atomic.Uint64
+	fragmentMessagesRecv atomic.Uint64
+	fragmentTimeouts     atomic.Uint64
+
+	// tracing statistics
+	tracedSent     atomic.Uint64
+	tracedReceived atomic.Uint64
+
+	// compression statistics
+	compressedSent          atomic.Uint64 // messages compressed on send
+	compressedBytesSent     atomic.Uint64 // bytes after compression (wire)
+	compressedOrigBytesSent atomic.Uint64 // bytes before compression (original)
+	decompressedRecv        atomic.Uint64 // messages decompressed on receive
+	decompressedBytesRecv   atomic.Uint64 // bytes before decompression (wire)
+	decompressedOrigRecv    atomic.Uint64 // bytes after decompression (original)
+
 	order      uint32
-	terminated bool
-	wg         sync.WaitGroup
+	terminated atomic.Bool
+
+	// done is closed when the connection terminates, unblocking wait(). A connection is only
+	// as alive as its live TCPs: an empty pool terminates it so routing is released and the
+	// next call re-dials. poolClosed guards the single close of done. All under pool_mutex.
+	done        chan struct{}
+	poolClosed  bool
+	established bool
+
+	// pool fill: the dialer reached the peer's listener, so it is the filler. redial
+	// dials pool-joins (set by Serve). A canonical-direction dialer fills at once; a
+	// non-canonical one waits for the acceptor's protoMessageExtend (extendRequested) so
+	// it never fills a connection a simultaneous connect would supersede. filling guards
+	// against more than one concurrent fill run. redial/extendRequested under pool_mutex.
+	redial          gen.NetworkDial
+	extendRequested bool
+	filling         atomic.Bool
+}
+
+type fragmentAssembly struct {
+	totalFragments uint16
+	received       uint16
+	totalBytes     int
+	payloads       [][]byte
+	deadline       time.Time
+}
+
+// poolConn wraps net.Conn so a pool_item's connection can be swapped atomically on
+// redial and read without a lock by the sender and Terminate.
+type poolConn struct{ net.Conn }
+
+func (pi *pool_item) closeConn() {
+	if pc := pi.connection.Load(); pc != nil {
+		pc.Close()
+	}
 }
 
 type pool_item struct {
-	connection net.Conn
-	fl         io.Writer
-	timer      *time.Timer
+	connection atomic.Pointer[poolConn]
+	fl         lib.Flusher
+	timer      atomic.Pointer[time.Timer]
 	handling   atomic.Bool
+
+	// skew measurement (clock offset relative to peer, nanoseconds).
+	// skewRing/skewIdx are only written by serve() goroutine.
+	// skewCount/skewValue are read by timer goroutine via atomic.
+	skewRing  [skewRingSize]int64
+	skewIdx   int
+	skewCount atomic.Int32
+	skewValue atomic.Int64
 }
 
 //
@@ -97,6 +198,9 @@ func (c *connection) Version() gen.Version {
 }
 
 func (c *connection) Info() gen.RemoteNodeInfo {
+	c.pool_mutex.RLock()
+	poolLen := len(c.pool)
+	c.pool_mutex.RUnlock()
 	info := gen.RemoteNodeInfo{
 		Node:             c.peer,
 		Uptime:           time.Now().Unix() - c.peer_creation,
@@ -109,9 +213,11 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 		NetworkFlags: c.peer_flags,
 
 		PoolSize: c.pool_size,
+		PoolLen:  poolLen,
 		PoolDSN:  c.pool_dsn,
 
 		MaxMessageSize: c.peer_maxmessagesize,
+		TLS:            c.tls,
 		MessagesIn:     atomic.LoadUint64(&c.messagesIn),
 		MessagesOut:    atomic.LoadUint64(&c.messagesOut),
 
@@ -120,8 +226,136 @@ func (c *connection) Info() gen.RemoteNodeInfo {
 
 		TransitBytesIn:  atomic.LoadUint64(&c.transitIn),
 		TransitBytesOut: atomic.LoadUint64(&c.transitOut),
+
+		Reconnections: atomic.LoadUint64(&c.reconnections),
+
+		FragmentsSent:        c.fragmentsSent.Load(),
+		FragmentMessagesSent: c.fragmentMessagesSent.Load(),
+		FragmentsReceived:    c.fragmentsReceived.Load(),
+		FragmentMessagesRecv: c.fragmentMessagesRecv.Load(),
+		FragmentTimeouts:     c.fragmentTimeouts.Load(),
+
+		TracedSent:     c.tracedSent.Load(),
+		TracedReceived: c.tracedReceived.Load(),
+
+		CompressedSent:          c.compressedSent.Load(),
+		CompressedBytesSent:     c.compressedBytesSent.Load(),
+		CompressedOrigBytesSent: c.compressedOrigBytesSent.Load(),
+		DecompressedRecv:        c.decompressedRecv.Load(),
+		DecompressedBytesRecv:   c.decompressedBytesRecv.Load(),
+		DecompressedOrigRecv:    c.decompressedOrigRecv.Load(),
+
+		ClockSkew: c.Skew(),
 	}
 	return info
+}
+
+// Skew returns the aggregated clock skew across all pool connections (nanoseconds).
+// Positive value means the remote node's clock is ahead of local.
+func (c *connection) Skew() int64 {
+	c.pool_mutex.RLock()
+	defer c.pool_mutex.RUnlock()
+	if len(c.pool) == 0 {
+		return 0
+	}
+	values := make([]int64, 0, len(c.pool))
+	for _, pi := range c.pool {
+		if pi.skewCount.Load() > 0 {
+			values = append(values, pi.skewValue.Load())
+		}
+	}
+	if len(values) == 0 {
+		return 0
+	}
+	return medianInt64(values)
+}
+
+func (c *connection) handleSkew(pi *pool_item, buf *lib.Buffer, tsRecv int64) {
+	ts2 := int64(binary.BigEndian.Uint64(buf.B[16:24]))
+
+	if ts2 == 0 {
+		// ping - reuse buf for response, fill ts2 and ts3
+		binary.BigEndian.PutUint64(buf.B[16:24], uint64(tsRecv))
+		binary.BigEndian.PutUint64(buf.B[24:32], uint64(time.Now().UnixNano()))
+		pi.fl.Write(buf.B)
+		return
+	}
+
+	// response - compute and store skew
+	ts1 := int64(binary.BigEndian.Uint64(buf.B[8:16]))
+	ts3 := int64(binary.BigEndian.Uint64(buf.B[24:32]))
+	rtt := (tsRecv - ts1) - (ts3 - ts2)
+	skew := ts2 - (ts1 + rtt/2)
+	c.pushSkew(pi, skew)
+}
+
+func (c *connection) pushSkew(pi *pool_item, skew int64) {
+	pi.skewRing[pi.skewIdx%skewRingSize] = skew
+	pi.skewIdx++
+	n := pi.skewCount.Load()
+	if n < skewRingSize {
+		n++
+		pi.skewCount.Store(n)
+	}
+
+	var tmp [skewRingSize]int64
+	copy(tmp[:n], pi.skewRing[:n])
+	pi.skewValue.Store(medianInt64(tmp[:n]))
+
+	// schedule next ping only after receiving response
+	if c.terminated.Load() {
+		return
+	}
+	interval := 5 * time.Second
+	if n < skewRingSize {
+		interval = 100 * time.Millisecond
+	}
+	if t := pi.timer.Load(); t != nil {
+		t.Reset(interval)
+	}
+}
+
+func (c *connection) skewTick(pi *pool_item) {
+	if c.terminated.Load() {
+		return
+	}
+	c.sendSkewPing(pi)
+}
+
+func (c *connection) sendSkewPing(pi *pool_item) {
+	buf := lib.TakeBuffer()
+	buf.Allocate(32)
+	buf.B[0] = protoMagic
+	buf.B[1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[2:6], 32)
+	buf.B[6] = 0
+	buf.B[7] = protoMessageS
+	binary.BigEndian.PutUint64(buf.B[8:16], uint64(time.Now().UnixNano()))
+	binary.BigEndian.PutUint64(buf.B[16:24], 0)
+	binary.BigEndian.PutUint64(buf.B[24:32], 0)
+	pi.fl.Write(buf.B)
+	lib.ReleaseBuffer(buf)
+}
+
+// medianInt64 sorts vals in place and returns the median.
+func medianInt64(vals []int64) int64 {
+	n := len(vals)
+	if n == 0 {
+		return 0
+	}
+	for i := 1; i < n; i++ {
+		v := vals[i]
+		j := i - 1
+		for j >= 0 && vals[j] > v {
+			vals[j+1] = vals[j]
+			j--
+		}
+		vals[j+1] = v
+	}
+	if n%2 == 0 {
+		return (vals[n/2-1] + vals[n/2]) / 2
+	}
+	return vals[n/2]
 }
 
 func (c *connection) Spawn(name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
@@ -190,7 +424,7 @@ func (c *connection) applicationStart(name gen.Atom, mode gen.ApplicationMode, o
 		return gen.ErrNotAllowed
 	}
 
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	extra := gen.ApplicationOptionsExtra{
 		ApplicationOptions: options,
 		CorePID:            c.core.PID(),
@@ -210,6 +444,9 @@ func (c *connection) applicationStart(name gen.Atom, mode gen.ApplicationMode, o
 	c.requests[ref] = ch
 	c.requestsMutex.Unlock()
 	if err := c.sendAny(message, 0, 0, gen.Compression{}); err != nil {
+		c.requestsMutex.Lock()
+		delete(c.requests, ref)
+		c.requestsMutex.Unlock()
 		return err
 	}
 	result := c.waitResult(ref, ch)
@@ -219,7 +456,7 @@ func (c *connection) applicationStart(name gen.Atom, mode gen.ApplicationMode, o
 func (c *connection) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) {
 	var info gen.ApplicationInfo
 
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageApplicationInfo{
 		Name: name,
 		Ref:  ref,
@@ -273,7 +510,7 @@ func (c *connection) updateCache() error {
 	//  - RegCache
 	//  - ErrCache
 
-	ref := c.core.MakeRef()
+	ref := c.makeRequestRef()
 	message := MessageUpdateCache{
 		Ref: ref,
 		// put them here
@@ -313,56 +550,53 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 		return gen.ErrProcessIncarnation
 	}
 
-	if options.ImportantDelivery {
-		if c.peer_flags.EnableImportantDelivery == false {
-			return gen.ErrUnsupported
-		}
-	}
-
-	order := uint8(from.ID % 255)
-	orderPeer := uint8(to.ID % 255)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority +8 (message id) + 8 (process id to)
-	buf.Allocate(8 + 8 + 1 + 8 + 8)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 8 (process id to)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 8)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessagePID
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessagePID
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
-		binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
+		buf.B[h+16] |= 128
+		binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
 	}
 
-	binary.BigEndian.PutUint64(buf.B[25:33], to.ID)
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], to.ID)
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
@@ -376,7 +610,7 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 
 	bname := []byte(toName)
 	if len(bname) > 255 {
-		return fmt.Errorf("process name too long")
+		return fmt.Errorf("process name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -385,59 +619,62 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 		}
 	}
 
-	order := uint8(from.ID % 255)
+	order := uint8(from.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 	}
 
 	buf := lib.TakeBuffer()
 	if toNameCached > 0 {
-		// 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 2 (cache id)
-		buf.Allocate(8 + 8 + 1 + 8 + 2)
+		// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 2 (cache id)
+		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 2)
 	} else {
-		// 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 1 (size(bname) + bname
-		buf.Allocate(8 + 8 + 1 + 8 + 1 + len(bname))
+		// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 1 (size(bname) + bname
+		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = order // use the same order for the peer
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = order // use the same order for the peer
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
-		binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
+		buf.B[h+16] |= 128
+		binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
 	}
 
 	if toNameCached > 0 {
-		buf.B[7] = protoMessageNameCache
-		binary.BigEndian.PutUint16(buf.B[25:27], toNameCached)
+		buf.B[h+7] = protoMessageNameCache
+		binary.BigEndian.PutUint16(buf.B[h+25:h+27], toNameCached)
 	} else {
-		buf.B[7] = protoMessageName
-		buf.B[25] = byte(len(bname))
-		copy(buf.B[26:], bname)
+		buf.B[h+7] = protoMessageName
+		buf.B[h+25] = byte(len(bname))
+		copy(buf.B[h+26:], bname)
 	}
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
@@ -445,52 +682,55 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 		return gen.ErrProcessIncarnation
 	}
 
-	order := uint8(from.ID % 255)
-	orderPeer := uint8(to.ID[1] % 255)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID[1]%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 24 (alias id [3]uint64)
-	buf.Allocate(8 + 8 + 1 + 8 + 24)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 24 (alias id [3]uint64)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 24)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageAlias
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageAlias
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
-		binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
+		buf.B[h+16] |= 128
+		binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
 	}
 
-	binary.BigEndian.PutUint64(buf.B[25:33], to.ID[0])
-	binary.BigEndian.PutUint64(buf.B[33:41], to.ID[1])
-	binary.BigEndian.PutUint64(buf.B[41:49], to.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], to.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], to.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], to.ID[2])
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message gen.MessageEvent) error {
@@ -505,7 +745,7 @@ func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message
 
 	bname := []byte(eventName)
 	if len(bname) > 255 {
-		return fmt.Errorf("event name too long")
+		return fmt.Errorf("event name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -514,50 +754,54 @@ func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message
 		}
 	}
 
-	order := uint8(from.ID % 255)
+	order := uint8(from.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 	}
 
 	buf := lib.TakeBuffer()
 	if eventNameCached > 0 {
-		// 8 (header) + 8 (process id from) + 1 priority + 8 timestamp + 2 (cache id)
-		buf.Allocate(8 + 8 + 1 + 8 + 2)
+		// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 timestamp + 2 (cache id)
+		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 2)
 	} else {
-		// 8 (header) + 8 (process id from) + 1 priority + 8 timestamp + 1 size(bname) + bname
-		buf.Allocate(8 + 8 + 1 + 8 + 1 + len(bname))
+		// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 timestamp + 1 size(bname) + bname
+		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(message.Message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = order // use the same order for the peer
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
-	binary.BigEndian.PutUint64(buf.B[17:25], uint64(message.Timestamp))
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = order
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
+	buf.B[h+16] = byte(options.Priority)
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], uint64(message.Timestamp))
 
 	if eventNameCached > 0 {
-		buf.B[7] = protoMessageEventCache
-		binary.BigEndian.PutUint16(buf.B[25:27], eventNameCached)
+		buf.B[h+7] = protoMessageEventCache
+		binary.BigEndian.PutUint16(buf.B[h+25:h+27], eventNameCached)
 	} else {
-		buf.B[7] = protoMessageEvent
-		buf.B[25] = byte(len(bname))
-		copy(buf.B[26:], bname)
+		buf.B[h+7] = protoMessageEvent
+		buf.B[h+25] = byte(len(bname))
+		copy(buf.B[h+26:], bname)
 	}
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendExit(from gen.PID, to gen.PID, reason error) error {
@@ -566,78 +810,83 @@ func (c *connection) SendExit(from gen.PID, to gen.PID, reason error) error {
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 8 (process id to)
-	buf.Allocate(8 + 8 + 1 + 8)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (process id to)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	order := uint8(from.ID % 255)
-	orderPeer := uint8(to.ID % 255)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageExit
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
-	buf.B[16] = byte(gen.MessagePriorityMax)
-	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageExit
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
+	buf.B[h+16] = byte(gen.MessagePriorityMax)
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], to.ID)
 
-	return c.send(buf, order, gen.Compression{})
+	return c.send(buf, order, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) SendResponse(from gen.PID, to gen.PID, options gen.MessageOptions, response any) error {
 	if to.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(from.ID % 255)
-	orderPeer := uint8(to.ID % 255)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64)
-	buf.Allocate(8 + 8 + 1 + 8 + 24)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 24)
 
 	if err := edf.Encode(response, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
+	if c.peer_maxmessagesize > 0 && buf.Len()-protoWrapReserve > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageResponse
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageResponse
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[41:49], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], to.ID)
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], options.Ref.ID[2])
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.MessageOptions, err error) error {
@@ -645,75 +894,78 @@ func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.Mes
 		return gen.ErrProcessIncarnation
 	}
 
-	order := uint8(from.ID % 255)
-	orderPeer := uint8(to.ID % 255)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64) + 1 (err code)
-	buf.Allocate(8 + 8 + 1 + 8 + 24 + 1)
+	h := protoWrapReserve
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64) + 1 (err code)
+	buf.Allocate(h + 8 + 8 + 1 + 8 + 24 + 1)
 	switch err {
 	case nil:
-		buf.B[49] = 0
+		buf.B[h+49] = 0
 	case gen.ErrProcessUnknown:
-		buf.B[49] = 1
+		buf.B[h+49] = 1
 	case gen.ErrProcessMailboxFull:
-		buf.B[49] = 2
+		buf.B[h+49] = 2
 	case gen.ErrProcessTerminated:
-		buf.B[49] = 3
+		buf.B[h+49] = 3
 	default:
-		buf.B[49] = 255
+		buf.B[h+49] = 255
 		if e := edf.Encode(err, buf, c.encodeOptions); e != nil {
+			lib.ReleaseBuffer(buf)
 			return e
 		}
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageResponseError
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageResponseError
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority) // usual value 0, 1, or 2, so just cast it
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], to.ID)
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[41:49], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], to.ID)
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], options.Ref.ID[2])
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) SendTerminatePID(target gen.PID, reason error) error {
 	buf := lib.TakeBuffer()
-	// 8 (header) + 1 priority + 8 (target process id)
-	buf.Allocate(8 + 1 + 8)
+	// protoWrapReserve + 8 (header) + 1 priority + 8 (target process id)
+	buf.Allocate(protoWrapReserve + 8 + 1 + 8)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = 0
-	buf.B[7] = protoMessageTerminatePID
-	buf.B[8] = byte(gen.MessagePriorityHigh)
-	binary.BigEndian.PutUint64(buf.B[9:17], target.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = 0
+	buf.B[h+7] = protoMessageTerminatePID
+	buf.B[h+8] = byte(gen.MessagePriorityHigh)
+	binary.BigEndian.PutUint64(buf.B[h+9:h+17], target.ID)
 
-	return c.send(buf, 0, gen.Compression{})
+	return c.send(buf, 0, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) error {
@@ -727,7 +979,7 @@ func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) 
 
 	bname := []byte(targetName)
 	if len(bname) > 255 {
-		return fmt.Errorf("target process name too long")
+		return fmt.Errorf("target process name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -737,55 +989,58 @@ func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) 
 	}
 
 	buf := lib.TakeBuffer()
+	h := protoWrapReserve
 	if targetNameCached > 0 {
-		// 8 (header) + 1 priority + 2 (cache id)
-		buf.Allocate(8 + 1 + 2)
+		// protoWrapReserve + 8 (header) + 1 priority + 2 (cache id)
+		buf.Allocate(h + 8 + 1 + 2)
 	} else {
-		// 8 (header) + 1 priority + 1 (len of bname) + bname
-		buf.Allocate(8 + 1 + 1 + len(bname))
+		// protoWrapReserve + 8 (header) + 1 priority + 1 (len of bname) + bname
+		buf.Allocate(h + 8 + 1 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = 0 // order
-	buf.B[8] = byte(gen.MessagePriorityHigh)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = 0
+	buf.B[h+8] = byte(gen.MessagePriorityHigh)
 	if targetNameCached > 0 {
-		buf.B[7] = protoMessageTerminateNameCache
-		binary.BigEndian.PutUint16(buf.B[9:11], targetNameCached)
+		buf.B[h+7] = protoMessageTerminateNameCache
+		binary.BigEndian.PutUint16(buf.B[h+9:h+11], targetNameCached)
 	} else {
-		buf.B[7] = protoMessageTerminateName
-		buf.B[9] = byte(len(bname))
-		copy(buf.B[10:], bname)
+		buf.B[h+7] = protoMessageTerminateName
+		buf.B[h+9] = byte(len(bname))
+		copy(buf.B[h+10:], bname)
 	}
 
-	return c.send(buf, 0, gen.Compression{})
+	return c.send(buf, 0, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) SendTerminateAlias(target gen.Alias, reason error) error {
 	buf := lib.TakeBuffer()
-	// 8 (header) + 1 priority + 24 (target alias id [3]uint64)
-	buf.Allocate(8 + 1 + 24)
+	h := protoWrapReserve
+	buf.Allocate(h + 8 + 1 + 24)
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = 0
-	buf.B[7] = protoMessageTerminateAlias
-	buf.B[8] = byte(gen.MessagePriorityHigh)
-	binary.BigEndian.PutUint64(buf.B[9:17], target.ID[0])
-	binary.BigEndian.PutUint64(buf.B[17:25], target.ID[1])
-	binary.BigEndian.PutUint64(buf.B[25:33], target.ID[2])
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = 0
+	buf.B[h+7] = protoMessageTerminateAlias
+	buf.B[h+8] = byte(gen.MessagePriorityHigh)
+	binary.BigEndian.PutUint64(buf.B[h+9:h+17], target.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], target.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], target.ID[2])
 
-	return c.send(buf, 0, gen.Compression{})
+	return c.send(buf, 0, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
@@ -800,7 +1055,7 @@ func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
 
 	bname := []byte(eventName)
 	if len(bname) > 255 {
-		return fmt.Errorf("terminated event name too long")
+		return fmt.Errorf("terminated event name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -810,34 +1065,34 @@ func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
 	}
 
 	buf := lib.TakeBuffer()
+	h := protoWrapReserve
 	if eventNameCached > 0 {
-		// 8 (header) + 1 priority + 2 (cache id)
-		buf.Allocate(8 + 1 + 2)
+		buf.Allocate(h + 8 + 1 + 2)
 	} else {
-		// 8 (header) + 1 priority + 1 size(bname) + bname
-		buf.Allocate(8 + 1 + +1 + len(bname))
+		buf.Allocate(h + 8 + 1 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = 0 // order
-	buf.B[8] = byte(gen.MessagePriorityHigh)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = 0
+	buf.B[h+8] = byte(gen.MessagePriorityHigh)
 
 	if eventNameCached > 0 {
-		buf.B[7] = protoMessageTerminateEventCache
-		binary.BigEndian.PutUint16(buf.B[9:11], eventNameCached)
+		buf.B[h+7] = protoMessageTerminateEventCache
+		binary.BigEndian.PutUint16(buf.B[h+9:h+11], eventNameCached)
 	} else {
-		buf.B[7] = protoMessageTerminateEvent
-		buf.B[9] = byte(len(bname))
-		copy(buf.B[10:], bname)
+		buf.B[h+7] = protoMessageTerminateEvent
+		buf.B[h+9] = byte(len(bname))
+		copy(buf.B[h+10:], bname)
 	}
 
-	return c.send(buf, 0, gen.Compression{})
+	return c.send(buf, 0, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) CallPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
@@ -845,47 +1100,49 @@ func (c *connection) CallPID(from gen.PID, to gen.PID, options gen.MessageOption
 		return gen.ErrProcessIncarnation
 	}
 
-	order := uint8(from.ID % 255)
-	orderPeer := uint8(to.ID % 255)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) + 8 (process id to)
-	buf.Allocate(8 + 8 + 1 + 24 + 8)
+	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) + 8 (process id to)
+	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 24 + 8)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-protoWrapReserve > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoRequestPID
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	h := protoWrapReserve
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoRequestPID
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority)
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[2])
-	binary.BigEndian.PutUint64(buf.B[41:49], to.ID)
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], to.ID)
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
@@ -899,7 +1156,7 @@ func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.M
 
 	bname := []byte(toName)
 	if len(bname) > 255 {
-		return fmt.Errorf("process name too long")
+		return fmt.Errorf("process name too long: %d bytes (max 255)", len(bname))
 	}
 
 	if c.encodeOptions.AtomCache != nil {
@@ -908,58 +1165,58 @@ func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.M
 		}
 	}
 
-	order := uint8(from.ID % 255)
+	order := uint8(from.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 	}
 
 	buf := lib.TakeBuffer()
+	h := protoWrapReserve
 	if toNameCached > 0 {
-		// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref)  + 2 (cache id)
-		buf.Allocate(8 + 8 + 1 + 24 + 2)
+		buf.Allocate(h + 8 + 8 + 1 + 24 + 2)
 	} else {
-		// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) +1 (size(bname)) + bname
-		buf.Allocate(8 + 8 + 1 + 24 + 1 + len(bname))
+		buf.Allocate(h + 8 + 8 + 1 + 24 + 1 + len(bname))
 	}
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-h > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = order // use the same order for the peer
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = order
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority)
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[2])
 
 	if toNameCached > 0 {
-		buf.B[7] = protoRequestNameCache
-		binary.BigEndian.PutUint16(buf.B[41:43], toNameCached)
+		buf.B[h+7] = protoRequestNameCache
+		binary.BigEndian.PutUint16(buf.B[h+41:h+43], toNameCached)
 	} else {
-		buf.B[7] = protoRequestName
-		buf.B[41] = byte(len(bname))
-		copy(buf.B[42:], bname)
+		buf.B[h+7] = protoRequestName
+		buf.B[h+41] = byte(len(bname))
+		copy(buf.B[h+42:], bname)
 	}
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
 }
 
 func (c *connection) CallAlias(from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error {
@@ -968,59 +1225,70 @@ func (c *connection) CallAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 		return gen.ErrProcessIncarnation
 	}
 
-	order := uint8(from.ID % 255)
-	orderPeer := uint8(to.ID[1] % 255)
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID[1]%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
 	}
 
 	buf := lib.TakeBuffer()
-	// 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) + 24 (alias id to)
-	buf.Allocate(8 + 8 + 1 + 24 + 24)
+	h := protoWrapReserve
+	buf.Allocate(h + 8 + 8 + 1 + 24 + 24)
 
 	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+		lib.ReleaseBuffer(buf)
 		return err
 	}
 
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-h > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
 
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoRequestAlias
-	binary.BigEndian.PutUint64(buf.B[8:16], from.ID)
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoRequestAlias
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
 
-	buf.B[16] = byte(options.Priority)
+	buf.B[h+16] = byte(options.Priority)
 	if options.ImportantDelivery {
 		if c.peer_flags.EnableImportantDelivery == false {
 			lib.ReleaseBuffer(buf)
 			return gen.ErrUnsupported
 		}
-		// set important flag
-		buf.B[16] |= 128
+		buf.B[h+16] |= 128
 	}
 
-	binary.BigEndian.PutUint64(buf.B[17:25], options.Ref.ID[0])
-	binary.BigEndian.PutUint64(buf.B[25:33], options.Ref.ID[1])
-	binary.BigEndian.PutUint64(buf.B[33:41], options.Ref.ID[2])
-	binary.BigEndian.PutUint64(buf.B[41:49], to.ID[0])
-	binary.BigEndian.PutUint64(buf.B[49:57], to.ID[1])
-	binary.BigEndian.PutUint64(buf.B[57:65], to.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[2])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], to.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+49:h+57], to.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+57:h+65], to.ID[2])
 
-	return c.send(buf, order, options.Compression)
+	return c.send(buf, order, options.Compression, options.Tracing)
+}
+
+// makeRequestRef returns a reference carrying the default request timeout as
+// a deadline. Receivers can use Ref.IsAlive() to drop work whose ref expired
+// while sitting in queue, or to skip the response and roll back side effects
+// when the operation outlived the sender's wait window.
+func (c *connection) makeRequestRef() gen.Ref {
+	deadline := time.Now().Unix() + int64(gen.DefaultRequestTimeout)
+	ref, _ := c.core.MakeRefWithDeadline(deadline)
+	return ref
 }
 
 func (c *connection) LinkPID(pid gen.PID, target gen.PID) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(pid.ID % 255)
-	orderPeer := uint8(target.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageLinkPID{
 		Source: pid,
 		Target: target,
@@ -1045,9 +1313,9 @@ func (c *connection) UnlinkPID(pid gen.PID, target gen.PID) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(pid.ID % 255)
-	orderPeer := uint8(target.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageUnlinkPID{
 		Source: pid,
 		Target: target,
@@ -1068,8 +1336,8 @@ func (c *connection) UnlinkPID(pid gen.PID, target gen.PID) error {
 }
 
 func (c *connection) LinkProcessID(pid gen.PID, target gen.ProcessID) error {
-	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageLinkProcessID{
 		Source: pid,
 		Target: target,
@@ -1091,8 +1359,8 @@ func (c *connection) LinkProcessID(pid gen.PID, target gen.ProcessID) error {
 }
 
 func (c *connection) UnlinkProcessID(pid gen.PID, target gen.ProcessID) error {
-	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageUnlinkProcessID{
 		Source: pid,
 		Target: target,
@@ -1117,9 +1385,9 @@ func (c *connection) LinkAlias(pid gen.PID, target gen.Alias) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(pid.ID % 255)
-	orderPeer := uint8(target.ID[1] % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID[1]%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageLinkAlias{
 		Source: pid,
 		Target: target,
@@ -1144,9 +1412,9 @@ func (c *connection) UnlinkAlias(pid gen.PID, target gen.Alias) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	order := uint8(pid.ID % 255)
-	orderPeer := uint8(target.ID[1] % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID[1]%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageUnlinkAlias{
 		Source: pid,
 		Target: target,
@@ -1167,8 +1435,8 @@ func (c *connection) UnlinkAlias(pid gen.PID, target gen.Alias) error {
 }
 
 func (c *connection) LinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
-	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageLinkEvent{
 		Source: pid,
 		Target: target,
@@ -1196,8 +1464,8 @@ func (c *connection) LinkEvent(pid gen.PID, target gen.Event) ([]gen.MessageEven
 }
 
 func (c *connection) UnlinkEvent(pid gen.PID, target gen.Event) error {
-	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageUnlinkEvent{
 		Source: pid,
 		Target: target,
@@ -1221,8 +1489,8 @@ func (c *connection) MonitorPID(pid gen.PID, target gen.PID) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	ref := c.core.MakeRef()
-	order := uint8(pid.ID % 255)
+	ref := c.makeRequestRef()
+	order := uint8(pid.ID%255 + 1)
 	message := MessageMonitorPID{
 		Source: pid,
 		Target: target,
@@ -1246,8 +1514,8 @@ func (c *connection) DemonitorPID(pid gen.PID, target gen.PID) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	ref := c.core.MakeRef()
-	order := uint8(pid.ID % 255)
+	ref := c.makeRequestRef()
+	order := uint8(pid.ID%255 + 1)
 	message := MessageDemonitorPID{
 		Source: pid,
 		Target: target,
@@ -1268,8 +1536,8 @@ func (c *connection) DemonitorPID(pid gen.PID, target gen.PID) error {
 }
 
 func (c *connection) MonitorProcessID(pid gen.PID, target gen.ProcessID) error {
-	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageMonitorProcessID{
 		Source: pid,
 		Target: target,
@@ -1290,8 +1558,8 @@ func (c *connection) MonitorProcessID(pid gen.PID, target gen.ProcessID) error {
 }
 
 func (c *connection) DemonitorProcessID(pid gen.PID, target gen.ProcessID) error {
-	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageDemonitorProcessID{
 		Source: pid,
 		Target: target,
@@ -1315,9 +1583,9 @@ func (c *connection) MonitorAlias(pid gen.PID, target gen.Alias) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	ref := c.core.MakeRef()
-	order := uint8(pid.ID % 255)
-	orderPeer := uint8(target.ID[1] % 255)
+	ref := c.makeRequestRef()
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID[1]%255 + 1)
 	message := MessageMonitorAlias{
 		Source: pid,
 		Target: target,
@@ -1341,9 +1609,9 @@ func (c *connection) DemonitorAlias(pid gen.PID, target gen.Alias) error {
 	if target.Creation != c.peer_creation {
 		return gen.ErrProcessIncarnation
 	}
-	ref := c.core.MakeRef()
-	order := uint8(pid.ID % 255)
-	orderPeer := uint8(target.ID[1] % 255)
+	ref := c.makeRequestRef()
+	order := uint8(pid.ID%255 + 1)
+	orderPeer := uint8(target.ID[1]%255 + 1)
 	message := MessageDemonitorAlias{
 		Source: pid,
 		Target: target,
@@ -1364,8 +1632,8 @@ func (c *connection) DemonitorAlias(pid gen.PID, target gen.Alias) error {
 }
 
 func (c *connection) MonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageEvent, error) {
-	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageMonitorEvent{
 		Source: pid,
 		Target: target,
@@ -1393,8 +1661,8 @@ func (c *connection) MonitorEvent(pid gen.PID, target gen.Event) ([]gen.MessageE
 }
 
 func (c *connection) DemonitorEvent(pid gen.PID, target gen.Event) error {
-	order := uint8(pid.ID % 255)
-	ref := c.core.MakeRef()
+	order := uint8(pid.ID%255 + 1)
+	ref := c.makeRequestRef()
 	message := MessageDemonitorEvent{
 		Source: pid,
 		Target: target,
@@ -1438,7 +1706,7 @@ func (c *connection) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra)
 	// set ref for spawn timeout
 	options.Ref = ref
 
-	order := uint8(pid.ID % 255)
+	order := uint8(pid.ID%255 + 1)
 
 	message := MessageSpawn{
 		Name:    name,
@@ -1471,66 +1739,51 @@ func (c *connection) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra)
 
 func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail []byte) error {
 	if id != c.id {
-		return fmt.Errorf("connection id mismatch")
+		return fmt.Errorf("join: connection id mismatch with %s: got %q, have %q", c.peer, id, c.id)
 	}
 
-	if c.terminated {
-		return fmt.Errorf("connection terminated")
+	if c.terminated.Load() {
+		return fmt.Errorf("join: connection with %s is terminated", c.peer)
 	}
 
 	c.pool_mutex.Lock()
-	if c.pool_size+1 < len(c.pool) {
+	// the dialer that fills the pool is the single writer and caps it at pool_size; the
+	// accept end mirrors whatever the dialer dials and must not reject independently (a
+	// transient size disagreement under churn would otherwise strand a slot, its TCP closed
+	// here while the dialer still holds it). dial != nil marks a writer join: the filling
+	// primary (connect) and every pool-join (fillPool) carry a redial, the accept end nil.
+	if dial != nil && len(c.pool) >= c.pool_size {
+		have := len(c.pool)
 		c.pool_mutex.Unlock()
-		return fmt.Errorf("pool size limit")
+		return fmt.Errorf("join: pool for %s is full (%d/%d)", c.peer, have, c.pool_size)
 	}
-	pi := &pool_item{
-		connection: conn,
-		fl:         lib.NewFlusher(conn),
+	// clear handshake write deadline
+	conn.SetWriteDeadline(time.Time{})
+
+	pi := &pool_item{}
+	pi.connection.Store(&poolConn{conn})
+	if c.softwareKeepAlive {
+		pi.fl = lib.NewFlusherWithKeepAlive(conn, c.softwareKeepAliveMessage, c.softwareKeepAlivePeriod)
+	} else {
+		pi.fl = lib.NewFlusher(conn)
 	}
 	c.pool = append(c.pool, pi)
 	c.pool_mutex.Unlock()
 
-	c.wg.Add(1)
 	go func() {
-		if lib.Trace() {
+		if lib.Verbose() {
+			c.log.Trace("joined new connection %s to the pool", conn.RemoteAddr().String())
 			defer c.log.Trace("connection %s left the pool", conn.RemoteAddr().String())
 		}
 
-	re: // reconnected
-		if lib.Trace() {
-			c.log.Trace("joined new connection %s to the pool", conn.RemoteAddr().String())
-		}
+		c.serve(pi, tail)
 
-		c.serve(pi.connection, tail)
-
-		if dial != nil {
-			pool_dsn := []string{}
-			pool_dsn = append(pool_dsn, c.pool_dsn...)
-			rand.Shuffle(len(pool_dsn), func(i, j int) {
-				pool_dsn[i], pool_dsn[j] = pool_dsn[j], pool_dsn[i]
-			})
-			for _, dsn := range pool_dsn {
-				if c.terminated {
-					c.wg.Done()
-					return
-				}
-				c.log.Trace("re-dialing %s", dsn)
-				nc, t, err := dial(dsn, id)
-				if err != nil {
-					continue
-				}
-				pi.connection = nc
-				tail = t
-
-				goto re
-			}
-		}
-		if c.terminated {
-			c.wg.Done()
-			return
-		}
-
-		// remove it from the pool
+		// this TCP died. A connection is only as alive as its live TCPs, so drop this slot
+		// immediately: send() must never select a dead slot. An empty pool means the
+		// connection is dead - terminate it so routing is released (RouteNodeDown) and the
+		// next call re-dials a fresh connection; a restarted peer is then reached under its
+		// new connID instead of being masked by a corpse left routable. A still non-empty
+		// pool below pool_size is topped up by the filler (dialer only).
 		c.pool_mutex.Lock()
 		for i, item := range c.pool {
 			if item != pi {
@@ -1538,31 +1791,136 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 			}
 			c.pool[i] = c.pool[0]
 			c.pool = c.pool[1:]
+			break
 		}
-		if len(c.pool) == 0 {
-			c.pool_mutex.Unlock()
-			c.wg.Done()
-			return
+		switch {
+		case len(c.pool) == 0:
+			c.terminated.Store(true)
+			c.closeDone()
+		case c.terminated.Load() == false && c.redial != nil && len(c.pool) < c.pool_size:
+			c.startFill()
 		}
 		c.pool_mutex.Unlock()
-
-		c.wg.Done()
 	}()
 
 	return nil
 }
 
+// Extend tells the peer (the dialer that reached our listener) to fill its pool. The
+// node calls it on the canonical acceptor when no competing canonical-direction connect
+// is in flight, so the non-canonical dialer fills only the surviving connection.
+func (c *connection) Extend() {
+	c.pool_mutex.RLock()
+	var fl lib.Flusher
+	if len(c.pool) > 0 {
+		fl = c.pool[0].fl
+	}
+	c.pool_mutex.RUnlock()
+	if fl == nil {
+		return
+	}
+	fl.Write([]byte{protoMagic, protoVersion, 0, 0, 0, 8, 0, protoMessageExtend})
+}
+
+// startFill starts the pool fill if it is not already running. The canonical dialer calls
+// it from Serve, the non-canonical dialer on receiving protoMessageExtend, and the member
+// removal path whenever a drop leaves the pool short.
+func (c *connection) startFill() {
+	if c.filling.CompareAndSwap(false, true) {
+		go c.fillPool()
+	}
+}
+
+// fillPool dials pool-joins to the peer's listener until the pool reaches pool_size, then
+// exits. A member drop that leaves the pool short re-arms it (startFill), so the filler
+// keeps the pool topped up: members joined from the peer's fill are readers that never
+// self-redial, so once they drop only the filler can replace them.
+func (c *connection) fillPool() {
+	redial := c.redial
+	for i := 0; ; i++ {
+		if c.terminated.Load() {
+			c.filling.Store(false)
+			break
+		}
+		c.pool_mutex.Lock()
+		if len(c.pool) >= c.pool_size {
+			// done filling. Clear the flag under pool_mutex so a member drop that lowers the
+			// pool below pool_size (handled under the same lock) re-arms startFill: this
+			// leaves no window where the pool is short with no filler running.
+			c.filling.Store(false)
+			c.pool_mutex.Unlock()
+			break
+		}
+		c.pool_mutex.Unlock()
+		nc, tail, err := redial(c.pool_dsn[i%len(c.pool_dsn)], c.id)
+		if err != nil {
+			time.Sleep(50 * time.Millisecond) // I/O retry backoff
+			continue
+		}
+		if err := c.Join(nc, c.id, redial, tail); err != nil {
+			nc.Close()
+		}
+	}
+}
+
 func (c *connection) Terminate(reason error) {
-	c.terminated = true
+	c.terminated.Store(true)
+
+	// fail every pending synchronous request so in-flight remote operations (call,
+	// link/monitor/demonitor/unlink, remote spawn, ...) return immediately with
+	// ErrNoConnection instead of blocking until DefaultRequestTimeout once the
+	// connection is gone.
+	c.requestsMutex.Lock()
+	for ref, ch := range c.requests {
+		select {
+		case ch <- MessageResult{Error: gen.ErrNoConnection, Ref: ref}:
+		default:
+		}
+		delete(c.requests, ref)
+	}
+	c.requestsMutex.Unlock()
 
 	c.pool_mutex.Lock()
 	defer c.pool_mutex.Unlock()
 	for _, pi := range c.pool {
-		pi.connection.Close()
+		if t := pi.timer.Load(); t != nil {
+			t.Stop()
+		}
+		if pc := pi.connection.Load(); pc != nil {
+			pc.Close()
+		}
+	}
+	// already-empty pool has no goroutine to close done; do it here. A non-empty pool
+	// drains via the closed TCPs and its last goroutine closes done (terminated set).
+	if len(c.pool) == 0 {
+		c.closeDone()
+	}
+
+	// cleanup fragment state
+	if c.sharedFragTimer != nil {
+		c.sharedFragTimer.Stop()
 	}
 }
 
-func (c *connection) serve(conn net.Conn, tail []byte) {
+func (c *connection) serve(pi *pool_item, tail []byte) {
+	if lib.Recover() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.log.Panic("panic in connection serve loop: %#v at %s",
+					r, lib.PanicOrigin())
+				c.Terminate(gen.TerminateReasonPanic)
+			}
+		}()
+	}
+
+	conn := pi.connection.Load()
+
+	// start skew measurement now that serve() is running
+	if c.clockSkew {
+		pi.timer.Store(time.AfterFunc(100*time.Millisecond, func() {
+			c.skewTick(pi)
+		}))
+	}
 
 	recvN := 0
 	recvNQ := len(c.recvQueues)
@@ -1570,19 +1928,34 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 	buf := lib.TakeBuffer()
 	buf.Append(tail)
 
-	// remove the deadline
-	conn.SetReadDeadline(time.Time{})
+	// replace handshake read deadline with keepalive deadline or infinite
+	if c.softwareKeepAlive {
+		conn.SetReadDeadline(time.Now().Add(c.softwareKeepAliveTimeout))
+	} else {
+		conn.SetReadDeadline(time.Time{})
+	}
 
 	for {
 		// read packet
 		buftail, err := c.read(conn, buf)
 		if err != nil || buftail == nil {
 			if err != nil {
-				c.log.Trace("link with %s closed: %s", conn.RemoteAddr(), err)
+				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+					c.log.Warning("software keepalive timeout on %s", conn.RemoteAddr())
+					c.Terminate(gen.ErrTimeout)
+				} else {
+					c.log.Trace("link with %s closed: %s", conn.RemoteAddr(), err)
+				}
 			}
 			lib.ReleaseBuffer(buf)
 			conn.Close()
 			return
+		}
+
+		// reset deadline after successful read
+		if c.softwareKeepAlive {
+			timeout := c.softwareKeepAliveTimeout
+			conn.SetReadDeadline(time.Now().Add(timeout))
 		}
 
 		if buf.B[0] != protoMagic {
@@ -1599,10 +1972,49 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 			return
 		}
 
+		// handle keepalive silently, don't count, don't queue
+		if buf.B[7] == protoMessageK {
+			lib.ReleaseBuffer(buf)
+			buf = buftail
+			continue
+		}
+
+		// handle skew measurement before queue dispatch for timestamp accuracy
+		if buf.B[7] == protoMessageS {
+			if buf.Len() < 32 {
+				c.log.Error("received malformed skew packet from %s (too small)", conn.RemoteAddr())
+				lib.ReleaseBuffer(buf)
+				buf = buftail
+				continue
+			}
+			tsRecv := time.Now().UnixNano()
+			c.handleSkew(pi, buf, tsRecv)
+			lib.ReleaseBuffer(buf)
+			buf = buftail
+			continue
+		}
+
+		// pool-fill go-ahead: the acceptor confirmed this (dialer) connection is the
+		// survivor. start filling. Header-only, handled inline (not queued).
+		if buf.B[7] == protoMessageExtend {
+			c.pool_mutex.Lock()
+			c.extendRequested = true
+			ready := c.redial != nil
+			c.pool_mutex.Unlock()
+			if ready {
+				c.startFill()
+			}
+			lib.ReleaseBuffer(buf)
+			buf = buftail
+			continue
+		}
+
 		recvN++
 
-		atomic.AddUint64(&c.messagesIn, 1)
 		atomic.AddUint64(&c.bytesIn, uint64(buf.Len()))
+		if buf.B[7] != protoMessageF {
+			atomic.AddUint64(&c.messagesIn, 1)
+		}
 		// TODO
 		// c.transitIn
 
@@ -1611,7 +2023,7 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 		if order := int(buf.B[6]); order > 0 {
 			qN = order % recvNQ
 		}
-		if lib.Trace() {
+		if lib.Verbose() {
 			c.log.Trace("received message. put it to pool[%d] of %s...", qN, conn.RemoteAddr())
 		}
 		queue := c.recvQueues[qN]
@@ -1619,32 +2031,47 @@ func (c *connection) serve(conn net.Conn, tail []byte) {
 
 		queue.Push(buf)
 		if queue.Lock() {
-			go c.handleRecvQueue(queue)
+			go c.handleRecvQueue(queue, qN)
 		}
 		buf = buftail
 
 	}
 }
 
-func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
+func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				c.log.Panic("panic on handling received message: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				c.log.Panic("panic on handling received message: %#v at %s",
+					r, lib.PanicOrigin())
 				c.Terminate(gen.TerminateReasonPanic)
 			}
 		}()
 	}
 
-	if lib.Trace() {
+	if lib.Verbose() {
 		c.log.Trace("start handling the message queue")
+	}
+
+	// per-queue ordered fragment assembly (persists across goroutine re-entries)
+	var localFragments map[uint32]*fragmentAssembly
+	if c.fragmentation && qIdx < len(c.orderedFragments) {
+		localFragments = c.orderedFragments[qIdx]
 	}
 	for {
 		v, ok := q.Pop()
 		if ok == false {
-			// no more items in the queue, unlock it
+			// queue drained, clean stale ordered assemblies (safe: we hold queue lock)
+			if localFragments != nil && len(localFragments) > 0 {
+				now := time.Now()
+				for seqID, asm := range localFragments {
+					if now.After(asm.deadline) {
+						delete(localFragments, seqID)
+						c.fragmentTimeouts.Add(1)
+					}
+				}
+			}
+
 			q.Unlock()
 
 			// but check the queue before the exit this goroutine
@@ -1670,6 +2097,8 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			releaseBuffer = false
 		}
 
+		var tracing gen.Tracing
+
 	re:
 		switch buf.B[7] {
 		case protoMessagePID: // process id
@@ -1680,6 +2109,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16] & 3)
 			important := (buf.B[16] & 128) > 0
+			refID := binary.BigEndian.Uint64(buf.B[17:25])
 			idTO := binary.BigEndian.Uint64(buf.B[25:33])
 
 			msg, tail, err := edf.Decode(buf.B[33:], c.decodeOptions)
@@ -1690,10 +2120,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
 				continue
-			}
-
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
 			}
 
 			from := gen.PID{
@@ -1707,7 +2133,12 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.core.Creation(),
 			}
 
+			if len(tail) > 0 {
+				c.log.Warning("message %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
+			}
+
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Priority: priority,
 			}
 
@@ -1719,7 +2150,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			opts.Ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
+			opts.Ref.ID[0] = refID
 			c.SendResponseError(to, from, opts, err)
 
 		case protoMessageName, protoMessageNameCache: // name, chached name
@@ -1767,6 +2198,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16] & 3)
 			important := (buf.B[16] & 128) > 0
+			refID := binary.BigEndian.Uint64(buf.B[17:25])
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
 			if releaseBuffer {
@@ -1776,10 +2208,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
 				continue
-			}
-
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
 			}
 
 			if c.decodeOptions.AtomMapping != nil {
@@ -1798,7 +2226,12 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Name: toName,
 			}
 
+			if len(tail) > 0 {
+				c.log.Warning("message %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
+			}
+
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Priority: priority,
 			}
 
@@ -1810,7 +2243,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			opts.Ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
+			opts.Ref.ID[0] = refID
 			c.SendResponseError(gen.PID{}, from, opts, err)
 
 		case protoMessageAlias:
@@ -1822,6 +2255,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
 			priority := gen.MessagePriority(buf.B[16] & 3)
 			important := (buf.B[16] & 128) > 0
+			refID := binary.BigEndian.Uint64(buf.B[17:25])
 			idTo := [3]uint64{
 				binary.BigEndian.Uint64(buf.B[25:33]),
 				binary.BigEndian.Uint64(buf.B[33:41]),
@@ -1838,10 +2272,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			from := gen.PID{
 				Node:     c.peer,
 				ID:       idFrom,
@@ -1853,7 +2283,12 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.core.Creation(),
 			}
 
+			if len(tail) > 0 {
+				c.log.Warning("message %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
+			}
+
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Priority: priority,
 			}
 			err = c.core.RouteSendAlias(from, to, opts, msg)
@@ -1865,7 +2300,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			opts.Ref.ID[0] = binary.BigEndian.Uint64(buf.B[17:25])
+			opts.Ref.ID[0] = refID
 			c.SendResponseError(gen.PID{}, from, opts, err)
 
 		case protoRequestPID:
@@ -1898,10 +2333,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			from := gen.PID{
 				Node:     c.peer,
 				ID:       idFrom,
@@ -1913,7 +2344,12 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.core.Creation(),
 			}
 
+			if len(tail) > 0 {
+				c.log.Warning("call %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
+			}
+
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Ref:      ref,
 				Priority: priority,
 			}
@@ -1998,16 +2434,18 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			if c.decodeOptions.AtomMapping != nil {
 				if v, found := c.decodeOptions.AtomMapping.Load(to.Name); found {
 					to.Name = v.(gen.Atom)
 				}
 			}
+
+			if len(tail) > 0 {
+				c.log.Warning("call %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
+			}
+
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Ref:      ref,
 				Priority: priority,
 			}
@@ -2062,17 +2500,18 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			from := gen.PID{
 				Node:     c.peer,
 				ID:       idFrom,
 				Creation: c.peer_creation,
 			}
 
+			if len(tail) > 0 {
+				c.log.Warning("call %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
+			}
+
 			opts := gen.MessageOptions{
+				Tracing:  tracing,
 				Ref:      ref,
 				Priority: priority,
 			}
@@ -2153,7 +2592,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			}
 
 			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
+				c.log.Warning("event %s message %T from %s has %d extra bytes", message.Event.Name, msg, from, len(tail))
 			}
 
 			message.Message = msg
@@ -2179,10 +2618,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed Exit message: %v", msg)
@@ -2198,6 +2633,10 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Node:     c.core.Name(),
 				ID:       idTO,
 				Creation: c.core.Creation(),
+			}
+
+			if len(tail) > 0 {
+				c.log.Warning("exit from %s to %s (reason %T) has %d extra bytes", from, to, reason, len(tail))
 			}
 
 			c.core.RouteSendExit(from, to, reason)
@@ -2230,10 +2669,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			from := gen.PID{
 				Node:     c.peer,
 				ID:       idFrom,
@@ -2245,7 +2680,12 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.core.Creation(),
 			}
 
+			if len(tail) > 0 {
+				c.log.Warning("response %T from %s to %s has %d extra bytes", msg, from, to, len(tail))
+			}
+
 			opts := gen.MessageOptions{
+				Tracing:           tracing,
 				Ref:               ref,
 				Priority:          priority,
 				ImportantDelivery: important,
@@ -2290,6 +2730,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				Creation: c.core.Creation(),
 			}
 			opts := gen.MessageOptions{
+				Tracing:           tracing,
 				Ref:               ref,
 				Priority:          priority,
 				ImportantDelivery: important,
@@ -2318,14 +2759,14 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 					continue
 				}
 
-				if len(tail) > 0 {
-					c.log.Warning("message has extra bytes: %#v", tail)
-				}
-
 				r, ok = msg.(error)
 				if ok == false {
 					c.log.Error("received incorrect response error")
 					continue
+				}
+
+				if len(tail) > 0 {
+					c.log.Warning("response error %T from %s to %s has %d extra bytes", r, from, to, len(tail))
 				}
 
 			default:
@@ -2359,10 +2800,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed TerminatePID message: %v", msg)
@@ -2374,6 +2811,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				ID:       idTarget,
 				Creation: c.peer_creation,
 			}
+
+			if len(tail) > 0 {
+				c.log.Warning("terminate for %s (reason %T) has %d extra bytes", target, reason, len(tail))
+			}
+
 			c.core.RouteTerminatePID(target, reason)
 
 		case protoMessageTerminateName, protoMessageTerminateNameCache:
@@ -2431,15 +2873,16 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed TerminateName message: %v", msg)
 				continue
 			}
+
+			if len(tail) > 0 {
+				c.log.Warning("terminate for %s (reason %T) has %d extra bytes", processid, reason, len(tail))
+			}
+
 			c.core.RouteTerminateProcessID(processid, reason)
 
 		case protoMessageTerminateEvent, protoMessageTerminateEventCache:
@@ -2497,15 +2940,16 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed TerminateEvent message: %v", msg)
 				continue
 			}
+
+			if len(tail) > 0 {
+				c.log.Warning("terminate for %s (reason %T) has %d extra bytes", event, reason, len(tail))
+			}
+
 			c.core.RouteTerminateEvent(event, reason)
 
 		case protoMessageTerminateAlias:
@@ -2533,14 +2977,14 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 				continue
 			}
 
-			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
-			}
-
 			reason, ok := msg.(error)
 			if ok == false {
 				c.log.Error("received malformed TerminateAlias message: %v", msg)
 				continue
+			}
+
+			if len(tail) > 0 {
+				c.log.Warning("terminate for %s (reason %T) has %d extra bytes", target, reason, len(tail))
 			}
 
 			c.core.RouteTerminateAlias(target, reason)
@@ -2560,10 +3004,10 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 			}
 
 			if len(tail) > 0 {
-				c.log.Warning("message has extra bytes: %#v", tail)
+				c.log.Warning("unaddressed message %T has %d extra bytes", msg, len(tail))
 			}
 
-			c.routeMessage(msg)
+			c.dispatchRoute(msg)
 
 		case protoMessageZ:
 			if buf.Len() < 10 {
@@ -2578,6 +3022,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 					c.log.Error("unable to decompress message (gzip), ignored: %s", err)
 					continue
 				}
+				c.decompressedRecv.Add(1)
+				c.decompressedBytesRecv.Add(uint64(buf.Len()))
+				c.decompressedOrigRecv.Add(uint64(dbuf.Len()))
 				lib.ReleaseBuffer(buf)
 				buf = dbuf
 				goto re
@@ -2588,6 +3035,9 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 					c.log.Error("unable to decompress message (lzw), ignored: %s", err)
 					continue
 				}
+				c.decompressedRecv.Add(1)
+				c.decompressedBytesRecv.Add(uint64(buf.Len()))
+				c.decompressedOrigRecv.Add(uint64(dbuf.Len()))
 				lib.ReleaseBuffer(buf)
 				buf = dbuf
 				goto re
@@ -2598,32 +3048,60 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC) {
 					c.log.Error("unable to decompress message (zlib), ignored: %s", err)
 					continue
 				}
+				c.decompressedRecv.Add(1)
+				c.decompressedBytesRecv.Add(uint64(buf.Len()))
+				c.decompressedOrigRecv.Add(uint64(dbuf.Len()))
 				lib.ReleaseBuffer(buf)
 				buf = dbuf
 				goto re
 
 			default:
-				c.log.Error("message with unknown compression type %d, ignored", buf.B[7])
+				c.log.Error("message with unknown compression type %d, ignored", buf.B[8])
 				continue
 			}
 
-		// case protoMessageF:
-		// TODO fragmentation
-		// TODO check the message size after assembling
+		case protoMessageT:
+			if buf.Len() < 40 {
+				c.log.Error("malformed message (too small MessageT)")
+				continue
+			}
+			tracing.ID[0] = binary.BigEndian.Uint64(buf.B[8:16])
+			tracing.ID[1] = binary.BigEndian.Uint64(buf.B[16:24])
+			tracing.SpanID = binary.BigEndian.Uint64(buf.B[24:32])
+			c.tracedReceived.Add(1)
+			buf.B = buf.B[32:]
+			goto re
+
+		case protoMessageF:
+			if c.fragmentation == false {
+				c.log.Warning("received fragment but fragmentation disabled, ignored")
+				continue
+			}
+
+			order := buf.B[6]
+			if order > 0 && localFragments != nil {
+				// ordered path: per-queue assembly
+				buf = c.handleFragmentOrdered(buf, localFragments)
+				if buf == nil {
+					continue
+				}
+				goto re
+			}
+
+			// unordered path: shared assembly
+			buf = c.handleFragmentUnordered(buf)
+			if buf == nil {
+				continue
+			}
+			goto re
 
 		// case protoMessageP:
 		// TODO proxy
 
 		default:
-			c.log.Error("unknown/unsupported message type %d, ignored", buf.B[6])
+			c.log.Error("unknown/unsupported message type %d, ignored", buf.B[7])
 			lib.ReleaseBuffer(buf)
 		}
-
-		// TODO
-		// check if connection has been terminated
-		// if c.terminated {
-		//     return
-		// }
 
 	}
 }
@@ -2659,11 +3137,15 @@ func (c *connection) read(conn net.Conn, buf *lib.Buffer) (*lib.Buffer, error) {
 
 		l := int(binary.BigEndian.Uint32(buf.B[2:6]))
 
+		if l < 8 {
+			return nil, fmt.Errorf("received malformed message (len: %d, must be >= 8)", l)
+		}
+
 		if c.node_maxmessagesize > 0 && l > c.node_maxmessagesize {
 			return nil, fmt.Errorf("received too long message (len: %d, limit: %d)", l, c.node_maxmessagesize)
 		}
 
-		if lib.Trace() {
+		if lib.Verbose() {
 			c.log.Trace("...recv buf.Len: %d, packet %d (expect: %d)", buf.Len(), l, expect)
 		}
 
@@ -2679,6 +3161,164 @@ func (c *connection) read(conn net.Conn, buf *lib.Buffer) (*lib.Buffer, error) {
 
 		return tail, nil
 	}
+}
+
+// dispatchRoute is the entry point for protoMessageAny payloads from the
+// receive goroutine. Fast-lane messages (ACKs, cache updates) are handled
+// inline so their latency is bounded by a single channel send. Everything
+// else (Link/Monitor/Spawn/etc) goes to a per-shard route queue and is
+// processed by routeWorker, freeing the receive goroutine to keep decoding.
+func (c *connection) dispatchRoute(msg any) {
+	const mask = uint64(routeQueuesPerConn - 1)
+	var idx uint64
+	var ref gen.Ref
+
+	switch m := msg.(type) {
+
+	// Fast lane: handled inline in the receive goroutine. MessageResult
+	// must never queue behind heavy work; it is the ACK that wakes up
+	// the sender of an outbound request (including SendImportant).
+	case MessageResult:
+		c.requestsMutex.RLock()
+		ch, found := c.requests[m.Ref]
+		c.requestsMutex.RUnlock()
+		if found {
+			select {
+			case ch <- m:
+			default:
+			}
+		}
+		return
+	case MessageUpdateCache:
+		c.applyCacheUpdate(m)
+		return
+
+	// Slow lane: extract the queue index (shard-aligned with TM) and the
+	// request ref (for deadline filtering) in one type switch.
+	case MessageLinkPID:
+		idx, ref = m.Target.ID&mask, m.Ref
+	case MessageUnlinkPID:
+		idx, ref = m.Target.ID&mask, m.Ref
+	case MessageMonitorPID:
+		idx, ref = m.Target.ID&mask, m.Ref
+	case MessageDemonitorPID:
+		idx, ref = m.Target.ID&mask, m.Ref
+
+	case MessageLinkAlias:
+		idx, ref = m.Target.ID[1]&mask, m.Ref
+	case MessageUnlinkAlias:
+		idx, ref = m.Target.ID[1]&mask, m.Ref
+	case MessageMonitorAlias:
+		idx, ref = m.Target.ID[1]&mask, m.Ref
+	case MessageDemonitorAlias:
+		idx, ref = m.Target.ID[1]&mask, m.Ref
+
+	case MessageLinkProcessID:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageUnlinkProcessID:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageMonitorProcessID:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageDemonitorProcessID:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+
+	case MessageLinkEvent:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageUnlinkEvent:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageMonitorEvent:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+	case MessageDemonitorEvent:
+		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
+
+	case MessageSpawn:
+		idx, ref = lib.HashString64(string(m.Name))&mask, m.Ref
+	case MessageApplicationStart:
+		idx, ref = lib.HashString64(string(m.Name))&mask, m.Ref
+	case MessageApplicationInfo:
+		idx, ref = lib.HashString64(string(m.Name))&mask, m.Ref
+
+	default:
+		c.log.Warning("unknown routed message type %T (ignored)", msg)
+		return
+	}
+
+	// Drop requests whose deadline already passed before reaching the queue.
+	// Ref.IsAlive() returns true when no deadline is set, so refs from older
+	// peers (without a deadline) always pass through.
+	if ref.IsAlive() == false {
+		if lib.Verbose() {
+			c.log.Trace("dropped stale message %T at dispatch", msg)
+		}
+		return
+	}
+
+	queue := c.routeQueues[idx]
+	queue.Push(msg)
+	if queue.Lock() {
+		go c.routeWorker(queue)
+	}
+}
+
+// routeWorker drains a single route queue. Spawned on demand by dispatchRoute
+// when the queue transitions from empty to non-empty. Exits when the queue
+// is fully drained. Same re-entry pattern as handleRecvQueue.
+func (c *connection) routeWorker(q lib.QueueMPSC) {
+	if lib.Recover() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.log.Panic("panic in routeWorker: %#v at %s",
+					r, lib.PanicOrigin())
+				c.Terminate(gen.TerminateReasonPanic)
+			}
+		}()
+	}
+
+	for {
+		v, ok := q.Pop()
+		if ok == false {
+			q.Unlock()
+			if q.Item() == nil {
+				return
+			}
+			if locked := q.Lock(); locked == false {
+				return
+			}
+			continue
+		}
+		c.routeMessage(v)
+	}
+}
+
+// applyCacheUpdate applies an inbound cache update and acks the sender.
+// Called inline from the receive goroutine via the fast lane.
+func (c *connection) applyCacheUpdate(m MessageUpdateCache) {
+	for k, v := range m.AtomCache {
+		entry, exist := c.decodeOptions.AtomCache.LoadOrStore(k, v)
+		if exist {
+			c.log.Warning("updating atom cache ignored entry (already exist): %d => %v", k, entry)
+		}
+	}
+	for k, v := range m.AtomMapping {
+		entry, exist := c.decodeOptions.AtomMapping.LoadOrStore(k, v)
+		if exist {
+			c.log.Warning("updating atom mapping ignored entry (already exist): %s => %v", k, entry)
+		}
+	}
+	for k, v := range m.RegCache {
+		entry, exist := c.decodeOptions.RegCache.LoadOrStore(k, v)
+		if exist {
+			c.log.Warning("updating reg cache ignored entry (already exist): %d => %v", k, entry)
+		}
+	}
+	for k, v := range m.ErrCache {
+		entry, exist := c.decodeOptions.ErrCache.LoadOrStore(k, v)
+		if exist {
+			c.log.Warning("updating err cache ignored entry (already exist): %d => %v", k, entry)
+		}
+	}
+	result := MessageResult{Ref: m.Ref}
+	c.sendAny(result, 0, 0, gen.Compression{})
 }
 
 func (c *connection) routeMessage(msg any) {
@@ -2742,165 +3382,235 @@ func (c *connection) routeMessage(msg any) {
 
 	case MessageLinkPID:
 		// TODO check the source/target node name
-		err := c.core.RouteLinkPID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
-		order := uint8(m.Target.ID % 255)
-		orderPeer := uint8(m.Source.ID % 255)
+		err := c.core.RouteLinkPID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteUnlinkPID(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
+		order := uint8(m.Target.ID%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkPID:
-		err := c.core.RouteUnlinkPID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
-		order := uint8(m.Target.ID % 255)
-		orderPeer := uint8(m.Source.ID % 255)
+		err := c.core.RouteUnlinkPID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
+		order := uint8(m.Target.ID%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkProcessID:
-		err := c.core.RouteLinkProcessID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteLinkProcessID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteUnlinkProcessID(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkProcessID:
-		err := c.core.RouteUnlinkProcessID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteUnlinkProcessID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkAlias:
-		err := c.core.RouteLinkAlias(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
-		order := uint8(m.Target.ID[1] % 255)
-		orderPeer := uint8(m.Source.ID % 255)
+		err := c.core.RouteLinkAlias(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteUnlinkAlias(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
+		order := uint8(m.Target.ID[1]%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkAlias:
-		err := c.core.RouteUnlinkAlias(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
-		order := uint8(m.Target.ID[1] % 255)
-		orderPeer := uint8(m.Source.ID % 255)
+		err := c.core.RouteUnlinkAlias(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
+		order := uint8(m.Target.ID[1]%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkEvent:
-		r, err := c.core.RouteLinkEvent(m.Source, m.Target)
-		result := MessageResult{
-			Result: r,
-			Error:  err,
-			Ref:    m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		r, err := c.core.RouteLinkEvent(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteUnlinkEvent(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Result: r, Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageUnlinkEvent:
-		err := c.core.RouteUnlinkEvent(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteUnlinkEvent(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorPID:
-		err := c.core.RouteMonitorPID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
-		order := uint8(m.Target.ID % 255)
-		orderPeer := uint8(m.Source.ID % 255)
+		err := c.core.RouteMonitorPID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteDemonitorPID(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
+		order := uint8(m.Target.ID%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorPID:
-		err := c.core.RouteDemonitorPID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
-		order := uint8(m.Target.ID % 255)
-		orderPeer := uint8(m.Source.ID % 255)
+		err := c.core.RouteDemonitorPID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
+		order := uint8(m.Target.ID%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorProcessID:
-		err := c.core.RouteMonitorProcessID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteMonitorProcessID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteDemonitorProcessID(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorProcessID:
-		err := c.core.RouteDemonitorProcessID(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteDemonitorProcessID(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorAlias:
-		err := c.core.RouteMonitorAlias(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
-		order := uint8(m.Target.ID[1] % 255)
-		orderPeer := uint8(m.Source.ID % 255)
+		err := c.core.RouteMonitorAlias(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteDemonitorAlias(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
+		order := uint8(m.Target.ID[1]%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorAlias:
-		err := c.core.RouteDemonitorAlias(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
-		order := uint8(m.Target.ID[1] % 255)
-		orderPeer := uint8(m.Source.ID % 255)
+		err := c.core.RouteDemonitorAlias(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
+		order := uint8(m.Target.ID[1]%255 + 1)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageMonitorEvent:
-		r, err := c.core.RouteMonitorEvent(m.Source, m.Target)
-		result := MessageResult{
-			Result: r,
-			Error:  err,
-			Ref:    m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		r, err := c.core.RouteMonitorEvent(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			if err == nil {
+				c.core.RouteDemonitorEvent(m.Source, m.Target)
+			}
+			return
+		}
+		result := MessageResult{Result: r, Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageDemonitorEvent:
-		err := c.core.RouteDemonitorEvent(m.Source, m.Target)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteDemonitorEvent(m.Source, m.Target)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Source.ID % 255)
+		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageSpawn:
@@ -2908,14 +3618,21 @@ func (c *connection) routeMessage(msg any) {
 			c.log.Warning("remote spawn is not allowed for %s", c.peer)
 			return
 		}
-		pid, err := c.core.RouteSpawn(c.core.Name(), m.Name, m.Options, c.peer)
-		result := MessageResult{
-			Error:  err,
-			Result: pid,
-			Ref:    m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		pid, err := c.core.RouteSpawn(c.core.Name(), m.Name, m.Options, c.peer)
+		if m.Ref.IsAlive() == false {
+			// sender already gave up; kill the freshly-spawned process so
+			// the next retry doesn't see a stale instance.
+			if err == nil {
+				c.core.RouteSendExit(c.core.PID(), pid, gen.TerminateReasonKill)
+			}
+			return
+		}
+		result := MessageResult{Error: err, Result: pid, Ref: m.Ref}
 		order := uint8(0)
-		orderPeer := uint8(m.Options.ParentPID.ID % 255)
+		orderPeer := uint8(m.Options.ParentPID.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageApplicationStart:
@@ -2923,23 +3640,30 @@ func (c *connection) routeMessage(msg any) {
 			c.log.Warning("remote application start is not allowed for %s", c.peer)
 			return
 		}
-		err := c.core.RouteApplicationStart(m.Name, m.Mode, m.Options, c.peer)
-		result := MessageResult{
-			Error: err,
-			Ref:   m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		err := c.core.RouteApplicationStart(m.Name, m.Mode, m.Options, c.peer)
+		if m.Ref.IsAlive() == false {
+			// app may have started; rolling it back is non-trivial so we
+			// just skip the reply. Sender's retry hits ErrApplicationRunning
+			// which is naturally idempotent.
+			return
+		}
+		result := MessageResult{Error: err, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(0)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageApplicationInfo:
-		info, err := c.core.RouteApplicationInfo(m.Name)
-
-		result := MessageResult{
-			Error:  err,
-			Result: info,
-			Ref:    m.Ref,
+		if m.Ref.IsAlive() == false {
+			return
 		}
+		info, err := c.core.RouteApplicationInfo(m.Name)
+		if m.Ref.IsAlive() == false {
+			return
+		}
+		result := MessageResult{Error: err, Result: info, Ref: m.Ref}
 		order := uint8(0)
 		orderPeer := uint8(0)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
@@ -2951,73 +3675,126 @@ func (c *connection) routeMessage(msg any) {
 
 func (c *connection) sendAny(msg any, order uint8, orderPeer uint8, compression gen.Compression) error {
 	buf := lib.TakeBuffer()
-	buf.Allocate(8) // for the header
+	h := protoWrapReserve
+	buf.Allocate(h + 8) // reserve + header
 
 	if err := edf.Encode(msg, buf, c.encodeOptions); err != nil {
 		return err
 	}
-	if buf.Len() > math.MaxUint32 {
+	if buf.Len()-h > math.MaxUint32 {
+		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
-	buf.B[0] = protoMagic
-	buf.B[1] = protoVersion
-	binary.BigEndian.PutUint32(buf.B[2:6], uint32(buf.Len()))
-	buf.B[6] = orderPeer
-	buf.B[7] = protoMessageAny
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageAny
 
-	return c.send(buf, order, compression)
+	return c.send(buf, order, compression, gen.Tracing{})
 }
 
 func (c *connection) wait() {
-	c.wg.Wait()
+	// serve started: mark established. A connection with no live TCP is dead - terminate it
+	// so routing is released and the next call re-dials, instead of lingering routable.
+	c.pool_mutex.Lock()
+	c.established = true
+	if len(c.pool) == 0 {
+		c.terminated.Store(true)
+		c.closeDone()
+	}
+	c.pool_mutex.Unlock()
+	<-c.done
 }
 
-func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compression) error {
+// closeDone closes done exactly once. Caller must hold pool_mutex.
+func (c *connection) closeDone() {
+	if c.poolClosed == false {
+		c.poolClosed = true
+		close(c.done)
+	}
+}
 
-	if compression.Enable && buf.Len() > compression.Threshold {
+func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compression, tracing gen.Tracing) error {
+	// msgStart points to the beginning of the actual message within buf.B.
+	// Send* methods write the message at offset protoWrapReserve,
+	// leaving reserved space at the front for wrapping headers (tracing, proxy).
+	msgStart := protoWrapReserve
+
+	if c.peer_maxmessagesize > 0 && buf.Len()-msgStart > c.peer_maxmessagesize {
+		lib.ReleaseBuffer(buf)
+		return gen.ErrTooLarge
+	}
+
+	if compression.Enable && buf.Len()-msgStart > compression.Threshold {
 		var zbuf *lib.Buffer
 		var err error
 
-		// 1 - protoMagic
-		// 1 - protoVersion
-		// 4 - length
-		// 1 - order
-		// 1 - protoMessageZ
-		// 1 - compression type
-		preallocate := uint(9)
+		// strip reserve before compressing; only compress the actual message
+		orderByte := buf.B[msgStart+6]
+		origLen := buf.Len() - msgStart
+		buf.B = buf.B[msgStart:]
+
+		// protoWrapReserve (for wrapping) + 9 (Z header: magic, version, length, order, type, compression_type)
+		preallocate := uint(protoWrapReserve + 9)
 
 		switch compression.Type {
 		case gen.CompressionTypeZLIB:
 			zbuf, err = lib.CompressZLIB(buf, preallocate)
 			if err != nil {
+				lib.ReleaseBuffer(buf)
 				return fmt.Errorf("unable to compress packet (zlib): %s", err)
 			}
 		case gen.CompressionTypeLZW:
 			zbuf, err = lib.CompressLZW(buf, preallocate)
 			if err != nil {
+				lib.ReleaseBuffer(buf)
 				return fmt.Errorf("unable to compress packet (lzw): %s", err)
 			}
 		default:
 			compression.Type = gen.CompressionTypeGZIP
 			zbuf, err = lib.CompressGZIP(buf, preallocate, int(compression.Level))
 			if err != nil {
+				lib.ReleaseBuffer(buf)
 				return fmt.Errorf("unable to compress packet (gzip): %s", err)
 			}
 
 		}
-		zbuf.B[0] = protoMagic
-		zbuf.B[1] = protoVersion
-		binary.BigEndian.PutUint32(zbuf.B[2:6], uint32(zbuf.Len()))
-		zbuf.B[6] = buf.B[6] // keep order of the original message
-		zbuf.B[7] = protoMessageZ
-		zbuf.B[8] = compression.Type.ID()
+		h := protoWrapReserve
+		zbuf.B[h+0] = protoMagic
+		zbuf.B[h+1] = protoVersion
+		binary.BigEndian.PutUint32(zbuf.B[h+2:h+6], uint32(zbuf.Len()-h))
+		zbuf.B[h+6] = orderByte
+		zbuf.B[h+7] = protoMessageZ
+		zbuf.B[h+8] = compression.Type.ID()
+
+		c.compressedSent.Add(1)
+		c.compressedOrigBytesSent.Add(uint64(origLen))
+		c.compressedBytesSent.Add(uint64(zbuf.Len() - h))
 
 		lib.ReleaseBuffer(buf)
 		buf = zbuf
+		msgStart = h
 	}
 
-	if c.peer_maxmessagesize > 0 && buf.Len() > c.peer_maxmessagesize {
-		return gen.ErrTooLarge
+	// tracing wrapper, uses reserved space, no copy
+	// only wrap if both nodes have tracing enabled
+	if c.tracing == true && tracing.ID != [2]uint64{} {
+		msgStart -= 32
+		buf.B[msgStart+0] = protoMagic
+		buf.B[msgStart+1] = protoVersion
+		binary.BigEndian.PutUint32(buf.B[msgStart+2:msgStart+6], uint32(buf.Len()-msgStart))
+		buf.B[msgStart+6] = buf.B[msgStart+32+6] // order from inner message
+		buf.B[msgStart+7] = protoMessageT
+		binary.BigEndian.PutUint64(buf.B[msgStart+8:msgStart+16], tracing.ID[0])
+		binary.BigEndian.PutUint64(buf.B[msgStart+16:msgStart+24], tracing.ID[1])
+		binary.BigEndian.PutUint64(buf.B[msgStart+24:msgStart+32], tracing.SpanID)
+		c.tracedSent.Add(1)
+	}
+
+	// fragmentation
+	if c.fragmentation == true && buf.Len()-msgStart > c.fragmentSize {
+		return c.sendFragmented(buf, msgStart, order)
 	}
 
 	var pi *pool_item
@@ -3025,6 +3802,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	l := len(c.pool)
 	if l == 0 {
 		c.pool_mutex.RUnlock()
+		lib.ReleaseBuffer(buf)
 		return gen.ErrNoConnection
 	}
 	if order == 0 {
@@ -3037,22 +3815,344 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 	}
 	c.pool_mutex.RUnlock()
 
-	atomic.AddUint64(&c.messagesOut, 1)
-	atomic.AddUint64(&c.bytesOut, uint64(buf.Len()))
-
-	// TODO
-	// add proxy, fragmentation support
-	// c.transitOut++
-	// if buf.Len() < protoFragmentSize {
-
-	pi.fl.Write(buf.B)
+	dataLen := uint64(buf.Len() - msgStart)
+	_, err := pi.fl.Write(buf.B[msgStart:])
 	lib.ReleaseBuffer(buf)
+	if err != nil {
+		pi.closeConn()
+		return err
+	}
+
+	atomic.AddUint64(&c.messagesOut, 1)
+	atomic.AddUint64(&c.bytesOut, dataLen)
 	return nil
+}
 
-	// }
+func (c *connection) sendFragmented(buf *lib.Buffer, msgStart int, order uint8) error {
+	dataLen := buf.Len() - msgStart
+	maxPayload := c.fragmentSize - 16 // 16 = ENP header (8) + fragment header (8)
 
-	// message must be fragmented
-	// panic("TODO")
+	total := (dataLen + maxPayload - 1) / maxPayload
+	if total > math.MaxUint16 {
+		// fragment index/count are uint16 on the wire
+		lib.ReleaseBuffer(buf)
+		return gen.ErrTooLarge
+	}
+	totalFragments := uint16(total)
+
+	sequenceID := c.nextSequenceID.Add(1)
+
+	if lib.Verbose() {
+		c.log.Trace("fragmenting message: %d bytes, %d fragments (seq=%d)",
+			dataLen, totalFragments, sequenceID)
+	}
+
+	// for ordered messages, select pool item once (all fragments must go
+	// through the same TCP connection to preserve order on the receiver)
+	var orderedPI *pool_item
+	if order > 0 {
+		c.pool_mutex.RLock()
+		l := len(c.pool)
+		if l == 0 {
+			c.pool_mutex.RUnlock()
+			lib.ReleaseBuffer(buf)
+			return gen.ErrNoConnection
+		}
+		orderedPI = c.pool[int(order)%l]
+		c.pool_mutex.RUnlock()
+	}
+
+	// Zero-copy fragmentation: write fragment headers in-place.
+	// First fragment uses reserved space before msgStart.
+	// Subsequent fragments overwrite the tail of the previous (already sent) chunk.
+	offset := 0
+	for idx := uint16(0); idx < totalFragments; idx++ {
+		chunkSize := dataLen - offset
+		if chunkSize > maxPayload {
+			chunkSize = maxPayload
+		}
+
+		// fragment header goes 16 bytes before current chunk
+		hdr := msgStart + offset - 16
+		buf.B[hdr+0] = protoMagic
+		buf.B[hdr+1] = protoVersion
+		binary.BigEndian.PutUint32(buf.B[hdr+2:hdr+6], uint32(16+chunkSize))
+		buf.B[hdr+6] = order
+		buf.B[hdr+7] = protoMessageF
+		binary.BigEndian.PutUint32(buf.B[hdr+8:hdr+12], sequenceID)
+		binary.BigEndian.PutUint16(buf.B[hdr+12:hdr+14], idx)
+		binary.BigEndian.PutUint16(buf.B[hdr+14:hdr+16], totalFragments)
+
+		// select pool item
+		pi := orderedPI
+		if order == 0 {
+			c.pool_mutex.RLock()
+			l := len(c.pool)
+			if l == 0 {
+				c.pool_mutex.RUnlock()
+				lib.ReleaseBuffer(buf)
+				return gen.ErrNoConnection
+			}
+			neworder := atomic.AddUint32(&c.order, 1)
+			pi = c.pool[int(neworder)%l]
+			c.pool_mutex.RUnlock()
+		}
+
+		_, err := pi.fl.Write(buf.B[hdr : hdr+16+chunkSize])
+		if err != nil {
+			pi.closeConn()
+			lib.ReleaseBuffer(buf)
+			return err
+		}
+
+		atomic.AddUint64(&c.bytesOut, uint64(16+chunkSize))
+		offset += chunkSize
+	}
+
+	atomic.AddUint64(&c.messagesOut, 1)
+
+	lib.ReleaseBuffer(buf)
+
+	c.fragmentsSent.Add(uint64(totalFragments))
+	c.fragmentMessagesSent.Add(1)
+
+	return nil
+}
+
+const maxFragmentCount = 10000
+
+func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint32]*fragmentAssembly) *lib.Buffer {
+	if buf.Len() < 16 {
+		c.log.Warning("fragment too short: %d bytes", buf.Len())
+		return nil
+	}
+
+	sequenceID := binary.BigEndian.Uint32(buf.B[8:12])
+	fragIndex := binary.BigEndian.Uint16(buf.B[12:14])
+	totalFragments := binary.BigEndian.Uint16(buf.B[14:16])
+	payload := buf.B[16:]
+
+	if fragIndex >= totalFragments || totalFragments == 0 {
+		c.log.Warning("invalid fragment index %d/%d (seq=%d)", fragIndex, totalFragments, sequenceID)
+		return nil
+	}
+
+	asm, exists := assemblies[sequenceID]
+	if exists == false {
+		if totalFragments > maxFragmentCount {
+			c.log.Warning("too many fragments: %d (seq=%d)", totalFragments, sequenceID)
+			return nil
+		}
+		if c.maxFragmentAssemblies > 0 && len(assemblies) >= c.maxFragmentAssemblies {
+			// evict stale (dead-sender) assemblies before enforcing the cap; the ordered
+			// path has no cleanup timer, so a peer streaming first-fragments only would
+			// otherwise wedge the queue permanently
+			now := time.Now()
+			for seqID, a := range assemblies {
+				if now.After(a.deadline) {
+					delete(assemblies, seqID)
+					c.fragmentTimeouts.Add(1)
+				}
+			}
+			if len(assemblies) >= c.maxFragmentAssemblies {
+				c.log.Warning("too many concurrent ordered assemblies, dropping fragment (seq=%d)", sequenceID)
+				return nil
+			}
+		}
+		asm = &fragmentAssembly{
+			totalFragments: totalFragments,
+			payloads:       make([][]byte, 0, totalFragments),
+			deadline:       time.Now().Add(c.fragmentTimeout),
+		}
+		assemblies[sequenceID] = asm
+	}
+
+	// rejected assembly (exceeded maxmessagesize), ignore subsequent fragments
+	if asm.payloads == nil {
+		return nil
+	}
+
+	if asm.totalFragments != totalFragments {
+		c.log.Warning("fragment total mismatch (seq=%d)", sequenceID)
+		delete(assemblies, sequenceID)
+		return nil
+	}
+
+	// TCP order guarantee, append
+	asm.payloads = append(asm.payloads, append([]byte(nil), payload...))
+	asm.received++
+	asm.totalBytes += len(payload)
+
+	// check accumulated size against receiver limit
+	if c.node_maxmessagesize > 0 && asm.totalBytes > c.node_maxmessagesize {
+		asm.payloads = nil
+		c.log.Warning("fragmented message exceeds max size: %d (max %d, seq=%d)",
+			asm.totalBytes, c.node_maxmessagesize, sequenceID)
+		return nil
+	}
+
+	c.fragmentsReceived.Add(1)
+
+	if asm.received < asm.totalFragments {
+		return nil
+	}
+
+	// assembly complete
+	delete(assemblies, sequenceID)
+
+	// cleanup stale assemblies from dead senders
+	if len(assemblies) > 0 {
+		now := time.Now()
+		for seqID, asm := range assemblies {
+			if now.After(asm.deadline) {
+				delete(assemblies, seqID)
+				c.fragmentTimeouts.Add(1)
+			}
+		}
+	}
+
+	reassembled := lib.TakeBuffer()
+	reassembled.Allocate(asm.totalBytes)
+
+	offset := 0
+	for _, p := range asm.payloads {
+		copy(reassembled.B[offset:], p)
+		offset += len(p)
+	}
+
+	c.fragmentMessagesRecv.Add(1)
+	atomic.AddUint64(&c.messagesIn, 1)
+
+	if lib.Verbose() {
+		c.log.Trace("fragment assembly complete: seq=%d, %d bytes, %d fragments",
+			sequenceID, asm.totalBytes, asm.totalFragments)
+	}
+
+	return reassembled
+}
+
+func (c *connection) handleFragmentUnordered(buf *lib.Buffer) *lib.Buffer {
+	if buf.Len() < 16 {
+		c.log.Warning("fragment too short: %d bytes", buf.Len())
+		return nil
+	}
+
+	sequenceID := binary.BigEndian.Uint32(buf.B[8:12])
+	fragIndex := binary.BigEndian.Uint16(buf.B[12:14])
+	totalFragments := binary.BigEndian.Uint16(buf.B[14:16])
+	payload := buf.B[16:]
+
+	if fragIndex >= totalFragments || totalFragments == 0 {
+		c.log.Warning("invalid fragment index %d/%d (seq=%d)", fragIndex, totalFragments, sequenceID)
+		return nil
+	}
+
+	c.sharedFragMu.Lock()
+
+	asm, exists := c.sharedFragments[sequenceID]
+	if exists == false {
+		if totalFragments > maxFragmentCount {
+			c.sharedFragMu.Unlock()
+			c.log.Warning("too many fragments: %d (seq=%d)", totalFragments, sequenceID)
+			return nil
+		}
+		if len(c.sharedFragments) >= c.maxFragmentAssemblies {
+			c.sharedFragMu.Unlock()
+			c.log.Warning("too many concurrent unordered assemblies, dropping fragment")
+			return nil
+		}
+
+		asm = &fragmentAssembly{
+			totalFragments: totalFragments,
+			payloads:       make([][]byte, totalFragments), // indexed
+			deadline:       time.Now().Add(c.fragmentTimeout),
+		}
+		c.sharedFragments[sequenceID] = asm
+		c.sharedFragTimer.Reset(5 * time.Second)
+	}
+
+	// rejected assembly (exceeded maxmessagesize), ignore subsequent fragments
+	if asm.payloads == nil {
+		c.sharedFragMu.Unlock()
+		return nil
+	}
+
+	if asm.totalFragments != totalFragments {
+		c.sharedFragMu.Unlock()
+		c.log.Warning("fragment total mismatch (seq=%d)", sequenceID)
+		return nil
+	}
+
+	// duplicate check
+	if asm.payloads[fragIndex] != nil {
+		c.sharedFragMu.Unlock()
+		return nil
+	}
+
+	asm.payloads[fragIndex] = append([]byte(nil), payload...)
+	asm.received++
+	asm.totalBytes += len(payload)
+
+	// check accumulated size against receiver limit
+	if c.node_maxmessagesize > 0 && asm.totalBytes > c.node_maxmessagesize {
+		asm.payloads = nil
+		c.sharedFragMu.Unlock()
+		c.log.Warning("fragmented message exceeds max size: %d (max %d, seq=%d)",
+			asm.totalBytes, c.node_maxmessagesize, sequenceID)
+		return nil
+	}
+
+	c.fragmentsReceived.Add(1)
+
+	if asm.received < asm.totalFragments {
+		c.sharedFragMu.Unlock()
+		return nil
+	}
+
+	// assembly complete
+	delete(c.sharedFragments, sequenceID)
+	c.sharedFragMu.Unlock()
+
+	// build reassembled message outside mutex
+	reassembled := lib.TakeBuffer()
+	reassembled.Allocate(asm.totalBytes)
+
+	offset := 0
+	for _, p := range asm.payloads {
+		copy(reassembled.B[offset:], p)
+		offset += len(p)
+	}
+
+	c.fragmentMessagesRecv.Add(1)
+	atomic.AddUint64(&c.messagesIn, 1)
+
+	if lib.Verbose() {
+		c.log.Trace("fragment assembly complete: seq=%d, %d bytes, %d fragments",
+			sequenceID, asm.totalBytes, asm.totalFragments)
+	}
+
+	return reassembled
+}
+
+func (c *connection) cleanupSharedFragments() {
+	c.sharedFragMu.Lock()
+	defer c.sharedFragMu.Unlock()
+
+	now := time.Now()
+	for seqID, asm := range c.sharedFragments {
+		if now.After(asm.deadline) {
+			if lib.Verbose() {
+				c.log.Trace("unordered fragment timeout: seq=%d, %d/%d received",
+					seqID, asm.received, asm.totalFragments)
+			}
+			delete(c.sharedFragments, seqID)
+			c.fragmentTimeouts.Add(1)
+		}
+	}
+
+	if len(c.sharedFragments) > 0 {
+		c.sharedFragTimer.Reset(5 * time.Second)
+	}
 }
 
 func (c *connection) waitResult(ref gen.Ref, ch chan MessageResult) (result MessageResult) {

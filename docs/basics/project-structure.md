@@ -234,10 +234,11 @@ func CreateApp(opts Options) gen.ApplicationBehavior {
 }
 
 type app struct {
+    app.Application
     options Options
 }
 
-func (a *app) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *app) Load(args ...any) (gen.ApplicationSpec, error) {
     return gen.ApplicationSpec{
         Name:        "worker",
         Description: "Background task processing",
@@ -246,15 +247,12 @@ func (a *app) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
             {Name: "queue", Factory: a.createQueue},
             {Name: "supervisor", Factory: a.createSupervisor},
         },
-        Env: gen.EnvList{
-            {"CONCURRENCY", a.options.Concurrency},
-            {"QUEUE_SIZE", a.options.QueueSize},
+        Env: map[gen.Env]any{
+            "CONCURRENCY": a.options.Concurrency,
+            "QUEUE_SIZE":  a.options.QueueSize,
         },
     }, nil
 }
-
-func (a *app) Start(mode gen.ApplicationMode) {}
-func (a *app) Terminate(reason error) {}
 ```
 
 Applications should not import each other. If `apps/api` imports `apps/worker`, you've created a compile-time dependency that limits deployment flexibility.
@@ -269,7 +267,8 @@ package types
 
 import (
     "time"
-    "ergo.services/ergo/net/edf"
+
+    "ergo.services/ergo/gen"
 )
 
 // Events published by the orders application
@@ -285,14 +284,16 @@ type OrderCompleted struct {
     CompletedAt time.Time
 }
 
-func init() {
-    // Register for network serialization
-    edf.RegisterTypeOf(OrderCreated{})
-    edf.RegisterTypeOf(OrderCompleted{})
+// Helper that consumers call from their application's Load() callback.
+func RegisterTypes(network gen.Network) error {
+    return network.RegisterTypes([]any{
+        OrderCreated{},
+        OrderCompleted{},
+    })
 }
 ```
 
-Both `apps/orders` and `apps/shipping` can import `types` without importing each other. This breaks the circular dependency while maintaining strong typing.
+Both `apps/orders` and `apps/shipping` can import `types` and call `types.RegisterTypes(a.Node().Network())` from their `Load` callbacks. The callback signature is `Load(args ...any) (gen.ApplicationSpec, error)` - the node is not a parameter, it is reached through the embedded `app.Application` as `a.Node()`. This breaks the circular dependency while maintaining strong typing.
 
 ### Shared Libraries (`lib/`)
 
@@ -476,8 +477,6 @@ Messages that form public contracts between applications across the cluster.
 // types/commands.go
 package types
 
-import "ergo.services/ergo/net/edf"
-
 // EXPORTED type, EXPORTED fields
 // CAN be referenced by any package
 // CAN be serialized
@@ -493,10 +492,29 @@ type TaskResult struct {
     Output []byte
     Error  string
 }
+```
 
-func init() {
-    edf.RegisterTypeOf(ProcessTask{})
-    edf.RegisterTypeOf(TaskResult{})
+Each consuming application registers the shared types from its `Load` callback:
+
+```go
+// apps/worker/app.go
+package worker
+
+import (
+    "ergo.services/ergo/gen"
+
+    "myapp/types"
+)
+
+func (a *Worker) Load(args ...any) (gen.ApplicationSpec, error) {
+    err := a.Node().Network().RegisterTypes([]any{
+        types.ProcessTask{},
+        types.TaskResult{},
+    })
+    if err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
 }
 ```
 
@@ -572,31 +590,45 @@ Applications typically have a supervision tree:
 
 ```go
 // apps/worker/app.go
-func (a *app) Load(node gen.Node, args ...any) (gen.ApplicationSpec, error) {
+func (a *app) Load(args ...any) (gen.ApplicationSpec, error) {
     return gen.ApplicationSpec{
         Name: "worker",
         Group: []gen.ApplicationMemberSpec{
             {Name: "queue_manager", Factory: createQueueManager},
-            {Name: "processor_sup", Factory: a.createProcessorSupervisor},
+            {
+                Name:    "processor_sup",
+                Factory: createProcessorSupervisor,
+                Args:    []any{a.options.Concurrency},
+            },
         },
     }, nil
 }
 
 // apps/worker/supervisor.go
-func (a *app) createProcessorSupervisor() gen.ProcessBehavior {
-    children := make([]act.SupervisorChildSpec, a.options.Concurrency)
-    for i := 0; i < a.options.Concurrency; i++ {
+type processorSupervisor struct {
+    act.Supervisor
+}
+
+func (s *processorSupervisor) Init(args ...any) (act.SupervisorSpec, error) {
+    concurrency := args[0].(int)
+    children := make([]act.SupervisorChildSpec, concurrency)
+    for i := 0; i < concurrency; i++ {
         children[i] = act.SupervisorChildSpec{
-            Name:   fmt.Sprintf("processor_%d", i),
-            Create: createProcessor,
+            Name:    gen.Atom(fmt.Sprintf("processor_%d", i)),
+            Factory: createProcessor,
         }
     }
-
-    return &act.Supervisor{
+    return act.SupervisorSpec{
         Type:     act.SupervisorTypeOneForOne,
-        Restart:  act.SupervisorRestartTemporary,
         Children: children,
-    }
+        Restart: act.SupervisorRestart{
+            Strategy: act.SupervisorStrategyTemporary,
+        },
+    }, nil
+}
+
+func createProcessorSupervisor() gen.ProcessBehavior {
+    return &processorSupervisor{}
 }
 ```
 
@@ -669,8 +701,7 @@ Applications discover each other through application names, not node names:
 // apps/api/handler.go
 func (h *Handler) processRequest(req Request) error {
     // Discover worker application
-    registrar, _ := h.Node().Network().Registrar()
-    routes, _ := registrar.Resolver().ResolveApplication("worker")
+    routes, _ := h.Node().Network().ResolveApplication("worker")
 
     if len(routes) == 0 {
         return errors.New("no workers available")
@@ -679,12 +710,13 @@ func (h *Handler) processRequest(req Request) error {
     // Select a worker (weighted random)
     target := h.selectRoute(routes)
 
-    // Send message (works whether local or remote)
-    remote, _ := h.Network().GetNode(target.Node)
-    result, err := remote.Call("queue_manager", types.ProcessTask{
-        TaskID:  req.ID,
-        Payload: req.Data,
-    })
+    // Address the process by name and node: works whether local or remote,
+    // and needs no connection handle
+    result, err := h.Call(gen.ProcessID{Name: "queue_manager", Node: target.Node},
+        types.ProcessTask{
+            TaskID:  req.ID,
+            Payload: req.Data,
+        })
 
     return err
 }
@@ -698,36 +730,61 @@ Applications publish events for loose coupling:
 
 ```go
 // apps/orders/manager.go
+type Manager struct {
+    act.Actor
+    completed gen.Ref // the token RegisterEvent handed back
+}
+
+func (m *Manager) Init(args ...any) error {
+    // The producer registers the event and keeps the token
+    token, err := m.RegisterEvent("order.completed", gen.EventOptions{Buffer: 16})
+    if err != nil {
+        return err
+    }
+    m.completed = token
+    return nil
+}
+
 func (m *Manager) completeOrder(orderID string) error {
     // ... complete order logic ...
 
-    // Publish event (Level 4 - service-level)
-    m.SendEvent("orders", "completed", types.OrderCompleted{
+    // Publish (Level 4 - service-level). Only the token holder can.
+    return m.SendEvent("order.completed", m.completed, types.OrderCompleted{
         OrderID:     orderID,
         CompletedAt: time.Now(),
     })
-
-    return nil
 }
 
 // apps/shipping/listener.go
 func (l *Listener) Init(args ...any) error {
-    // Subscribe to order events
-    event, _ := l.RegisterEvent("orders", "completed")
-    l.LinkEvent(event)
+    // The consumer subscribes by event name, not by token
+    buffered, err := l.LinkEvent(gen.Event{Name: "order.completed"})
+    if err != nil {
+        // gen.ErrEventUnknown when the producer has not registered yet
+        return err
+    }
+    for _, event := range buffered {
+        l.handle(event)
+    }
     return nil
 }
 
-func (l *Listener) HandleEvent(ev gen.MessageEvent) error {
-    switch e := ev.Message.(type) {
+func (l *Listener) HandleEvent(event gen.MessageEvent) error {
+    l.handle(event)
+    return nil
+}
+
+func (l *Listener) handle(event gen.MessageEvent) {
+    switch e := event.Message.(type) {
     case types.OrderCompleted:
         l.createShipment(e.OrderID)
     }
-    return nil
 }
 ```
 
 Events decouple applications. Orders doesn't know who listens. Shipping doesn't know where Orders runs.
+
+Two things the shapes above are not interchangeable about. `RegisterEvent` makes this process the **producer** and returns a `gen.Ref` token that `SendEvent` demands; a consumer never calls it. And a subscription returns the buffered events, which is how a late subscriber catches up - dropping that slice silently loses everything published before it arrived. The `Init`-time link also has an ordering hazard: if the producer has not registered yet, the link fails with `gen.ErrEventUnknown`, so a consumer that must not miss the start needs to retry rather than assume. See [Events](events.md) for the full model.
 
 ## Deployment Patterns
 
@@ -882,26 +939,32 @@ package worker
 
 import (
     "testing"
+
+    "ergo.services/ergo/gen"
+    "ergo.services/ergo/testing/check"
     "ergo.services/ergo/testing/unit"
 )
 
 func TestProcessorHandlesTask(t *testing.T) {
-    actor := unit.NewTestActor(t, createProcessor)
+    s, err := unit.Spawn(t, createProcessor, gen.ProcessOptions{})
+    check.NoError(t, err)
 
-    // Send internal message (Level 1)
-    actor.Send(actor.PID(), scheduleTask{
+    // Deliver an internal message (Level 1)
+    s.SendMessage(gen.PID{}, scheduleTask{
         taskID:   "task-1",
         priority: 1,
         data:     []byte("test"),
     })
 
-    // Verify response
-    actor.ExpectMessage(taskCompleted{
+    // Assert on what the actor did, not on what it holds
+    s.ShouldSend().Message(taskCompleted{
         taskID: "task-1",
         result: []byte("processed"),
-    })
+    }).Once().Assert()
 }
 ```
+
+`unit.Spawn` runs the actor's `Init` on a mock node and hands back a `*unit.Subject`: `SendMessage`, `Call` and their name/alias variants drive it, and the `Should*` family asserts on what it did - every outbound operation is recorded rather than performed. Use `unit.Prepare` instead when the actor does something at `Init` time that has to be stubbed first.
 
 ### Integration Testing Applications
 
@@ -950,39 +1013,55 @@ Test multiple nodes:
 
 ```go
 func TestCrossNodeCommunication(t *testing.T) {
-    // Start API node
-    apiNode, _ := ergo.StartNode("api@localhost:15001", gen.NodeOptions{
+    // A port belongs in the acceptor, never in the node name: the name is
+    // <name>@<host>, and a colon in it is passed to the resolver as part of
+    // the host, which fails with "no such host".
+    apiNode, err := ergo.StartNode("api@localhost", gen.NodeOptions{
         Applications: []gen.ApplicationBehavior{
             api.CreateApp(api.Options{}),
         },
-    })
-    defer apiNode.Stop()
-
-    // Start worker node
-    workerNode, _ := ergo.StartNode("worker@localhost:15002", gen.NodeOptions{
-        Applications: []gen.ApplicationBehavior{
-            worker.CreateApp(worker.Options{}),
+        Network: gen.NetworkOptions{
+            Cookie:    "test",
+            Acceptors: []gen.AcceptorOptions{{Host: "localhost", Port: 15001}},
         },
     })
-    defer workerNode.Stop()
-
-    // Connect nodes
-    apiNode.Network().AddRoute("worker@localhost:15002", gen.NetworkRoute{
-        Route: gen.Route{Host: "localhost", Port: 15002},
-    }, 100)
-
-    // Test cross-node message passing
-    remote, _ := apiNode.Network().GetNode("worker@localhost:15002")
-    result, err := remote.Call("queue_manager", types.ProcessTask{
-        TaskID: "test-task",
-    })
-
     if err != nil {
         t.Fatal(err)
     }
-    // Verify result...
+    defer apiNode.Stop()
+
+    workerNode, err := ergo.StartNode("worker@localhost", gen.NodeOptions{
+        Applications: []gen.ApplicationBehavior{
+            worker.CreateApp(worker.Options{}),
+        },
+        Network: gen.NetworkOptions{
+            Cookie:    "test",
+            Acceptors: []gen.AcceptorOptions{{Host: "localhost", Port: 15002}},
+        },
+    })
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer workerNode.Stop()
+
+    // Without a registrar, tell this node where the peer listens
+    if err := apiNode.Network().AddRoute("worker@localhost", gen.NetworkRoute{
+        Route: gen.Route{Host: "localhost", Port: 15002},
+    }, 100); err != nil {
+        t.Fatal(err)
+    }
+
+    // A cross-node Call is made by a process, not by the node: spawn one and
+    // let it address the peer as gen.ProcessID{Name, Node}.
+    pid, err := apiNode.Spawn(createProbe, gen.ProcessOptions{})
+    if err != nil {
+        t.Fatal(err)
+    }
+    _ = pid
 }
 ```
+
+Two things this shape is not free to change. A node name is `<name>@<host>` and nothing else - only the name half is character-checked at start, and the host half goes to the acceptor as written, so `worker@localhost:15002` is resolved as a hostname and the node never comes back. And `gen.RemoteNode` is about the peer, not about talking to it: it offers `Spawn`, `ApplicationStart` and `Info`, so a request to a process on that node is made from a process with `Call(gen.ProcessID{Name: "queue_manager", Node: "worker@localhost"}, ...)`. For multi-node tests over the real protocol, `ergo/testing/stage` is the harness built for exactly this - see [Stage Testing](../testing/stage.md).
 
 ## Evolution and Refactoring
 
@@ -1134,7 +1213,7 @@ apps/
 - Default to Level 4 for everything
 - Mix isolation levels arbitrarily
 - Use `any` or `interface{}` for messages
-- Include pointers in network messages
+- Include pointers to external resources (connections, files) in network messages
 
 ### Dependencies
 

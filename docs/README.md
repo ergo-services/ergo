@@ -46,7 +46,7 @@ Benchmarks measuring message passing, network communication, and serialization p
 
 ## Zero Dependencies
 
-The framework uses only the Go standard library. No external dependencies means no version conflicts, no supply chain vulnerabilities, no surprise breaking changes from third-party packages. The requirement is just Go 1.20 or higher.
+The framework uses only the Go standard library. No external dependencies means no version conflicts, no supply chain vulnerabilities, no surprise breaking changes from third-party packages. The requirement is just Go 1.21 or higher.
 
 This isn't ideological purity. It's practical stability. The framework's behavior depends only on Go itself. Updates are predictable. Supply chain is simple. The code you write today will compile and run the same way years from now, assuming Go maintains backward compatibility (which it does).
 

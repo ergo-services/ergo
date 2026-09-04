@@ -12,6 +12,12 @@ type Options struct {
 	RegCache    *sync.Map // type/name => id (encoding), id => type (for decoding)
 	ErrCache    *sync.Map // error => id (for encoder), id => error (for decoder)
 	Cache       *sync.Map // common cache (caching reflect.Type => encoder, string([]byte) => decoder)
+	MaxDepth    int       // max encoding depth for pointers (default 100)
+	// WrappedErrorsSupported: peer supports *gen.Error wrapped wire format.
+	WrappedErrorsSupported bool
+	// SchemaEvolution: length-prefix encoded structs so a peer with a different
+	// field count tolerates the difference (extra skipped, missing zero-valued).
+	SchemaEvolution bool
 }
 
 const (
@@ -39,6 +45,8 @@ const (
 	edtSlice   = byte(157) // 0x9d
 	edtArray   = byte(158) // 0x9e
 	edtMap     = byte(159) // 0x9f
+
+	edtPtr = byte(160) // 0xa0
 
 	edtPID       = byte(170) // 0xaa
 	edtProcessID = byte(171) // 0xab

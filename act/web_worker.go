@@ -4,8 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"runtime"
-	"strings"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -62,13 +61,19 @@ type WebWorker struct {
 
 	behavior WebWorkerBehavior
 	mailbox  gen.ProcessMailbox
+
+	spanStart int64 // handler-entry time for the Processed span interval
+}
+
+// ProcessKind reports this process as built on act.WebWorker.
+func (w *WebWorker) ProcessKind() gen.ProcessKind {
+	return gen.ProcessKindWeb
 }
 
 func (w *WebWorker) ProcessInit(process gen.Process, args ...any) (rr error) {
 	var ok bool
 	if w.behavior, ok = process.Behavior().(WebWorkerBehavior); ok == false {
-		unknown := strings.TrimPrefix(reflect.TypeOf(process.Behavior()).String(), "*")
-		return fmt.Errorf("ProcessInit: not a WebWorkerBehavior %s", unknown)
+		return fmt.Errorf("ProcessInit: not a WebWorkerBehavior %s", process.BehaviorName())
 	}
 	w.Process = process
 	w.mailbox = process.Mailbox()
@@ -76,9 +81,8 @@ func (w *WebWorker) ProcessInit(process gen.Process, args ...any) (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				w.Log().Panic("WebWorker initialization failed. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				w.Log().Panic("WebWorker initialization failed. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()
@@ -87,15 +91,37 @@ func (w *WebWorker) ProcessInit(process gen.Process, args ...any) (rr error) {
 	return w.behavior.Init(args...)
 }
 
+func (w *WebWorker) handleWebRequest(from gen.PID, r meta.MessageWebRequest) error {
+	defer r.Done()
+	switch r.Request.Method {
+	case "GET":
+		return w.behavior.HandleGet(from, r.Response, r.Request)
+	case "POST":
+		return w.behavior.HandlePost(from, r.Response, r.Request)
+	case "PUT":
+		return w.behavior.HandlePut(from, r.Response, r.Request)
+	case "PATCH":
+		return w.behavior.HandlePatch(from, r.Response, r.Request)
+	case "DELETE":
+		return w.behavior.HandleDelete(from, r.Response, r.Request)
+	case "HEAD":
+		return w.behavior.HandleHead(from, r.Response, r.Request)
+	case "OPTIONS":
+		return w.behavior.HandleOptions(from, r.Response, r.Request)
+	}
+	http.Error(r.Response, "unknown request type: "+r.Request.Method, http.StatusNotImplemented)
+	return nil
+}
+
 func (w *WebWorker) ProcessRun() (rr error) {
 	var message *gen.MailboxMessage
+	var savedTracing gen.Tracing
 
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				w.Log().Panic("Web terminated. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				w.Log().Panic("Web terminated. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()
@@ -145,60 +171,72 @@ func (w *WebWorker) ProcessRun() (rr error) {
 
 		switch message.Type {
 		case gen.MailboxMessageTypeRegular:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				savedTracing = w.PropagatingTrace()
+				w.SetPropagatingTrace(message.Tracing)
+				w.spanStart = time.Now().UnixNano()
+			}
+
 			if r, ok := message.Message.(meta.MessageWebRequest); ok {
-				var reason error
-				switch r.Request.Method {
-				case "GET":
-					reason = w.behavior.HandleGet(message.From, r.Response, r.Request)
-				case "POST":
-					reason = w.behavior.HandlePost(message.From, r.Response, r.Request)
-				case "PUT":
-					reason = w.behavior.HandlePut(message.From, r.Response, r.Request)
-				case "PATCH":
-					reason = w.behavior.HandlePatch(message.From, r.Response, r.Request)
-				case "DELETE":
-					reason = w.behavior.HandleDelete(message.From, r.Response, r.Request)
-				case "HEAD":
-					reason = w.behavior.HandleHead(message.From, r.Response, r.Request)
-				case "OPTIONS":
-					reason = w.behavior.HandleOptions(message.From, r.Response, r.Request)
-				default:
-					http.Error(r.Response,
-						"unknown request type: "+r.Request.Method,
-						http.StatusNotImplemented)
-				}
-				r.Done()
+				reason := w.handleWebRequest(message.From, r)
 				if reason != nil {
+					w.sendSpanProcessed(message, gen.TracingKindSend, r.Request.Method+" "+r.Request.RequestURI, reason.Error())
 					return reason
+				}
+				w.sendSpanProcessed(message, gen.TracingKindSend, r.Request.Method+" "+r.Request.RequestURI, "")
+				if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
+					w.SetPropagatingTrace(savedTracing)
 				}
 				continue
 			}
 
 			if reason := w.behavior.HandleMessage(message.From, message.Message); reason != nil {
+				w.sendSpanProcessed(message, gen.TracingKindSend, reflectMsgType(message.Message), reason.Error())
 				return reason
+			}
+			w.sendSpanProcessed(message, gen.TracingKindSend, reflectMsgType(message.Message), "")
+			if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
+				w.SetPropagatingTrace(savedTracing)
 			}
 
 		case gen.MailboxMessageTypeRequest:
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				savedTracing = w.PropagatingTrace()
+				w.SetPropagatingTrace(message.Tracing)
+				w.spanStart = time.Now().UnixNano()
+			}
+
 			var reason error
 			var result any
 
 			result, reason = w.behavior.HandleCall(message.From, message.Ref, message.Message)
 
 			if reason != nil {
-				// if reason is "normal" and we got response - send it before termination
 				if reason == gen.TerminateReasonNormal && result != nil {
+					w.sendSpanProcessed(message, gen.TracingKindRequest, reflectMsgType(message.Message), "")
 					w.SendResponse(message.From, message.Ref, result)
+					return reason
 				}
+				w.sendSpanProcessed(message, gen.TracingKindRequest, reflectMsgType(message.Message), reason.Error())
 				return reason
 			}
 
 			if result == nil {
-				// async handling of sync request. response could be sent
-				// later, even by the other process
+				w.sendSpanProcessed(message, gen.TracingKindRequest, reflectMsgType(message.Message), "")
+				if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
+					w.SetPropagatingTrace(savedTracing)
+				}
 				continue
 			}
 
+			w.sendSpanProcessed(message, gen.TracingKindRequest, reflectMsgType(message.Message), "")
+
 			w.SendResponse(message.From, message.Ref, result)
+			if messageHasTracing && w.PropagatingTrace().ID == message.Tracing.ID {
+				w.SetPropagatingTrace(savedTracing)
+			}
 
 		case gen.MailboxMessageTypeEvent:
 			if reason := w.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
@@ -229,6 +267,9 @@ func (w *WebWorker) ProcessRun() (rr error) {
 		case gen.MailboxMessageTypeInspect:
 			result := w.behavior.HandleInspect(message.From, message.Message.([]string)...)
 			w.SendResponse(message.From, message.Ref, result)
+
+		case gen.MailboxMessageTypeSpan:
+			panic("web worker process can not be a tracing exporter")
 		}
 
 	}
@@ -294,4 +335,35 @@ func (w *WebWorker) HandleOptions(from gen.PID, writer http.ResponseWriter, requ
 	w.Log().Warning("WebWorker.HandleOptions: unhandled request from %s for: %s", from, request.RequestURI)
 	http.Error(writer, "unhandled request", http.StatusNotImplemented)
 	return nil
+}
+
+func reflectMsgType(msg any) string {
+	if msg == nil {
+		return ""
+	}
+	return reflect.TypeOf(msg).String()
+}
+
+func (w *WebWorker) sendSpanProcessed(message *gen.MailboxMessage, kind gen.TracingKind, msgType string, errStr string) {
+	if message.Tracing.ID == [2]uint64{} {
+		return
+	}
+	w.SendTracingSpan(gen.TracingSpan{
+		TraceID:      message.Tracing.ID,
+		SpanID:       message.Tracing.SpanID,
+		Point:        gen.TracingPointProcessed,
+		Kind:         kind,
+		Timestamp:    w.spanStart,
+		EndTimestamp: time.Now().UnixNano(),
+		Node:         w.Node().Name(),
+		From:         message.From,
+		To:           w.PID(),
+		Ref:          message.Ref,
+		Behavior:     w.BehaviorName(),
+		Message:      msgType,
+		Error:        errStr,
+		Attributes:   w.TracingAttributes(),
+	})
+	w.CloseTracingSpans()
+	w.ClearTracingSpanAttributes()
 }

@@ -2,6 +2,8 @@ package node
 
 import (
 	"net"
+	"sync/atomic"
+	"time"
 
 	"ergo.services/ergo/gen"
 )
@@ -24,6 +26,15 @@ type acceptor struct {
 	proto     gen.NetworkProto
 
 	atom_mapping map[gen.Atom]gen.Atom
+
+	handshaking       atomic.Int32  // current number of in-flight handshakes
+	maxHandshakes     int32         // 0 = unlimited
+	handshakeErrors   atomic.Uint64 // cumulative handshake failures
+	handshake_timeout time.Duration
+
+	handshake_max_message_size int
+
+	software_keepalive_misses int
 }
 
 // gen.Acceptor interface implementation
@@ -76,5 +87,6 @@ func (a *acceptor) Info() gen.AcceptorInfo {
 		info.RegistrarServer = regInfo.Server
 	}
 	info.RegistrarVersion = regInfo.Version
+	info.HandshakeErrors = a.handshakeErrors.Load()
 	return info
 }

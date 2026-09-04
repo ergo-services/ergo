@@ -15,20 +15,34 @@ type network struct {
 	token gen.Ref
 
 	generating bool
+	loopID     uint64
 }
 
 func (in *network) Init(args ...any) error {
 	in.Log().SetLogger("default")
+	in.SetProcessKind(gen.ProcessKindMonitor)
 	in.Log().Debug("network inspector started")
-	// RegisterEvent is not allowed here
-	in.Send(in.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	token, err := in.RegisterEvent(inspectNetwork, eopts)
+	if err != nil {
+		in.Log().Error("unable to register network event: %s", err)
+		return err
+	}
+	in.Log().Info("registered event %s", inspectNetwork)
+	in.token = token
+	in.SendAfter(in.PID(), shutdown{}, inspectNetworkIdlePeriod)
+
 	return nil
 }
 
 func (in *network) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if in.generating == false {
+		if m.id != in.loopID || in.generating == false {
 			in.Log().Debug("generating canceled")
 			break // cancelled
 		}
@@ -47,7 +61,7 @@ func (in *network) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		in.SendAfter(in.PID(), generate{}, inspectNetworkPeriod)
+		in.SendAfter(in.PID(), generate{id: in.loopID}, inspectNetworkPeriod)
 
 	case requestInspect:
 		info, err := in.Node().Network().Info()
@@ -62,21 +76,6 @@ func (in *network) HandleMessage(from gen.PID, message any) error {
 		in.SendResponse(m.pid, m.ref, response)
 		in.Log().Debug("sent response for the inspect network request to: %s", m.pid)
 
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		token, err := in.RegisterEvent(inspectNetwork, eopts)
-		if err != nil {
-			in.Log().Error("unable to register network event: %s", err)
-			return err
-		}
-		in.Log().Info("registered event %s", inspectNetwork)
-
-		in.token = token
-		in.SendAfter(in.PID(), shutdown{}, inspectNetworkIdlePeriod)
-
 	case shutdown:
 		if in.generating {
 			in.Log().Debug("ignore shutdown. generating is active")
@@ -86,7 +85,8 @@ func (in *network) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		in.Log().Debug("got first subscriber. start generating events...")
-		in.Send(in.PID(), generate{})
+		in.loopID++
+		in.Send(in.PID(), generate{id: in.loopID})
 		in.generating = true
 
 	case gen.MessageEventStop: // no subscribers

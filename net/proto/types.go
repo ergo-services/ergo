@@ -12,6 +12,8 @@ const (
 	protoMagic   byte = 78
 	protoVersion byte = 1
 
+	protoMessageExtend byte = 99 // pool-fill go-ahead (acceptor to dialer)
+
 	// for messages sent with Send* methods
 	protoMessagePID        byte = 101
 	protoMessageName       byte = 102
@@ -40,11 +42,19 @@ const (
 	// any structured message (link/monitor/spawn/etc...)
 	protoMessageAny byte = 199
 
-	// order: compressed -> encrypted -> fragmented -> proxy
+	// order: compressed -> encrypted -> traced -> fragmented -> proxy
 	protoMessageZ byte = 200 // compressed
 	protoMessageE byte = 201 // encrypted
 	protoMessageF byte = 202 // fragmented
 	protoMessageP byte = 203 // proxy
+	protoMessageT byte = 204 // tracing wrapper
+
+	protoMessageK byte = 208 // keepalive
+	protoMessageS byte = 209 // skew measurement
+
+	// reserved space at the beginning of every message buffer
+	// for wrapping headers (tracing, proxy, etc.) without copying
+	protoWrapReserve int = 128
 
 	// TODO
 	// protoFragmentSize int = 65000

@@ -17,29 +17,48 @@ type meta struct {
 
 	event      gen.Atom
 	generating bool
+	loopID     uint64
 	meta       gen.Alias
 }
 
 func (im *meta) Init(args ...any) error {
 	im.meta = args[0].(gen.Alias)
 	im.Log().SetLogger("default")
+	im.SetProcessKind(gen.ProcessKindMonitor)
 	im.Log().Debug("meta process inspector started. pid %s", im.meta)
-	// RegisterEvent is not allowed here
-	im.Send(im.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectMeta, im.meta))
+	token, err := im.RegisterEvent(evname, eopts)
+	if err != nil {
+		im.Log().Error("unable to register meta process event: %s", err)
+		return err
+	}
+	im.Log().Info("registered event %s", evname)
+	im.event = evname
+	im.token = token
+	im.SendAfter(im.PID(), shutdown{}, inspectMetaIdlePeriod)
+
 	return nil
 }
 
 func (im *meta) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if im.generating == false {
+		if m.id != im.loopID || im.generating == false {
 			im.Log().Debug("generating canceled")
 			break // cancelled
 		}
 		im.Log().Debug("generating event")
 		ev := MessageInspectMeta{
-			Node:       im.Node().Name(),
-			Terminated: true,
+			Node: im.Node().Name(),
+			Info: gen.MetaInfo{
+				ID:    im.meta,
+				State: gen.MetaStateTerminated,
+			},
 		}
 
 		info, err := im.MetaInfo(im.meta)
@@ -56,12 +75,11 @@ func (im *meta) HandleMessage(from gen.PID, message any) error {
 		default:
 			im.Log().Error("unable to inspect meta process %s: %s", im.meta, err)
 			// will try next time
-			im.SendAfter(im.PID(), generate{}, inspectMetaPeriod)
+			im.SendAfter(im.PID(), generate{id: im.loopID}, inspectMetaPeriod)
 			return nil
 
 		}
 
-		ev.Terminated = false
 		ev.Info = info
 
 		if err := im.SendEvent(im.event, im.token, ev); err != nil {
@@ -69,7 +87,7 @@ func (im *meta) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		im.SendAfter(im.PID(), generate{}, inspectMetaPeriod)
+		im.SendAfter(im.PID(), generate{id: im.loopID}, inspectMetaPeriod)
 
 	case requestInspect:
 		response := ResponseInspectMeta{
@@ -78,25 +96,11 @@ func (im *meta) HandleMessage(from gen.PID, message any) error {
 				Node: im.Node().Name(),
 			},
 		}
+		if info, err := im.MetaInfo(im.meta); err == nil {
+			response.Info = info
+		}
 		im.SendResponse(m.pid, m.ref, response)
 		im.Log().Debug("sent response for the inspect meta request to: %s", m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s", inspectMeta, im.meta))
-		token, err := im.RegisterEvent(evname, eopts)
-		if err != nil {
-			im.Log().Error("unable to register meta process event: %s", err)
-			return err
-		}
-		im.Log().Info("registered event %s", evname)
-		im.event = evname
-
-		im.token = token
-		im.SendAfter(im.PID(), shutdown{}, inspectMetaIdlePeriod)
 
 	case shutdown:
 		if im.generating {
@@ -107,7 +111,8 @@ func (im *meta) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		im.Log().Debug("got first subscriber. start generating events...")
-		im.Send(im.PID(), generate{})
+		im.loopID++
+		im.Send(im.PID(), generate{id: im.loopID})
 		im.generating = true
 
 	case gen.MessageEventStop: // no subscribers

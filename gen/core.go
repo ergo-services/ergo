@@ -52,6 +52,7 @@ type Core interface {
 	RouteApplicationStart(name Atom, mode ApplicationMode, options ApplicationOptionsExtra, source Atom) error
 	RouteApplicationInfo(name Atom) (ApplicationInfo, error)
 
+	RouteNodeUp(node Atom)
 	RouteNodeDown(node Atom, reason error)
 
 	MakeRef() Ref
@@ -75,6 +76,7 @@ type CoreTargetManager interface {
 	Name() Atom
 	PID() PID
 	Log() Log
+	MakeRef() Ref
 	RouteSendPID(from PID, to PID, options MessageOptions, message any) error
 	RouteSendExitMessages(from PID, to []PID, message any) error
 	RouteSendEventMessages(from PID, to []PID, options MessageOptions, message MessageEvent) error

@@ -27,13 +27,25 @@ job := gen.CronJob{
     Name:     "daily_report",
     Spec:     "0 0 * * *",
     Location: time.UTC,
-    Action:   gen.CreateCronActionMessage("reporter", gen.MessagePriorityNormal),
+    Action:   gen.CreateCronActionMessage(gen.Atom("reporter"), gen.MessagePriorityNormal),
 }
 ```
 
+`CreateCronActionMessage` is generic over `gen.Atom | gen.ProcessID | gen.PID | gen.Alias`, and a bare `"reporter"` infers as `string`, which is not in that set. Write the conversion out: `gen.Atom("reporter")`.
+
 The `Name` identifies the job uniquely within the node. The `Spec` uses crontab format to define the schedule. The `Location` specifies which timezone to use when interpreting the schedule. The `Action` defines what happens when the schedule triggers.
 
-Optionally, `Fallback` can specify a process to notify if the action fails, providing centralized error handling for scheduled tasks.
+Optionally, `Fallback` names a process to notify when the action returns an error, which gives scheduled tasks one place to handle failures:
+
+```go
+Fallback: gen.ProcessFallback{
+    Enable: true,              // required: without it nothing is sent
+    Name:   "cron_supervisor",
+    Tag:    "daily_report",
+},
+```
+
+`Enable` is the part that is easy to miss. The field is a `gen.ProcessFallback` borrowed from mailbox-overflow configuration, and the cron path returns early unless `Enable` is true - so filling in `Name` alone gives you silence, with the failure visible only as an error line in the log. The notified process receives `gen.MessageCronFallback{Job, Tag, Time, Err}`, and if it is unreachable that is logged too.
 
 ## Actions
 
@@ -42,7 +54,7 @@ Actions define what happens when a job runs.
 The simplest action sends a message. The job triggers, the cron system sends `gen.MessageCron` to the specified process, and the process handles it through normal message processing. This integrates cleanly with the actor model - the scheduled work happens inside an actor's message handler.
 
 ```go
-action := gen.CreateCronActionMessage("worker", gen.MessagePriorityNormal)
+action := gen.CreateCronActionMessage(gen.Atom("worker"), gen.MessagePriorityNormal)
 ```
 
 For work that needs isolation per execution, spawn a process. Each time the job triggers, a fresh process spawns, performs the work, and terminates. If one execution crashes, the next starts clean. The spawned process receives environment variables identifying which job spawned it and when (`gen.CronEnvNodeName`, `gen.CronEnvJobName`, `gen.CronEnvJobActionTime`).
@@ -61,7 +73,11 @@ Custom actions implement the `gen.CronAction` interface. The `Do` method receive
 
 ## Crontab Format
 
-Cron uses standard crontab syntax: five fields specifying minute, hour, day-of-month, month, and day-of-week.
+Five fields, in the crontab order: minute, hour, day-of-month, month, day-of-week. Close to standard crontab, with two deliberate differences worth knowing before you write a spec.
+
+**Day-of-week runs 1 to 7, and Sunday is 7.** A `0` is rejected - `"* * * * 0"` fails with `incorrect value: 0`. Matching remaps the runtime's Sunday to 7, so `7` is how you write it.
+
+**Step syntax is not accepted in the day-of-week field.** `*/15 * * * *` is fine in the minute field; `0 0 * * */2` is not, and fails with `incorrect value: */2`. That field takes `*`, a number, a range `d-d`, `dL` for the last such weekday of the month, or `d#n` for the n-th.
 
 Common patterns:
 - `0 * * * *` - Every hour
@@ -71,8 +87,18 @@ Common patterns:
 - `0 0 1 * *` - First day of each month
 - `0 0 * * 5#2` - Second Friday of each month
 - `0 0 L * *` - Last day of each month
+- `0 0 * * 7` - Every Sunday
 
-Macros provide common schedules: `@hourly`, `@daily`, `@weekly`, `@monthly`.
+Four macros are recognised, and they are **not** on the hour - they carry a deliberate offset so that unrelated jobs do not all fire on the same tick:
+
+| Macro | Expands to | Fires |
+|-------|------------|-------|
+| `@hourly` | `1 * * * *` | at minute 1 of every hour |
+| `@daily` | `10 3 * * *` | 03:10 every day |
+| `@weekly` | `30 5 * * 1` | Monday 05:30 |
+| `@monthly` | `20 4 1 * *` | the 1st at 04:20 |
+
+There is no `@yearly`, `@annually`, `@midnight` or `@reboot`: those fail with `incorrect cron spec format`. Write the five fields out if you need midnight exactly.
 
 ## Managing Jobs
 
@@ -92,11 +118,15 @@ This matters for distributed systems where jobs serve different regions. One nod
 
 Timezone transitions are handled carefully.
 
-When clocks spring forward, an hour disappears. A job scheduled for 2:00 AM doesn't run on the spring-forward date because 2:00 AM doesn't exist that day. The cron system detects the time adjustment and skips execution rather than running at the wrong time.
+When clocks spring forward, an hour disappears. A job scheduled for 02:30 simply does not run on that date: the spec is evaluated against local time, and that local minute never occurs, so nothing matches. It is skipped rather than run an hour early or late.
 
-When clocks fall back, an hour repeats. A job scheduled during that hour runs once, not twice. The system tracks actual wall clock progression to avoid duplicate execution.
+Separately from the transitions, the scheduler checks that the minute it is firing for is really the current minute, and drops the job if the clock moved between scheduling and firing - an NTP step or a suspended process, rather than a timezone rule.
 
-This behavior ensures jobs run when intended, not at arbitrary times that happen to match the specification after time adjustments.
+When clocks fall back, an hour repeats, and a job scheduled inside it matches on both passes - `30 1 * * *` in `America/New_York` matches at 01:30 EDT and again an hour later at 01:30 EST. It runs **once**: before running, the scheduler compares the action's local wall clock minute against the last one it ran, and a repeat is skipped. Comparing instants would not catch this, since the two passes are a genuine hour apart.
+
+`Cron().JobSchedule(name, since, period)` previews the same decision, so a transition day reports one run rather than two, matching what the scheduler will actually do.
+
+The action can still tell where it is in time: a message action receives `gen.MessageCron` with a `Time` field, and a spawn action gets the same instant in its environment as `gen.CronEnvJobActionTime`.
 
 ## Error Handling
 

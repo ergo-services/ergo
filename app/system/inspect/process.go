@@ -18,29 +18,48 @@ type process struct {
 	event      gen.Atom
 	pid        gen.PID
 	generating bool
+	loopID     uint64
 }
 
 func (ip *process) Init(args ...any) error {
 	ip.pid = args[0].(gen.PID)
 	ip.Log().SetLogger("default")
+	ip.SetProcessKind(gen.ProcessKindMonitor)
 	ip.Log().Debug("process inspector started. pid %s", ip.pid)
-	// RegisterEvent is not allowed here
-	ip.Send(ip.PID(), register{})
+
+	eopts := gen.EventOptions{
+		Notify: true,
+		Buffer: 1, // keep the last event
+	}
+	evname := gen.Atom(fmt.Sprintf("%s_%s", inspectProcess, ip.pid))
+	token, err := ip.RegisterEvent(evname, eopts)
+	if err != nil {
+		ip.Log().Error("unable to register event: %s", err)
+		return err
+	}
+	ip.Log().Info("registered event %s", evname)
+	ip.event = evname
+	ip.token = token
+	ip.SendAfter(ip.PID(), shutdown{}, inspectProcessIdlePeriod)
+
 	return nil
 }
 
 func (ip *process) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case generate:
-		if ip.generating == false {
+		if m.id != ip.loopID || ip.generating == false {
 			ip.Log().Debug("generating canceled")
 			break // cancelled
 		}
 		ip.Log().Debug("generating event")
 
 		ev := MessageInspectProcess{
-			Node:       ip.Node().Name(),
-			Terminated: true,
+			Node: ip.Node().Name(),
+			Info: gen.ProcessInfo{
+				PID:   ip.pid,
+				State: gen.ProcessStateTerminated,
+			},
 		}
 
 		info, err := ip.Node().ProcessInfo(ip.pid)
@@ -59,7 +78,7 @@ func (ip *process) HandleMessage(from gen.PID, message any) error {
 		default:
 			ip.Log().Error("unable to inspect process %s: %s", ip.pid, err)
 			// will try next time (seems to be busy)
-			ip.SendAfter(ip.PID(), generate{}, inspectProcessPeriod)
+			ip.SendAfter(ip.PID(), generate{id: ip.loopID}, inspectProcessPeriod)
 			return nil
 		}
 
@@ -67,7 +86,6 @@ func (ip *process) HandleMessage(from gen.PID, message any) error {
 			info.Env[k] = fmt.Sprintf("%#v", v)
 		}
 
-		ev.Terminated = false
 		ev.Info = info
 
 		if err := ip.SendEvent(ip.event, ip.token, ev); err != nil {
@@ -75,7 +93,7 @@ func (ip *process) HandleMessage(from gen.PID, message any) error {
 			return gen.TerminateReasonNormal
 		}
 
-		ip.SendAfter(ip.PID(), generate{}, inspectProcessPeriod)
+		ip.SendAfter(ip.PID(), generate{id: ip.loopID}, inspectProcessPeriod)
 
 	case requestInspect:
 		response := ResponseInspectProcess{
@@ -84,25 +102,14 @@ func (ip *process) HandleMessage(from gen.PID, message any) error {
 				Node: ip.Node().Name(),
 			},
 		}
+		if info, err := ip.Node().ProcessInfo(ip.pid); err == nil {
+			for k, v := range info.Env {
+				info.Env[k] = fmt.Sprintf("%#v", v)
+			}
+			response.Info = info
+		}
 		ip.SendResponse(m.pid, m.ref, response)
 		ip.Log().Debug("sent response for the inspect process request to: %s", m.pid)
-
-	case register:
-		eopts := gen.EventOptions{
-			Notify: true,
-			Buffer: 1, // keep the last event
-		}
-		evname := gen.Atom(fmt.Sprintf("%s_%s", inspectProcess, ip.pid))
-		token, err := ip.RegisterEvent(evname, eopts)
-		if err != nil {
-			ip.Log().Error("unable to register event: %s", err)
-			return err
-		}
-		ip.Log().Info("registered event %s", evname)
-		ip.event = evname
-
-		ip.token = token
-		ip.SendAfter(ip.PID(), shutdown{}, inspectProcessIdlePeriod)
 
 	case shutdown:
 		if ip.generating {
@@ -113,7 +120,8 @@ func (ip *process) HandleMessage(from gen.PID, message any) error {
 
 	case gen.MessageEventStart: // got first subscriber
 		ip.Log().Debug("got first subscriber. start generating events...")
-		ip.Send(ip.PID(), generate{})
+		ip.loopID++
+		ip.Send(ip.PID(), generate{id: ip.loopID})
 		ip.generating = true
 
 	case gen.MessageEventStop: // no subscribers

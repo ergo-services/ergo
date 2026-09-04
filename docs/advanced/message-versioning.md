@@ -6,15 +6,17 @@ description: Evolving message contracts in distributed clusters
 
 Distributed systems evolve. Services gain features, data models change, and deployments happen gradually. During a rolling upgrade, some nodes run new code while others still run the old version. A message sent from a new node must be understood by an old node, and vice versa.
 
-EDF serializes messages by their exact Go type. Change a struct - and you have a new, incompatible type. This is intentional: explicit versioning catches breaking changes at compile time rather than hiding them until production.
+EDF gives you two ways to handle this, and which one is right is a business decision, not a technical default. Strict by default: a message is its exact Go type, so changing a struct creates a new, incompatible type, and every change is explicit and caught at compile time. Or opt into schema evolution: EDF tolerates fields appended to the end of a struct, so a node that has not learned a new field keeps working. Strict typing buys deliberate, visible change control; evolution buys less coordination during rolling deploys. Which matters more is a property of your domain, not of the framework.
 
-This article explains how to version messages so your cluster handles upgrades gracefully.
+This article covers both - how to version messages explicitly, and when schema evolution fits instead - so your cluster handles upgrades gracefully.
 
 ## Explicit Versioning
 
-Unlike Protobuf or Avro, EDF does not provide automatic backward compatibility. There are no optional fields, no field numbers, no schema evolution. A struct is its type. Change the struct - create a new type.
+The strict strategy is the default. Unlike Protobuf or Avro, EDF does not provide automatic backward compatibility here: there are no field numbers, and every registered field is encoded positionally and always present on the wire. A struct is its type. Change the struct - create a new type.
 
-The approach is straightforward: create a new type for each version.
+A pointer field (`*int`) is still optional in the *value* sense - nil or a value - but the field itself stays part of the type on both sides. That is not the same as a Protobuf optional field, which can be absent from the message entirely; absence-of-field is exactly what the strict default does not allow (and what schema evolution adds, only for trailing fields). The alternative is covered in [Schema Evolution](#schema-evolution) below; pick whichever fits your domain.
+
+The strict approach is straightforward: create a new type for each version.
 
 ```go
 // Version 1
@@ -43,23 +45,24 @@ func (a *Actor) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-All message types must be registered with EDF before connection establishment:
+All message types must be registered with the network stack before connection establishment. The declarative form lives in `ApplicationSpec.Network`:
 
 ```go
-func init() {
-    types := []any{
-        OrderCreatedV1{},
-        OrderCreatedV2{},
-    }
-    for _, t := range types {
-        if err := edf.RegisterTypeOf(t); err != nil && err != gen.ErrTaken {
-            panic(err)
-        }
-    }
+func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
+    return gen.ApplicationSpec{
+        Name: "myapp",
+        Network: gen.ApplicationNetwork{
+            RegisterTypes: []any{
+                OrderCreatedV1{},
+                OrderCreatedV2{},
+            },
+        },
+        Group: []gen.ApplicationMemberSpec{ /* ... */ },
+    }, nil
 }
 ```
 
-For details on EDF and type registration, see [Network Transparency](../networking/network-transparency.md).
+For dynamic registration (types resolved at runtime) the imperative `a.Node().Network().RegisterTypes(...)` from `Load` is also supported. For details on the type registry and the package-level `edf.RegisterTypeOf` API, see [Network Transparency](../networking/network-transparency.md).
 
 ## Versioning Strategies
 
@@ -352,65 +355,111 @@ company.com/
 
 ### Registration Helper
 
-All message types must be registered with EDF before connection establishment - during handshake, nodes exchange their registered type lists which become the encoding dictionaries. Registration typically happens in `init()` functions before node startup. There are two approaches: centralized registration in the shared module or manual registration in each client.
+All message types must be registered with the network stack before connection establishment. During handshake, nodes exchange their registered type lists which become the encoding dictionaries. Registration happens from an application's `Load` callback, which runs after the network stack is initialized but before any traffic. Its signature is `Load(args ...any) (gen.ApplicationSpec, error)` - the node is not an argument, it comes from the embedded `app.Application` as `a.Node()`, which is what the example below does. There are two approaches: a centralized helper exported by the shared module, or manual registration per client.
 
-**Centralized registration** uses `init()` to register all types when the package is imported:
+**Centralized helper** exposes a single function that the consumer's application calls from `Load`:
 
 ```go
 // events/register.go
 package events
 
-import (
-    "ergo.services/ergo/gen"
-    "ergo.services/ergo/net/edf"
-)
+import "ergo.services/ergo/gen"
 
-func init() {
-    types := []any{
+func RegisterTypes(network gen.Network) error {
+    return network.RegisterTypes([]any{
         OrderCreatedV1{},
         OrderCreatedV2{},
         PaymentReceivedV1{},
-    }
-    for _, t := range types {
-        if err := edf.RegisterTypeOf(t); err != nil && err != gen.ErrTaken {
-            panic(err)
-        }
-    }
+    })
 }
 ```
 
-When clients import the package to use message types, `init()` runs automatically at program startup and registers all types:
+Each consumer calls it from its application:
 
 ```go
 import "company.com/events"
 
-// Using events.OrderCreatedV1 means the package is imported,
-// init() has already run, types are registered
+func (a *OrderService) Load(args ...any) (gen.ApplicationSpec, error) {
+    if err := events.RegisterTypes(a.Node().Network()); err != nil {
+        return gen.ApplicationSpec{}, err
+    }
+    return gen.ApplicationSpec{ /* ... */ }, nil
+}
 ```
 
-No risk of forgetting a type.
+The shared `events` module owns the canonical list of types. Consumers register them all without having to enumerate each type, so there is no risk of forgetting one. `RegisterTypes` accepts a slice in any order and resolves nested-type dependencies internally.
 
-**Manual registration** means each client registers only the types it uses. This gives more control but introduces risk: a missing registration is only detected at runtime - `"no encoder for type"` when sending, `"unknown reg type for decoding"` when receiving. For most projects, centralized registration is simpler and safer. Choose based on your needs.
+**Manual registration** means each client registers only the types it uses. This gives more control but introduces risk: a missing registration is only detected at runtime, surfacing as `"no encoder for type"` when sending or `"unknown reg type for decoding"` when receiving. For most projects, centralized registration is simpler and safer. Choose based on your needs.
 
 For message isolation patterns within a single codebase, see [Project Structure](../basics/project-structure.md).
 
 ## Compatibility Rules
 
-EDF enforces strict type identity. Any struct change breaks wire compatibility.
+By default EDF enforces strict type identity: change a struct's field count, order, or types and it is a new, incompatible type. Schema evolution (off by default, covered below) relaxes this for the trailing fields - you may add to or remove from the end.
 
-| Change | Compatible | Action |
-|--------|------------|--------|
-| Add field | No | Create new version |
-| Remove field | No | Create new version |
-| Change field type | No | Create new version |
-| Rename field | No | Create new version |
-| Reorder fields | No | Create new version |
+| Change | Strict (default) | With schema evolution |
+|--------|------------------|-----------------------|
+| Rename a field (same type) | Compatible | Compatible |
+| Add a field at the end | New version | Compatible |
+| Remove a field from the end | New version | Compatible |
+| Insert, reorder, retype, or remove a field elsewhere | New version | New version |
 
-This differs from Protobuf/Avro where adding optional fields is compatible. In EDF, every change requires explicit versioning.
+Field names are never on the wire - EDF encodes fields positionally - so renaming a field while keeping its type and position is wire-compatible in both modes. Make it a new version only when the rename signals a changed meaning, not a mechanical rename.
 
-Yes, this means more work upfront. But consider the alternative: Protobuf lets you add an optional `Priority` field, and everything "just works" - until you spend three days debugging why orders aren't prioritized correctly. Turns out half your cluster sends the new field, half ignores it, and the receivers silently default missing values to zero. Good luck finding that in logs.
+Removing a trailing field decodes cleanly by the same mechanism, but unlike appending it is a genuine deletion, not a free change. A node that still carries the field reads it as its zero value the moment an upgraded node stops sending it - and if business logic there depends on the field, it silently reads zero. That is the footgun. Remove a field only after it is deprecated and confirmed unused (see [Version Lifecycle](#version-lifecycle)); evolution only guarantees the removal will not break decoding mid-rollout, not that it is semantically safe.
 
-EDF makes this impossible. The receiver either handles `OrderV2` with its `Priority` field, or it doesn't - and you know this at compile time, not at 3 AM when on-call.
+Under the strict default, every other change requires explicit versioning. This is the opposite of Protobuf/Avro, where adding an optional field is silently compatible - and that difference is the choice you are making, not a verdict on either approach.
+
+Consider the implicit style: you add an optional `Priority` field and everything "just works" - until you spend three days debugging why orders aren't prioritized correctly, because half your cluster sends the field, half ignores it, and receivers default the missing value to zero with nothing in the logs. Strict typing makes that class of bug impossible: the receiver either handles `OrderV2` with its `Priority`, or it doesn't, and you know which at compile time.
+
+That safety has a price - coordination. Every additive change, even a harmless new field, means a new type and a coordinated rollout. For a fast-moving service that mostly appends fields, that ceremony can cost more than the risk it removes. Schema evolution is built for exactly that case: you accept the zero-default behavior for appended fields in return for dropping the per-field versioning. Neither model is universally correct - how much you value explicit change control over deployment velocity is a business call, and EDF lets you make it per connection.
+
+## Schema Evolution
+
+When your domain leans toward deployment velocity, schema evolution removes the per-field versioning ceremony for the append case. Enable it with the `EnableSchemaEvolution` network flag. Like the other capability flags, it is negotiated during handshake: evolution is active only when both ends enable it, so a connection to an older node, or one that left the flag off, stays strict.
+
+```go
+// Start from the defaults and add the flag. Building NetworkFlags from scratch
+// would turn every other capability off (important delivery, fragmentation,
+// simultaneous connect, clock skew, tracing, wrapped errors, keepalive).
+flags := gen.DefaultNetworkFlags
+flags.EnableSchemaEvolution = true
+
+gen.NodeOptions{
+    Network: gen.NetworkOptions{Flags: flags},
+}
+```
+
+With evolution active, you may add fields to the end of a registered struct without minting a new type. The type keeps its identity, and old and new nodes interoperate through the rolling deploy:
+
+- A node that does not know the appended field **skips** it (a new sender, an old receiver).
+- A node that expects a field an older sender did not include reads it as its **zero value** (an old sender, a new receiver).
+
+```go
+// Before
+type OrderCreated struct {
+    OrderID int64
+}
+
+// After - Priority appended at the end. Same type, same identity.
+type OrderCreated struct {
+    OrderID  int64
+    Priority int
+}
+```
+
+During the rollout a node still running the old `OrderCreated` ignores `Priority`; an upgraded node receiving an old message sees `Priority` as `0`. No new type, no handler branch, no anti-corruption layer.
+
+### Limitations
+
+Schema evolution covers the trailing fields, and nothing else:
+
+- **Trailing fields only.** The fields common to both versions must match in type and order; versions may differ only at the end. Appending is the common case; trimming the last field also works on the wire, but that is a genuine deletion with a footgun (old nodes read the dropped field as zero - see the note under the table above). Inserting, reordering, retyping, or removing a field anywhere but the end is a breaking change - create a new version.
+- **Both nodes must enable it.** A connection where either side has the flag off runs strict, so an older node never receives a form it cannot parse.
+- **No mismatch detection.** Evolution tolerates a difference in the trailing field count; it does not verify that the shared leading fields actually match. A change to those leading fields made by mistake (a reorder, a type change) is not caught - it silently misreads, exactly the zero-default class of bug the strict default prevents. The trailing-only discipline is on you.
+- **Size cap per struct.** With evolution on, a single encoded struct is bounded at just under 4GB. The strict default has no such per-struct cap.
+
+Because of the last two points, evolution is a deliberate trade, not a free upgrade: you take on the trailing-only discipline (and its footgun) to drop per-field versioning. For anything beyond appending, or for high-stakes contracts where every change must be a visible compile-time decision, keep the strict default and version explicitly. For how EDF encodes registered types, see [Network Transparency](../networking/network-transparency.md#edf-ergo-data-format).
 
 ## Version Lifecycle
 
@@ -522,20 +571,22 @@ With version handling and ACL in place, how do you verify it actually works? [Co
 
 ```go
 func TestPaymentActorAcceptsBothVersions(t *testing.T) {
-    tc := unit.NewTestCase(t, "test@localhost")
-    defer tc.Stop()
+    sub, err := unit.Spawn(t, createPaymentActor, gen.ProcessOptions{})
+    check.NoError(t, err)
 
-    actor := tc.Spawn(createPaymentActor)
+    client := gen.PID{Node: "test@localhost", ID: 100, Creation: 1}
 
     // V1 works
-    actor.Send(ChargeRequestV1{OrderID: 1, Amount: 100})
-    actor.ShouldSend().Message(ChargeResponseV1{}).Once().Assert()
+    sub.SendMessage(client, ChargeRequestV1{OrderID: 1, Amount: 100})
+    sub.ShouldSend().Message(ChargeResponseV1{}).Once().Assert()
 
     // V2 works
-    actor.Send(ChargeRequestV2{OrderID: 2, Amount: 200, Currency: "EUR"})
-    actor.ShouldSend().Message(ChargeResponseV2{}).Once().Assert()
+    sub.SendMessage(client, ChargeRequestV2{OrderID: 2, Amount: 200, Currency: "EUR"})
+    sub.ShouldSend().Message(ChargeResponseV2{}).Once().Assert()
 }
 ```
+
+`unit.Spawn` puts the actor on a mock node and hands back a `*unit.Subject`: `SendMessage` delivers into it from a sender you name, and the `Should*` family asserts on what it did. Reach for `unit.StartNode(t, "test@localhost", gen.NodeOptions{})` first when the node name or its options matter to the test. See [Unit Testing](../testing/unit.md).
 
 Test ACL conversion:
 
@@ -619,10 +670,10 @@ These patterns emerge repeatedly in production systems. Avoid them:
 **Changing existing type instead of creating new version**
 
 ```go
-// Wrong - breaks existing consumers
+// Wrong under the strict default - breaks existing consumers
 type Order struct {
     ID       int64
-    Priority int    // added field breaks wire format
+    Priority int    // appended field changes the wire format
 }
 
 // Correct - create new version (in type name or new package path)
@@ -632,14 +683,16 @@ type OrderV2 struct {
 }
 ```
 
+This is a mistake only under the strict default. With [Schema Evolution](#schema-evolution) enabled on both nodes, appending `Priority` at the end keeps the same type and stays compatible - that is the whole point of opting in. Inserting, reordering, retyping, or removing a non-trailing field is still a breaking change either way.
+
 **Forgetting to register new types**
 
 ```go
-// Type exists but not registered - encoding fails at runtime
+// Type exists but not registered. Encoding fails at runtime.
 type OrderV3 struct { ... }
 
-// Must register before node starts
-edf.RegisterTypeOf(OrderV3{})
+// Register from your application's Load callback before any traffic.
+node.Network().RegisterType(OrderV3{})
 ```
 
 **Long coexistence periods**
@@ -648,11 +701,11 @@ Supporting V1 for months creates maintenance burden. Set clear deprecation deadl
 
 **Registering after connection established**
 
-Types must be registered before node starts. Dynamic registration requires connection cycling.
+Types must be registered before connections are formed. Dynamic registration requires connection cycling.
 
 ## Summary
 
-Message versioning in EDF is explicit by design. No hidden compatibility rules, no runtime surprises.
+Message versioning in EDF is explicit by default: no hidden compatibility rules, no runtime surprises. When your domain favors deployment velocity over that control, schema evolution opts into append-compatibility per connection. Both are valid - the choice is a business one.
 
 | Aspect | Private Messages | Cluster Events |
 |--------|------------------|----------------|
@@ -662,10 +715,12 @@ Message versioning in EDF is explicit by design. No hidden compatibility rules, 
 | Changes | Receiver team decides | All consumers coordinate |
 
 Key principles:
+- Choose strict versioning or schema evolution by what your business needs, not by default
 - Version in type name or package path, never in Go module path
 - Receiver owns private contracts
 - Shared repository for domain events
 - Test version compatibility
 - Set deprecation deadlines
 - Use ACL to isolate version translation
+- With schema evolution, keep changes append-only - the discipline is not enforced
 
