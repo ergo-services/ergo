@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -144,6 +143,8 @@ type tracingExporterEntry struct {
 
 // tracingExporterQueue bounds the buffer of spans awaiting an object exporter's HandleSpan.
 const tracingExporterQueue = 1024
+
+const logListLimit = 10
 
 type eventOwner struct {
 	name      gen.Atom
@@ -1365,12 +1366,12 @@ func (n *node) waitProcessesWithEscalation(shutdownTimeout time.Duration) {
 	}
 }
 
-// snapshotRunningProcesses gathers up to 10 still-running process descriptions
-// plus the total count (which may exceed 10).
+// snapshotRunningProcesses gathers up to logListLimit still-running process
+// descriptions plus the total count (which may exceed the limit).
 func (n *node) snapshotRunningProcesses() (lines []string, total int) {
 	n.processes.Range(func(_, v any) bool {
 		total++
-		if total > 10 {
+		if total > logListLimit {
 			return true
 		}
 		p := v.(*process)
@@ -1390,8 +1391,8 @@ func (n *node) logSnapshot(lines []string, total int) {
 	for _, l := range lines {
 		n.log.Warning(l)
 	}
-	if total > 10 {
-		n.log.Warning("  ...and %d more", total-10)
+	if total > logListLimit {
+		n.log.Warning("  ...and %d more", total-logListLimit)
 	}
 }
 
@@ -2028,9 +2029,8 @@ func (n *node) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (name g
 	if lib.Recover() {
 		defer func() {
 			if rcv := recover(); rcv != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				n.log.Panic("panic in ApplicationLoad - %#v at %s[%s:%d]",
-					rcv, runtime.FuncForPC(pc).Name(), fn, line)
+				n.log.Panic("panic in ApplicationLoad - %#v at %s",
+					rcv, lib.PanicOrigin())
 				r = gen.ErrApplicationLoadPanic
 			}
 		}()
@@ -3062,9 +3062,8 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			if lib.Recover() {
 				defer func() {
 					if rcv := recover(); rcv != nil {
-						pc, fn, line, _ := runtime.Caller(2)
-						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
-							p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s",
+							p.pid, p.name, rcv, lib.PanicOrigin())
 					}
 				}()
 			}
@@ -3115,9 +3114,8 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 			if lib.Recover() {
 				defer func() {
 					if rcv := recover(); rcv != nil {
-						pc, fn, line, _ := runtime.Caller(2)
-						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
-							p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+						p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s",
+							p.pid, p.name, rcv, lib.PanicOrigin())
 					}
 				}()
 			}
@@ -3244,9 +3242,8 @@ func (n *node) finishProcess(p *process, reason error, terminateReason error) {
 	if lib.Recover() {
 		defer func() {
 			if rcv := recover(); rcv != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s[%s:%d]",
-					p.pid, p.name, rcv, runtime.FuncForPC(pc).Name(), fn, line)
+				p.log.Panic("panic in ProcessTerminate - %s[%s] %#v at %s",
+					p.pid, p.name, rcv, lib.PanicOrigin())
 			}
 		}()
 	}

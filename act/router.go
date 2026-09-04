@@ -3,7 +3,6 @@ package act
 import (
 	"fmt"
 	"reflect"
-	"runtime"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -429,9 +428,8 @@ func (r *Router) ProcessInit(process gen.Process, args ...any) (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if rec := recover(); rec != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				r.Log().Panic("Router initialization failed. Panic reason: %#v at %s[%s:%d]",
-					rec, runtime.FuncForPC(pc).Name(), fn, line)
+				r.Log().Panic("Router initialization failed. Panic reason: %#v at %s",
+					rec, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()
@@ -476,9 +474,8 @@ func (r *Router) ProcessRun() (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if rec := recover(); rec != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				r.Log().Panic("Router terminated. Panic reason: %#v at %s[%s:%d]",
-					rec, runtime.FuncForPC(pc).Name(), fn, line)
+				r.Log().Panic("Router terminated. Panic reason: %#v at %s",
+					rec, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()

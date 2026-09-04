@@ -1,7 +1,7 @@
 package node
 
 import (
-	"runtime"
+	"fmt"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -159,9 +159,8 @@ func (a *application) runInitCallback(mode gen.ApplicationMode, timeout time.Dur
 		var err error
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				a.log.Panic("Init panic: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				a.log.Panic("Init panic: %#v at %s",
+					r, lib.PanicOrigin())
 				err = gen.TerminateReasonPanic
 			}
 			if atomic.CompareAndSwapInt32(&completed, 0, 1) {
@@ -194,9 +193,8 @@ func (a *application) runStartCallback(mode gen.ApplicationMode, timeout time.Du
 		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				a.log.Panic("Start panic: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				a.log.Panic("Start panic: %#v at %s",
+					r, lib.PanicOrigin())
 			}
 		}()
 		a.behavior.Start(ref, mode)
@@ -216,9 +214,8 @@ func (a *application) runStopCallback(reason error, timeout time.Duration) {
 		defer close(done)
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				a.log.Panic("Stop panic: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				a.log.Panic("Stop panic: %#v at %s",
+					r, lib.PanicOrigin())
 			}
 		}()
 		a.behavior.Stop(ref, reason)
@@ -233,9 +230,8 @@ func (a *application) runStopCallback(reason error, timeout time.Duration) {
 func (a *application) runTerminateCallback(reason error) {
 	defer func() {
 		if r := recover(); r != nil {
-			pc, fn, line, _ := runtime.Caller(2)
-			a.log.Panic("Terminate panic: %#v at %s[%s:%d]",
-				r, runtime.FuncForPC(pc).Name(), fn, line)
+			a.log.Panic("Terminate panic: %#v at %s",
+				r, lib.PanicOrigin())
 		}
 	}()
 	a.behavior.Terminate(reason)
@@ -458,13 +454,14 @@ func (a *application) waitMembers(timeout time.Duration) {
 	}
 
 	left := a.memberPIDs()
-	a.log.Warning("group member(s) not stopped in %v, killing: %s", timeout, a.describe(left))
+	a.log.Warning("%d group member(s) not stopped in %v, killing: %s", len(left), timeout, a.describe(left))
 	a.killProcesses(left)
 
 	select {
 	case <-ch:
 	case <-time.After(timeout):
-		a.log.Error("group member(s) still running: %s", a.describe(a.memberPIDs()))
+		left = a.memberPIDs()
+		a.log.Error("%d group member(s) still running: %s", len(left), a.describe(left))
 	}
 }
 
@@ -498,7 +495,7 @@ func (a *application) waitProcesses(timeout time.Duration) {
 	}
 
 	left = a.procPIDs()
-	a.log.Warning("process(es) not stopped in %v, killing: %s", timeout, a.describe(left))
+	a.log.Warning("%d process(es) not stopped in %v, killing: %s", len(left), timeout, a.describe(left))
 	a.killProcesses(left)
 
 	select {
@@ -736,6 +733,10 @@ func (a *application) killProcesses(pids []gen.PID) {
 func (a *application) describe(pids []gen.PID) string {
 	var sb strings.Builder
 	for i, pid := range pids {
+		if i == logListLimit {
+			fmt.Fprintf(&sb, ", ...and %d more", len(pids)-logListLimit)
+			break
+		}
 		if i > 0 {
 			sb.WriteString(", ")
 		}

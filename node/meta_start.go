@@ -3,7 +3,6 @@
 package node
 
 import (
-	"runtime"
 	"sync/atomic"
 
 	"ergo.services/ergo/gen"
@@ -16,9 +15,8 @@ func (m *meta) start() {
 	if lib.Recover() {
 		defer func() {
 			if rcv := recover(); rcv != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				m.log.Panic("meta process %s terminated - %#v at %s[%s:%d]", m.id,
-					rcv, runtime.FuncForPC(pc).Name(), fn, line)
+				m.log.Panic("meta process %s terminated - %#v at %s", m.id,
+					rcv, lib.PanicOrigin())
 				old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
 				if old != int32(gen.MetaStateTerminated) {
 					m.p.node.aliases.Delete(m.id)
@@ -70,9 +68,8 @@ func (m *meta) handle() {
 		if lib.Recover() {
 			defer func() {
 				if rcv := recover(); rcv != nil {
-					pc, fn, line, _ := runtime.Caller(2)
-					m.log.Panic("meta process %s terminated - %#v at %s[%s:%d]", m.id,
-						rcv, runtime.FuncForPC(pc).Name(), fn, line)
+					m.log.Panic("meta process %s terminated - %#v at %s", m.id,
+						rcv, lib.PanicOrigin())
 
 					old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
 					if old != int32(gen.MetaStateTerminated) {

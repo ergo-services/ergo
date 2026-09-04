@@ -3,7 +3,6 @@ package act
 import (
 	"fmt"
 	"reflect"
-	"runtime"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -122,9 +121,8 @@ func (p *Pool) ProcessInit(process gen.Process, args ...any) (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				p.Log().Panic("Pool initialization failed. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				p.Log().Panic("Pool initialization failed. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()
@@ -166,9 +164,8 @@ func (p *Pool) ProcessRun() (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				p.Log().Panic("Pool terminated. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				p.Log().Panic("Pool terminated. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()

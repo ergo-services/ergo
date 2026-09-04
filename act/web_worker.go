@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
-	"runtime"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -82,9 +81,8 @@ func (w *WebWorker) ProcessInit(process gen.Process, args ...any) (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				w.Log().Panic("WebWorker initialization failed. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				w.Log().Panic("WebWorker initialization failed. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()
@@ -122,9 +120,8 @@ func (w *WebWorker) ProcessRun() (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				w.Log().Panic("Web terminated. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				w.Log().Panic("Web terminated. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()

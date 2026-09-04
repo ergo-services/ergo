@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"runtime"
 	"sort"
 	"time"
 
@@ -326,9 +325,8 @@ func (s *Supervisor) ProcessInit(process gen.Process, args ...any) (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				s.Log().Panic("Supervisor initialization failed. Panic reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				s.Log().Panic("Supervisor initialization failed. Panic reason: %#v at %s",
+					r, lib.PanicOrigin())
 				rr = gen.TerminateReasonPanic
 			}
 		}()
@@ -415,10 +413,9 @@ func (s *Supervisor) ProcessRun() (rr error) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
 
-				s.Log().Panic("Supervisor got panic. Shutting down with reason: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				s.Log().Panic("Supervisor got panic. Shutting down with reason: %#v at %s",
+					r, lib.PanicOrigin())
 
 				action := s.sup.childTerminated(s.Name(), s.PID(), gen.TerminateReasonPanic)
 				rr = s.handleAction(action)

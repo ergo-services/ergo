@@ -1,7 +1,6 @@
 package node
 
 import (
-	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -323,9 +322,8 @@ func (m *meta) init() (r error) {
 	if lib.Recover() {
 		defer func() {
 			if rcv := recover(); rcv != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				m.log.Panic("init meta %s failed - %#v at %s[%s:%d]", m.id,
-					rcv, runtime.FuncForPC(pc).Name(), fn, line)
+				m.log.Panic("init meta %s failed - %#v at %s", m.id,
+					rcv, lib.PanicOrigin())
 				r = gen.TerminateReasonPanic
 			}
 		}()

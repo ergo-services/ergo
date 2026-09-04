@@ -6,7 +6,6 @@ import (
 	"io"
 	"math"
 	"net"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -1907,9 +1906,8 @@ func (c *connection) serve(pi *pool_item, tail []byte) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				c.log.Panic("panic in connection serve loop: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				c.log.Panic("panic in connection serve loop: %#v at %s",
+					r, lib.PanicOrigin())
 				c.Terminate(gen.TerminateReasonPanic)
 			}
 		}()
@@ -2044,9 +2042,8 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				c.log.Panic("panic on handling received message: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				c.log.Panic("panic on handling received message: %#v at %s",
+					r, lib.PanicOrigin())
 				c.Terminate(gen.TerminateReasonPanic)
 			}
 		}()
@@ -3270,9 +3267,8 @@ func (c *connection) routeWorker(q lib.QueueMPSC) {
 	if lib.Recover() {
 		defer func() {
 			if r := recover(); r != nil {
-				pc, fn, line, _ := runtime.Caller(2)
-				c.log.Panic("panic in routeWorker: %#v at %s[%s:%d]",
-					r, runtime.FuncForPC(pc).Name(), fn, line)
+				c.log.Panic("panic in routeWorker: %#v at %s",
+					r, lib.PanicOrigin())
 				c.Terminate(gen.TerminateReasonPanic)
 			}
 		}()

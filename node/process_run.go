@@ -4,7 +4,6 @@ package node
 
 import (
 	"errors"
-	"runtime"
 	"sync/atomic"
 	"time"
 
@@ -23,9 +22,8 @@ func (p *process) run() {
 		if lib.Recover() {
 			defer func() {
 				if rcv := recover(); rcv != nil {
-					pc, fn, line, _ := runtime.Caller(2)
-					p.log.Panic("process terminated - %#v at %s[%s:%d]",
-						rcv, runtime.FuncForPC(pc).Name(), fn, line)
+					p.log.Panic("process terminated - %#v at %s",
+						rcv, lib.PanicOrigin())
 					old := atomic.SwapInt32(&p.state, int32(gen.ProcessStateTerminated))
 					if old == int32(gen.ProcessStateTerminated) {
 						return

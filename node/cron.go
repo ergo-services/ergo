@@ -2,7 +2,6 @@ package node
 
 import (
 	"fmt"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -127,9 +126,8 @@ func (c *cron) tick(actionTime time.Time) {
 			if lib.Recover() {
 				defer func() {
 					if r := recover(); r != nil {
-						pc, fn, line, _ := runtime.Caller(2)
-						c.node.Log().Panic("panic in cron action for job %s: %#v at %s[%s:%d]",
-							cj.job.Name, r, runtime.FuncForPC(pc).Name(), fn, line)
+						c.node.Log().Panic("panic in cron action for job %s: %#v at %s",
+							cj.job.Name, r, lib.PanicOrigin())
 					}
 				}()
 			}
