@@ -331,13 +331,13 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 			// load applications
 			name, err := node.ApplicationLoad(app)
 			if err != nil {
-				node.log.Error("unable to load application %s: %s ", name, err)
+				node.log.Error("unable to load application %s: %s", name, err)
 				node.StopForce()
 				return nil, err
 			}
 			// start applications
 			if err := node.ApplicationStart(name, gen.ApplicationOptions{}); err != nil {
-				node.log.Error("unable to start application %s:%s", name, err)
+				node.log.Error("unable to start application %s: %s", name, err)
 				node.StopForce()
 				return nil, err
 			}
