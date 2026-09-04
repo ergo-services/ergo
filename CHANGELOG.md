@@ -120,6 +120,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - [Health actor](https://docs.ergo.services/extra-library/actors/health) - Kubernetes liveness, readiness and startup probes
   - [Sentry logger](https://docs.ergo.services/extra-library/loggers/sentry) - forwarding panics and errors to a Sentry project
 
+**Examples**
+
+* Added the **tour** ([examples/tour](https://github.com/ergo-services/examples/tree/master/tour)) - ten steps that build one program, a task runner, from a single actor to a cluster you can interrogate. Each step is a module of its own, adds exactly one idea to the one before it, and carries a README with the output to expect and links into the chapter behind it:
+  - [01 - The first actor](https://github.com/ergo-services/examples/tree/master/tour/01-first-actor) - a mailbox, `Send` against `Call`, and state that needs no lock
+  - [02 - When a worker dies](https://github.com/ergo-services/examples/tree/master/tour/02-supervision) - a supervisor, a restart that is a new instance, and the intensity that stops it trying
+  - [03 - Making it an application](https://github.com/ergo-services/examples/tree/master/tour/03-application) - the four phases, the group and the mode, who owns a resource the processes share, and a package API instead of process names
+  - [04 - Two nodes](https://github.com/ergo-services/examples/tree/master/tour/04-network) - the node name as the whole address, the cookie, registering the types that cross, and a monitor instead of waiting for a timeout
+  - [05 - Events](https://github.com/ergo-services/examples/tree/master/tour/05-events) - one publish and several subscribers on two nodes, the buffer a late subscriber is given, and `LinkEvent` against `MonitorEvent`
+  - [06 - A pool of workers](https://github.com/ergo-services/examples/tree/master/tour/06-pool) - `act.Pool` behind the same registered name, what it does when every worker mailbox is full, and how to reach the pool rather than through it
+  - [07 - Testing it](https://github.com/ergo-services/examples/tree/master/tour/07-testing) - `testing/unit` for one actor with no node at all, `testing/stage` for the claim that needs two, and the change that made an actor testable
+  - [08 - Looking inside](https://github.com/ergo-services/examples/tree/master/tour/08-observer) - finding dropped messages in Observer, and an agent on a read-only MCP surface
+  - [09 - Talking to Erlang](https://github.com/ergo-services/examples/tree/master/tour/09-erlang) - the three components that make a node speak DIST, one process that speaks ETF, and the type mapping that decides whether it works
+  - [10 - An external program](https://github.com/ergo-services/examples/tree/master/tour/10-port) - a program in another language over a port, what happens to the actor when that program dies, and the meta-processes the framework already ships
+* Added the **observability stand** ([examples/observability](https://github.com/ergo-services/examples/tree/master/observability)) - a five-node cluster on Docker Compose, discovering itself through etcd and kept under load on purpose, so that every tool in the stack has something worth investigating rather than a quiet healthy graph. Six scenario applications per node produce the signal: mailbox latency against a deliberately slow HTTP service, network traffic that exercises compression and fragmentation, constant spawn/terminate churn with one stuck process per node, events in all five utilization states, cross-node `Send` / `Call` / forward chains under tracing, and a supervision tree eighteen levels deep with a wide fan-out for the tree window and its heatmaps. Radar exports Prometheus metrics from every node into three Grafana dashboards, Pulse ships the spans to Grafana Tempo over OTLP/HTTP, and a separate node runs Observer, serving the web UI and the MCP surface on one port. `make up` brings the whole thing up
+
 #### [v3.2.0](https://github.com/ergo-services/ergo/releases/tag/v1.999.320) 2026-02-04 [tag version v1.999.320] ####
 
 * Introduced **mTLS support** - new `gen.CertAuthManager` interface for mutual TLS with CA pool management (`ClientCAs`, `RootCAs`, `ClientAuth`, `ServerName`). See [Mutual TLS](https://docs.ergo.services/networking/mutual-tls) documentation
