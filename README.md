@@ -83,15 +83,58 @@ func (s *Sub) HandleEvent(event gen.MessageEvent) error {
 
 ### Performance ###
 
-On a 64-core processor:
-
-* **21M+ messages/second** locally
-* **~5.5M messages/second** over the network
+* **25M+ messages/second** locally
+* **~5.8M messages/second** over the network
 * **Distributed Pub/Sub**: 2.9M msg/sec delivery to 1,000,000 subscribers across 10 nodes
 
 Lock-free queues. Processes sleep when idle. No CPU wasted.
 
-![image](.github/images/benchmark_ping.png)
+The numbers come from `make bench`, which measures four scenarios: one process
+sending to one process, and one pair per CPU, each on a single node and across a
+connection between two nodes. `msg/sec` is the rate messages are carried end to
+end - the send loops included, not the rate `Send` is called at.
+
+On an **AMD Ryzen Threadripper 3970X** (32 cores, 64 threads):
+
+```
+$ make bench
+go test -run XXX -bench . -benchmem -benchtime 5s ./testing/benchmarks/...
+goos: linux
+goarch: amd64
+pkg: ergo.services/ergo/testing/benchmarks/ping
+cpu: QEMU Virtual CPU version 2.5+
+BenchmarkLocal11-64        14633359     459.0 ns/op    2178526 msg/sec     58 B/op    2 allocs/op
+BenchmarkLocalNN-64       143445265      39.08 ns/op  25591080 msg/sec     69 B/op    2 allocs/op
+BenchmarkNetwork11-64       6348997     908.9 ns/op    1100193 msg/sec    776 B/op    6 allocs/op
+BenchmarkNetworkNN-64      34500532     172.2 ns/op    5807413 msg/sec    150 B/op    6 allocs/op
+PASS
+```
+
+On an **Apple M4 Max** (14 cores: 10 performance, 4 efficiency):
+
+```
+$ make bench
+go test -run XXX -bench . -benchmem -benchtime 5s ./testing/benchmarks/...
+goos: darwin
+goarch: arm64
+pkg: ergo.services/ergo/testing/benchmarks/ping
+cpu: Apple M4 Max
+BenchmarkLocal11-14        31014296     191.4 ns/op    5224960 msg/sec     58 B/op    2 allocs/op
+BenchmarkLocalNN-14       100000000      64.97 ns/op  15390843 msg/sec     72 B/op    2 allocs/op
+BenchmarkNetwork11-14      13759047     431.2 ns/op    2319322 msg/sec    262 B/op    6 allocs/op
+BenchmarkNetworkNN-14      27716260     193.6 ns/op    5166431 msg/sec    137 B/op    6 allocs/op
+PASS
+```
+
+The two machines answer two different questions. A single pair costs 191ns per
+message on the M4 Max against 459ns on the Threadripper - that is per-core
+speed. Aggregate throughput goes the other way: 25.6M msg/sec against 15.4M,
+because there are 64 threads to fill instead of 14. What does not move is the
+allocation count: **2 allocations per local message and 6 per message that
+crosses the network**, on both machines.
+
+The `cpu:` line of the Linux run reports the hypervisor's string; the hardware
+underneath is the Threadripper.
 
 Full benchmarks: [benchmarks repository](https://github.com/ergo-services/benchmarks).
 
