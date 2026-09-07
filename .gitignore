@@ -9,6 +9,7 @@ tags
 .session
 cover.out
 tests/cover.out
+bench.txt
 sandbox
 .DS_Store
 .idea
