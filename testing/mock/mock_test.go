@@ -118,6 +118,16 @@ func TestLogTOverrideStillRecords(t *testing.T) {
 	l.ShouldLog().Containing("hello 1").Once().Assert()
 }
 
+// a standalone Log mock records the fields accumulated when the line was emitted, so
+// WithFields narrows there exactly as it does on a unit subject.
+func TestLogTRecordsFields(t *testing.T) {
+	l := mock.NewLogT(t)
+	l.AddFields(gen.LogField{Name: "req", Value: "abc"})
+	l.Info("with fields")
+	l.ShouldLog().WithFields(gen.LogField{Name: "req", Value: "abc"}).Once().Assert()
+	l.ShouldLog().WithFields(gen.LogField{Name: "req", Value: "zzz"}).None().Assert()
+}
+
 // SendExit records the operation error (C1) distinct from the exit reason, and
 // SendExitMeta records the alias destination as a SendExitMeta (C2).
 func TestProcessTSendExit(t *testing.T) {

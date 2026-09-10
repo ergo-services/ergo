@@ -62,6 +62,12 @@ sub.ShouldSpawn().Factory(factoryWorker).Times(3).Assert()
 sub.ShouldLog().Level(gen.LogLevelError).Containing("timeout").Once().Assert()
 ```
 
+Structured log fields are matched with `WithFields`, which asks that the line carry *all* of the fields you name - extras on the line are fine, and order does not matter. Values compare with `reflect.DeepEqual`, so a slice or map field value matches by content:
+
+```go
+sub.ShouldLog().WithFields(gen.LogField{Name: "job", Value: "42"}).Once().Assert()
+```
+
 Where an action can fail, `Error` matches an exact error and `ErrorIs` matches a wrapped one:
 
 ```go

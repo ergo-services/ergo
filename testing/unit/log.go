@@ -2,6 +2,7 @@ package unit
 
 import (
 	"fmt"
+	"slices"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
@@ -46,7 +47,13 @@ func (l *mockLog) emit(level gen.LogLevel, format string, args ...any) {
 	if l.level > level {
 		return
 	}
-	l.node.rec.Put(check.Log{From: l.from, Level: level, Message: fmt.Sprintf(format, args...)})
+	// clone: the record is a snapshot, later AddFields must not reach back into it
+	l.node.rec.Put(check.Log{
+		From:    l.from,
+		Level:   level,
+		Message: fmt.Sprintf(format, args...),
+		Fields:  slices.Clone(l.fields),
+	})
 }
 
 func (l *mockLog) Trace(format string, args ...any)   { l.emit(gen.LogLevelTrace, format, args...) }

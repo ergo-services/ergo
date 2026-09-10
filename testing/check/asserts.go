@@ -3,6 +3,7 @@ package check
 import (
 	"errors"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -904,6 +905,25 @@ func (x *LogAssert) Message(msg string) *LogAssert {
 }
 func (x *LogAssert) Containing(substr string) *LogAssert {
 	x.Where(func(r Log) bool { return strings.Contains(r.Message, substr) })
+	return x
+}
+
+// WithFields narrows to lines carrying all of the given fields; extra fields on the
+// line are fine, and order does not matter. Values compare with reflect.DeepEqual, so
+// uncomparable ones (a slice or map field value) match instead of panicking. Called
+// with no fields it narrows nothing.
+func (x *LogAssert) WithFields(fields ...gen.LogField) *LogAssert {
+	x.Where(func(r Log) bool {
+		for _, want := range fields {
+			carried := func(got gen.LogField) bool {
+				return got.Name == want.Name && reflect.DeepEqual(got.Value, want.Value)
+			}
+			if slices.ContainsFunc(r.Fields, carried) == false {
+				return false
+			}
+		}
+		return true
+	})
 	return x
 }
 

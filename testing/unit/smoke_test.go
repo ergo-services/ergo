@@ -488,6 +488,12 @@ func (a *logActor) HandleMessage(from gen.PID, message any) error {
 		a.Log().Error("error line")
 	case "set-trace":
 		a.setErr = a.Log().SetLevel(gen.LogLevelTrace)
+	case "log_fields":
+		a.Log().AddFields(gen.LogField{Name: "foo", Value: "bar"})
+		a.Log().Error("fields")
+	case "log_uncomparable_field":
+		a.Log().AddFields(gen.LogField{Name: "ids", Value: []int{1, 2}})
+		a.Log().Error("uncomparable field")
 	}
 	return nil
 }
@@ -503,6 +509,34 @@ func TestSmokeSetLevelRejectsTrace(t *testing.T) {
 	s, _ := unit.Spawn(t, factoryLogActor, gen.ProcessOptions{})
 	s.SendMessage(gen.PID{}, "set-trace")
 	check.ErrorIs(t, s.Behavior().(*logActor).setErr, gen.ErrIncorrect)
+}
+
+func TestSmokeSetFields(t *testing.T) {
+	s, _ := unit.Spawn(t, factoryLogActor, gen.ProcessOptions{})
+	s.SendMessage(gen.PID{}, "log_fields")
+	s.ShouldLog().Message("fields").WithFields(gen.LogField{Name: "foo", Value: "bar"}).Once().Assert()
+
+	// a field the line does not carry, and the right name with the wrong value
+	s.ShouldLog().WithFields(gen.LogField{Name: "nope", Value: "bar"}).None().Assert()
+	s.ShouldLog().WithFields(gen.LogField{Name: "foo", Value: "other"}).None().Assert()
+}
+
+// a field value that is uncomparable with == (a slice, a map) must match rather than
+// panic, so WithFields compares values with reflect.DeepEqual.
+func TestSmokeFieldsUncomparableValue(t *testing.T) {
+	s, _ := unit.Spawn(t, factoryLogActor, gen.ProcessOptions{})
+	s.SendMessage(gen.PID{}, "log_uncomparable_field")
+	s.ShouldLog().WithFields(gen.LogField{Name: "ids", Value: []int{1, 2}}).Once().Assert()
+	s.ShouldLog().WithFields(gen.LogField{Name: "ids", Value: []int{3}}).None().Assert()
+}
+
+// each line is a snapshot: fields added after it was emitted do not reach back into
+// the record already stored.
+func TestSmokeFieldsSnapshotPerLine(t *testing.T) {
+	s, _ := unit.Spawn(t, factoryLogActor, gen.ProcessOptions{})
+	s.SendMessage(gen.PID{}, "log_fields")
+	s.SendMessage(gen.PID{}, "log_uncomparable_field")
+	s.ShouldLog().Message("fields").WithFields(gen.LogField{Name: "ids", Value: []int{1, 2}}).None().Assert()
 }
 
 // a test can override a node introspection method when the default does not fit.

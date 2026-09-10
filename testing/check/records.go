@@ -2,6 +2,7 @@ package check
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -416,11 +417,20 @@ type Log struct {
 	From    gen.PID
 	Level   gen.LogLevel
 	Message string
+	Fields  []gen.LogField
 }
 
 func (Log) Kind() string { return "logged" }
 func (r Log) String() string {
-	return fmt.Sprintf("Log(from=%s level=%v msg=%q)", r.From, r.Level, r.Message)
+	if len(r.Fields) == 0 {
+		return fmt.Sprintf("Log(from=%s level=%v msg=%q)", r.From, r.Level, r.Message)
+	}
+	fields := make([]string, 0, len(r.Fields))
+	for _, f := range r.Fields {
+		fields = append(fields, f.String())
+	}
+	return fmt.Sprintf("Log(from=%s level=%v msg=%q fields=[%s])",
+		r.From, r.Level, r.Message, strings.Join(fields, " "))
 }
 
 // AddCronJob is a cron job registered (or attempted) by a process via Cron().AddJob
