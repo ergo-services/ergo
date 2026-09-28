@@ -2090,7 +2090,6 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 
 		buf := v.(*lib.Buffer)
 
-		releaseBuffer := true
 		atomic.AddInt64(&c.allocatedInQueues, int64(-buf.Cap()))
 
 		var tracing gen.Tracing
@@ -2109,9 +2108,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			idTO := binary.BigEndian.Uint64(buf.B[25:33])
 
 			msg, tail, err := edf.Decode(buf.B[33:], c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2197,9 +2194,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			refID := binary.BigEndian.Uint64(buf.B[17:25])
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2259,9 +2254,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			msg, tail, err := edf.Decode(buf.B[49:], c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2320,9 +2313,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			idTO := binary.BigEndian.Uint64(buf.B[41:49])
 
 			msg, tail, err := edf.Decode(buf.B[49:], c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2421,9 +2412,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2487,9 +2476,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			to.ID[2] = binary.BigEndian.Uint64(buf.B[57:65])
 
 			msg, tail, err := edf.Decode(buf.B[65:], c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2578,9 +2565,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2605,9 +2590,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			idTO := binary.BigEndian.Uint64(buf.B[17:25])
 
 			msg, tail, err := edf.Decode(buf.B[25:], c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2656,9 +2639,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			ref.ID[2] = binary.BigEndian.Uint64(buf.B[41:49])
 
 			msg, tail, err := edf.Decode(buf.B[49:], c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2746,9 +2727,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 				var ok bool
 
 				msg, tail, err := edf.Decode(buf.B[50:], c.decodeOptions)
-				if releaseBuffer {
-					lib.ReleaseBuffer(buf)
-				}
+				lib.ReleaseBuffer(buf)
 
 				if err != nil {
 					c.log.Error("unable to decode received message: %s", err)
@@ -2787,9 +2766,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			// priority := gen.MessagePriority(buf.B[8]) ignored
 			idTarget := binary.BigEndian.Uint64(buf.B[9:17])
 			msg, tail, err := edf.Decode(buf.B[17:], c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2860,9 +2837,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2927,9 +2902,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			msg, tail, err := edf.Decode(data, c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
@@ -2964,9 +2937,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			target.ID[2] = binary.BigEndian.Uint64(buf.B[25:33])
 
 			msg, tail, err := edf.Decode(buf.B[33:], c.decodeOptions)
-			if releaseBuffer {
-				lib.ReleaseBuffer(buf)
-			}
+			lib.ReleaseBuffer(buf)
 
 			if err != nil {
 				c.log.Error("unable to decode received message: %s", err)
