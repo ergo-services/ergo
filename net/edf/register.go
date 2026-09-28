@@ -470,7 +470,7 @@ func registerType(tov reflect.Type) error {
 				b.Extend(4)
 			}
 			if state.child == nil {
-				state.child = &stateEncode{options: state.options}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 			bodyStart := b.Len()
@@ -519,7 +519,7 @@ func registerType(tov reflect.Type) error {
 			}
 
 			if state.child == nil {
-				state.child = &stateDecode{options: state.options}
+				state.child = getPooledStateDecode(state.options)
 			}
 			state = state.child
 			for i := 0; i < nf; i++ {
@@ -580,7 +580,7 @@ func registerType(tov reflect.Type) error {
 			buf := b.Extend(4)
 			binary.BigEndian.PutUint32(buf, uint32(n))
 			if state.child == nil {
-				state.child = &stateEncode{options: state.options}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 			for i := 0; i < n; i++ {
@@ -631,10 +631,8 @@ func registerType(tov reflect.Type) error {
 			}
 
 			if state.child == nil {
-				state.child = &stateDecode{
-					options: state.options,
-					decoder: dec,
-				}
+				state.child = getPooledStateDecode(state.options)
+				state.child.decoder = dec
 			}
 			state = state.child
 
@@ -689,7 +687,7 @@ func registerType(tov reflect.Type) error {
 
 		fenc := func(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 			if state.child == nil {
-				state.child = &stateEncode{options: state.options}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 			for i := 0; i < value.Len(); i++ {
@@ -714,10 +712,8 @@ func registerType(tov reflect.Type) error {
 			}
 
 			if state.child == nil {
-				state.child = &stateDecode{
-					options: state.options,
-					decoder: dec,
-				}
+				state.child = getPooledStateDecode(state.options)
+				state.child.decoder = dec
 			}
 			state = state.child
 
@@ -776,9 +772,7 @@ func registerType(tov reflect.Type) error {
 			}
 
 			if state.child == nil {
-				state.child = &stateEncode{
-					options: state.options,
-				}
+				state.child = getPooledStateEncode(state.options)
 			}
 			state = state.child
 
@@ -839,9 +833,7 @@ func registerType(tov reflect.Type) error {
 			}
 
 			if state.child == nil {
-				state.child = &stateDecode{
-					options: state.options,
-				}
+				state.child = getPooledStateDecode(state.options)
 			}
 			state = state.child
 
