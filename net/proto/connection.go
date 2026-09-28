@@ -2090,12 +2090,8 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 
 		buf := v.(*lib.Buffer)
 
-		// to avoid getting the buffer pool too big, we check the total volume (capacity)
-		// we took from there and don't put it back if the limit has been reached.
 		releaseBuffer := true
-		if atomic.AddInt64(&c.allocatedInQueues, int64(-buf.Cap())) > limitMemRecvQueues {
-			releaseBuffer = false
-		}
+		atomic.AddInt64(&c.allocatedInQueues, int64(-buf.Cap()))
 
 		var tracing gen.Tracing
 
