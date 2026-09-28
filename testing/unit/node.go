@@ -105,6 +105,7 @@ func newMockNode(t testing.TB, name gen.Atom, o gen.NodeOptions) *mockNode {
 		names:    make(map[gen.Atom]gen.PID),
 	}
 	n.log = newMockLog(n, n.nodePID(), n.logLevel)
+	n.log.setSource(gen.MessageLogNode{Node: n.nodeName, Creation: n.creation})
 	n.netmock = newMockNetwork(n)
 	n.cronmock = newMockCron(n)
 	return n
@@ -515,6 +516,18 @@ func (n *mockNode) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions,
 }
 func (n *mockNode) SpawnRegister(register gen.Atom, factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	return n.routeSpawn(n.stubs, n.nodePID(), register, factory, options)
+}
+
+// CancelWaitResponse has no wait to end in this harness: the mock Call returns at
+// once, so no process ever sits in the WaitResponse state.
+func (n *mockNode) CancelWaitResponse(pid gen.PID, ref gen.Ref) error {
+	if n.ov.cancelWaitResponse != nil {
+		return n.ov.cancelWaitResponse(pid, ref)
+	}
+	if _, ok := n.procs[pid]; ok == false {
+		return gen.ErrProcessUnknown
+	}
+	return gen.ErrIncorrect
 }
 
 func (n *mockNode) Kill(pid gen.PID) error {

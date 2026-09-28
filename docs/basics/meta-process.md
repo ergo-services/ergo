@@ -239,6 +239,8 @@ A meta-process often needs a heartbeat, a flush on an interval, or a deadline fo
 
 Let the meta-process message instead. `SendAfter` schedules one message after a delay, `SendEvery` repeats it on a period reusing a single timer, and both deliver through a mailbox. Addressed to `Parent()` the tick lands in the parent actor's `HandleMessage`; addressed to `ID()` it wakes the meta-process's own Actor Handler, one message at a time, like any other message.
 
+`SendEvery` keeps a fixed rate here too. Tick `k` is due at the moment the timer was armed plus `k` periods, and it re-arms from that deadline rather than from the moment the tick was delivered, so a slow tick does not shift the ones after it and the heartbeat does not walk away from the phase it started on. A tick delayed by more than a whole period drops the deadlines it missed instead of delivering them in a burst, exactly as `time.Ticker` drops them.
+
 Both are available while the meta-process is asleep, which is what makes them usable at all: `Init()` and the External Reader arm them without being inside a callback.
 
 ```go

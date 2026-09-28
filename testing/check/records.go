@@ -416,11 +416,18 @@ type Log struct {
 	From    gen.PID
 	Level   gen.LogLevel
 	Message string
+	Format  string
+	Args    []any
+	Fields  []gen.LogField
+	Source  any
 }
 
 func (Log) Kind() string { return "logged" }
 func (r Log) String() string {
-	return fmt.Sprintf("Log(from=%s level=%v msg=%q)", r.From, r.Level, r.Message)
+	if len(r.Fields) == 0 {
+		return fmt.Sprintf("Log(from=%s level=%v msg=%q)", r.From, r.Level, r.Message)
+	}
+	return fmt.Sprintf("Log(from=%s level=%v msg=%q fields=%v)", r.From, r.Level, r.Message, r.Fields)
 }
 
 // AddCronJob is a cron job registered (or attempted) by a process via Cron().AddJob

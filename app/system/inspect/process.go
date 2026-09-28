@@ -101,6 +101,10 @@ func (ip *process) HandleMessage(from gen.PID, message any) error {
 				Name: ip.event,
 				Node: ip.Node().Name(),
 			},
+			Info: gen.ProcessInfo{
+				PID:   ip.pid,
+				State: gen.ProcessStateTerminated,
+			},
 		}
 		if info, err := ip.Node().ProcessInfo(ip.pid); err == nil {
 			for k, v := range info.Env {

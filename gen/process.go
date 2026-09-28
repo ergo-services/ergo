@@ -529,14 +529,20 @@ type Process interface {
 	SendWithPriorityAfter(to any, message any, priority MessagePriority, after time.Duration) (CancelFunc, error)
 
 	// SendEvery starts a periodic timer. On each period it sends the message to
-	// the target, until the returned cancel function is called (or the send fails,
-	// e.g. the target terminated). Reuses a single timer, so it does not allocate
+	// the target, until the returned cancel function is called or the process is
+	// no longer alive. A failed send does not stop the timer, the message is sent
+	// again on the next period. Reuses a single timer, so it does not allocate
 	// per period.
+	// Fixed rate: tick k is due at the scheduling moment plus k periods, so a late
+	// tick does not shift the ones after it. Ticks delayed by more than a period
+	// are dropped rather than delivered in a burst, as time.Ticker drops them.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states (creates background timer task).
 	SendEvery(to any, message any, period time.Duration) (CancelFunc, error)
 
-	// SendWithPriorityEvery is SendEvery with the specified priority.
+	// SendWithPriorityEvery is SendEvery with the specified priority. Fixed rate
+	// too: the phase does not drift, and ticks missed by more than a period are
+	// dropped.
 	// Available in: Init, Running states.
 	// Returns ErrNotAllowed in other states (creates background timer task).
 	SendWithPriorityEvery(to any, message any, priority MessagePriority, period time.Duration) (CancelFunc, error)
@@ -1148,6 +1154,10 @@ type ProcessInfo struct {
 
 	// StateTime is the elapsed time since the process entered its current state (nanoseconds).
 	StateTime int64
+
+	// WaitResponseRef is the awaited response ref, zero if the process is not waiting.
+	// Deadline() tells when the wait expires, CancelWaitResponse takes it to end the wait.
+	WaitResponseRef Ref
 
 	// Parent is the PID of the parent process that spawned this process.
 	Parent PID

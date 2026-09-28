@@ -620,6 +620,7 @@ func (n *node) ProcessInfo(pid gen.PID) (gen.ProcessInfo, error) {
 	info.Uptime = p.Uptime()
 	info.State = p.State()
 	info.StateTime = time.Now().UnixNano() - atomic.LoadInt64(&p.stateEntered)
+	info.WaitResponseRef = p.awaitingRef()
 	info.Parent = p.parent
 	info.Leader = p.leader
 	info.Fallback = p.fallback
@@ -1963,6 +1964,10 @@ func (n *node) Kill(pid gen.PID) error {
 		int32(gen.ProcessStateWaitResponse),
 		int32(gen.ProcessStateRunning):
 		atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
+		// otherwise the waiting goroutine hangs until its budget expires
+		if ref := p.awaitingRef(); ref != (gen.Ref{}) {
+			p.cancelWait(ref)
+		}
 		// do not unregister process until its goroutine stopped
 		return nil
 	case int32(gen.ProcessStateTerminated):
@@ -1986,6 +1991,26 @@ func (n *node) Kill(pid gen.PID) error {
 
 	go n.finishProcess(p, reason, gen.TerminateReasonKill)
 
+	return nil
+}
+
+func (n *node) CancelWaitResponse(pid gen.PID, ref gen.Ref) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+	value, loaded := n.processes.Load(pid)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+
+	p := value.(*process)
+	awaiting := p.awaitingRef()
+	if awaiting == (gen.Ref{}) || awaiting != ref {
+		return gen.ErrIncorrect
+	}
+	if p.cancelWait(ref) == false {
+		return gen.ErrBusy
+	}
 	return nil
 }
 

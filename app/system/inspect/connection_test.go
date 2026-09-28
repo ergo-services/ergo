@@ -47,7 +47,7 @@ func TestConnectionInspectorKeepsWatchingALivePeer(t *testing.T) {
 	sub.ShouldSendEvent().Name(event).AtLeast(1).Assert()
 }
 
-func TestConnectionInspectorStopsAfterAnsweringAboutAGonePeer(t *testing.T) {
+func TestConnectionInspectorKeepsItsEventAfterAnsweringAboutAGonePeer(t *testing.T) {
 	remote := gen.Atom("peer@localhost")
 
 	node := unit.StartNode(t, "inspect@localhost", gen.NodeOptions{})
@@ -60,7 +60,7 @@ func TestConnectionInspectorStopsAfterAnsweringAboutAGonePeer(t *testing.T) {
 	sub.SendMessage(gen.PID{}, requestInspect{pid: client, ref: gen.Ref{}})
 
 	sub.ShouldSendResponse().To(client).Once().Assert()
-	if sub.Terminated() == false {
-		t.Fatal("the inspector kept running after reporting the peer gone")
+	if sub.Terminated() {
+		t.Fatal("the inspector destroyed the event it had just named in its answer, so the caller cannot subscribe to it")
 	}
 }

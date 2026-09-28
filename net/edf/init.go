@@ -145,6 +145,7 @@ var (
 		gen.ErrAtomTooLong,
 
 		gen.ErrTimeout,
+		gen.ErrCanceled,
 		gen.ErrUnsupported,
 		gen.ErrUnknown,
 		gen.ErrNotAllowed,

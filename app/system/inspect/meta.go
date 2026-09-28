@@ -95,6 +95,10 @@ func (im *meta) HandleMessage(from gen.PID, message any) error {
 				Name: im.event,
 				Node: im.Node().Name(),
 			},
+			Info: gen.MetaInfo{
+				ID:    im.meta,
+				State: gen.MetaStateTerminated,
+			},
 		}
 		if info, err := im.MetaInfo(im.meta); err == nil {
 			response.Info = info

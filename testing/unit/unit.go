@@ -22,6 +22,8 @@ package unit
 
 import (
 	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 
 	"ergo.services/ergo/gen"
@@ -133,6 +135,12 @@ func (n *MockNode) prepare(factory gen.ProcessFactory, register gen.Atom, option
 	behavior := factory()
 	s.behavior = behavior
 	process.behavior = behavior
+	process.log.setSource(gen.MessageLogProcess{
+		Node:     n.mockNode.nodeName,
+		PID:      process.pid,
+		Name:     process.name,
+		Behavior: strings.TrimPrefix(reflect.TypeOf(behavior).String(), "*"),
+	})
 	return s
 }
 

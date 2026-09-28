@@ -9,6 +9,8 @@ const (
 	CapSendExitMeta = "manage.send_exit_meta"
 	CapKill         = "manage.kill"
 
+	CapCancelWaitResponse = "manage.cancel_wait_response"
+
 	CapSetLogLevel        = "manage.set_log_level"
 	CapSetProcessLogLevel = "manage.set_process_log_level"
 	CapSetMetaLogLevel    = "manage.set_meta_log_level"
@@ -40,6 +42,7 @@ func Capabilities() []string {
 		CapSendExit,
 		CapSendExitMeta,
 		CapKill,
+		CapCancelWaitResponse,
 		CapSetLogLevel,
 		CapSetProcessLogLevel,
 		CapSetMetaLogLevel,

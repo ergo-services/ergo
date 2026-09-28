@@ -138,6 +138,11 @@ The return value determines whether the actor continues or terminates:
 - Return `gen.TerminateReasonNormal` for clean shutdown
 - Return any other error to terminate (logged as error)
 
+An error you forward is also "any other error". `return a.Send(peer, msg)` reads like delivery
+and means termination: this process stops whenever that peer is gone, which in a distributed
+system is an ordinary condition rather than a failure. Decide what the absence means instead -
+log it and return `nil`, drop the entry, monitor the peer. argus reports this as A2029.
+
 The `from` parameter tells you who sent the message. Use it for replies. If you don't need replies, ignore it.
 
 ## Synchronous Requests
@@ -457,6 +462,8 @@ For workload distribution, use `act.Pool` instead of implementing manual worker 
 **Don't block on channels or mutexes**. Callbacks run in the actor's goroutine. Blocking it starves message processing. Use async message passing (`Send`) instead of sync primitives.
 
 **Don't store `gen.Process` references**. The embedded `act.Actor` provides all process methods. Storing additional references wastes memory and can cause confusion about which instance is authoritative.
+
+**Don't let a callback call its own path back**. A helper that re-enters the callback grows the goroutine stack, and a stack overflow is a fatal runtime error rather than a panic: `recover` does not see it, `Terminate` does not run, the supervisor is never told, and the node goes down with every process on it. Sending to your own PID does not make a stuck loop finish, but it returns to the mailbox between rounds, so an exit signal, a cancel and the supervisor still reach you - a contained fault instead of a dead node. argus reports this as A1013.
 
 **Return errors for termination, not for caller responses**. `HandleCall`'s error return terminates the process. To send errors to callers, return them as the result value.
 

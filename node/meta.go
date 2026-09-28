@@ -204,6 +204,8 @@ func (m *meta) sendDeferred(to any, message any, priority gen.MessagePriority, d
 
 	var stopped atomic.Bool
 	var t *time.Timer
+	// next tick deadline; touched by the timer callback only, which never runs twice at once
+	var next time.Time
 	// armed far out first so the callback can't read t before it is set
 	t = time.AfterFunc(time.Hour, func() {
 		if stopped.Load() || m.alive() == false {
@@ -214,10 +216,19 @@ func (m *meta) sendDeferred(to any, message any, priority gen.MessagePriority, d
 			m.log.Trace("send every %s to %s (priority %s)", d, to, priority)
 		}
 		m.send(to, message, priority)
-		if stopped.Load() == false {
-			t.Reset(d)
+		if stopped.Load() {
+			return
 		}
+		// fixed rate: re-arm from the deadline, not from now, so lateness doesn't accumulate
+		now := time.Now()
+		next = next.Add(d)
+		if next.After(now) == false {
+			// more than a period late: drop the missed ticks, like time.Ticker
+			next = next.Add((now.Sub(next)/d + 1) * d)
+		}
+		t.Reset(next.Sub(now))
 	})
+	next = time.Now().Add(d)
 	t.Reset(d)
 	return func() bool {
 		t.Stop()

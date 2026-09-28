@@ -2,6 +2,7 @@ package local
 
 import (
 	"testing"
+	"time"
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
@@ -14,6 +15,7 @@ type logQuery struct {
 	Fields []gen.LogField
 	Names  []string
 	Logger string
+	Text   string
 }
 
 type logProbe struct{ act.Actor }
@@ -42,6 +44,9 @@ func (l *logProbe) HandleCall(from gen.PID, ref gen.Ref, request any) (any, erro
 	case "setlogger":
 		l.Log().SetLogger(q.Logger)
 		return probeResult{Value: l.Log().Logger()}, nil
+	case "emit":
+		l.Log().Info("probe says %s", q.Text)
+		return probeResult{}, nil
 	}
 	return probeResult{}, nil
 }
@@ -100,6 +105,47 @@ func TestLogFieldStack(t *testing.T) {
 
 	check.Equal(t, 0, askLog(t, n, pid, logQuery{Kind: "pop"}))
 	check.Equal(t, []string{"base"}, fieldNames(askLog(t, n, pid, logQuery{Kind: "fields"})))
+}
+
+func TestLogFieldsOnEmittedLine(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+	pid := n.Spawn(factoryLogProbe, gen.ProcessOptions{})
+
+	askLog(t, n, pid, logQuery{Kind: "add", Fields: []gen.LogField{{Name: "order", Value: 7}}})
+	askLog(t, n, pid, logQuery{Kind: "emit", Text: "with fields"})
+
+	n.ShouldLog().From(pid).Level(gen.LogLevelInfo).Format("probe says %s").
+		Containing("probe says with fields").WithField("order", 7).
+		Once().Within(time.Second).Must()
+
+	askLog(t, n, pid, logQuery{Kind: "push"})
+	askLog(t, n, pid, logQuery{Kind: "add", Fields: []gen.LogField{{Name: "scoped", Value: "yes"}}})
+	askLog(t, n, pid, logQuery{Kind: "emit", Text: "inside scope"})
+	askLog(t, n, pid, logQuery{Kind: "pop"})
+	askLog(t, n, pid, logQuery{Kind: "emit", Text: "outside scope"})
+
+	n.ShouldLog().Containing("inside scope").WithFields(
+		gen.LogField{Name: "order", Value: 7},
+		gen.LogField{Name: "scoped", Value: "yes"},
+	).Once().Within(time.Second).Must()
+
+	n.ShouldLog().Containing("outside scope").WithFieldName("scoped").
+		None().Within(300 * time.Millisecond).Assert()
+}
+
+func TestLogFieldDeleteRefusedWhilePushedIsLogged(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+	pid := n.Spawn(factoryLogProbe, gen.ProcessOptions{})
+
+	askLog(t, n, pid, logQuery{Kind: "add", Fields: []gen.LogField{{Name: "base", Value: 1}}})
+	askLog(t, n, pid, logQuery{Kind: "push"})
+	askLog(t, n, pid, logQuery{Kind: "delete", Names: []string{"base"}})
+
+	n.ShouldLog().From(pid).Level(gen.LogLevelError).
+		Containing("cannot delete log field(s) while the field stack has 1 active frame(s)").
+		Once().Within(time.Second).Must()
 }
 
 func TestLogLoggerName(t *testing.T) {

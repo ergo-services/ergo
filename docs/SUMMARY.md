@@ -81,6 +81,7 @@
 * [Meta-Processes](extra-library/meta-processes/README.md)
   * [WebSocket](extra-library/meta-processes/websocket.md)
   * [SSE](extra-library/meta-processes/sse.md)
+  * [NATS](extra-library/meta-processes/nats.md)
 * [Loggers](extra-library/loggers/README.md)
   * [Colored](extra-library/loggers/colored.md)
   * [Rotate](extra-library/loggers/rotate.md)

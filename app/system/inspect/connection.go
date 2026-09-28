@@ -57,6 +57,7 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 		ev := MessageInspectConnection{
 			Node:         ic.Node().Name(),
 			Disconnected: true,
+			Info:         gen.RemoteNodeInfo{Node: ic.remote},
 		}
 
 		remote, err := ic.Node().Network().Node(ic.remote)
@@ -85,6 +86,7 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 				Node: ic.Node().Name(),
 			},
 			Disconnected: true,
+			Info:         gen.RemoteNodeInfo{Node: ic.remote},
 		}
 		if remote, err := ic.Node().Network().Node(ic.remote); err == nil {
 			response.Disconnected = false
@@ -92,9 +94,6 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 		}
 		ic.SendResponse(m.pid, m.ref, response)
 		ic.Log().Debug("sent response for the inspect connection request to: %s", m.pid)
-		if response.Disconnected {
-			return gen.TerminateReasonNormal
-		}
 
 	case shutdown:
 		if ic.generating {

@@ -87,11 +87,16 @@ type MetaProcess interface {
 
 	// SendEvery sends the message to the target on every period, until the cancel
 	// function is called or the meta process or its parent terminates.
+	// Fixed rate: tick k is due at the scheduling moment plus k periods, so a late
+	// tick does not shift the ones after it. Ticks delayed by more than a period
+	// are dropped rather than delivered in a burst, as time.Ticker drops them.
 	// Available in: Sleep, Running states. Returns ErrNotAllowed in Terminated state,
 	// ErrIncorrect on a non-positive period.
 	SendEvery(to any, message any, period time.Duration) (CancelFunc, error)
 
-	// SendWithPriorityEvery is SendEvery with the specified priority.
+	// SendWithPriorityEvery is SendEvery with the specified priority. Fixed rate
+	// too: the phase does not drift, and ticks missed by more than a period are
+	// dropped.
 	SendWithPriorityEvery(to any, message any, priority MessagePriority, period time.Duration) (CancelFunc, error)
 
 	// SendResponse sends a response to a Call request.

@@ -73,6 +73,7 @@ type nodeOverrides struct {
 	wait                            func()
 	waitWithTimeout                 func(timeout time.Duration) error
 	kill                            func(pid gen.PID) error
+	cancelWaitResponse              func(pid gen.PID, ref gen.Ref) error
 	send                            func(to any, message any) error
 	sendWithPriority                func(to any, message any, priority gen.MessagePriority) error
 	sendEvent                       func(name gen.Atom, token gen.Ref, options gen.MessageOptions, message any) error
@@ -283,7 +284,12 @@ func (n *Node) OnWait(fn func())      { n.ov.wait = fn }
 func (n *Node) OnWaitWithTimeout(fn func(timeout time.Duration) error) {
 	n.ov.waitWithTimeout = fn
 }
-func (n *Node) OnKill(fn func(pid gen.PID) error)         { n.ov.kill = fn }
+func (n *Node) OnKill(fn func(pid gen.PID) error) { n.ov.kill = fn }
+
+func (n *Node) OnCancelWaitResponse(fn func(pid gen.PID, ref gen.Ref) error) {
+	n.ov.cancelWaitResponse = fn
+}
+
 func (n *Node) OnSend(fn func(to any, message any) error) { n.ov.send = fn }
 
 func (n *Node) OnSendWithPriority(fn func(to any, message any, priority gen.MessagePriority) error) {
@@ -805,6 +811,13 @@ func (n *Node) WaitWithTimeout(timeout time.Duration) error {
 func (n *Node) Kill(pid gen.PID) error {
 	if n.ov.kill != nil {
 		return n.ov.kill(pid)
+	}
+	return nil
+}
+
+func (n *Node) CancelWaitResponse(pid gen.PID, ref gen.Ref) error {
+	if n.ov.cancelWaitResponse != nil {
+		return n.ov.cancelWaitResponse(pid, ref)
 	}
 	return nil
 }

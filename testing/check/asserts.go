@@ -906,6 +906,64 @@ func (x *LogAssert) Containing(substr string) *LogAssert {
 	x.Where(func(r Log) bool { return strings.Contains(r.Message, substr) })
 	return x
 }
+func (x *LogAssert) Format(format string) *LogAssert {
+	x.Where(func(r Log) bool { return r.Format == format })
+	return x
+}
+func (x *LogAssert) WithField(name string, value any) *LogAssert {
+	x.Where(func(r Log) bool {
+		for _, f := range r.Fields {
+			if f.Name == name && reflect.DeepEqual(f.Value, value) {
+				return true
+			}
+		}
+		return false
+	})
+	return x
+}
+func (x *LogAssert) WithFieldName(name string) *LogAssert {
+	x.Where(func(r Log) bool {
+		for _, f := range r.Fields {
+			if f.Name == name {
+				return true
+			}
+		}
+		return false
+	})
+	return x
+}
+func (x *LogAssert) WithFields(fields ...gen.LogField) *LogAssert {
+	x.Where(func(r Log) bool {
+		for _, want := range fields {
+			found := false
+			for _, f := range r.Fields {
+				if f.Name == want.Name && reflect.DeepEqual(f.Value, want.Value) {
+					found = true
+					break
+				}
+			}
+			if found == false {
+				return false
+			}
+		}
+		return true
+	})
+	return x
+}
+func (x *LogAssert) FromMeta(alias gen.Alias) *LogAssert {
+	x.Where(func(r Log) bool {
+		source, ok := r.Source.(gen.MessageLogMeta)
+		return ok && source.Meta == alias
+	})
+	return x
+}
+func (x *LogAssert) FromNode() *LogAssert {
+	x.Where(func(r Log) bool {
+		_, ok := r.Source.(gen.MessageLogNode)
+		return ok
+	})
+	return x
+}
 
 // AddCronJobAssert asserts over cron jobs registered on a node (egress).
 type AddCronJobAssert struct{ *Assertion[AddCronJob] }

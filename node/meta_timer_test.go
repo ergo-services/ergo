@@ -279,3 +279,95 @@ func TestMetaSendDeferredRouting(t *testing.T) {
 		})
 	}
 }
+
+// A meta SendEvery is fixed rate too: tick k is due at start+k*period and a slow
+// send does not shift the ticks after it.
+func TestMetaSendEveryFixedRate(t *testing.T) {
+	const (
+		period = 20 * time.Millisecond
+		work   = 5 * time.Millisecond
+		n      = 50
+		bound  = 3 * period
+	)
+
+	fired := make(chan time.Time, n+8)
+	core := mock.NewCore() // no-op recorder: a tick may fire after the test returns
+	core.OnRouteSendPID(func(from, to gen.PID, opts gen.MessageOptions, message any) error {
+		at := time.Now()
+		time.Sleep(work) // the send path costs ~work on every tick
+		select {
+		case fired <- at:
+		default:
+		}
+		return nil
+	})
+
+	m := newTestMeta(core)
+	start := time.Now()
+	cancel, err := m.SendEvery(metaTimerTarget, "tick", period)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+
+	at := collectTicks(t, fired, n, time.Duration(n)*(period+work)*3)
+	cancel()
+
+	drift := make([]time.Duration, n)
+	for k, tick := range at {
+		drift[k] = tick.Sub(start) - time.Duration(k+1)*period
+		if drift[k] > bound {
+			t.Fatalf("tick %d fired %s after its deadline (bound %s): the phase drifts", k+1, drift[k], bound)
+		}
+	}
+
+	head, tail := meanDrift(drift[:10]), meanDrift(drift[n-10:])
+	if tail-head > period {
+		t.Fatalf("drift grows with the tick number: first ten mean %s, last ten mean %s", head, tail)
+	}
+}
+
+// A meta tick running more than a period late drops the missed ticks instead of
+// delivering them in a burst, and the following ticks keep the original phase.
+func TestMetaSendEveryDropsMissedTicks(t *testing.T) {
+	const (
+		period = 50 * time.Millisecond
+		block  = 3*period + period/2 // three deadlines pass while the first tick is stuck
+		n      = 8
+	)
+
+	fired := make(chan time.Time, n+8)
+	var blocked atomic.Bool
+	core := mock.NewCore()
+	core.OnRouteSendPID(func(from, to gen.PID, opts gen.MessageOptions, message any) error {
+		at := time.Now()
+		if blocked.CompareAndSwap(false, true) {
+			time.Sleep(block)
+		}
+		select {
+		case fired <- at:
+		default:
+		}
+		return nil
+	})
+
+	m := newTestMeta(core)
+	start := time.Now()
+	cancel, err := m.SendEvery(metaTimerTarget, "tick", period)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+
+	at := collectTicks(t, fired, n, block+time.Duration(n)*period*3)
+	cancel()
+
+	for k := 1; k < n; k++ {
+		if gap := at[k].Sub(at[k-1]); gap < period/2 {
+			t.Fatalf("ticks %d and %d are %s apart: missed ticks were delivered in a burst", k, k+1, gap)
+		}
+		if off := phaseOffset(at[k], start, period); off > period/4 {
+			t.Fatalf("tick %d sits %s off the original phase", k+1, off)
+		}
+	}
+}

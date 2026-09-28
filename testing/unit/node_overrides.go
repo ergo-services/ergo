@@ -39,7 +39,8 @@ type nodeOverrides struct {
 	networkStart func(options gen.NetworkOptions) error
 	networkStop  func() error
 
-	kill func(pid gen.PID) error
+	kill               func(pid gen.PID) error
+	cancelWaitResponse func(pid gen.PID, ref gen.Ref) error
 
 	registerName   func(name gen.Atom, pid gen.PID) error
 	unregisterName func(name gen.Atom) (gen.PID, error)
@@ -146,6 +147,9 @@ func (n *mockNode) OnNetworkStart(fn func(options gen.NetworkOptions) error) { n
 func (n *mockNode) OnNetworkStop(fn func() error)                            { n.ov.networkStop = fn }
 
 func (n *mockNode) OnKill(fn func(pid gen.PID) error) { n.ov.kill = fn }
+func (n *mockNode) OnCancelWaitResponse(fn func(pid gen.PID, ref gen.Ref) error) {
+	n.ov.cancelWaitResponse = fn
+}
 
 func (n *mockNode) OnRegisterName(fn func(name gen.Atom, pid gen.PID) error) { n.ov.registerName = fn }
 func (n *mockNode) OnUnregisterName(fn func(name gen.Atom) (gen.PID, error)) {

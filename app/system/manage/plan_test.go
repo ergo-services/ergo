@@ -141,6 +141,25 @@ func TestPlanKill(t *testing.T) {
 	}
 }
 
+func TestPlanCancelWaitResponse(t *testing.T) {
+	node := manageNode(t)
+	targetRef := gen.Ref{Node: "manage@localhost", Creation: 1, ID: [3]uint64{7, 0, 99}}
+	canceled := map[gen.PID]gen.Ref{}
+	node.OnCancelWaitResponse(func(pid gen.PID, ref gen.Ref) error {
+		canceled[pid] = ref
+		return nil
+	})
+
+	request := RequestDoCancelWaitResponse{PID: targetPID, Ref: targetRef}
+	response := callManage(t, spawnManage(t, node), request)
+	if r := response.(ResponseDoCancelWaitResponse); r.Error != nil {
+		t.Fatalf("cancel wait response answered %s", r.Error)
+	}
+	if len(canceled) != 1 || canceled[targetPID] != targetRef {
+		t.Fatalf("cancel reached %v instead of %s with %s", canceled, targetPID, targetRef)
+	}
+}
+
 func TestPlanSetLogLevel(t *testing.T) {
 	node := manageNode(t)
 	sub := spawnManage(t, node)

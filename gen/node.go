@@ -299,6 +299,15 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states, ErrProcessUnknown if process not found.
 	Kill(pid PID) error
 
+	// CancelWaitResponse ends the wait of a process in the WaitResponse state. The ref
+	// names that wait and comes from ProcessInfo.WaitResponseRef. The awaited request
+	// returns ErrCanceled, the process stays alive, the callee is not affected.
+	// Only works for local processes on this node.
+	// Available in: Running state only.
+	// Returns ErrNodeTerminated in other states, ErrProcessUnknown if process not found,
+	// ErrIncorrect if the process is not waiting for this ref, ErrBusy if it did not fit.
+	CancelWaitResponse(pid PID, ref Ref) error
+
 	// Send sends an asynchronous message to the target.
 	// Sender is the node's core PID. Target can be: PID, ProcessID, Alias, Atom
 	// (local registered name). Any other type returns ErrUnsupported.

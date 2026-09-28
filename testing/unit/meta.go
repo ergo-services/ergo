@@ -1,6 +1,8 @@
 package unit
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,6 +66,12 @@ func (s *Subject) PrepareMeta(behavior gen.MetaBehavior, options gen.MetaOptions
 		log:         newMockLog(s.node, s.process.pid, level),
 		stubs:       st,
 	}
+	m.log.setSource(gen.MessageLogMeta{
+		Node:     s.node.nodeName,
+		Parent:   s.process.pid,
+		Meta:     m.id,
+		Behavior: strings.TrimPrefix(reflect.TypeOf(behavior).String(), "*"),
+	})
 	return &MetaSubject{
 		Asserter: check.NewAsserter(s.t, s.node.rec),
 		t:        s.t,

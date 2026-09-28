@@ -15,6 +15,7 @@ type Log struct {
 	level  gen.LogLevel
 	logger string
 	fields []gen.LogField
+	stack  [][]gen.LogField
 	ov     logOverrides
 }
 
@@ -104,7 +105,9 @@ func (l *Log) Fields() []gen.LogField {
 	if l.ov.fields != nil {
 		return l.ov.fields()
 	}
-	return l.fields
+	f := make([]gen.LogField, len(l.fields))
+	copy(f, l.fields)
+	return f
 }
 
 func (l *Log) AddFields(fields ...gen.LogField) {
@@ -118,28 +121,75 @@ func (l *Log) AddFields(fields ...gen.LogField) {
 func (l *Log) DeleteFields(fields ...string) {
 	if l.ov.deleteFields != nil {
 		l.ov.deleteFields(fields...)
+		return
 	}
+	if len(fields) == 0 {
+		return
+	}
+
+	if ls := len(l.stack); ls > 0 {
+		l.Error("cannot delete log field(s) while the field stack has %d active frame(s); use the PopFields method instead", ls)
+		return
+	}
+
+	filter := make(map[string]bool)
+	for _, f := range fields {
+		filter[f] = true
+	}
+
+	newFields := []gen.LogField{}
+	for _, f := range l.fields {
+		if _, found := filter[f.Name]; found {
+			continue
+		}
+		newFields = append(newFields, f)
+	}
+
+	if len(newFields) > 0 {
+		l.fields = newFields
+		return
+	}
+
+	l.fields = nil
 }
 
 func (l *Log) PushFields() int {
 	if l.ov.pushFields != nil {
 		return l.ov.pushFields()
 	}
-	return 0
+	l.stack = append(l.stack, l.fields)
+	return len(l.stack)
 }
 
 func (l *Log) PopFields() int {
 	if l.ov.popFields != nil {
 		return l.ov.popFields()
 	}
-	return 0
+	last := len(l.stack) - 1
+	if last < 0 {
+		return 0
+	}
+	l.fields = l.stack[last]
+	l.stack = l.stack[:last]
+	return len(l.stack)
 }
 
 func (l *Log) emit(level gen.LogLevel, format string, args ...any) {
 	if l.level > level {
 		return
 	}
-	l.put(check.Log{Level: level, Message: fmt.Sprintf(format, args...)})
+	var fields []gen.LogField
+	if len(l.fields) > 0 {
+		fields = make([]gen.LogField, len(l.fields))
+		copy(fields, l.fields)
+	}
+	l.put(check.Log{
+		Level:   level,
+		Message: fmt.Sprintf(format, args...),
+		Format:  format,
+		Args:    args,
+		Fields:  fields,
+	})
 }
 
 func (l *Log) Trace(format string, args ...any) {

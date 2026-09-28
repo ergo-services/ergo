@@ -16,6 +16,8 @@ type mockLog struct {
 	level  gen.LogLevel
 	logger string
 	fields []gen.LogField
+	stack  [][]gen.LogField
+	source any
 }
 
 func newMockLog(node *mockNode, from gen.PID, level gen.LogLevel) *mockLog {
@@ -33,20 +35,84 @@ func (l *mockLog) SetLevel(level gen.LogLevel) error {
 	l.level = level
 	return nil
 }
-func (l *mockLog) Logger() string                   { return l.logger }
-func (l *mockLog) SetLogger(name string)            { l.logger = name }
-func (l *mockLog) Fields() []gen.LogField           { return l.fields }
+func (l *mockLog) Logger() string        { return l.logger }
+func (l *mockLog) SetLogger(name string) { l.logger = name }
+
+func (l *mockLog) setSource(source any) { l.source = source }
+
+func (l *mockLog) Fields() []gen.LogField {
+	f := make([]gen.LogField, len(l.fields))
+	copy(f, l.fields)
+	return f
+}
+
 func (l *mockLog) AddFields(fields ...gen.LogField) { l.fields = append(l.fields, fields...) }
-func (l *mockLog) DeleteFields(fields ...string)    {}
-func (l *mockLog) PushFields() int                  { return 0 }
-func (l *mockLog) PopFields() int                   { return 0 }
+
+func (l *mockLog) DeleteFields(fields ...string) {
+	if len(fields) == 0 {
+		return
+	}
+
+	if ls := len(l.stack); ls > 0 {
+		l.Error("cannot delete log field(s) while the field stack has %d active frame(s); use the PopFields method instead", ls)
+		return
+	}
+
+	filter := make(map[string]bool)
+	for _, f := range fields {
+		filter[f] = true
+	}
+
+	newFields := []gen.LogField{}
+	for _, f := range l.fields {
+		if _, found := filter[f.Name]; found {
+			continue
+		}
+		newFields = append(newFields, f)
+	}
+
+	if len(newFields) > 0 {
+		l.fields = newFields
+		return
+	}
+
+	l.fields = nil
+}
+
+func (l *mockLog) PushFields() int {
+	l.stack = append(l.stack, l.fields)
+	return len(l.stack)
+}
+
+func (l *mockLog) PopFields() int {
+	last := len(l.stack) - 1
+	if last < 0 {
+		return 0
+	}
+	l.fields = l.stack[last]
+	l.stack = l.stack[:last]
+	return len(l.stack)
+}
 
 func (l *mockLog) emit(level gen.LogLevel, format string, args ...any) {
 	// mirror the real logger's gate: drop lines below the configured level
 	if l.level > level {
 		return
 	}
-	l.node.rec.Put(check.Log{From: l.from, Level: level, Message: fmt.Sprintf(format, args...)})
+	var fields []gen.LogField
+	if len(l.fields) > 0 {
+		fields = make([]gen.LogField, len(l.fields))
+		copy(fields, l.fields)
+	}
+	l.node.rec.Put(check.Log{
+		From:    l.from,
+		Level:   level,
+		Message: fmt.Sprintf(format, args...),
+		Format:  format,
+		Args:    args,
+		Fields:  fields,
+		Source:  l.source,
+	})
 }
 
 func (l *mockLog) Trace(format string, args ...any)   { l.emit(gen.LogLevelTrace, format, args...) }

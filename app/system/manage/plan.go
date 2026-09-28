@@ -60,6 +60,15 @@ func (m *manage) plan(request any) (operation, bool) {
 			},
 		}, true
 
+	case RequestDoCancelWaitResponse:
+		return operation{
+			name:   CapCancelWaitResponse,
+			target: r.PID.String(),
+			apply: func() any {
+				return ResponseDoCancelWaitResponse{Error: m.Node().CancelWaitResponse(r.PID, r.Ref)}
+			},
+		}, true
+
 	// log levels: the previous level is readable, so these are reversible
 
 	case RequestDoSetLogLevel:

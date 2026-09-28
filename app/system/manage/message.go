@@ -51,6 +51,16 @@ type ResponseDoKill struct {
 	Error error
 }
 
+// cancel wait response
+
+type RequestDoCancelWaitResponse struct {
+	PID gen.PID
+	Ref gen.Ref
+}
+type ResponseDoCancelWaitResponse struct {
+	Error error
+}
+
 // log level
 
 type RequestDoSetLogLevel struct {
@@ -166,6 +176,7 @@ func Types() []any {
 		RequestDoSendExit{}, ResponseDoSendExit{},
 		RequestDoSendExitMeta{}, ResponseDoSendExitMeta{},
 		RequestDoKill{}, ResponseDoKill{},
+		RequestDoCancelWaitResponse{}, ResponseDoCancelWaitResponse{},
 		RequestDoSetLogLevel{}, RequestDoSetProcessLogLevel{},
 		RequestDoSetMetaLogLevel{}, ResponseDoSetLogLevel{},
 		RequestDoSetNodeTracingSampler{}, RequestDoSetProcessTracingSampler{},

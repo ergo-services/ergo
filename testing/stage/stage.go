@@ -6,10 +6,10 @@
 // actor), stage runs the actual runtime.
 //
 // Plane contract: this harness records both ingress (Delivered, Down, Exit, Event,
-// and the Wire* subscriptions) and egress. It does NOT produce Terminated (observe a
-// process stopping via a Down/Exit on a monitor or link), SendAfter (timers run
-// for real; observe the eventual Send/Delivered), or Log (the node logger is
-// disabled). Those three are testing/unit-only.
+// and the Wire* subscriptions), egress, and Log. It does NOT produce Terminated
+// (observe a process stopping via a Down/Exit on a monitor or link) or SendAfter
+// (timers run for real; observe the eventual Send/Delivered). Those two are
+// testing/unit-only.
 package stage
 
 import (
@@ -95,6 +95,7 @@ type NodeOptions struct {
 	Applications []gen.ApplicationBehavior
 	Env          map[gen.Env]any
 	Cookie       string
+	LogLevel     gen.LogLevel
 	// EnableSystemApp starts the node with the system application. By default a
 	// stage node is bare (no processes), so tests can assert exact process and
 	// application counts; set this only when the test needs system services.
@@ -146,6 +147,7 @@ func (s *Stage) StartNode(prefix string, opts ...NodeOptions) *Node {
 
 	no := gen.NodeOptions{}
 	no.Log.DefaultLogger.Disable = true
+	no.Log.Level = o.LogLevel
 	no.Network.Cookie = cookie
 	no.Network.MaxMessageSize = o.MaxMessageSize
 	no.Network.FragmentSize = o.FragmentSize
@@ -171,6 +173,7 @@ func (s *Stage) StartNode(prefix string, opts ...NodeOptions) *Node {
 
 	// unique across parallel test processes (pid) and within a process (seq)
 	r := check.NewRecorder()
+	no.Log.Loggers = append(no.Log.Loggers, gen.Logger{Name: "stage-logs", Logger: &logRecorder{rec: r}})
 	nodeName := gen.Atom(fmt.Sprintf("%s-stage-%d-%d@localhost", prefix, os.Getpid(), s.id))
 	gn, err := node.Start(nodeName, node.NodeOptionsExtra{
 		NodeOptions:      no,
@@ -430,6 +433,38 @@ func (s *spanRecorder) HandleSpan(span gen.TracingSpan) {
 }
 
 func (s *spanRecorder) Terminate() {}
+
+type logRecorder struct {
+	rec *check.Recorder
+}
+
+func (l *logRecorder) Log(m gen.MessageLog) {
+	var from gen.PID
+	switch source := m.Source.(type) {
+	case gen.MessageLogProcess:
+		from = source.PID
+	case gen.MessageLogMeta:
+		from = source.Parent
+	}
+
+	var fields []gen.LogField
+	if len(m.Fields) > 0 {
+		fields = make([]gen.LogField, len(m.Fields))
+		copy(fields, m.Fields)
+	}
+
+	l.rec.Put(check.Log{
+		From:    from,
+		Level:   m.Level,
+		Message: fmt.Sprintf(m.Format, m.Args...),
+		Format:  m.Format,
+		Args:    m.Args,
+		Fields:  fields,
+		Source:  m.Source,
+	})
+}
+
+func (l *logRecorder) Terminate() {}
 
 // recordCore: ingress on the routing surface (gen.Core)
 // Two kinds of happening cross this surface: a message delivered into a local

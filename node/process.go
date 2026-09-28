@@ -65,6 +65,8 @@ type process struct {
 	// channel for the sync requests made this process
 	response chan response
 
+	awaiting atomic.Pointer[gen.Ref] // the awaited ref, nil when not waiting
+
 	// meta processes
 	metas sync.Map // metas[Alias] -> *meta
 
@@ -926,6 +928,8 @@ func (p *process) sendDeferred(to any, message any, priority gen.MessagePriority
 
 	var stopped atomic.Bool
 	var t *time.Timer
+	// next tick deadline; touched by the timer callback only, which never runs twice at once
+	var next time.Time
 	// arm far out first, then Reset, so the callback can't read t before it is set
 	t = time.AfterFunc(time.Hour, func() {
 		if stopped.Load() || p.isAlive() == false {
@@ -938,10 +942,19 @@ func (p *process) sendDeferred(to any, message any, priority gen.MessagePriority
 		if send() == nil {
 			atomic.AddUint64(&p.messagesOut, 1)
 		}
-		if stopped.Load() == false {
-			t.Reset(d)
+		if stopped.Load() {
+			return
 		}
+		// fixed rate: re-arm from the deadline, not from now, so lateness doesn't accumulate
+		now := time.Now()
+		next = next.Add(d)
+		if next.After(now) == false {
+			// more than a period late: drop the missed ticks, like time.Ticker
+			next = next.Add((now.Sub(next)/d + 1) * d)
+		}
+		t.Reset(next.Sub(now))
 	})
+	next = time.Now().Add(d)
 	t.Reset(d)
 	return func() bool {
 		t.Stop()
@@ -2310,6 +2323,8 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 	var result any
 	var err error
 
+	p.awaiting.Store(&ref) // published for CancelWaitResponse
+
 	// swap to wait response state
 	prevState := atomic.SwapInt32(&p.state, int32(gen.ProcessStateWaitResponse))
 	if prevState != int32(gen.ProcessStateRunning) && prevState != int32(gen.ProcessStateInit) {
@@ -2382,10 +2397,31 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 	}
 
 done:
+	p.awaiting.Store(nil)
+
 	// restore to previous state (init or running)
 	if swapped := atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateWaitResponse), prevState); swapped == false {
 		return nil, gen.ErrProcessTerminated
 	}
 	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 	return result, err
+}
+
+// awaitingRef returns the awaited ref, zero if the process waits for nothing.
+func (p *process) awaitingRef() gen.Ref {
+	if ref := p.awaiting.Load(); ref != nil {
+		return *ref
+	}
+	return gen.Ref{}
+}
+
+// cancelWait ends the wait on ref with gen.ErrCanceled, false if it did not fit.
+// Never blocks. A ref nothing waits for is dropped like any late response.
+func (p *process) cancelWait(ref gen.Ref) bool {
+	select {
+	case p.response <- response{ref: ref, err: gen.ErrCanceled}:
+		return true
+	default:
+		return false
+	}
 }

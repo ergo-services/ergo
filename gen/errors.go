@@ -111,6 +111,7 @@ var (
 	ErrAtomTooLong = errors.New("too long Atom (max: 255)")
 
 	ErrTimeout     = errors.New("timed out")
+	ErrCanceled    = errors.New("canceled")
 	ErrUnsupported = errors.New("not supported")
 	ErrUnknown     = errors.New("unknown")
 	ErrNotAllowed  = errors.New("not allowed")
