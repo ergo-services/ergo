@@ -161,7 +161,7 @@ options.Applications = []gen.ApplicationBehavior{
 }
 ```
 
-To see it in action with a fully loaded cluster, see the [observability example](https://github.com/ergo-services/examples/tree/master/observability). For more information, visit the [Observer documentation](https://docs.ergo.services/extra-library/applications/observer).
+A live demo is available at [ergo.observer](https://ergo.observer). To run it locally with a fully loaded cluster, see the [observability example](https://github.com/ergo-services/examples/tree/master/observability). For more information, visit the [Observer documentation](https://docs.ergo.services/extra-library/applications/observer).
 
 ### Features ###
 
