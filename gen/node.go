@@ -1010,7 +1010,7 @@ type NodeShortInfo struct {
 	// Framework is the Ergo framework version.
 	Framework Version
 
-	// Mode is the current network mode (Enabled, Hidden, or Disabled).
+	// Mode is the current network mode (Enabled, Hidden, Passive or Disabled).
 	Mode NetworkMode
 
 	// LogLevel is the default logging level for the node.

@@ -353,6 +353,10 @@ const (
 	// NerworkModeHidden makes node to start network with disabled acceptor(s) for the incomming connections.
 	NetworkModeHidden NetworkMode = 1
 
+	// NetworkModePassive makes node to start acceptor(s) for the incomming connections
+	// but not to announce itself on the registrar. Peers reach it by static routes only.
+	NetworkModePassive NetworkMode = 2
+
 	// NetworkModeDisabled disables networking for the node entirely.
 	NetworkModeDisabled NetworkMode = -1
 )
@@ -363,6 +367,8 @@ func (nm NetworkMode) String() string {
 		return "enabled"
 	case NetworkModeHidden:
 		return "hidden"
+	case NetworkModePassive:
+		return "passive"
 	case NetworkModeDisabled:
 		return "disabled"
 	}
@@ -376,6 +382,7 @@ type NetworkOptions struct {
 	// Mode sets the network mode.
 	// NetworkModeEnabled (default) - full networking with acceptors
 	// NetworkModeHidden - can connect out but no acceptors (no incoming connections)
+	// NetworkModePassive - acceptors, but the node announces nothing on the registrar
 	// NetworkModeDisabled - networking completely disabled
 	Mode NetworkMode
 
@@ -973,7 +980,7 @@ type NetworkProto interface {
 // NetworkInfo contains comprehensive network status and configuration information.
 // Retrieved via network.Info(). Provides a complete snapshot of networking state.
 type NetworkInfo struct {
-	// Mode is the current network mode (Enabled, Hidden, or Disabled).
+	// Mode is the current network mode (Enabled, Hidden, Passive or Disabled).
 	Mode NetworkMode
 
 	// Registrar contains information about the registrar service.

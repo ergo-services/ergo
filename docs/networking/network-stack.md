@@ -236,7 +236,34 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 })
 ```
 
-**Mode** - `NetworkModeEnabled` enables full networking with acceptors. `NetworkModeHidden` allows outgoing connections only (no acceptors). `NetworkModeDisabled` disables networking entirely.
+**Mode** - `NetworkModeEnabled` enables full networking with acceptors. `NetworkModeHidden` allows outgoing connections only (no acceptors). `NetworkModePassive` keeps the acceptors but announces nothing on the registrar. `NetworkModeDisabled` disables networking entirely.
+
+A passive node is the answer to "I want to accept connections, but nothing of mine may appear in a registrar, and no registrar socket may be opened". It starts its acceptors exactly as an enabled node does, and then registers nothing: no node route, no application routes, not even through an acceptor's own `Registrar`. With the built-in registrar that means no listening socket at all, so there is nothing for a firewall to ask about and nothing for an audit to object to. Peers reach the node through static routes (`Network().AddRoute`), which is what a passive node expects you to set up for it. Outgoing resolution still works: the node queries other hosts as a client, without a listener of its own. If even that is unacceptable in your environment, cover every peer with a static route and the registrar is never asked anything.
+
+A static route needs an address that does not move, so pin the acceptor instead of letting it pick a port. `PortRange: 1` listens on exactly the port you named and fails the node start if it is taken, which is what you want here: a passive node that quietly moved to the next free port is a node nobody can reach.
+
+```go
+// the passive node: one acceptor, one port, nothing announced
+node, err := ergo.StartNode("passive@localhost", gen.NodeOptions{
+    Network: gen.NetworkOptions{
+        Mode:   gen.NetworkModePassive,
+        Cookie: "secret-cluster-cookie",
+        Acceptors: []gen.AcceptorOptions{
+            {
+                Host:      "127.0.0.1",
+                Port:      17001,
+                PortRange: 1,
+            },
+        },
+    },
+})
+
+// the peer: the same address written by hand
+peer.Network().AddRoute("passive@localhost",
+    gen.NetworkRoute{Route: gen.Route{Host: "127.0.0.1", Port: 17001}}, 1)
+```
+
+`RouteHost` and `RoutePort` have no effect in this mode. They exist to advertise an external address in the registrar for a node behind NAT, and a passive node advertises nothing, so the peer's route has to carry the address the node is actually reachable at.
 
 **Cookie** - Shared secret for authentication. All nodes must use the same cookie to communicate. Set explicitly for distributed deployments.
 

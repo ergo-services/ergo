@@ -116,7 +116,9 @@ type NodeOptions struct {
 
 	// Mode sets the network mode (pass-through to gen.NodeOptions.Network.Mode). Use
 	// gen.NetworkModeHidden to model a node behind NAT: it dials out but runs no acceptor,
-	// so peers cannot dial it back. Zero is NetworkModeEnabled.
+	// so peers cannot dial it back. Use gen.NetworkModePassive to model a node that accepts
+	// connections but announces nothing, so peers reach it by static route only.
+	// Zero is NetworkModeEnabled.
 	Mode gen.NetworkMode
 
 	// Security pass-through (e.g. ExposeEnvRemoteSpawn for remote-spawn env inheritance).

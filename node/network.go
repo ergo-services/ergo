@@ -1460,6 +1460,17 @@ func (n *network) start(options gen.NetworkOptions) error {
 
 		acceptors = append(acceptors, acceptor)
 
+		if options.Mode == gen.NetworkModePassive {
+			if a.RouteHost != "" || a.RoutePort > 0 {
+				n.node.log.Warning("acceptor %s:%d has RouteHost/RoutePort set, ignored in passive mode (the node announces nothing)",
+					a.Host, acceptor.port)
+			}
+			if a.Registrar != nil {
+				n.node.log.Warning("acceptor %s:%d has its own Registrar, ignored in passive mode (the node announces nothing)",
+					a.Host, acceptor.port)
+			}
+		}
+
 		// determine port to advertise in route
 		routePort := acceptor.port
 		if acceptor.route_port > 0 {
@@ -1481,6 +1492,10 @@ func (n *network) start(options gen.NetworkOptions) error {
 		}
 
 		acceptor.registrar_info = a.Registrar.Info
+		acceptor.registrar_custom = true
+		if options.Mode == gen.NetworkModePassive {
+			continue
+		}
 		// custom reistrar for this acceptor
 		registerRoutes := gen.RegisterRoutes{
 			Routes:            []gen.Route{r},
@@ -1502,12 +1517,14 @@ func (n *network) start(options gen.NetworkOptions) error {
 				err,
 			)
 		}
-		acceptor.registrar_custom = true
 	}
 
 	registerRoutes := gen.RegisterRoutes{
 		Routes:            routes,
 		ApplicationRoutes: appRoutes,
+	}
+	if options.Mode == gen.NetworkModePassive {
+		registerRoutes = gen.RegisterRoutes{}
 	}
 
 	static, err := n.registrar.Register(n.node, registerRoutes)
