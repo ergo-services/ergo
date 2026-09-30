@@ -33,12 +33,14 @@ type Call struct {
 	To       any
 	Request  any
 	Response any
+	Options  gen.MessageOptions
+	Timeout  int
 	Error    error
 }
 
 func (Call) Kind() string { return "called" }
 func (r Call) String() string {
-	return fmt.Sprintf("Call(from=%s to=%v req=%#v err=%v)", r.From, r.To, r.Request, r.Error)
+	return fmt.Sprintf("Call(from=%s to=%v req=%#v timeout=%d err=%v)", r.From, r.To, r.Request, r.Timeout, r.Error)
 }
 
 // Spawn is a child process created (or attempted) by a process (egress). On
@@ -170,11 +172,12 @@ func (r UnregisterEvent) String() string {
 // act.Router (by-name routing). By is the forwarder, To the target, From the
 // original sender; Error is the outcome of the forward.
 type Forward struct {
-	By      gen.PID
-	To      gen.PID
-	From    gen.PID
-	Message any
-	Error   error
+	By       gen.PID
+	To       gen.PID
+	From     gen.PID
+	Message  any
+	Priority gen.MessagePriority
+	Error    error
 }
 
 func (Forward) Kind() string { return "forwarded" }
@@ -455,6 +458,112 @@ type RemoveCronJob struct {
 func (RemoveCronJob) Kind() string { return "remove_cron_job" }
 func (r RemoveCronJob) String() string {
 	return fmt.Sprintf("RemoveCronJob(from=%s name=%s err=%v)", r.From, r.Name, r.Error)
+}
+
+type ApplicationLoad struct {
+	From  gen.PID
+	Name  gen.Atom
+	Error error
+}
+
+func (ApplicationLoad) Kind() string { return "application_loaded" }
+func (r ApplicationLoad) String() string {
+	return fmt.Sprintf("ApplicationLoad(from=%s name=%s err=%v)", r.From, r.Name, r.Error)
+}
+
+type ApplicationUnload struct {
+	From  gen.PID
+	Name  gen.Atom
+	Error error
+}
+
+func (ApplicationUnload) Kind() string { return "application_unloaded" }
+func (r ApplicationUnload) String() string {
+	return fmt.Sprintf("ApplicationUnload(from=%s name=%s err=%v)", r.From, r.Name, r.Error)
+}
+
+type ApplicationStart struct {
+	From    gen.PID
+	Name    gen.Atom
+	Mode    gen.ApplicationMode
+	Options gen.ApplicationOptions
+	Error   error
+}
+
+func (ApplicationStart) Kind() string { return "application_started" }
+func (r ApplicationStart) String() string {
+	return fmt.Sprintf("ApplicationStart(from=%s name=%s mode=%v err=%v)", r.From, r.Name, r.Mode, r.Error)
+}
+
+type ApplicationStop struct {
+	From    gen.PID
+	Name    gen.Atom
+	Force   bool
+	Timeout time.Duration
+	Error   error
+}
+
+func (ApplicationStop) Kind() string { return "application_stopped" }
+func (r ApplicationStop) String() string {
+	return fmt.Sprintf("ApplicationStop(from=%s name=%s force=%t timeout=%v err=%v)",
+		r.From, r.Name, r.Force, r.Timeout, r.Error)
+}
+
+type Kill struct {
+	From   gen.PID
+	Target gen.PID
+	Error  error
+}
+
+func (Kill) Kind() string { return "killed" }
+func (r Kill) String() string {
+	return fmt.Sprintf("Kill(from=%s target=%s err=%v)", r.From, r.Target, r.Error)
+}
+
+type RegisterName struct {
+	From  gen.PID
+	Name  gen.Atom
+	PID   gen.PID
+	Error error
+}
+
+func (RegisterName) Kind() string { return "name_registered" }
+func (r RegisterName) String() string {
+	return fmt.Sprintf("RegisterName(from=%s name=%s pid=%s err=%v)", r.From, r.Name, r.PID, r.Error)
+}
+
+type UnregisterName struct {
+	From  gen.PID
+	Name  gen.Atom
+	PID   gen.PID
+	Error error
+}
+
+func (UnregisterName) Kind() string { return "name_unregistered" }
+func (r UnregisterName) String() string {
+	return fmt.Sprintf("UnregisterName(from=%s name=%s pid=%s err=%v)", r.From, r.Name, r.PID, r.Error)
+}
+
+type EnableCronJob struct {
+	From  gen.PID
+	Name  gen.Atom
+	Error error
+}
+
+func (EnableCronJob) Kind() string { return "enable_cron_job" }
+func (r EnableCronJob) String() string {
+	return fmt.Sprintf("EnableCronJob(from=%s name=%s err=%v)", r.From, r.Name, r.Error)
+}
+
+type DisableCronJob struct {
+	From  gen.PID
+	Name  gen.Atom
+	Error error
+}
+
+func (DisableCronJob) Kind() string { return "disable_cron_job" }
+func (r DisableCronJob) String() string {
+	return fmt.Sprintf("DisableCronJob(from=%s name=%s err=%v)", r.From, r.Name, r.Error)
 }
 
 // Terminated is the subject actor's own termination, observed directly by the

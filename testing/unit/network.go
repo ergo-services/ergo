@@ -19,6 +19,9 @@ import (
 // default; for behavior the mock does not model, override the whole network with
 // OnNetwork(func() gen.Network) instead.
 type mockNetwork struct {
+	cookie     string
+	maxMessage int
+	flags      gen.NetworkFlags
 	node       *mockNode
 	reg        *mockRegistrar
 	resolve    map[gen.Atom]*resolveResult
@@ -76,12 +79,17 @@ func (mn *mockNetwork) ResolveApplication(name gen.Atom) (gen.ApplicationRoutes,
 	}
 	return reg.Resolver().ResolveApplication(name)
 }
-func (mn *mockNetwork) Cookie() string                     { return "" }
-func (mn *mockNetwork) SetCookie(cookie string) error      { return nil }
-func (mn *mockNetwork) MaxMessageSize() int                { return 0 }
-func (mn *mockNetwork) SetMaxMessageSize(size int)         {}
-func (mn *mockNetwork) NetworkFlags() gen.NetworkFlags     { return gen.NetworkFlags{} }
-func (mn *mockNetwork) SetNetworkFlags(gen.NetworkFlags)   {}
+func (mn *mockNetwork) Cookie() string { return mn.cookie }
+func (mn *mockNetwork) SetCookie(cookie string) error {
+	mn.cookie = cookie
+	return nil
+}
+func (mn *mockNetwork) MaxMessageSize() int            { return mn.maxMessage }
+func (mn *mockNetwork) SetMaxMessageSize(size int)     { mn.maxMessage = size }
+func (mn *mockNetwork) NetworkFlags() gen.NetworkFlags { return mn.flags }
+func (mn *mockNetwork) SetNetworkFlags(flags gen.NetworkFlags) {
+	mn.flags = flags
+}
 func (mn *mockNetwork) Acceptors() ([]gen.Acceptor, error) { return nil, nil }
 func (mn *mockNetwork) Node(name gen.Atom) (gen.RemoteNode, error) {
 	if rn, ok := mn.remotes[name]; ok {

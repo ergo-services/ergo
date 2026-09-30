@@ -259,9 +259,12 @@ type mockMeta struct {
 var _ gen.MetaProcess = (*mockMeta)(nil)
 
 func (m *mockMeta) options() gen.MessageOptions {
+	compression := m.proc.compression
+	compression.Enable = m.compression
 	return gen.MessageOptions{
-		Priority:    m.priority,
-		Compression: gen.Compression{Enable: m.compression},
+		Priority:         m.priority,
+		Compression:      compression,
+		KeepNetworkOrder: m.proc.keeporder,
 	}
 }
 

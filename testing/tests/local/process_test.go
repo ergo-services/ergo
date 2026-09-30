@@ -274,7 +274,7 @@ func TestLocalProcess(t *testing.T) {
 		check.Equal(t, "", v)
 	}
 
-	check.True(t, get("node") == n.Native())
+	check.Equal(t, n.Native().Name(), get("node").(gen.Node).Name())
 	check.Equal(t, p, get("pid"))
 	check.Equal(t, gen.Atom("a"), get("name"))
 	check.Equal(t, n.PID(), get("parent"))

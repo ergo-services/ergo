@@ -51,19 +51,25 @@ func (c *mockCron) RemoveJob(name gen.Atom) error {
 }
 
 func (c *mockCron) EnableJob(name gen.Atom) error {
+	var err error
 	if _, exists := c.jobs[name]; exists == false {
-		return gen.ErrUnknown
+		err = gen.ErrUnknown
+	} else {
+		delete(c.disabled, name)
 	}
-	delete(c.disabled, name)
-	return nil
+	c.node.rec.Put(check.EnableCronJob{From: c.node.subjectPID, Name: name, Error: err})
+	return err
 }
 
 func (c *mockCron) DisableJob(name gen.Atom) error {
+	var err error
 	if _, exists := c.jobs[name]; exists == false {
-		return gen.ErrUnknown
+		err = gen.ErrUnknown
+	} else {
+		c.disabled[name] = true
 	}
-	c.disabled[name] = true
-	return nil
+	c.node.rec.Put(check.DisableCronJob{From: c.node.subjectPID, Name: name, Error: err})
+	return err
 }
 
 func (c *mockCron) Info() gen.CronInfo {

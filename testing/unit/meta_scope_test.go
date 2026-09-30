@@ -16,7 +16,7 @@ type msParent struct {
 }
 
 func (a *msParent) HandleMessage(from gen.PID, message any) error {
-	a.sendErr = a.Send("x", "p")
+	a.sendErr = a.Send(gen.Atom("x"), "p")
 	return nil
 }
 func factoryMsParent() gen.ProcessBehavior { return &msParent{} }
@@ -29,7 +29,7 @@ type msMeta struct {
 
 func (m *msMeta) Init(p gen.MetaProcess) error {
 	m.mp = p
-	m.initErr = p.Send("x", "init")
+	m.initErr = p.Send(gen.Atom("x"), "init")
 	return nil
 }
 func (m *msMeta) Start() error                                  { return nil }
@@ -49,7 +49,7 @@ func TestMetaOwnStubAppliesToInit(t *testing.T) {
 
 	mb := &msMeta{}
 	ms := sub.PrepareMeta(mb, gen.MetaOptions{})
-	ms.OnSend("x").Fail(gen.ErrProcessMailboxFull)
+	ms.OnSend(gen.Atom("x")).Fail(gen.ErrProcessMailboxFull)
 	check.NoError(t, ms.Run())
 	check.ErrorIs(t, mb.initErr, gen.ErrProcessMailboxFull)
 }
@@ -59,7 +59,7 @@ func TestParentStubDoesNotLeakToMeta(t *testing.T) {
 	n := unit.StartNode(t, "unit@localhost", gen.NodeOptions{})
 	sub, err := n.Spawn(factoryMsParent, gen.ProcessOptions{})
 	check.NoError(t, err)
-	sub.OnSend("x").Fail(gen.ErrProcessMailboxFull) // parent scope only
+	sub.OnSend(gen.Atom("x")).Fail(gen.ErrProcessMailboxFull) // parent scope only
 
 	mb := &msMeta{}
 	ms := sub.PrepareMeta(mb, gen.MetaOptions{})
@@ -74,7 +74,7 @@ func TestMetaStubDoesNotLeakToParent(t *testing.T) {
 	check.NoError(t, err)
 
 	ms := sub.PrepareMeta(&msMeta{}, gen.MetaOptions{})
-	ms.OnSend("x").Fail(gen.ErrProcessMailboxFull) // meta scope only
+	ms.OnSend(gen.Atom("x")).Fail(gen.ErrProcessMailboxFull) // meta scope only
 	check.NoError(t, ms.Run())
 
 	sub.SendMessage(gen.PID{}, "go") // parent sends to "x"

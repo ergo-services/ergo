@@ -35,6 +35,7 @@ type mockNode struct {
 	netmock    *mockNetwork // built-in stubbable network (default behind Network())
 	cronmock   *mockCron    // built-in cron (default behind Cron())
 	subjectPID gen.PID      // the process under test (From for RemoteNode egress records)
+	subject    *mockProcess
 	log        *mockLog
 
 	// registry of processes known to this node (the process under test plus every
@@ -132,6 +133,9 @@ func (n *mockNode) synthRef() gen.Ref {
 
 func (n *mockNode) routeSend(st *stubs, from gen.PID, to any, message any, options gen.MessageOptions) error {
 	err, _ := resolveFail(st.send, to)
+	if err == nil && sendTarget(to) == false {
+		err = gen.ErrUnsupported
+	}
 	n.rec.Put(check.Send{From: from, To: to, Message: message, Options: options, Error: err})
 	if err == nil {
 		n.sends = append(n.sends, &pendingSend{from: from, to: to, message: message, priority: options.Priority})
@@ -141,13 +145,13 @@ func (n *mockNode) routeSend(st *stubs, from gen.PID, to any, message any, optio
 
 // routeCall is tier-3 strict: an unstubbed call has no sensible default (the
 // response drives the caller's logic), so it fails the test loudly.
-func (n *mockNode) routeCall(st *stubs, from gen.PID, to any, request any) (any, error) {
+func (n *mockNode) routeCall(st *stubs, from gen.PID, to any, request any, options gen.MessageOptions, timeout int) (any, error) {
 	resp, err, ok := st.resolveCall(to, request)
 	if ok == false {
 		n.t.Helper()
 		n.t.Fatalf("unit: process under test called Call to %v with %#v, but no response is stubbed; add OnCall(%v).Respond(...) or .Fail(...)", to, request, to)
 	}
-	n.rec.Put(check.Call{From: from, To: to, Request: request, Response: resp, Error: err})
+	n.rec.Put(check.Call{From: from, To: to, Request: request, Response: resp, Options: options, Timeout: timeout, Error: err})
 	return resp, err
 }
 
@@ -165,6 +169,14 @@ func (n *mockNode) routeSpawn(st *stubs, from gen.PID, register gen.Atom, factor
 	}
 	n.rec.Put(check.Spawn{Parent: from, Child: pid, Register: register, Factory: factory, Options: options, Error: err})
 	return pid, err
+}
+
+func sendTarget(to any) bool {
+	switch to.(type) {
+	case gen.PID, gen.ProcessID, gen.Alias, gen.Atom:
+		return true
+	}
+	return false
 }
 
 // registerProc adds a process to the node registry (and its name index).
@@ -265,9 +277,9 @@ func (n *mockNode) routeDemonitor(st *stubs, from gen.PID, target any) error {
 	return err
 }
 
-func (n *mockNode) routeForward(st *stubs, by, to, from gen.PID, message any) error {
+func (n *mockNode) routeForward(st *stubs, by, to, from gen.PID, message any, priority gen.MessagePriority) error {
 	err, _ := resolveFail(st.forward, to)
-	n.rec.Put(check.Forward{By: by, To: to, From: from, Message: message, Error: err})
+	n.rec.Put(check.Forward{By: by, To: to, From: from, Message: message, Priority: priority, Error: err})
 	return err
 }
 
@@ -490,25 +502,25 @@ func (n *mockNode) SendEvent(name gen.Atom, token gen.Ref, options gen.MessageOp
 }
 
 func (n *mockNode) Call(to any, request any) (any, error) {
-	return n.routeCall(n.stubs, n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request, gen.MessageOptions{}, 0)
 }
 func (n *mockNode) CallWithTimeout(to any, request any, timeout int) (any, error) {
-	return n.routeCall(n.stubs, n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request, gen.MessageOptions{}, timeout)
 }
 func (n *mockNode) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
-	return n.routeCall(n.stubs, n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request, gen.MessageOptions{Priority: priority}, 0)
 }
 func (n *mockNode) CallImportant(to any, request any) (any, error) {
-	return n.routeCall(n.stubs, n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request, gen.MessageOptions{ImportantDelivery: true}, 0)
 }
 func (n *mockNode) CallPID(to gen.PID, request any, timeout int) (any, error) {
-	return n.routeCall(n.stubs, n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request, gen.MessageOptions{}, timeout)
 }
 func (n *mockNode) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
-	return n.routeCall(n.stubs, n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request, gen.MessageOptions{}, timeout)
 }
 func (n *mockNode) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
-	return n.routeCall(n.stubs, n.nodePID(), to, request)
+	return n.routeCall(n.stubs, n.nodePID(), to, request, gen.MessageOptions{}, timeout)
 }
 
 func (n *mockNode) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
@@ -531,6 +543,12 @@ func (n *mockNode) CancelWaitResponse(pid gen.PID, ref gen.Ref) error {
 }
 
 func (n *mockNode) Kill(pid gen.PID) error {
+	err := n.kill(pid)
+	n.rec.Put(check.Kill{From: n.subjectPID, Target: pid, Error: err})
+	return err
+}
+
+func (n *mockNode) kill(pid gen.PID) error {
 	if n.ov.kill != nil {
 		return n.ov.kill(pid)
 	}
@@ -548,6 +566,12 @@ func (n *mockNode) Kill(pid gen.PID) error {
 // name registry
 
 func (n *mockNode) RegisterName(name gen.Atom, pid gen.PID) error {
+	err := n.registerName(name, pid)
+	n.rec.Put(check.RegisterName{From: n.subjectPID, Name: name, PID: pid, Error: err})
+	return err
+}
+
+func (n *mockNode) registerName(name gen.Atom, pid gen.PID) error {
 	if n.ov.registerName != nil {
 		return n.ov.registerName(name, pid)
 	}
@@ -572,6 +596,12 @@ func (n *mockNode) RegisterName(name gen.Atom, pid gen.PID) error {
 	return nil
 }
 func (n *mockNode) UnregisterName(name gen.Atom) (gen.PID, error) {
+	pid, err := n.unregisterName(name)
+	n.rec.Put(check.UnregisterName{From: n.subjectPID, Name: name, PID: pid, Error: err})
+	return pid, err
+}
+
+func (n *mockNode) unregisterName(name gen.Atom) (gen.PID, error) {
 	if n.ov.unregisterName != nil {
 		return n.ov.unregisterName(name)
 	}
@@ -714,10 +744,13 @@ func (n *mockNode) ProcessState(pid gen.PID) (gen.ProcessState, error) {
 // applications
 
 func (n *mockNode) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (gen.Atom, error) {
-	if n.ov.applicationLoad != nil {
-		return n.ov.applicationLoad(app, args...)
+	if n.ov.applicationLoad == nil {
+		n.unsupported("ApplicationLoad")
+		return "", nil
 	}
-	return "", nil
+	name, err := n.ov.applicationLoad(app, args...)
+	n.rec.Put(check.ApplicationLoad{From: n.subjectPID, Name: name, Error: err})
+	return name, err
 }
 func (n *mockNode) ApplicationInfo(name gen.Atom) (gen.ApplicationInfo, error) {
 	if n.ov.applicationInfo != nil {
@@ -741,52 +774,71 @@ func (n *mockNode) ApplicationProcessListShortInfo(name gen.Atom, limit int) ([]
 	return nil, 0, nil
 }
 func (n *mockNode) ApplicationUnload(name gen.Atom) error {
+	var err error
 	if n.ov.applicationUnload != nil {
-		return n.ov.applicationUnload(name)
+		err = n.ov.applicationUnload(name)
 	}
-	return nil
+	n.rec.Put(check.ApplicationUnload{From: n.subjectPID, Name: name, Error: err})
+	return err
 }
 func (n *mockNode) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
+	var err error
 	if n.ov.applicationStart != nil {
-		return n.ov.applicationStart(name, options)
+		err = n.ov.applicationStart(name, options)
 	}
-	return nil
+	n.rec.Put(check.ApplicationStart{From: n.subjectPID, Name: name, Options: options, Error: err})
+	return err
 }
 func (n *mockNode) ApplicationStartTemporary(name gen.Atom, options gen.ApplicationOptions) error {
+	var err error
 	if n.ov.applicationStartTemporary != nil {
-		return n.ov.applicationStartTemporary(name, options)
+		err = n.ov.applicationStartTemporary(name, options)
 	}
-	return nil
+	n.rec.Put(check.ApplicationStart{From: n.subjectPID, Name: name,
+		Mode: gen.ApplicationModeTemporary, Options: options, Error: err})
+	return err
 }
 func (n *mockNode) ApplicationStartTransient(name gen.Atom, options gen.ApplicationOptions) error {
+	var err error
 	if n.ov.applicationStartTransient != nil {
-		return n.ov.applicationStartTransient(name, options)
+		err = n.ov.applicationStartTransient(name, options)
 	}
-	return nil
+	n.rec.Put(check.ApplicationStart{From: n.subjectPID, Name: name,
+		Mode: gen.ApplicationModeTransient, Options: options, Error: err})
+	return err
 }
 func (n *mockNode) ApplicationStartPermanent(name gen.Atom, options gen.ApplicationOptions) error {
+	var err error
 	if n.ov.applicationStartPermanent != nil {
-		return n.ov.applicationStartPermanent(name, options)
+		err = n.ov.applicationStartPermanent(name, options)
 	}
-	return nil
+	n.rec.Put(check.ApplicationStart{From: n.subjectPID, Name: name,
+		Mode: gen.ApplicationModePermanent, Options: options, Error: err})
+	return err
 }
 func (n *mockNode) ApplicationStop(name gen.Atom) error {
+	var err error
 	if n.ov.applicationStop != nil {
-		return n.ov.applicationStop(name)
+		err = n.ov.applicationStop(name)
 	}
-	return nil
+	n.rec.Put(check.ApplicationStop{From: n.subjectPID, Name: name, Error: err})
+	return err
 }
 func (n *mockNode) ApplicationStopForce(name gen.Atom) error {
+	var err error
 	if n.ov.applicationStopForce != nil {
-		return n.ov.applicationStopForce(name)
+		err = n.ov.applicationStopForce(name)
 	}
-	return nil
+	n.rec.Put(check.ApplicationStop{From: n.subjectPID, Name: name, Force: true, Error: err})
+	return err
 }
 func (n *mockNode) ApplicationStopWithTimeout(name gen.Atom, timeout time.Duration) error {
+	var err error
 	if n.ov.applicationStopWithTimeout != nil {
-		return n.ov.applicationStopWithTimeout(name, timeout)
+		err = n.ov.applicationStopWithTimeout(name, timeout)
 	}
-	return nil
+	n.rec.Put(check.ApplicationStop{From: n.subjectPID, Name: name, Timeout: timeout, Error: err})
+	return err
 }
 func (n *mockNode) Applications() []gen.Atom {
 	if n.ov.applications != nil {
@@ -824,49 +876,91 @@ func (n *mockNode) SetProcessLogLevel(pid gen.PID, level gen.LogLevel) error {
 	if n.ov.setProcessLogLevel != nil {
 		return n.ov.setProcessLogLevel(pid, level)
 	}
-	return nil
+	p, err := n.processFor(pid)
+	if err != nil {
+		return err
+	}
+	return p.log.SetLevel(level)
 }
 func (n *mockNode) SetProcessSendPriority(pid gen.PID, priority gen.MessagePriority) error {
 	if n.ov.setProcessSendPriority != nil {
 		return n.ov.setProcessSendPriority(pid, priority)
 	}
-	return nil
+	p, err := n.processFor(pid)
+	if err != nil {
+		return err
+	}
+	return p.SetSendPriority(priority)
 }
 func (n *mockNode) SetProcessCompression(pid gen.PID, enabled bool) error {
 	if n.ov.setProcessCompression != nil {
 		return n.ov.setProcessCompression(pid, enabled)
 	}
-	return nil
+	p, err := n.processFor(pid)
+	if err != nil {
+		return err
+	}
+	return p.SetCompression(enabled)
 }
 func (n *mockNode) SetProcessCompressionType(pid gen.PID, ctype gen.CompressionType) error {
 	if n.ov.setProcessCompressionType != nil {
 		return n.ov.setProcessCompressionType(pid, ctype)
 	}
-	return nil
+	p, err := n.processFor(pid)
+	if err != nil {
+		return err
+	}
+	return p.SetCompressionType(ctype)
 }
 func (n *mockNode) SetProcessCompressionLevel(pid gen.PID, level gen.CompressionLevel) error {
 	if n.ov.setProcessCompressionLevel != nil {
 		return n.ov.setProcessCompressionLevel(pid, level)
 	}
-	return nil
+	p, err := n.processFor(pid)
+	if err != nil {
+		return err
+	}
+	return p.SetCompressionLevel(level)
 }
 func (n *mockNode) SetProcessCompressionThreshold(pid gen.PID, threshold int) error {
 	if n.ov.setProcessCompressionThreshold != nil {
 		return n.ov.setProcessCompressionThreshold(pid, threshold)
 	}
-	return nil
+	p, err := n.processFor(pid)
+	if err != nil {
+		return err
+	}
+	return p.SetCompressionThreshold(threshold)
 }
 func (n *mockNode) SetProcessKeepNetworkOrder(pid gen.PID, order bool) error {
 	if n.ov.setProcessKeepNetworkOrder != nil {
 		return n.ov.setProcessKeepNetworkOrder(pid, order)
 	}
-	return nil
+	p, err := n.processFor(pid)
+	if err != nil {
+		return err
+	}
+	return p.SetKeepNetworkOrder(order)
 }
 func (n *mockNode) SetProcessImportantDelivery(pid gen.PID, important bool) error {
 	if n.ov.setProcessImportantDelivery != nil {
 		return n.ov.setProcessImportantDelivery(pid, important)
 	}
-	return nil
+	p, err := n.processFor(pid)
+	if err != nil {
+		return err
+	}
+	return p.SetImportantDelivery(important)
+}
+
+func (n *mockNode) processFor(pid gen.PID) (*mockProcess, error) {
+	if n.subject != nil && pid == n.subjectPID {
+		return n.subject, nil
+	}
+	if _, known := n.procs[pid]; known {
+		return nil, gen.ErrNotAllowed
+	}
+	return nil, gen.ErrProcessUnknown
 }
 func (n *mockNode) SetMetaLogLevel(meta gen.Alias, level gen.LogLevel) error {
 	if n.ov.setMetaLogLevel != nil {

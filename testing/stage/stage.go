@@ -181,7 +181,9 @@ func (s *Stage) StartNode(prefix string, opts ...NodeOptions) *Node {
 		NodeOptions:      no,
 		FrameworkVersion: frameworkVersion,
 		WrapCore:         func(c gen.Core) gen.Core { return &recordCore{Core: c, rec: r} },
-		WrapProcess:      func(p gen.Process) gen.Process { return &recordProcess{Process: p, rec: r} },
+		WrapProcess: func(p gen.Process) gen.Process {
+			return &recordProcess{Process: p, rec: r, node: &recordNode{Node: p.Node(), rec: r, from: p.PID()}}
+		},
 		WrapCoreTargetManager: func(b gen.CoreTargetManager) gen.CoreTargetManager {
 			return &recordBridge{CoreTargetManager: b, rec: r}
 		},
@@ -718,7 +720,125 @@ func (b *recordBridge) RouteSendEventMessages(from gen.PID, to []gen.PID, option
 // recordProcess: egress (records a process's outgoing actions)
 type recordProcess struct {
 	gen.Process
-	rec *check.Recorder
+	rec  *check.Recorder
+	node *recordNode
+}
+
+func (p *recordProcess) Node() gen.Node { return p.node }
+
+type recordNode struct {
+	gen.Node
+	rec  *check.Recorder
+	from gen.PID
+}
+
+func (n *recordNode) Cron() gen.Cron {
+	return &recordCron{Cron: n.Node.Cron(), rec: n.rec, from: n.from}
+}
+
+func (n *recordNode) Kill(pid gen.PID) error {
+	err := n.Node.Kill(pid)
+	n.rec.Put(check.Kill{From: n.from, Target: pid, Error: err})
+	return err
+}
+
+func (n *recordNode) RegisterName(name gen.Atom, pid gen.PID) error {
+	err := n.Node.RegisterName(name, pid)
+	n.rec.Put(check.RegisterName{From: n.from, Name: name, PID: pid, Error: err})
+	return err
+}
+
+func (n *recordNode) UnregisterName(name gen.Atom) (gen.PID, error) {
+	pid, err := n.Node.UnregisterName(name)
+	n.rec.Put(check.UnregisterName{From: n.from, Name: name, PID: pid, Error: err})
+	return pid, err
+}
+
+func (n *recordNode) ApplicationLoad(app gen.ApplicationBehavior, args ...any) (gen.Atom, error) {
+	name, err := n.Node.ApplicationLoad(app, args...)
+	n.rec.Put(check.ApplicationLoad{From: n.from, Name: name, Error: err})
+	return name, err
+}
+
+func (n *recordNode) ApplicationUnload(name gen.Atom) error {
+	err := n.Node.ApplicationUnload(name)
+	n.rec.Put(check.ApplicationUnload{From: n.from, Name: name, Error: err})
+	return err
+}
+
+func (n *recordNode) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
+	err := n.Node.ApplicationStart(name, options)
+	n.rec.Put(check.ApplicationStart{From: n.from, Name: name, Options: options, Error: err})
+	return err
+}
+
+func (n *recordNode) ApplicationStartTemporary(name gen.Atom, options gen.ApplicationOptions) error {
+	err := n.Node.ApplicationStartTemporary(name, options)
+	n.rec.Put(check.ApplicationStart{From: n.from, Name: name,
+		Mode: gen.ApplicationModeTemporary, Options: options, Error: err})
+	return err
+}
+
+func (n *recordNode) ApplicationStartTransient(name gen.Atom, options gen.ApplicationOptions) error {
+	err := n.Node.ApplicationStartTransient(name, options)
+	n.rec.Put(check.ApplicationStart{From: n.from, Name: name,
+		Mode: gen.ApplicationModeTransient, Options: options, Error: err})
+	return err
+}
+
+func (n *recordNode) ApplicationStartPermanent(name gen.Atom, options gen.ApplicationOptions) error {
+	err := n.Node.ApplicationStartPermanent(name, options)
+	n.rec.Put(check.ApplicationStart{From: n.from, Name: name,
+		Mode: gen.ApplicationModePermanent, Options: options, Error: err})
+	return err
+}
+
+func (n *recordNode) ApplicationStop(name gen.Atom) error {
+	err := n.Node.ApplicationStop(name)
+	n.rec.Put(check.ApplicationStop{From: n.from, Name: name, Error: err})
+	return err
+}
+
+func (n *recordNode) ApplicationStopForce(name gen.Atom) error {
+	err := n.Node.ApplicationStopForce(name)
+	n.rec.Put(check.ApplicationStop{From: n.from, Name: name, Force: true, Error: err})
+	return err
+}
+
+func (n *recordNode) ApplicationStopWithTimeout(name gen.Atom, timeout time.Duration) error {
+	err := n.Node.ApplicationStopWithTimeout(name, timeout)
+	n.rec.Put(check.ApplicationStop{From: n.from, Name: name, Timeout: timeout, Error: err})
+	return err
+}
+
+type recordCron struct {
+	gen.Cron
+	rec  *check.Recorder
+	from gen.PID
+}
+
+func (c *recordCron) AddJob(job gen.CronJob) error {
+	err := c.Cron.AddJob(job)
+	c.rec.Put(check.AddCronJob{From: c.from, Name: job.Name, Spec: job.Spec, Error: err})
+	return err
+}
+
+func (c *recordCron) RemoveJob(name gen.Atom) error {
+	err := c.Cron.RemoveJob(name)
+	c.rec.Put(check.RemoveCronJob{From: c.from, Name: name, Error: err})
+	return err
+}
+
+func (c *recordCron) EnableJob(name gen.Atom) error {
+	err := c.Cron.EnableJob(name)
+	c.rec.Put(check.EnableCronJob{From: c.from, Name: name, Error: err})
+	return err
+}
+
+func (c *recordCron) DisableJob(name gen.Atom) error {
+	err := c.Cron.DisableJob(name)
+	c.rec.Put(check.DisableCronJob{From: c.from, Name: name, Error: err})
+	return err
 }
 
 func (p *recordProcess) Monitor(target any) error {
@@ -975,45 +1095,74 @@ func (p *recordProcess) SendExitMeta(meta gen.Alias, reason error) error {
 }
 
 func (p *recordProcess) Call(to any, request any) (any, error) {
+	options := p.msgOptions()
 	response, err := p.Process.Call(to, request)
-	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response,
+		Options: options, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallWithTimeout(to any, request any, timeout int) (any, error) {
+	options := p.msgOptions()
 	response, err := p.Process.CallWithTimeout(to, request, timeout)
-	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response,
+		Options: options, Timeout: timeout, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallWithPriority(to any, request any, priority gen.MessagePriority) (any, error) {
+	options := p.msgOptions()
+	options.Priority = priority
 	response, err := p.Process.CallWithPriority(to, request, priority)
-	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response,
+		Options: options, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallImportant(to any, request any) (any, error) {
+	options := p.msgOptions()
+	options.ImportantDelivery = true
 	response, err := p.Process.CallImportant(to, request)
-	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response,
+		Options: options, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallPID(to gen.PID, request any, timeout int) (any, error) {
+	options := p.msgOptions()
 	response, err := p.Process.CallPID(to, request, timeout)
-	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response,
+		Options: options, Timeout: timeout, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallProcessID(to gen.ProcessID, request any, timeout int) (any, error) {
+	options := p.msgOptions()
 	response, err := p.Process.CallProcessID(to, request, timeout)
-	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response,
+		Options: options, Timeout: timeout, Error: err})
 	return response, err
 }
 
 func (p *recordProcess) CallAlias(to gen.Alias, request any, timeout int) (any, error) {
+	options := p.msgOptions()
 	response, err := p.Process.CallAlias(to, request, timeout)
-	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response, Error: err})
+	p.rec.Put(check.Call{From: p.Process.PID(), To: to, Request: request, Response: response,
+		Options: options, Timeout: timeout, Error: err})
 	return response, err
+}
+
+func (p *recordProcess) RegisterName(name gen.Atom) error {
+	err := p.Process.RegisterName(name)
+	p.rec.Put(check.RegisterName{From: p.Process.PID(), Name: name, PID: p.Process.PID(), Error: err})
+	return err
+}
+
+func (p *recordProcess) UnregisterName() error {
+	name := p.Process.Name()
+	err := p.Process.UnregisterName()
+	p.rec.Put(check.UnregisterName{From: p.Process.PID(), Name: name, PID: p.Process.PID(), Error: err})
+	return err
 }
 
 func (p *recordProcess) Spawn(factory gen.ProcessFactory, options gen.ProcessOptions, args ...any) (gen.PID, error) {
@@ -1075,6 +1224,7 @@ func (p *recordProcess) Forward(to gen.PID, message *gen.MailboxMessage, priorit
 	// target mailbox and may be processed/released concurrently.
 	from, msg := message.From, message.Message
 	err := p.Process.Forward(to, message, priority)
-	p.rec.Put(check.Forward{By: p.Process.PID(), To: to, From: from, Message: msg, Error: err})
+	p.rec.Put(check.Forward{By: p.Process.PID(), To: to, From: from, Message: msg,
+		Priority: priority, Error: err})
 	return err
 }

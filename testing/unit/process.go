@@ -40,6 +40,12 @@ type mockProcess struct {
 	keeporder   bool
 	important   bool
 	compression gen.Compression
+
+	behaviorName string
+	propagating  gen.Tracing
+	traceAttrs   []gen.TracingAttribute
+	sampler      gen.TracingSampler
+	spans        []*unitSpanScope
 }
 
 var _ gen.Process = (*mockProcess)(nil)
@@ -119,12 +125,19 @@ func (p *mockProcess) stateIRT() bool {
 // msgOptions builds the effective gen.MessageOptions from the current state, exactly
 // as the real process does for each Send.
 func (p *mockProcess) msgOptions() gen.MessageOptions {
-	return gen.MessageOptions{
+	options := gen.MessageOptions{
 		Priority:          p.priority,
 		Compression:       p.compression,
 		KeepNetworkOrder:  p.keeporder,
 		ImportantDelivery: p.important,
+		Tracing:           p.propagating,
 	}
+	if options.Tracing.ID != [2]uint64{} && len(p.traceAttrs) > 0 {
+		attrs := make([]gen.TracingAttribute, len(p.traceAttrs))
+		copy(attrs, p.traceAttrs)
+		options.TracingAttributes = attrs
+	}
+	return options
 }
 
 // accessors
@@ -187,7 +200,7 @@ func (p *mockProcess) BehaviorName() string {
 	if p.ov.behaviorName != nil {
 		return p.ov.behaviorName()
 	}
-	return ""
+	return p.behaviorName
 }
 func (p *mockProcess) Mailbox() gen.ProcessMailbox {
 	if p.ov.mailbox != nil {
@@ -394,13 +407,14 @@ func (p *mockProcess) SetTracingSampler(sampler gen.TracingSampler) error {
 	if p.ov.setTracingSampler != nil {
 		return p.ov.setTracingSampler(sampler)
 	}
+	p.sampler = sampler
 	return nil
 }
 func (p *mockProcess) TracingSampler() gen.TracingSampler {
 	if p.ov.tracingSampler != nil {
 		return p.ov.tracingSampler()
 	}
-	return nil
+	return p.sampler
 }
 func (p *mockProcess) RegisterName(name gen.Atom) error {
 	if p.ov.registerName != nil {
@@ -626,43 +640,47 @@ func (p *mockProcess) Call(to any, message any) (any, error) {
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return p.node.routeCall(p.stubs, p.pid, to, message)
+	return p.node.routeCall(p.stubs, p.pid, to, message, p.msgOptions(), 0)
 }
 func (p *mockProcess) CallWithTimeout(to any, message any, timeout int) (any, error) {
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return p.node.routeCall(p.stubs, p.pid, to, message)
+	return p.node.routeCall(p.stubs, p.pid, to, message, p.msgOptions(), timeout)
 }
 func (p *mockProcess) CallWithPriority(to any, message any, priority gen.MessagePriority) (any, error) {
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return p.node.routeCall(p.stubs, p.pid, to, message)
+	opts := p.msgOptions()
+	opts.Priority = priority
+	return p.node.routeCall(p.stubs, p.pid, to, message, opts, 0)
 }
 func (p *mockProcess) CallImportant(to any, message any) (any, error) {
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return p.node.routeCall(p.stubs, p.pid, to, message)
+	opts := p.msgOptions()
+	opts.ImportantDelivery = true
+	return p.node.routeCall(p.stubs, p.pid, to, message, opts, 0)
 }
 func (p *mockProcess) CallPID(to gen.PID, message any, timeout int) (any, error) {
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return p.node.routeCall(p.stubs, p.pid, to, message)
+	return p.node.routeCall(p.stubs, p.pid, to, message, p.msgOptions(), timeout)
 }
 func (p *mockProcess) CallProcessID(to gen.ProcessID, message any, timeout int) (any, error) {
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return p.node.routeCall(p.stubs, p.pid, to, message)
+	return p.node.routeCall(p.stubs, p.pid, to, message, p.msgOptions(), timeout)
 }
 func (p *mockProcess) CallAlias(to gen.Alias, message any, timeout int) (any, error) {
 	if p.stateIR() == false {
 		return nil, gen.ErrNotAllowed
 	}
-	return p.node.routeCall(p.stubs, p.pid, to, message)
+	return p.node.routeCall(p.stubs, p.pid, to, message, p.msgOptions(), timeout)
 }
 
 // spawn (safe-synthetic / stub)
@@ -872,7 +890,22 @@ func (p *mockProcess) Info() (gen.ProcessInfo, error) {
 	if p.stateIR() == false {
 		return gen.ProcessInfo{}, gen.ErrNotAllowed
 	}
-	return gen.ProcessInfo{PID: p.pid, Name: p.name, Parent: p.parent, Leader: p.leader, State: p.state, Env: p.env}, nil
+	return gen.ProcessInfo{
+		PID:               p.pid,
+		Name:              p.name,
+		Behavior:          p.behaviorName,
+		Kind:              p.kind,
+		Parent:            p.parent,
+		Leader:            p.leader,
+		State:             p.state,
+		Env:               p.env,
+		Aliases:           p.aliases,
+		Events:            p.events,
+		Compression:       p.compression,
+		MessagePriority:   p.priority,
+		KeepNetworkOrder:  p.keeporder,
+		ImportantDelivery: p.important,
+	}, nil
 }
 
 func (p *mockProcess) ShortInfo() (gen.ProcessShortInfo, error) {
@@ -897,24 +930,41 @@ func (p *mockProcess) PropagatingTrace() gen.Tracing {
 	if p.ov.propagatingTrace != nil {
 		return p.ov.propagatingTrace()
 	}
-	return gen.Tracing{}
+	return p.propagating
 }
 func (p *mockProcess) SetPropagatingTrace(t gen.Tracing) {
 	if p.ov.setPropagatingTrace != nil {
 		p.ov.setPropagatingTrace(t)
 		return
 	}
+	p.propagating = t
 }
 func (p *mockProcess) SetTracingAttribute(key, value string) {
 	if p.ov.setTracingAttribute != nil {
 		p.ov.setTracingAttribute(key, value)
 		return
 	}
+	if strings.HasPrefix(key, "ergo.") {
+		return
+	}
+	for i := range p.traceAttrs {
+		if p.traceAttrs[i].Key == key {
+			p.traceAttrs[i].Value = value
+			return
+		}
+	}
+	p.traceAttrs = append(p.traceAttrs, gen.TracingAttribute{Key: key, Value: value})
 }
 func (p *mockProcess) RemoveTracingAttribute(key string) {
 	if p.ov.removeTracingAttribute != nil {
 		p.ov.removeTracingAttribute(key)
 		return
+	}
+	for i := range p.traceAttrs {
+		if p.traceAttrs[i].Key == key {
+			p.traceAttrs = append(p.traceAttrs[:i], p.traceAttrs[i+1:]...)
+			return
+		}
 	}
 }
 func (p *mockProcess) SetTracingSpanAttribute(key, value string) {
@@ -922,17 +972,25 @@ func (p *mockProcess) SetTracingSpanAttribute(key, value string) {
 		p.ov.setTracingSpanAttribute(key, value)
 		return
 	}
+	if last := len(p.spans) - 1; last >= 0 {
+		p.spans[last].SetAttribute(key, value)
+	}
 }
 func (p *mockProcess) TracingAttributes() []gen.TracingAttribute {
 	if p.ov.tracingAttributes != nil {
 		return p.ov.tracingAttributes()
 	}
-	return nil
+	attrs := make([]gen.TracingAttribute, len(p.traceAttrs))
+	copy(attrs, p.traceAttrs)
+	return attrs
 }
 func (p *mockProcess) ClearTracingSpanAttributes() {
 	if p.ov.clearTracingSpanAttributes != nil {
 		p.ov.clearTracingSpanAttributes()
 		return
+	}
+	if last := len(p.spans) - 1; last >= 0 {
+		p.spans[last].attrs = nil
 	}
 }
 func (p *mockProcess) SendTracingSpan(span gen.TracingSpan) {
@@ -940,13 +998,34 @@ func (p *mockProcess) SendTracingSpan(span gen.TracingSpan) {
 		p.ov.sendTracingSpan(span)
 		return
 	}
+	p.node.rec.Put(check.Span{
+		From:         span.From,
+		To:           span.To,
+		Name:         span.Message,
+		Node:         span.Node,
+		Point:        span.Point,
+		TraceKind:    span.Kind,
+		TraceID:      span.TraceID,
+		SpanID:       span.SpanID,
+		ParentSpanID: span.ParentSpanID,
+		Timestamp:    span.Timestamp,
+		EndTimestamp: span.EndTimestamp,
+		Attributes:   span.Attributes,
+		Error:        span.Error,
+	})
 }
 
 func (p *mockProcess) StartTracingSpan(name string) gen.TracingSpanScope {
-	return &unitSpanScope{p: p, name: name}
+	s := &unitSpanScope{p: p, name: name}
+	p.spans = append(p.spans, s)
+	return s
 }
 
-func (p *mockProcess) CloseTracingSpans() {}
+func (p *mockProcess) CloseTracingSpans() {
+	for len(p.spans) > 0 {
+		p.spans[len(p.spans)-1].End()
+	}
+}
 
 // unitSpanScope records a business span as a check.Span when closed, so a test can
 // assert the actor's tracing instrumentation via subject.ShouldSpan().Named(...).
@@ -989,11 +1068,31 @@ func (s *unitSpanScope) record(errStr string) {
 		return
 	}
 	s.ended = true
+	for i := len(s.p.spans) - 1; i >= 0; i-- {
+		if s.p.spans[i] == s {
+			s.p.spans = append(s.p.spans[:i], s.p.spans[i+1:]...)
+			break
+		}
+	}
+	attrs := s.attrs
+	for _, a := range s.p.traceAttrs {
+		known := false
+		for _, has := range attrs {
+			if has.Key == a.Key {
+				known = true
+				break
+			}
+		}
+		if known == false {
+			attrs = append(attrs, a)
+		}
+	}
 	s.p.node.rec.Put(check.Span{
 		From:       s.p.pid,
 		Name:       s.name,
 		Point:      gen.TracingPointSpan,
-		Attributes: s.attrs,
+		TraceID:    s.p.propagating.ID,
+		Attributes: attrs,
 		Error:      errStr,
 	})
 }
@@ -1001,5 +1100,5 @@ func (s *unitSpanScope) record(errStr string) {
 // forward
 
 func (p *mockProcess) Forward(to gen.PID, message *gen.MailboxMessage, priority gen.MessagePriority) error {
-	return p.node.routeForward(p.stubs, p.pid, to, message.From, message.Message)
+	return p.node.routeForward(p.stubs, p.pid, to, message.From, message.Message, priority)
 }

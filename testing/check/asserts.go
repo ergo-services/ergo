@@ -381,6 +381,10 @@ func (a *ForwardAssert) ErrorIs(target error) *ForwardAssert {
 	a.Where(func(r Forward) bool { return errors.Is(r.Error, target) })
 	return a
 }
+func (a *ForwardAssert) Priority(p gen.MessagePriority) *ForwardAssert {
+	a.Where(func(r Forward) bool { return r.Priority == p })
+	return a
+}
 
 // DeliveredAssert asserts over messages delivered into local mailboxes (ingress).
 type DeliveredAssert struct{ *Assertion[Delivered] }
@@ -433,6 +437,18 @@ func (a *CallAssert) Error(target error) *CallAssert {
 }
 func (a *CallAssert) ErrorIs(target error) *CallAssert {
 	a.Where(func(r Call) bool { return errors.Is(r.Error, target) })
+	return a
+}
+func (a *CallAssert) Priority(p gen.MessagePriority) *CallAssert {
+	a.Where(func(r Call) bool { return r.Options.Priority == p })
+	return a
+}
+func (a *CallAssert) Important(important bool) *CallAssert {
+	a.Where(func(r Call) bool { return r.Options.ImportantDelivery == important })
+	return a
+}
+func (a *CallAssert) Timeout(seconds int) *CallAssert {
+	a.Where(func(r Call) bool { return r.Timeout == seconds })
 	return a
 }
 
@@ -963,6 +979,222 @@ func (x *LogAssert) FromNode() *LogAssert {
 		return ok
 	})
 	return x
+}
+
+type ApplicationLoadAssert struct{ *Assertion[ApplicationLoad] }
+
+func (a *Asserter) ShouldApplicationLoad() *ApplicationLoadAssert {
+	return &ApplicationLoadAssert{For[ApplicationLoad](a.t, a.rec)}
+}
+func (a *ApplicationLoadAssert) From(pid gen.PID) *ApplicationLoadAssert {
+	a.Where(func(r ApplicationLoad) bool { return r.From == pid })
+	return a
+}
+func (a *ApplicationLoadAssert) Name(name gen.Atom) *ApplicationLoadAssert {
+	a.Where(func(r ApplicationLoad) bool { return r.Name == name })
+	return a
+}
+func (a *ApplicationLoadAssert) Error(target error) *ApplicationLoadAssert {
+	a.Where(func(r ApplicationLoad) bool { return r.Error == target })
+	return a
+}
+func (a *ApplicationLoadAssert) ErrorIs(target error) *ApplicationLoadAssert {
+	a.Where(func(r ApplicationLoad) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+type ApplicationUnloadAssert struct{ *Assertion[ApplicationUnload] }
+
+func (a *Asserter) ShouldApplicationUnload() *ApplicationUnloadAssert {
+	return &ApplicationUnloadAssert{For[ApplicationUnload](a.t, a.rec)}
+}
+func (a *ApplicationUnloadAssert) From(pid gen.PID) *ApplicationUnloadAssert {
+	a.Where(func(r ApplicationUnload) bool { return r.From == pid })
+	return a
+}
+func (a *ApplicationUnloadAssert) Name(name gen.Atom) *ApplicationUnloadAssert {
+	a.Where(func(r ApplicationUnload) bool { return r.Name == name })
+	return a
+}
+func (a *ApplicationUnloadAssert) Error(target error) *ApplicationUnloadAssert {
+	a.Where(func(r ApplicationUnload) bool { return r.Error == target })
+	return a
+}
+func (a *ApplicationUnloadAssert) ErrorIs(target error) *ApplicationUnloadAssert {
+	a.Where(func(r ApplicationUnload) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+type ApplicationStartAssert struct{ *Assertion[ApplicationStart] }
+
+func (a *Asserter) ShouldApplicationStart() *ApplicationStartAssert {
+	return &ApplicationStartAssert{For[ApplicationStart](a.t, a.rec)}
+}
+func (a *ApplicationStartAssert) From(pid gen.PID) *ApplicationStartAssert {
+	a.Where(func(r ApplicationStart) bool { return r.From == pid })
+	return a
+}
+func (a *ApplicationStartAssert) Name(name gen.Atom) *ApplicationStartAssert {
+	a.Where(func(r ApplicationStart) bool { return r.Name == name })
+	return a
+}
+func (a *ApplicationStartAssert) Mode(mode gen.ApplicationMode) *ApplicationStartAssert {
+	a.Where(func(r ApplicationStart) bool { return r.Mode == mode })
+	return a
+}
+func (a *ApplicationStartAssert) Error(target error) *ApplicationStartAssert {
+	a.Where(func(r ApplicationStart) bool { return r.Error == target })
+	return a
+}
+func (a *ApplicationStartAssert) ErrorIs(target error) *ApplicationStartAssert {
+	a.Where(func(r ApplicationStart) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+type ApplicationStopAssert struct{ *Assertion[ApplicationStop] }
+
+func (a *Asserter) ShouldApplicationStop() *ApplicationStopAssert {
+	return &ApplicationStopAssert{For[ApplicationStop](a.t, a.rec)}
+}
+func (a *ApplicationStopAssert) From(pid gen.PID) *ApplicationStopAssert {
+	a.Where(func(r ApplicationStop) bool { return r.From == pid })
+	return a
+}
+func (a *ApplicationStopAssert) Name(name gen.Atom) *ApplicationStopAssert {
+	a.Where(func(r ApplicationStop) bool { return r.Name == name })
+	return a
+}
+func (a *ApplicationStopAssert) Force(force bool) *ApplicationStopAssert {
+	a.Where(func(r ApplicationStop) bool { return r.Force == force })
+	return a
+}
+func (a *ApplicationStopAssert) Timeout(d time.Duration) *ApplicationStopAssert {
+	a.Where(func(r ApplicationStop) bool { return r.Timeout == d })
+	return a
+}
+func (a *ApplicationStopAssert) Error(target error) *ApplicationStopAssert {
+	a.Where(func(r ApplicationStop) bool { return r.Error == target })
+	return a
+}
+func (a *ApplicationStopAssert) ErrorIs(target error) *ApplicationStopAssert {
+	a.Where(func(r ApplicationStop) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+type KillAssert struct{ *Assertion[Kill] }
+
+func (a *Asserter) ShouldKill() *KillAssert { return &KillAssert{For[Kill](a.t, a.rec)} }
+func (a *KillAssert) From(pid gen.PID) *KillAssert {
+	a.Where(func(r Kill) bool { return r.From == pid })
+	return a
+}
+func (a *KillAssert) Target(pid gen.PID) *KillAssert {
+	a.Where(func(r Kill) bool { return r.Target == pid })
+	return a
+}
+func (a *KillAssert) Error(target error) *KillAssert {
+	a.Where(func(r Kill) bool { return r.Error == target })
+	return a
+}
+func (a *KillAssert) ErrorIs(target error) *KillAssert {
+	a.Where(func(r Kill) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+type RegisterNameAssert struct{ *Assertion[RegisterName] }
+
+func (a *Asserter) ShouldRegisterName() *RegisterNameAssert {
+	return &RegisterNameAssert{For[RegisterName](a.t, a.rec)}
+}
+func (a *RegisterNameAssert) From(pid gen.PID) *RegisterNameAssert {
+	a.Where(func(r RegisterName) bool { return r.From == pid })
+	return a
+}
+func (a *RegisterNameAssert) Name(name gen.Atom) *RegisterNameAssert {
+	a.Where(func(r RegisterName) bool { return r.Name == name })
+	return a
+}
+func (a *RegisterNameAssert) PID(pid gen.PID) *RegisterNameAssert {
+	a.Where(func(r RegisterName) bool { return r.PID == pid })
+	return a
+}
+func (a *RegisterNameAssert) Error(target error) *RegisterNameAssert {
+	a.Where(func(r RegisterName) bool { return r.Error == target })
+	return a
+}
+func (a *RegisterNameAssert) ErrorIs(target error) *RegisterNameAssert {
+	a.Where(func(r RegisterName) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+type UnregisterNameAssert struct{ *Assertion[UnregisterName] }
+
+func (a *Asserter) ShouldUnregisterName() *UnregisterNameAssert {
+	return &UnregisterNameAssert{For[UnregisterName](a.t, a.rec)}
+}
+func (a *UnregisterNameAssert) From(pid gen.PID) *UnregisterNameAssert {
+	a.Where(func(r UnregisterName) bool { return r.From == pid })
+	return a
+}
+func (a *UnregisterNameAssert) Name(name gen.Atom) *UnregisterNameAssert {
+	a.Where(func(r UnregisterName) bool { return r.Name == name })
+	return a
+}
+func (a *UnregisterNameAssert) PID(pid gen.PID) *UnregisterNameAssert {
+	a.Where(func(r UnregisterName) bool { return r.PID == pid })
+	return a
+}
+func (a *UnregisterNameAssert) Error(target error) *UnregisterNameAssert {
+	a.Where(func(r UnregisterName) bool { return r.Error == target })
+	return a
+}
+func (a *UnregisterNameAssert) ErrorIs(target error) *UnregisterNameAssert {
+	a.Where(func(r UnregisterName) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+type EnableCronJobAssert struct{ *Assertion[EnableCronJob] }
+
+func (a *Asserter) ShouldEnableCronJob() *EnableCronJobAssert {
+	return &EnableCronJobAssert{For[EnableCronJob](a.t, a.rec)}
+}
+func (a *EnableCronJobAssert) From(pid gen.PID) *EnableCronJobAssert {
+	a.Where(func(r EnableCronJob) bool { return r.From == pid })
+	return a
+}
+func (a *EnableCronJobAssert) Name(name gen.Atom) *EnableCronJobAssert {
+	a.Where(func(r EnableCronJob) bool { return r.Name == name })
+	return a
+}
+func (a *EnableCronJobAssert) Error(target error) *EnableCronJobAssert {
+	a.Where(func(r EnableCronJob) bool { return r.Error == target })
+	return a
+}
+func (a *EnableCronJobAssert) ErrorIs(target error) *EnableCronJobAssert {
+	a.Where(func(r EnableCronJob) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
+type DisableCronJobAssert struct{ *Assertion[DisableCronJob] }
+
+func (a *Asserter) ShouldDisableCronJob() *DisableCronJobAssert {
+	return &DisableCronJobAssert{For[DisableCronJob](a.t, a.rec)}
+}
+func (a *DisableCronJobAssert) From(pid gen.PID) *DisableCronJobAssert {
+	a.Where(func(r DisableCronJob) bool { return r.From == pid })
+	return a
+}
+func (a *DisableCronJobAssert) Name(name gen.Atom) *DisableCronJobAssert {
+	a.Where(func(r DisableCronJob) bool { return r.Name == name })
+	return a
+}
+func (a *DisableCronJobAssert) Error(target error) *DisableCronJobAssert {
+	a.Where(func(r DisableCronJob) bool { return r.Error == target })
+	return a
+}
+func (a *DisableCronJobAssert) ErrorIs(target error) *DisableCronJobAssert {
+	a.Where(func(r DisableCronJob) bool { return errors.Is(r.Error, target) })
+	return a
 }
 
 // AddCronJobAssert asserts over cron jobs registered on a node (egress).

@@ -118,6 +118,7 @@ func (n *MockNode) prepare(factory gen.ProcessFactory, register gen.Atom, option
 	// the process under test is itself a process the node knows about
 	n.mockNode.registerProc(&procEntry{pid: process.pid, name: process.name, parent: process.parent, leader: process.leader, state: gen.ProcessStateInit})
 	n.mockNode.subjectPID = process.pid // From for RemoteNode egress records
+	n.mockNode.subject = process
 
 	// the process under test has its own egress stub scope, isolated from the node
 	st := newStubs()
@@ -135,6 +136,7 @@ func (n *MockNode) prepare(factory gen.ProcessFactory, register gen.Atom, option
 	behavior := factory()
 	s.behavior = behavior
 	process.behavior = behavior
+	process.behaviorName = strings.TrimPrefix(reflect.TypeOf(behavior).String(), "*")
 	process.log.setSource(gen.MessageLogProcess{
 		Node:     n.mockNode.nodeName,
 		PID:      process.pid,
