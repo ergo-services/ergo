@@ -3707,7 +3707,7 @@ func (c *connection) send(buf *lib.Buffer, order uint8, compression gen.Compress
 
 		switch compression.Type {
 		case gen.CompressionTypeZLIB:
-			zbuf, err = lib.CompressZLIB(buf, preallocate)
+			zbuf, err = lib.CompressZLIB(buf, preallocate, int(compression.Level))
 			if err != nil {
 				lib.ReleaseBuffer(buf)
 				return fmt.Errorf("unable to compress packet (zlib): %s", err)

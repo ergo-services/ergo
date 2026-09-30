@@ -531,7 +531,7 @@ process.SetCompressionThreshold(2048)
 
 **Type** determines the compression algorithm. GZIP (ID=102) provides good compression ratios with reasonable speed. ZLIB (ID=101) is similar but with slightly different format. LZW (ID=100) is faster but produces lower compression. Choose based on your CPU/bandwidth tradeoff.
 
-**Level** trades compression time for compression ratio. `CompressionBestSize` produces smaller messages but takes longer. `CompressionBestSpeed` compresses quickly but produces larger output. `CompressionDefault` balances both.
+**Level** trades compression time for compression ratio. `CompressionBestSize` produces smaller messages but takes longer. `CompressionBestSpeed` compresses quickly but produces larger output. `CompressionDefault` balances both. Level applies to GZIP and ZLIB; LZW has no levels and ignores it.
 
 **Threshold** sets the minimum size for compression. Messages smaller than the threshold aren't compressed, even if compression is enabled. Compressing tiny messages adds overhead without reducing size meaningfully. The default 1024 bytes is reasonable - messages below 1KB go uncompressed, larger messages get compressed.
 

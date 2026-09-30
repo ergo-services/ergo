@@ -767,6 +767,7 @@ type Compression struct {
 	Type CompressionType
 
 	// Level specifies the compression level (speed vs size trade-off).
+	// Applies to GZIP and ZLIB; LZW has no levels and ignores it.
 	// CompressionDefault (0) - balanced (default)
 	// CompressionBestSpeed (1) - faster compression, larger size
 	// CompressionBestSize (2) - slower compression, smaller size

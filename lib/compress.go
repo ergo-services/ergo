@@ -16,19 +16,34 @@ import (
 
 var (
 	gzipWriters [3]chan *gzip.Writer
-	zlibWriters chan *zlib.Writer
+	zlibWriters [3]chan *zlib.Writer
 	lzwWriters  chan *lzw.Writer
-	gzipReaders = &sync.Pool{
-		New: func() any {
-			return nil
-		},
-	}
+
+	gzipReaders sync.Pool
+	zlibReaders sync.Pool
+	lzwReaders  sync.Pool
 )
 
-// CompressLZW
+// pooled decompressors, each with its own source reader
+type gzipReader struct {
+	src bytes.Reader
+	r   gzip.Reader
+}
+
+type zlibReader struct {
+	src bytes.Reader
+	r   io.ReadCloser
+}
+
+type lzwReader struct {
+	src bytes.Reader
+	r   lzw.Reader
+}
+
+// CompressLZW (LZW has no compression levels)
 func CompressLZW(src *Buffer, preallocate uint) (dst *Buffer, err error) {
 	if src.Len() > math.MaxUint32 {
-		return nil, fmt.Errorf("message to large")
+		return nil, fmt.Errorf("message too large")
 	}
 
 	zBuffer := TakeBuffer()
@@ -43,52 +58,24 @@ func CompressLZW(src *Buffer, preallocate uint) (dst *Buffer, err error) {
 		zWriter = lzw.NewWriter(zBuffer, lzw.LSB, 8).(*lzw.Writer)
 	}
 	_, err = zWriter.Write(src.B)
-	zWriter.Close()
+	if e := zWriter.Close(); err == nil {
+		err = e
+	}
 	select {
 	case lzwWriters <- zWriter:
 	default:
 	}
 	if err != nil {
+		ReleaseBuffer(zBuffer)
 		return nil, err
 	}
 	return zBuffer, nil
 }
 
-// CompressZLIB
-func CompressZLIB(src *Buffer, preallocate uint) (dst *Buffer, err error) {
+// CompressZLIB level: 0 - default, 1 - best speed, 2 - best size
+func CompressZLIB(src *Buffer, preallocate uint, level int) (dst *Buffer, err error) {
 	if src.Len() > math.MaxUint32 {
-		return nil, fmt.Errorf("message to large")
-	}
-
-	zBuffer := TakeBuffer()
-	zBuffer.Allocate(int(preallocate) + 4)
-	binary.BigEndian.PutUint32(zBuffer.B[preallocate:], uint32(src.Len()))
-
-	var zWriter *zlib.Writer
-	select {
-	case zWriter = <-zlibWriters:
-		zWriter.Reset(zBuffer)
-	default:
-		zWriter = zlib.NewWriter(zBuffer)
-	}
-	_, err = zWriter.Write(src.B)
-	zWriter.Close()
-	select {
-	case zlibWriters <- zWriter:
-	default:
-	}
-	if err != nil {
-		return nil, err
-	}
-	return zBuffer, nil
-}
-
-// CompressGZIP level: 0 - default, 1 - best speed, 2 - best size
-func CompressGZIP(src *Buffer, preallocate uint, level int) (dst *Buffer, err error) {
-	var zWriter *gzip.Writer
-
-	if src.Len() > math.MaxUint32 {
-		return nil, fmt.Errorf("message to large")
+		return nil, fmt.Errorf("message too large")
 	}
 
 	zBuffer := TakeBuffer()
@@ -105,6 +92,51 @@ func CompressGZIP(src *Buffer, preallocate uint, level int) (dst *Buffer, err er
 		level = 0
 		lev = flate.DefaultCompression
 	}
+
+	var zWriter *zlib.Writer
+	select {
+	case zWriter = <-zlibWriters[level]:
+		zWriter.Reset(zBuffer)
+	default:
+		zWriter, _ = zlib.NewWriterLevel(zBuffer, lev)
+	}
+	_, err = zWriter.Write(src.B)
+	if e := zWriter.Close(); err == nil {
+		err = e
+	}
+	select {
+	case zlibWriters[level] <- zWriter:
+	default:
+	}
+	if err != nil {
+		ReleaseBuffer(zBuffer)
+		return nil, err
+	}
+	return zBuffer, nil
+}
+
+// CompressGZIP level: 0 - default, 1 - best speed, 2 - best size
+func CompressGZIP(src *Buffer, preallocate uint, level int) (dst *Buffer, err error) {
+	if src.Len() > math.MaxUint32 {
+		return nil, fmt.Errorf("message too large")
+	}
+
+	zBuffer := TakeBuffer()
+	zBuffer.Allocate(int(preallocate) + 4)
+	binary.BigEndian.PutUint32(zBuffer.B[preallocate:], uint32(src.Len()))
+
+	var lev int
+	switch level {
+	case 2:
+		lev = flate.BestCompression
+	case 1:
+		lev = flate.BestSpeed
+	default:
+		level = 0
+		lev = flate.DefaultCompression
+	}
+
+	var zWriter *gzip.Writer
 	select {
 	case zWriter = <-gzipWriters[level]:
 		zWriter.Reset(zBuffer)
@@ -112,17 +144,21 @@ func CompressGZIP(src *Buffer, preallocate uint, level int) (dst *Buffer, err er
 		zWriter, _ = gzip.NewWriterLevel(zBuffer, lev)
 	}
 	_, err = zWriter.Write(src.B)
-	zWriter.Close()
+	if e := zWriter.Close(); err == nil {
+		err = e
+	}
 	select {
 	case gzipWriters[level] <- zWriter:
 	default:
 	}
 	if err != nil {
+		ReleaseBuffer(zBuffer)
 		return nil, err
 	}
 	return zBuffer, nil
 }
 
+// DecompressLZW
 func DecompressLZW(src *Buffer, skip uint, limit int) (dst *Buffer, err error) {
 	if src.Len() < int(skip)+4 {
 		return nil, fmt.Errorf("too short source buffer")
@@ -132,14 +168,26 @@ func DecompressLZW(src *Buffer, skip uint, limit int) (dst *Buffer, err error) {
 	if limit > 0 && lenUnpacked > limit {
 		return nil, fmt.Errorf("unpacked size %d exceeds limit %d", lenUnpacked, limit)
 	}
-	reader := lzw.NewReader(bytes.NewBuffer(source[4:]), lzw.LSB, 8)
+	zr, _ := lzwReaders.Get().(*lzwReader)
+	if zr == nil {
+		zr = &lzwReader{}
+	}
+	zr.src.Reset(source[4:])
+	zr.r.Reset(&zr.src, lzw.LSB, 8)
+
 	dst = TakeBuffer()
 	dst.Allocate(lenUnpacked)
-	if err := decompress(dst.B, reader); err != nil {
+	err = decompress(dst.B, &zr.r)
+	zr.src.Reset(nil)
+	lzwReaders.Put(zr)
+	if err != nil {
+		ReleaseBuffer(dst)
 		return nil, err
 	}
-	return
+	return dst, nil
 }
+
+// DecompressZLIB
 func DecompressZLIB(src *Buffer, skip uint, limit int) (dst *Buffer, err error) {
 	if src.Len() < int(skip)+4 {
 		return nil, fmt.Errorf("too short source buffer")
@@ -149,17 +197,35 @@ func DecompressZLIB(src *Buffer, skip uint, limit int) (dst *Buffer, err error) 
 	if limit > 0 && lenUnpacked > limit {
 		return nil, fmt.Errorf("unpacked size %d exceeds limit %d", lenUnpacked, limit)
 	}
-	reader, err := zlib.NewReader(bytes.NewBuffer(source[4:]))
+	zr, _ := zlibReaders.Get().(*zlibReader)
+	if zr == nil {
+		zr = &zlibReader{}
+	}
+	zr.src.Reset(source[4:])
+	if zr.r == nil {
+		zr.r, err = zlib.NewReader(&zr.src)
+	} else {
+		err = zr.r.(zlib.Resetter).Reset(&zr.src, nil)
+	}
 	if err != nil {
+		zr.src.Reset(nil)
+		zlibReaders.Put(zr)
 		return nil, err
 	}
+
 	dst = TakeBuffer()
 	dst.Allocate(lenUnpacked)
-	if err := decompress(dst.B, reader); err != nil {
+	err = decompress(dst.B, zr.r)
+	zr.src.Reset(nil)
+	zlibReaders.Put(zr)
+	if err != nil {
+		ReleaseBuffer(dst)
 		return nil, err
 	}
-	return
+	return dst, nil
 }
+
+// DecompressGZIP
 func DecompressGZIP(src *Buffer, skip uint, limit int) (dst *Buffer, err error) {
 	if src.Len() < int(skip)+4 {
 		return nil, fmt.Errorf("too short source buffer")
@@ -169,17 +235,27 @@ func DecompressGZIP(src *Buffer, skip uint, limit int) (dst *Buffer, err error) 
 	if limit > 0 && lenUnpacked > limit {
 		return nil, fmt.Errorf("unpacked size %d exceeds limit %d", lenUnpacked, limit)
 	}
-	reader, err := gzip.NewReader(bytes.NewBuffer(source[4:]))
-	if err != nil {
+	zr, _ := gzipReaders.Get().(*gzipReader)
+	if zr == nil {
+		zr = &gzipReader{}
+	}
+	zr.src.Reset(source[4:])
+	if err := zr.r.Reset(&zr.src); err != nil {
+		zr.src.Reset(nil)
+		gzipReaders.Put(zr)
 		return nil, err
 	}
+
 	dst = TakeBuffer()
 	dst.Allocate(lenUnpacked)
-
-	if err := decompress(dst.B, reader); err != nil {
+	err = decompress(dst.B, &zr.r)
+	zr.src.Reset(nil)
+	gzipReaders.Put(zr)
+	if err != nil {
+		ReleaseBuffer(dst)
 		return nil, err
 	}
-	return
+	return dst, nil
 }
 
 func decompress(dst []byte, reader io.Reader) error {
@@ -212,6 +288,8 @@ func init() {
 	for i := range gzipWriters {
 		gzipWriters[i] = make(chan *gzip.Writer, size)
 	}
-	zlibWriters = make(chan *zlib.Writer, size)
+	for i := range zlibWriters {
+		zlibWriters[i] = make(chan *zlib.Writer, size)
+	}
 	lzwWriters = make(chan *lzw.Writer, size)
 }

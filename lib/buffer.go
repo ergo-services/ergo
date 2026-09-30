@@ -146,14 +146,13 @@ func (b *Buffer) increase() {
 
 // Allocate
 func (b *Buffer) Allocate(n int) {
-	for {
-		if cap(b.B) < n {
-			b.increase()
-			continue
-		}
-		b.B = b.B[:n]
+	if cap(b.B) < n {
+		b1 := make([]byte, n)
+		copy(b1, b.B)
+		b.B = b1
 		return
 	}
+	b.B = b.B[:n]
 }
 
 // Extend

@@ -44,6 +44,22 @@ func TestBufferAllocateExtend(t *testing.T) {
 	}
 }
 
+// Allocate beyond the capacity grows to the exact size and keeps the content.
+func TestBufferAllocateGrow(t *testing.T) {
+	b := TakeBuffer()
+	defer ReleaseBuffer(b)
+
+	b.AppendString("head")
+	n := DefaultBufferLength*10 + 7
+	b.Allocate(n)
+	if b.Len() != n || b.Cap() != n {
+		t.Fatalf("after Allocate(%d): Len = %d, Cap = %d", n, b.Len(), b.Cap())
+	}
+	if string(b.B[:4]) != "head" {
+		t.Fatal("Allocate lost the existing content")
+	}
+}
+
 func TestBufferSetReset(t *testing.T) {
 	b := TakeBuffer()
 	defer ReleaseBuffer(b)
