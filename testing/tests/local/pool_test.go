@@ -66,6 +66,17 @@ func (p *poolPool) HandleMessage(from gen.PID, message any) error {
 	return p.Send(p.collector, p.PID())
 }
 
+// poolForwardFailed reports to the collector what no worker took.
+type poolForwardFailed struct {
+	From    gen.PID
+	Message any
+	Reason  error
+}
+
+func (p *poolPool) HandleForwardFailed(from gen.PID, message any, reason error) error {
+	return p.Send(p.collector, poolForwardFailed{From: from, Message: message, Reason: reason})
+}
+
 // poolWorkers returns, in spawn order, the count workers spawned by pool since mark.
 func poolWorkers(n *stage.Node, pool gen.PID, mark, count int) []gen.PID {
 	sp := n.ShouldSpawn().From(pool).Since(mark).Times(count).Within(time.Second).Collect()
@@ -231,8 +242,7 @@ func TestLocalPool(t *testing.T) {
 	// N2 (recovery after the empty-pool error): the drained pool still accepts
 	// AddWorkers, and forwarding resumes round-robin over the new workers. (No
 	// normal traffic is sent before the add, so there is no priority-inversion
-	// race; the empty-pool drop itself emits no observable signal, so it is not
-	// asserted rather than faked with a time window.)
+	// race; forwarding into a drained pool is covered by TestLocalPoolForwardFailed.)
 	mkRecover := n.Mark()
 	cnt, err := nn.CallWithPriority(pool, 2, high)
 	check.NoError(t, err)
@@ -289,4 +299,48 @@ func TestLocalPool(t *testing.T) {
 		check.True(t, p != victim)
 	}
 	check.True(t, sameSet(healed[:2], []gen.PID{survivor, newPid}))
+}
+
+// TestLocalPoolForwardFailed: with no worker left to take the message, the pool
+// reports the drop to HandleForwardFailed instead of swallowing it, and a caller
+// of a normal-priority Call is answered with the reason instead of waiting out
+// its own budget.
+func TestLocalPoolForwardFailed(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+	nn := n.Native()
+
+	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+	pool := n.Spawn(factoryPoolPool, gen.ProcessOptions{}, collector)
+
+	// drain every worker: there is nothing to forward to
+	left, err := nn.CallWithPriority(pool, -5, gen.MessagePriorityHigh)
+	check.NoError(t, err)
+	check.Equal(t, int64(0), left)
+
+	// an async send reaches the callback and nothing is forwarded
+	mkSend := n.Mark()
+	n.Send(pool, "hi")
+	sent := n.ShouldSend().From(pool).Since(mkSend).Times(1).Within(time.Second).Collect()
+	failed, ok := sent[0].Message.(poolForwardFailed)
+	check.True(t, ok)
+	check.Equal(t, "hi", failed.Message)
+	check.True(t, errors.Is(failed.Reason, gen.ErrProcessUnknown))
+	n.ShouldForward().By(pool).Since(mkSend).None().Assert()
+
+	// a call is answered with the same reason right away
+	mkCall := n.Mark()
+	start := time.Now()
+	_, err = n.Call(pool, "ping")
+	check.True(t, errors.Is(err, gen.ErrProcessUnknown))
+	check.True(t, time.Since(start) < 3*time.Second)
+	n.ShouldSend().From(pool).Since(mkCall).Times(1).Within(time.Second).Collect()
+
+	// the pool itself is still running and serves again once it has a worker
+	added, err := nn.CallWithPriority(pool, 1, gen.MessagePriorityHigh)
+	check.NoError(t, err)
+	check.Equal(t, int64(1), added)
+	worker, err := n.Call(pool, "ping")
+	check.NoError(t, err)
+	check.True(t, worker != pool)
 }

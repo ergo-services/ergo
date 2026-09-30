@@ -10,10 +10,18 @@ import (
 	"ergo.services/ergo/testing/unit"
 )
 
-// test pool: only Init is custom; HandleMessage records admin (high-priority) traffic.
+// test pool: only Init is custom; HandleMessage records admin (high-priority)
+// traffic and HandleForwardFailed records the messages no worker took.
 type plu struct {
 	act.Pool
-	hits []string
+	hits   []string
+	failed []poolForwardFailure
+}
+
+type poolForwardFailure struct {
+	From    gen.PID
+	Message any
+	Reason  error
 }
 
 func factoryPlu() gen.ProcessBehavior { return &plu{} }
@@ -26,6 +34,13 @@ func (p *plu) HandleMessage(from gen.PID, message any) error {
 		return errActorBoom
 	}
 	p.hits = append(p.hits, "admin")
+	return nil
+}
+func (p *plu) HandleForwardFailed(from gen.PID, message any, reason error) error {
+	if message == "die" {
+		return errActorBoom
+	}
+	p.failed = append(p.failed, poolForwardFailure{From: from, Message: message, Reason: reason})
 	return nil
 }
 func (p *plu) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
@@ -189,6 +204,62 @@ func TestPoolUnitForwardAllFullUnhandled(t *testing.T) {
 	m, err := s.Inspect(gen.PID{})
 	check.NoError(t, err)
 	check.Equal(t, "1", m["ergo:messages_unhandled"])
+}
+
+// when every worker is full the message reaches HandleForwardFailed with the reason.
+func TestPoolUnitForwardAllFullCallback(t *testing.T) {
+	s, pids := spawnPool(t, 1)
+	s.OnForward(pids[0]).Fail(gen.ErrProcessMailboxFull)
+	from := gen.PID{Node: "node1@localhost", ID: 7, Creation: 1}
+	s.SendMessage(from, "m")
+
+	b := plb(s)
+	check.Equal(t, 1, len(b.failed))
+	check.Equal(t, from, b.failed[0].From)
+	check.Equal(t, "m", b.failed[0].Message)
+	check.ErrorIs(t, b.failed[0].Reason, gen.ErrProcessMailboxFull)
+}
+
+// a pool left without workers reports ErrProcessUnknown.
+func TestPoolUnitForwardEmptyPoolCallback(t *testing.T) {
+	s, _ := spawnPool(t, 1)
+	_, err := plb(s).RemoveWorkers(1)
+	check.NoError(t, err)
+	s.SendMessage(gen.PID{}, "m")
+
+	b := plb(s)
+	check.Equal(t, 1, len(b.failed))
+	check.ErrorIs(t, b.failed[0].Reason, gen.ErrProcessUnknown)
+}
+
+// a call no worker took is answered with the reason instead of leaving the caller
+// waiting for its whole budget.
+func TestPoolUnitForwardFailedCallAnswered(t *testing.T) {
+	s, pids := spawnPool(t, 1)
+	s.OnForward(pids[0]).Fail(gen.ErrProcessMailboxFull)
+
+	_, err := s.Call(gen.PID{}, "q")
+	check.ErrorIs(t, err, gen.ErrProcessMailboxFull)
+	check.Equal(t, 1, len(plb(s).failed))
+}
+
+// a non-nil return from HandleForwardFailed terminates the pool.
+func TestPoolUnitForwardFailedCallbackTerminates(t *testing.T) {
+	s, pids := spawnPool(t, 1)
+	s.OnForward(pids[0]).Fail(gen.ErrProcessMailboxFull)
+	s.SendMessage(gen.PID{}, "die")
+	check.True(t, s.Terminated())
+}
+
+// the default HandleForwardFailed logs the drop and keeps the pool running.
+func TestPoolUnitForwardFailedDefaultCallback(t *testing.T) {
+	s, err := unit.Spawn(t, factoryPluPlain, gen.ProcessOptions{}, poolOpts(1))
+	check.NoError(t, err)
+	spawns := s.ShouldSpawn().Collect()
+	s.OnForward(spawns[0].Child).Fail(gen.ErrProcessMailboxFull)
+
+	s.SendMessage(gen.PID{}, "m")
+	s.ShouldTerminate().None().Assert()
 }
 
 // a respawn that succeeds but whose forward then fails must not be counted as

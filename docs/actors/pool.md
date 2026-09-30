@@ -18,6 +18,7 @@ type PoolBehavior interface {
     
     HandleMessage(from gen.PID, message any) error
     HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
+    HandleForwardFailed(from gen.PID, message any, reason error) error
     Terminate(reason error)
     
     HandleEvent(message gen.MessageEvent) error
@@ -61,7 +62,7 @@ Workers are created using the `WorkerFactory`. This is the same factory pattern 
 
 ### Rate Limiting Through Pool Configuration
 
-The combination of `PoolSize` and `WorkerMailboxSize` bounds how much work the pool holds: `PoolSize` messages being handled, plus `PoolSize × WorkerMailboxSize` waiting in the workers' mailboxes. A message being handled has already left its mailbox, so the two add up. There is no buffer at the pool itself. Once every mailbox is full, further messages are **dropped** rather than rejected - the sender is not told, as the next section explains:
+The combination of `PoolSize` and `WorkerMailboxSize` bounds how much work the pool holds: `PoolSize` messages being handled, plus `PoolSize × WorkerMailboxSize` waiting in the workers' mailboxes. A message being handled has already left its mailbox, so the two add up. There is no buffer at the pool itself. Once every mailbox is full, further messages are **dropped** rather than rejected, and the pool tells you rather than the sender, as the next section explains:
 
 ```go
 // Rate limit: 5 workers × 20 messages = 100 requests max in flight
@@ -72,9 +73,9 @@ return act.PoolOptions{
 }, nil
 ```
 
-That product is the work in flight the pool can hold. Past it the message is **dropped**: the pool logs an error, increments `ergo:messages_unhandled` and releases the message. The sender is not told. `ErrProcessMailboxFull` comes from a target's own queue on the ordinary send path, and the pool's forwarding is not that path - a `Send` to a saturated pool returns `nil`, and a `Call` ends in the caller's own timeout with no indication of the cause.
+That product is the work in flight the pool can hold. Past it the message is **dropped**: the pool increments `ergo:messages_unhandled`, hands the message to your `HandleForwardFailed` and releases it. An asynchronous sender is not told: `Send` to a saturated pool returns `nil`, because `ErrProcessMailboxFull` comes from a target's own queue on the ordinary send path and the pool's forwarding is not that path. A caller of `Call` is told, though: the pool answers it with the same reason at once rather than letting it sit out its whole timeout.
 
-So this is a limit, not backpressure. If an external API is to answer "503 Service Unavailable" when the pool is saturated, that decision has to be made before the pool: check `ergo:messages_unhandled` from the inspect callback, or gate admission in the handler. The pool size controls maximum concurrency and the mailbox size controls burst capacity - tune both against worker processing speed and acceptable latency, and treat a rising drop counter as the signal that the sizing is wrong.
+So this is a limit, not backpressure. If an external API is to answer "503 Service Unavailable" when the pool is saturated, that decision can be made in `HandleForwardFailed`, or before the pool by gating admission in the handler. The pool size controls maximum concurrency and the mailbox size controls burst capacity - tune both against worker processing speed and acceptable latency, and treat a rising drop counter as the signal that the sizing is wrong.
 
 ## Automatic Message Distribution
 
@@ -98,9 +99,25 @@ Forwarding happens for messages in the Main queue (normal priority). The pool ma
    - `ErrProcessMailboxFull` → push worker back, try next worker
 4. **Repeat** until successful or all workers tried
 
-If all workers have full mailboxes, the message is dropped and logged. The pool doesn't have its own buffer beyond the workers' mailboxes. This is intentional - backpressure should propagate to senders.
+If all workers have full mailboxes, or the pool has no workers left at all, the message is dropped. The pool doesn't have its own buffer beyond the workers' mailboxes. This is intentional - backpressure should propagate to senders. What the pool does before dropping is described in [When No Worker Takes the Message](#when-no-worker-takes-the-message).
 
 The pool forwards Regular messages, Requests, and Events. Exit signals and Inspect requests are handled by the pool itself (they're not forwarded to workers).
+
+## When No Worker Takes the Message
+
+A message nobody took is not lost quietly. The pool calls `HandleForwardFailed` with the original sender, the message itself and the reason: `gen.ErrProcessMailboxFull` when every worker mailbox is full, `gen.ErrProcessUnknown` when the pool has no workers at all. The message is released once the callback returns, so keep what you need from it.
+
+```go
+func (p *WorkerPool) HandleForwardFailed(from gen.PID, message any, reason error) error {
+    p.Log().Warning("dropped %T from %s: %s", message, from, reason)
+    p.Send(p.deadletter, message)
+    return nil
+}
+```
+
+Returning a non-nil error from the callback terminates the pool, the same as from any other callback. The default implementation, which you get by not writing one, logs the drop as an error and keeps the pool running.
+
+A dropped `Call` is a special case: the caller is already waiting, so the pool answers it with the same reason before the callback runs. The caller sees `gen.ErrProcessMailboxFull` immediately instead of sitting out its timeout, and the callback has no way to answer it a second time.
 
 ## Workers and the Original Sender
 
@@ -236,14 +253,14 @@ stats, err := node.Inspect(poolPID)
 // - "ergo:worker_mailbox_size": mailbox limit per worker
 // - "ergo:worker_restarts": count of workers restarted
 // - "ergo:messages_forwarded": total messages forwarded to workers
-// - "ergo:messages_unhandled": messages dropped (all workers full)
+// - "ergo:messages_unhandled": messages dropped (no worker took them)
 ```
 
 All of these keys use the reserved `ergo:` prefix. A `HandleInspect` you implement is merged on top of them, so your fields are added beside these rather than replacing the set - and one of these is overridden only if you name it with the prefix.
 
 Use this for monitoring pool health. High `ergo:messages_unhandled` indicates workers are overwhelmed. High `ergo:worker_restarts` suggests worker stability issues.
 
-`ProcessOptions.Fallback` does not help here, though it is the natural thing to reach for. Two reasons, either of which is enough. `PoolOptions` carries only `PoolSize`, `WorkerMailboxSize`, `WorkerFactory` and `WorkerArgs` - the pool builds its workers' `ProcessOptions` itself and sets no fallback, and there is no runtime setter for one. And the pool delivers with `Forward`, which pushes onto the worker's queue directly and answers `gen.ErrProcessMailboxFull`; the fallback is consulted only on the ordinary routing path that `Send` takes. A message the pool cannot place is dropped and counted, never diverted. The remedies are `AddWorkers`, a larger `WorkerMailboxSize`, or shedding load before the pool.
+`ProcessOptions.Fallback` does not help here, though it is the natural thing to reach for. Two reasons, either of which is enough. `PoolOptions` carries only `PoolSize`, `WorkerMailboxSize`, `WorkerFactory` and `WorkerArgs` - the pool builds its workers' `ProcessOptions` itself and sets no fallback, and there is no runtime setter for one. And the pool delivers with `Forward`, which pushes onto the worker's queue directly and answers `gen.ErrProcessMailboxFull`; the fallback is consulted only on the ordinary routing path that `Send` takes. A message the pool cannot place is dropped, counted and handed to `HandleForwardFailed`, never diverted. The remedies are `AddWorkers`, a larger `WorkerMailboxSize`, or shedding load before the pool.
 
 ## When to Use Pools
 

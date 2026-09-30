@@ -14,22 +14,30 @@ const (
 	defaultPoolSize = 3
 )
 
+// PoolBehavior is the interface a Pool implementation must satisfy. Normal
+// priority traffic is forwarded to a worker and reaches no callback here, high
+// and max priority traffic is handled by the Pool itself.
 type PoolBehavior interface {
 	gen.ProcessBehavior
 
 	// Init invoked on a spawn Pool for the initializing.
 	Init(args ...any) (PoolOptions, error)
 
-	// HandleMessage invoked if Pool received a message sent with gen.Process.Send(...).
+	// HandleMessage invoked for a message sent with MessagePriorityHigh or Max.
 	// Non-nil value of the returning error will cause termination of this process.
 	// To stop this process normally, return gen.TerminateReasonNormal
 	// or any other for abnormal termination.
 	HandleMessage(from gen.PID, message any) error
 
-	// HandleCall invoked if Pool got a synchronous request made with gen.Process.Call(...).
+	// HandleCall invoked for a request made with MessagePriorityHigh or Max.
 	// Return nil as a result to handle this request asynchronously and
 	// to provide the result later using the gen.Process.SendResponse(...) method.
 	HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
+
+	// HandleForwardFailed invoked if no worker took the message. It is dropped
+	// once this returns, a caller of Call is already answered with the reason.
+	// Non-nil value of the returning error will cause termination of this process.
+	HandleForwardFailed(from gen.PID, message any, reason error) error
 
 	// Terminate invoked on a termination process
 	Terminate(reason error)
@@ -204,9 +212,22 @@ func (p *Pool) ProcessRun() (rr error) {
 				message = msg.(*gen.MailboxMessage)
 				if message.Type < gen.MailboxMessageTypeExit {
 					// MailboxMessageTypeRegular, MailboxMessageTypeRequest, MailboxMessageTypeEvent, MailboxMessageTypeSpan
-					p.forward(message)
-					// it shouldn't be "released" back to the pool
+					ferr := p.forward(message)
+					if ferr == nil {
+						// it shouldn't be "released" back to the pool
+						message = nil
+						continue
+					}
+					p.unhandled++
+					if message.Type == gen.MailboxMessageTypeRequest {
+						p.SendResponseError(message.From, message.Ref, ferr)
+					}
+					reason := p.behavior.HandleForwardFailed(message.From, message.Message, ferr)
+					gen.ReleaseMailboxMessage(message)
 					message = nil
+					if reason != nil {
+						return reason
+					}
 					continue
 				}
 
@@ -334,6 +355,11 @@ func (p *Pool) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	return nil, nil
 }
 
+func (p *Pool) HandleForwardFailed(from gen.PID, message any, reason error) error {
+	p.Log().Error("no available worker process. ignored message from %s: %s", from, reason)
+	return nil
+}
+
 func (p *Pool) Terminate(reason error) {}
 
 func (p *Pool) HandleEvent(message gen.MessageEvent) error {
@@ -385,9 +411,13 @@ func (p *Pool) inspect() map[string]string {
 	}
 }
 
-func (p *Pool) forward(message *gen.MailboxMessage) {
-	var err error
+// forward hands the message to a worker; on error the message is still ours.
+func (p *Pool) forward(message *gen.MailboxMessage) error {
 	l := p.pool.Len()
+	if l == 0 {
+		return gen.ErrProcessUnknown
+	}
+	var err error
 	for i := int64(0); i < l; i++ {
 		err = nil
 		v, _ := p.pool.Pop()
@@ -397,7 +427,7 @@ func (p *Pool) forward(message *gen.MailboxMessage) {
 			// back to pool
 			p.pool.Push(v)
 			p.forwarded++
-			return
+			return nil
 		}
 		if err == gen.ErrProcessUnknown || err == gen.ErrProcessTerminated {
 			// restart
@@ -405,26 +435,25 @@ func (p *Pool) forward(message *gen.MailboxMessage) {
 				MailboxSize: p.options.WorkerMailboxSize,
 				LinkParent:  true,
 			}
-			pid, err := p.Spawn(p.options.WorkerFactory, wopt, p.options.WorkerArgs...)
-			if err != nil {
-				p.Log().Error("unable to spawn new worker process: %s", err)
+			spawned, serr := p.Spawn(p.options.WorkerFactory, wopt, p.options.WorkerArgs...)
+			if serr != nil {
+				p.Log().Error("unable to spawn new worker process: %s", serr)
+				err = serr
 				continue
 			}
 			p.restarts++
-			err = p.Forward(pid, message, gen.MessagePriorityNormal)
-			p.pool.Push(pid)
+			err = p.Forward(spawned, message, gen.MessagePriorityNormal)
+			p.pool.Push(spawned)
 			if err != nil {
-				p.Log().Error("unable to forward to the respawned worker %s: %s", pid, err)
+				p.Log().Error("unable to forward to the respawned worker %s: %s", spawned, err)
 				continue
 			}
 			p.forwarded++
-			return
+			return nil
 		}
 
 		// mailbox is full. try next worker
 		p.pool.Push(v)
 	}
-	p.Log().Error("no available worker process. ignored message from %s", message.From)
-	p.unhandled++
-	gen.ReleaseMailboxMessage(message)
+	return err
 }
