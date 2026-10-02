@@ -1152,6 +1152,54 @@ func (p *recordProcess) CallAlias(to gen.Alias, request any, timeout int) (any, 
 	return response, err
 }
 
+func (p *recordProcess) SendRequest(to any, request any) (gen.Ref, error) {
+	return p.recordRequest(to, request, gen.RequestOptions{Priority: p.Process.SendPriority()},
+		func() (gen.Ref, error) { return p.Process.SendRequest(to, request) })
+}
+
+func (p *recordProcess) SendRequestImportant(to any, request any) (gen.Ref, error) {
+	return p.recordRequest(to, request,
+		gen.RequestOptions{Priority: p.Process.SendPriority(), Important: true},
+		func() (gen.Ref, error) { return p.Process.SendRequestImportant(to, request) })
+}
+
+func (p *recordProcess) SendRequestWithTimeout(to any, request any, timeout int) (gen.Ref, error) {
+	return p.recordRequest(to, request,
+		gen.RequestOptions{Priority: p.Process.SendPriority(), Timeout: timeout},
+		func() (gen.Ref, error) { return p.Process.SendRequestWithTimeout(to, request, timeout) })
+}
+
+func (p *recordProcess) SendRequestWithLabel(to any, request any, label any) (gen.Ref, error) {
+	return p.recordRequest(to, request,
+		gen.RequestOptions{Priority: p.Process.SendPriority(), Label: label},
+		func() (gen.Ref, error) { return p.Process.SendRequestWithLabel(to, request, label) })
+}
+
+func (p *recordProcess) SendRequestWithOptions(to any, request any, options gen.RequestOptions) (gen.Ref, error) {
+	return p.recordRequest(to, request, options,
+		func() (gen.Ref, error) { return p.Process.SendRequestWithOptions(to, request, options) })
+}
+
+func (p *recordProcess) recordRequest(to any, request any, options gen.RequestOptions,
+	send func() (gen.Ref, error)) (gen.Ref, error) {
+
+	ref, err := send()
+	if options.Timeout < 1 {
+		options.Timeout = gen.DefaultRequestTimeout
+	}
+	p.rec.Put(check.SendRequest{
+		From:     p.Process.PID(),
+		To:       to,
+		Request:  request,
+		Ref:      ref,
+		Label:    options.Label,
+		Timeout:  options.Timeout,
+		Priority: options.Priority,
+		Error:    err,
+	})
+	return ref, err
+}
+
 func (p *recordProcess) RegisterName(name gen.Atom) error {
 	err := p.Process.RegisterName(name)
 	p.rec.Put(check.RegisterName{From: p.Process.PID(), Name: name, PID: p.Process.PID(), Error: err})

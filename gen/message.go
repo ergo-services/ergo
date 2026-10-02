@@ -86,6 +86,16 @@ type MessageEventStop struct {
 }
 
 // MessageEvent
+// MessageResponse is the answer to a request made with SendRequest: the result,
+// the callee's error, or ErrTimeout. Label is what SendRequestWithLabel attached.
+type MessageResponse struct {
+	From   PID
+	Ref    Ref
+	Label  any
+	Result any
+	Error  error
+}
+
 type MessageEvent struct {
 	Event     Event
 	Timestamp int64

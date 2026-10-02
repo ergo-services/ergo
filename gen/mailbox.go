@@ -12,8 +12,9 @@ const (
 	MailboxMessageTypeEvent   MailboxMessageType = 2
 	MailboxMessageTypeSpan    MailboxMessageType = 3
 
-	MailboxMessageTypeExit    MailboxMessageType = 10
-	MailboxMessageTypeInspect MailboxMessageType = 11
+	MailboxMessageTypeExit     MailboxMessageType = 10
+	MailboxMessageTypeInspect  MailboxMessageType = 11
+	MailboxMessageTypeResponse MailboxMessageType = 12
 )
 
 type MailboxMessage struct {

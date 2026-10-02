@@ -3222,6 +3222,8 @@ func (n *node) cleanupProcess(p *process, reason error) {
 	n.RouteTerminatePID(p.pid, reason) // calls TerminatedTargetPID internally
 	n.targets.TerminatedProcess(p.pid, reason)
 
+	p.cancelRequests()
+
 	p.metas.Range(func(_, v any) bool {
 		m := v.(*meta)
 		qm := gen.TakeMailboxMessage()

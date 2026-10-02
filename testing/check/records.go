@@ -43,6 +43,25 @@ func (r Call) String() string {
 	return fmt.Sprintf("Call(from=%s to=%v req=%#v timeout=%d err=%v)", r.From, r.To, r.Request, r.Timeout, r.Error)
 }
 
+// SendRequest is a request made without blocking (egress). Ref is the one the
+// answer will carry; Timeout is the answer deadline in seconds.
+type SendRequest struct {
+	From     gen.PID
+	To       any
+	Request  any
+	Ref      gen.Ref
+	Label    any
+	Timeout  int
+	Priority gen.MessagePriority
+	Error    error
+}
+
+func (SendRequest) Kind() string { return "request_sent" }
+func (r SendRequest) String() string {
+	return fmt.Sprintf("SendRequest(from=%s to=%v req=%#v ref=%s timeout=%d err=%v)",
+		r.From, r.To, r.Request, r.Ref, r.Timeout, r.Error)
+}
+
 // Spawn is a child process created (or attempted) by a process (egress). On
 // failure Child is the zero PID and Error is set. Factory is the spawned factory
 // (set by harnesses that know it, e.g. the unit mock); zero otherwise. Register is

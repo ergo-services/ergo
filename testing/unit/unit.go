@@ -378,6 +378,39 @@ func (s *Subject) DeliverLog(message gen.MessageLog) *Subject {
 	return s
 }
 
+// DeliverResponse answers a request the actor made with SendRequest. The label it
+// attached to that request comes back with the answer, as on a live node.
+func (s *Subject) DeliverResponse(from gen.PID, ref gen.Ref, result any, err error) *Subject {
+	s.t.Helper()
+	s.deliverResponse(from, ref, result, err)
+	return s
+}
+
+// ExpireRequest answers a request the actor made with SendRequest the way its
+// deadline would: ErrTimeout, no result.
+func (s *Subject) ExpireRequest(ref gen.Ref) *Subject {
+	s.t.Helper()
+	s.deliverResponse(gen.PID{}, ref, nil, gen.ErrTimeout)
+	return s
+}
+
+func (s *Subject) deliverResponse(from gen.PID, ref gen.Ref, result any, err error) {
+	s.t.Helper()
+	request, exist := s.process.requests[ref]
+	if exist == false {
+		s.t.Fatalf("unit: no request with ref %s to answer; the actor never made it, or it was cancelled", ref)
+		return
+	}
+	delete(s.process.requests, ref)
+	s.deliver(from, gen.MessageResponse{
+		From:   from,
+		Ref:    ref,
+		Label:  request.label,
+		Result: result,
+		Error:  err,
+	}, gen.MailboxMessageTypeResponse, ref)
+}
+
 // DeliverSpan delivers a tracing span to the process's HandleSpan (the process must
 // be registered as a tracing exporter).
 func (s *Subject) DeliverSpan(span gen.TracingSpan) *Subject {

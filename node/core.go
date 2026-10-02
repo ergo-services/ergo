@@ -575,6 +575,13 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 	}
 	p := value.(*process)
 
+	if err, delivered := p.deliverResponse(from, options, message, nil); delivered {
+		if tracingActive {
+			n.spanResponse(p, from, to, options, parentSpanID, fromBehavior, msgType)
+		}
+		return err
+	}
+
 	resp := response{
 		ref:       options.Ref,
 		message:   message,
@@ -614,6 +621,36 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 	default:
 		return gen.ErrResponseIgnored
 	}
+}
+
+func (n *node) spanResponse(p *process, from, to gen.PID, options gen.MessageOptions,
+	parentSpanID uint64, fromBehavior, msgType string) {
+	n.spanResponseError(p, from, to, options, parentSpanID, fromBehavior, msgType, "")
+}
+
+func (n *node) spanResponseError(p *process, from, to gen.PID, options gen.MessageOptions,
+	parentSpanID uint64, fromBehavior, msgType, errString string) {
+	nanos := time.Now().UnixNano()
+	spanID := options.Tracing.SpanID
+	if from.Node == n.name {
+		spanID = atomic.AddUint64(&n.spanID, 1)
+		n.sendTracingSpan(gen.TracingSpan{
+			TraceID: options.Tracing.ID, SpanID: spanID,
+			ParentSpanID: parentSpanID,
+			Point:        gen.TracingPointSent, Kind: gen.TracingKindResponse,
+			Timestamp: nanos, Node: n.name, From: from, To: to,
+			Ref: options.Ref, Behavior: fromBehavior, Message: msgType, Error: errString,
+			Attributes: options.TracingAttributes,
+		})
+	}
+	n.sendTracingSpan(gen.TracingSpan{
+		TraceID: options.Tracing.ID, SpanID: spanID,
+		ParentSpanID: parentSpanID,
+		Point:        gen.TracingPointDelivered, Kind: gen.TracingKindResponse,
+		Timestamp: nanos, Node: n.name, From: from, To: to,
+		Ref: options.Ref, Behavior: p.sbehavior, Message: msgType, Error: errString,
+		Attributes: *p.tracingAttrs.Load(),
+	})
 }
 
 func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.MessageOptions, err error) error {
@@ -713,6 +750,14 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
+
+	if derr, delivered := p.deliverResponse(from, options, nil, err); delivered {
+		if tracingActive {
+			n.spanResponseError(p, from, to, options, parentSpanID, fromBehavior, msgType, errString)
+		}
+		return derr
+	}
+
 	resp := response{
 		ref:       options.Ref,
 		err:       err,

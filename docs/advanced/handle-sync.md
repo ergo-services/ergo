@@ -12,6 +12,8 @@ The challenge is satisfying these synchronous requirements without actually bloc
 
 This chapter explores how to handle synchronous-style requests while maintaining asynchronous actor behavior. You'll learn how the framework implements request-response, how to handle Call requests efficiently, and how to process them asynchronously even when the caller is blocked waiting.
 
+The caller does not have to be blocked, either. `SendRequest` makes the same request without the wait, and the answer arrives in a callback. Everything on this page applies unchanged: the server sees an ordinary `HandleCall` and cannot tell the difference. See [Requests Without Blocking](async-request.md).
+
 ## The Nature of Synchronous Calls in Actors
 
 In traditional synchronous code, when you call a function, you wait for it to return:

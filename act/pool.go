@@ -44,6 +44,10 @@ type PoolBehavior interface {
 
 	// HandleEvent invoked on an event message if this process got subscribed on
 	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
+	// HandleResponse invoked on the answer to a request made with SendRequest.
+	// Non-nil value of the returning error will cause termination of this process.
+	HandleResponse(response gen.MessageResponse) error
+
 	HandleEvent(message gen.MessageEvent) error
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...).
@@ -297,6 +301,11 @@ func (p *Pool) ProcessRun() (rr error) {
 				p.SetPropagatingTrace(gen.Tracing{})
 			}
 
+		case gen.MailboxMessageTypeResponse:
+			if reason := p.behavior.HandleResponse(message.Message.(gen.MessageResponse)); reason != nil {
+				return reason
+			}
+
 		case gen.MailboxMessageTypeEvent:
 			if reason := p.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
 				return reason
@@ -361,6 +370,11 @@ func (p *Pool) HandleForwardFailed(from gen.PID, message any, reason error) erro
 }
 
 func (p *Pool) Terminate(reason error) {}
+
+func (p *Pool) HandleResponse(response gen.MessageResponse) error {
+	p.Log().Error("Pool.HandleResponse: unhandled response %#v", response)
+	return nil
+}
 
 func (p *Pool) HandleEvent(message gen.MessageEvent) error {
 	p.Log().Warning("Pool.HandleEvent: unhandled event message %#v", message)

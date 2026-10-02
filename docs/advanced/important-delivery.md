@@ -439,6 +439,14 @@ Use important delivery selectively:
 
 Most actor communication doesn't need guarantees. The actor model is resilient because actors handle partial failure gracefully. Important delivery is for the cases where partial failure isn't acceptable - where certainty is worth the cost.
 
+## When the Requester Did Not Block
+
+A requester that used `SendRequest` instead of `Call` is not parked waiting for the answer: the answer goes into its mailbox, like any other message. An important response to such a requester is confirmed the moment it lands there, not when the actor gets around to handling it.
+
+That keeps one meaning for the flag across the whole API. Important delivery has always confirmed custody, never processing - even for a blocked caller the confirmation leaves before the value reaches your code, so the caller can still fail on the next line. What the mailbox adds is a place for the answer to wait, and the confirmation marks the handover to it.
+
+The practical consequence is worth knowing in both directions. The responder is not held hostage by a busy requester: the confirmation comes back in one round trip whatever the requester's queue looks like, so RR-2PC works against a requester that keeps thousands of answers in flight. And a confirmed answer is an answer the requester owns, not one it has acted on. If that process terminates before reaching it, the answer was delivered and never handled, exactly as with any important message. With `PreserveMailbox` it is still there, in the mailbox the termination reason carries.
+
 ## Local vs Remote Behavior
 
 Important delivery only affects remote communication. For local sends:

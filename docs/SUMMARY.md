@@ -57,6 +57,7 @@
 ## Advanced
 
 * [Handling Sync Requests](advanced/handle-sync.md)
+* [Requests Without Blocking](advanced/async-request.md)
 * [Important Delivery Flag](advanced/important-delivery.md)
 * [Pub/Sub Internals](advanced/pub-sub-internals.md)
 * [Message Versioning](advanced/message-versioning.md)

@@ -66,6 +66,10 @@ type RouterBehavior interface {
 	HandleCall(from gen.PID, ref gen.Ref, request any) (any, error)
 
 	// HandleEvent is invoked on a subscribed event.
+	// HandleResponse invoked on the answer to a request made with SendRequest.
+	// Non-nil value of the returning error will cause termination of this process.
+	HandleResponse(response gen.MessageResponse) error
+
 	HandleEvent(message gen.MessageEvent) error
 
 	// HandleInspect is invoked on Inspect requests. The returning fields are
@@ -614,6 +618,11 @@ func (r *Router) ProcessRun() (rr error) {
 				r.SetPropagatingTrace(gen.Tracing{})
 			}
 
+		case gen.MailboxMessageTypeResponse:
+			if reason := r.behavior.HandleResponse(message.Message.(gen.MessageResponse)); reason != nil {
+				return reason
+			}
+
 		case gen.MailboxMessageTypeEvent:
 			if reason := r.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
 				return reason
@@ -817,6 +826,11 @@ func (r *Router) HandleMessage(from gen.PID, message any) error {
 func (r *Router) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	r.Log().Warning("Router.HandleCall: unhandled request from %s", from)
 	return nil, nil
+}
+
+func (r *Router) HandleResponse(response gen.MessageResponse) error {
+	r.Log().Error("Router.HandleResponse: unhandled response %#v", response)
+	return nil
 }
 
 func (r *Router) HandleEvent(message gen.MessageEvent) error {

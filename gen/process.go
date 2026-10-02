@@ -710,6 +710,42 @@ type Process interface {
 	// Returns ErrNotAllowed in other states, ErrTimeout on timeout.
 	CallAlias(to Alias, message any, timeout int) (any, error)
 
+	// SendRequest makes a request without blocking. The answer arrives as a
+	// MessageResponse in HandleResponse, matched by the returned ref. Exactly one
+	// answer per request: the result, the callee's error, or ErrTimeout.
+	// The callee sees an ordinary Call and replies as always.
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// Available in: Init, Running states.
+	// Returns ErrNotAllowed in other states, ErrUnsupported on an unknown target type.
+	SendRequest(to any, request any) (Ref, error)
+
+	// SendRequestImportant is SendRequest with the important delivery flag, so an
+	// undeliverable request answers with the delivery error at once instead of
+	// waiting out the timeout.
+	// Available in: Init, Running states.
+	SendRequestImportant(to any, request any) (Ref, error)
+
+	// SendRequestWithTimeout is SendRequest with the answer deadline in seconds.
+	// Zero means DefaultRequestTimeout.
+	// Available in: Init, Running states.
+	SendRequestWithTimeout(to any, request any, timeout int) (Ref, error)
+
+	// SendRequestWithLabel is SendRequest with a value of yours attached. The label
+	// comes back in MessageResponse, so the answer carries its own context and the
+	// caller keeps no bookkeeping of its own.
+	// Available in: Init, Running states.
+	SendRequestWithLabel(to any, request any, label any) (Ref, error)
+
+	// SendRequestWithOptions is SendRequest with every knob at once.
+	// Available in: Init, Running states.
+	SendRequestWithOptions(to any, request any, options RequestOptions) (Ref, error)
+
+	// CancelRequest drops a request made with SendRequest: no answer is delivered
+	// for it any more, and a late one is discarded.
+	// Available in all states.
+	// Returns ErrUnknown if there is no such request.
+	CancelRequest(ref Ref) error
+
 	// Inspect sends an inspection request to the target process.
 	// Returns a map of inspection items. Synchronous operation.
 	// Available in: Init, Running states.
@@ -1292,6 +1328,21 @@ type ProcessShortInfo struct {
 
 // ProcessFallback defines mailbox overflow handling configuration.
 // When mailbox is full and Fallback is enabled, messages are forwarded
+// RequestOptions are the options of a request made with SendRequestWithOptions.
+type RequestOptions struct {
+	// Label is attached to the request and returned in MessageResponse.
+	Label any
+
+	// Timeout is the answer deadline in seconds. Zero means DefaultRequestTimeout.
+	Timeout int
+
+	// Priority is the message priority of the request and of its answer.
+	Priority MessagePriority
+
+	// Important asks for the delivery error of an undeliverable request.
+	Important bool
+}
+
 // to the fallback process instead of rejecting them with ErrProcessMailboxFull.
 // Forwarded messages are wrapped in MessageFallback with the specified Tag.
 type ProcessFallback struct {

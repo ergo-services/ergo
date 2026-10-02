@@ -41,6 +41,7 @@ type mockProcess struct {
 	important   bool
 	compression gen.Compression
 
+	requests     map[gen.Ref]*unitRequest
 	behaviorName string
 	propagating  gen.Tracing
 	traceAttrs   []gen.TracingAttribute
@@ -632,6 +633,58 @@ func (p *mockProcess) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err er
 	opts := p.msgOptions()
 	opts.ImportantDelivery = true
 	return p.node.routeSendResponse(p.stubs, p.pid, to, ref, err, opts)
+}
+
+type unitRequest struct {
+	label    any
+	priority gen.MessagePriority
+}
+
+func (p *mockProcess) SendRequest(to any, request any) (gen.Ref, error) {
+	return p.sendRequest(to, request, gen.RequestOptions{Priority: p.priority})
+}
+
+func (p *mockProcess) SendRequestImportant(to any, request any) (gen.Ref, error) {
+	return p.sendRequest(to, request, gen.RequestOptions{Priority: p.priority, Important: true})
+}
+
+func (p *mockProcess) SendRequestWithTimeout(to any, request any, timeout int) (gen.Ref, error) {
+	return p.sendRequest(to, request, gen.RequestOptions{Priority: p.priority, Timeout: timeout})
+}
+
+func (p *mockProcess) SendRequestWithLabel(to any, request any, label any) (gen.Ref, error) {
+	return p.sendRequest(to, request, gen.RequestOptions{Priority: p.priority, Label: label})
+}
+
+func (p *mockProcess) SendRequestWithOptions(to any, request any, options gen.RequestOptions) (gen.Ref, error) {
+	if options.Priority == 0 {
+		options.Priority = p.priority
+	}
+	return p.sendRequest(to, request, options)
+}
+
+func (p *mockProcess) sendRequest(to any, request any, options gen.RequestOptions) (gen.Ref, error) {
+	if p.stateIR() == false {
+		return gen.Ref{}, gen.ErrNotAllowed
+	}
+	if options.Timeout < 1 {
+		options.Timeout = gen.DefaultRequestTimeout
+	}
+	if pid, ok := to.(gen.PID); ok && pid == p.pid {
+		return gen.Ref{}, gen.ErrNotAllowed
+	}
+	if sendTarget(to) == false {
+		return gen.Ref{}, gen.ErrUnsupported
+	}
+	return p.node.routeSendRequest(p.stubs, p, to, request, options)
+}
+
+func (p *mockProcess) CancelRequest(ref gen.Ref) error {
+	if _, exist := p.requests[ref]; exist == false {
+		return gen.ErrUnknown
+	}
+	delete(p.requests, ref)
+	return nil
 }
 
 // calls (tier 3: strict stub)

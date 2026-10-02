@@ -85,6 +85,12 @@ type processOverrides struct {
 	sendResponseError          func(to gen.PID, ref gen.Ref, err error) error
 	sendResponseErrorImportant func(to gen.PID, ref gen.Ref, err error) error
 	call                       func(to any, message any) (any, error)
+	sendRequest                func(to any, request any) (gen.Ref, error)
+	sendRequestImportant       func(to any, request any) (gen.Ref, error)
+	sendRequestWithTimeout     func(to any, request any, timeout int) (gen.Ref, error)
+	sendRequestWithLabel       func(to any, request any, label any) (gen.Ref, error)
+	sendRequestWithOptions     func(to any, request any, options gen.RequestOptions) (gen.Ref, error)
+	cancelRequest              func(ref gen.Ref) error
 	callWithTimeout            func(to any, message any, timeout int) (any, error)
 	callWithPriority           func(to any, message any, priority gen.MessagePriority) (any, error)
 	callImportant              func(to any, message any) (any, error)
@@ -287,7 +293,21 @@ func (p *Process) OnSendResponseError(fn func(to gen.PID, ref gen.Ref, err error
 func (p *Process) OnSendResponseErrorImportant(fn func(to gen.PID, ref gen.Ref, err error) error) {
 	p.ov.sendResponseErrorImportant = fn
 }
-func (p *Process) OnCall(fn func(to any, message any) (any, error)) { p.ov.call = fn }
+func (p *Process) OnCall(fn func(to any, message any) (any, error))            { p.ov.call = fn }
+func (p *Process) OnSendRequest(fn func(to any, request any) (gen.Ref, error)) { p.ov.sendRequest = fn }
+func (p *Process) OnSendRequestImportant(fn func(to any, request any) (gen.Ref, error)) {
+	p.ov.sendRequestImportant = fn
+}
+func (p *Process) OnSendRequestWithTimeout(fn func(to any, request any, timeout int) (gen.Ref, error)) {
+	p.ov.sendRequestWithTimeout = fn
+}
+func (p *Process) OnSendRequestWithLabel(fn func(to any, request any, label any) (gen.Ref, error)) {
+	p.ov.sendRequestWithLabel = fn
+}
+func (p *Process) OnSendRequestWithOptions(fn func(to any, request any, options gen.RequestOptions) (gen.Ref, error)) {
+	p.ov.sendRequestWithOptions = fn
+}
+func (p *Process) OnCancelRequest(fn func(ref gen.Ref) error) { p.ov.cancelRequest = fn }
 func (p *Process) OnCallWithTimeout(fn func(to any, message any, timeout int) (any, error)) {
 	p.ov.callWithTimeout = fn
 }
@@ -841,6 +861,80 @@ func (p *Process) SendResponseErrorImportant(to gen.PID, ref gen.Ref, err error)
 	}
 	p.put(check.SendResponse{From: p.pid, To: to, Ref: ref, Message: err, Options: gen.MessageOptions{ImportantDelivery: true}, Error: rerr})
 	return rerr
+}
+
+func (p *Process) SendRequest(to any, request any) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if p.ov.sendRequest != nil {
+		ref, err = p.ov.sendRequest(to, request)
+	}
+	return p.recordRequest(to, request, gen.RequestOptions{}, ref, err)
+}
+
+func (p *Process) SendRequestImportant(to any, request any) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if p.ov.sendRequestImportant != nil {
+		ref, err = p.ov.sendRequestImportant(to, request)
+	}
+	return p.recordRequest(to, request, gen.RequestOptions{Important: true}, ref, err)
+}
+
+func (p *Process) SendRequestWithTimeout(to any, request any, timeout int) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if p.ov.sendRequestWithTimeout != nil {
+		ref, err = p.ov.sendRequestWithTimeout(to, request, timeout)
+	}
+	return p.recordRequest(to, request, gen.RequestOptions{Timeout: timeout}, ref, err)
+}
+
+func (p *Process) SendRequestWithLabel(to any, request any, label any) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if p.ov.sendRequestWithLabel != nil {
+		ref, err = p.ov.sendRequestWithLabel(to, request, label)
+	}
+	return p.recordRequest(to, request, gen.RequestOptions{Label: label}, ref, err)
+}
+
+func (p *Process) SendRequestWithOptions(to any, request any, options gen.RequestOptions) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if p.ov.sendRequestWithOptions != nil {
+		ref, err = p.ov.sendRequestWithOptions(to, request, options)
+	}
+	return p.recordRequest(to, request, options, ref, err)
+}
+
+func (p *Process) recordRequest(to any, request any, options gen.RequestOptions,
+	ref gen.Ref, err error) (gen.Ref, error) {
+
+	if err == nil && ref == (gen.Ref{}) {
+		ref = synthRef(p.next.Add(1))
+	}
+	if options.Timeout < 1 {
+		options.Timeout = gen.DefaultRequestTimeout
+	}
+	p.put(check.SendRequest{
+		From:     p.pid,
+		To:       to,
+		Request:  request,
+		Ref:      ref,
+		Label:    options.Label,
+		Timeout:  options.Timeout,
+		Priority: options.Priority,
+		Error:    err,
+	})
+	return ref, err
+}
+
+func (p *Process) CancelRequest(ref gen.Ref) error {
+	if p.ov.cancelRequest != nil {
+		return p.ov.cancelRequest(ref)
+	}
+	return nil
 }
 
 func (p *Process) Call(to any, message any) (any, error) {

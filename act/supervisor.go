@@ -46,6 +46,10 @@ type SupervisorBehavior interface {
 
 	// HandleEvent invoked on an event message if this process got subscribed on
 	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
+	// HandleResponse invoked on the answer to a request made with SendRequest.
+	// Non-nil value of the returning error will cause termination of this process.
+	HandleResponse(response gen.MessageResponse) error
+
 	HandleEvent(message gen.MessageEvent) error
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...).
@@ -539,6 +543,11 @@ func (s *Supervisor) ProcessRun() (rr error) {
 				s.SetPropagatingTrace(gen.Tracing{})
 			}
 
+		case gen.MailboxMessageTypeResponse:
+			if reason := s.behavior.HandleResponse(message.Message.(gen.MessageResponse)); reason != nil {
+				return reason
+			}
+
 		case gen.MailboxMessageTypeEvent:
 			if reason := s.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
 				return reason
@@ -628,6 +637,11 @@ func (s *Supervisor) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
 	s.Log().Warning("Supervisor.HandleCall: unhandled request from %s", from)
 	return nil, nil
 }
+func (s *Supervisor) HandleResponse(response gen.MessageResponse) error {
+	s.Log().Error("Supervisor.HandleResponse: unhandled response %#v", response)
+	return nil
+}
+
 func (s *Supervisor) HandleEvent(message gen.MessageEvent) error {
 	s.Log().Warning("Supervisor.HandleEvent: unhandled event message %#v", message)
 	return nil

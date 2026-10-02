@@ -179,6 +179,33 @@ func sendTarget(to any) bool {
 	return false
 }
 
+func (n *mockNode) routeSendRequest(st *stubs, p *mockProcess, to any, request any,
+	options gen.RequestOptions) (gen.Ref, error) {
+
+	err, _ := resolveFail(st.send, to)
+	ref := n.synthRef()
+	if err == nil {
+		if p.requests == nil {
+			p.requests = make(map[gen.Ref]*unitRequest)
+		}
+		p.requests[ref] = &unitRequest{label: options.Label, priority: options.Priority}
+	}
+	n.rec.Put(check.SendRequest{
+		From:     p.pid,
+		To:       to,
+		Request:  request,
+		Ref:      ref,
+		Label:    options.Label,
+		Timeout:  options.Timeout,
+		Priority: options.Priority,
+		Error:    err,
+	})
+	if err != nil {
+		return gen.Ref{}, err
+	}
+	return ref, nil
+}
+
 // registerProc adds a process to the node registry (and its name index).
 func (n *mockNode) registerProc(e *procEntry) {
 	n.procs[e.pid] = e

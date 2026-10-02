@@ -67,6 +67,8 @@ type process struct {
 
 	awaiting atomic.Pointer[gen.Ref] // the awaited ref, nil when not waiting
 
+	requests atomic.Pointer[requests] // nil until the first SendRequest
+
 	// meta processes
 	metas sync.Map // metas[Alias] -> *meta
 
@@ -2405,6 +2407,228 @@ done:
 	}
 	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 	return result, err
+}
+
+type requests struct {
+	mu      sync.Mutex
+	pending map[gen.Ref]*pendingRequest
+}
+
+type pendingRequest struct {
+	label    any
+	priority gen.MessagePriority
+	tracing  gen.Tracing
+	timer    *time.Timer
+}
+
+func (p *process) SendRequest(to any, request any) (gen.Ref, error) {
+	return p.sendRequest(to, request, gen.RequestOptions{
+		Priority:  gen.MessagePriority(p.priority.Load()),
+		Important: p.important.Load(),
+	})
+}
+
+func (p *process) SendRequestImportant(to any, request any) (gen.Ref, error) {
+	return p.sendRequest(to, request, gen.RequestOptions{
+		Priority:  gen.MessagePriority(p.priority.Load()),
+		Important: true,
+	})
+}
+
+func (p *process) SendRequestWithTimeout(to any, request any, timeout int) (gen.Ref, error) {
+	return p.sendRequest(to, request, gen.RequestOptions{
+		Timeout:   timeout,
+		Priority:  gen.MessagePriority(p.priority.Load()),
+		Important: p.important.Load(),
+	})
+}
+
+func (p *process) SendRequestWithLabel(to any, request any, label any) (gen.Ref, error) {
+	return p.sendRequest(to, request, gen.RequestOptions{
+		Label:     label,
+		Priority:  gen.MessagePriority(p.priority.Load()),
+		Important: p.important.Load(),
+	})
+}
+
+func (p *process) SendRequestWithOptions(to any, request any, options gen.RequestOptions) (gen.Ref, error) {
+	if options.Priority == 0 {
+		options.Priority = gen.MessagePriority(p.priority.Load())
+	}
+	return p.sendRequest(to, request, options)
+}
+
+func (p *process) sendRequest(to any, request any, ro gen.RequestOptions) (gen.Ref, error) {
+	if p.isStateIR() == false {
+		return gen.Ref{}, gen.ErrNotAllowed
+	}
+	if ro.Timeout < 1 {
+		ro.Timeout = gen.DefaultRequestTimeout
+	}
+
+	ref, err := p.node.MakeRefWithDeadline(time.Now().Unix() + int64(ro.Timeout))
+	if err != nil {
+		return gen.Ref{}, err
+	}
+
+	options := p.messageOptions(ro.Priority, ro.Important, true)
+	options.Ref = ref
+
+	pending := &pendingRequest{
+		label:    ro.Label,
+		priority: ro.Priority,
+		tracing:  options.Tracing,
+	}
+	p.pendingRequests().add(ref, pending)
+	pending.timer = time.AfterFunc(time.Duration(ro.Timeout)*time.Second, func() {
+		p.expireRequest(ref)
+	})
+
+	if err := p.routeRequest(to, options, request); err != nil {
+		if pending := p.takeRequest(ref); pending != nil {
+			pending.timer.Stop()
+		}
+		return gen.Ref{}, err
+	}
+
+	atomic.AddUint64(&p.messagesOut, 1)
+	return ref, nil
+}
+
+func (p *process) routeRequest(to any, options gen.MessageOptions, request any) error {
+	switch t := to.(type) {
+	case gen.PID:
+		if t == p.pid {
+			return gen.ErrNotAllowed
+		}
+		return p.core.RouteCallPID(p.pid, t, options, request)
+	case gen.ProcessID:
+		return p.core.RouteCallProcessID(p.pid, t, options, request)
+	case gen.Alias:
+		return p.core.RouteCallAlias(p.pid, t, options, request)
+	case gen.Atom:
+		return p.core.RouteCallProcessID(p.pid, gen.ProcessID{Name: t, Node: p.node.name}, options, request)
+	}
+	return gen.ErrUnsupported
+}
+
+func (p *process) CancelRequest(ref gen.Ref) error {
+	pending := p.takeRequest(ref)
+	if pending == nil {
+		return gen.ErrUnknown
+	}
+	pending.timer.Stop()
+	return nil
+}
+
+func (p *process) pendingRequests() *requests {
+	if r := p.requests.Load(); r != nil {
+		return r
+	}
+	r := &requests{pending: make(map[gen.Ref]*pendingRequest)}
+	if p.requests.CompareAndSwap(nil, r) {
+		return r
+	}
+	return p.requests.Load()
+}
+
+func (r *requests) add(ref gen.Ref, pending *pendingRequest) {
+	r.mu.Lock()
+	r.pending[ref] = pending
+	r.mu.Unlock()
+}
+
+func (p *process) takeRequest(ref gen.Ref) *pendingRequest {
+	r := p.requests.Load()
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	pending, found := r.pending[ref]
+	if found {
+		delete(r.pending, ref)
+	}
+	r.mu.Unlock()
+	if found == false {
+		return nil
+	}
+	return pending
+}
+
+func (p *process) expireRequest(ref gen.Ref) {
+	if p.isAlive() == false {
+		return
+	}
+	pending := p.takeRequest(ref)
+	if pending == nil {
+		return
+	}
+	p.pushResponse(gen.PID{}, ref, pending, nil, gen.ErrTimeout)
+}
+
+func (p *process) deliverResponse(from gen.PID, options gen.MessageOptions, result any, rerr error) (error, bool) {
+	if p.requests.Load() == nil {
+		return nil, false
+	}
+	pending := p.takeRequest(options.Ref)
+	if pending == nil {
+		return nil, false
+	}
+	pending.timer.Stop()
+
+	if p.pushResponse(from, options.Ref, pending, result, rerr) == false {
+		return gen.ErrProcessMailboxFull, true
+	}
+	if options.ImportantDelivery {
+		p.core.RouteSendResponseError(p.pid, from, gen.MessageOptions{Ref: options.Ref}, nil)
+	}
+	return nil, true
+}
+
+func (p *process) pushResponse(from gen.PID, ref gen.Ref, pending *pendingRequest, result any, rerr error) bool {
+	qm := gen.TakeMailboxMessage()
+	qm.From = from
+	qm.Ref = ref
+	qm.Type = gen.MailboxMessageTypeResponse
+	qm.Tracing = pending.tracing
+	qm.Message = gen.MessageResponse{
+		From:   from,
+		Ref:    ref,
+		Label:  pending.label,
+		Result: result,
+		Error:  rerr,
+	}
+
+	var queued bool
+	switch pending.priority {
+	case gen.MessagePriorityHigh:
+		queued = p.mailbox.System.Push(qm)
+	case gen.MessagePriorityMax:
+		queued = p.mailbox.Urgent.Push(qm)
+	default:
+		queued = p.mailbox.Main.Push(qm)
+	}
+	if queued == false {
+		gen.ReleaseMailboxMessage(qm)
+		return false
+	}
+
+	atomic.AddUint64(&p.messagesIn, 1)
+	p.run()
+	return true
+}
+
+func (p *process) cancelRequests() {
+	r := p.requests.Load()
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	for ref, pending := range r.pending {
+		pending.timer.Stop()
+		delete(r.pending, ref)
+	}
+	r.mu.Unlock()
 }
 
 // awaitingRef returns the awaited ref, zero if the process waits for nothing.

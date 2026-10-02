@@ -68,6 +68,7 @@ type ActorBehavior interface {
     HandleCallAlias(alias gen.Alias, from gen.PID, ref gen.Ref, request any) (any, error)
     
     // Specialized callbacks
+    HandleResponse(response gen.MessageResponse) error
     HandleLog(message gen.MessageLog) error
     HandleEvent(message gen.MessageEvent) error
     HandleSpan(message gen.TracingSpan) error

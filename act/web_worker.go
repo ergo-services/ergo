@@ -35,6 +35,10 @@ type WebWorkerBehavior interface {
 
 	// HandleEvent invoked on an event message if this process got subscribed on
 	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
+	// HandleResponse invoked on the answer to a request made with SendRequest.
+	// Non-nil value of the returning error will cause termination of this process.
+	HandleResponse(response gen.MessageResponse) error
+
 	HandleEvent(message gen.MessageEvent) error
 
 	// HandleInspect invoked on the request made with gen.Process.Inspect(...)
@@ -238,6 +242,11 @@ func (w *WebWorker) ProcessRun() (rr error) {
 				w.SetPropagatingTrace(savedTracing)
 			}
 
+		case gen.MailboxMessageTypeResponse:
+			if reason := w.behavior.HandleResponse(message.Message.(gen.MessageResponse)); reason != nil {
+				return reason
+			}
+
 		case gen.MailboxMessageTypeEvent:
 			if reason := w.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
 				return reason
@@ -290,6 +299,11 @@ func (w *WebWorker) HandleMessage(from gen.PID, message any) error {
 func (w *WebWorker) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	w.Log().Warning("WebWorker.HandleCall: unhandled request from %s", from)
 	return nil, nil
+}
+
+func (w *WebWorker) HandleResponse(response gen.MessageResponse) error {
+	w.Log().Error("WebWorker.HandleResponse: unhandled response %#v", response)
+	return nil
 }
 
 func (w *WebWorker) HandleEvent(message gen.MessageEvent) error {

@@ -40,6 +40,10 @@ type ActorBehavior interface {
 	// HandleLog invoked on a log message if this process was added as a logger.
 	HandleLog(message gen.MessageLog) error
 
+	// HandleResponse invoked on the answer to a request made with SendRequest.
+	// Non-nil value of the returning error will cause termination of this process.
+	HandleResponse(response gen.MessageResponse) error
+
 	// HandleEvent invoked on an event message if this process got subscribed on
 	// this event using gen.Process.LinkEvent or gen.Process.MonitorEvent
 	HandleEvent(message gen.MessageEvent) error
@@ -291,6 +295,21 @@ func (a *Actor) ProcessRun() (rr error) {
 				a.SetPropagatingTrace(savedTracing)
 			}
 
+		case gen.MailboxMessageTypeResponse:
+			response := message.Message.(gen.MessageResponse)
+			messageHasTracing := message.Tracing.ID != [2]uint64{}
+			if messageHasTracing {
+				savedTracing = a.PropagatingTrace()
+				a.SetPropagatingTrace(message.Tracing)
+			}
+			reason := a.behavior.HandleResponse(response)
+			if messageHasTracing && a.PropagatingTrace().ID == message.Tracing.ID {
+				a.SetPropagatingTrace(savedTracing)
+			}
+			if reason != nil {
+				return reason
+			}
+
 		case gen.MailboxMessageTypeEvent:
 			if reason := a.behavior.HandleEvent(message.Message.(gen.MessageEvent)); reason != nil {
 				return reason
@@ -378,6 +397,11 @@ func (a *Actor) HandleInspect(from gen.PID, item ...string) map[string]string {
 
 func (a *Actor) HandleLog(message gen.MessageLog) error {
 	a.Log().Warning("Actor.HandleLog: unhandled log message %#v", message)
+	return nil
+}
+
+func (a *Actor) HandleResponse(response gen.MessageResponse) error {
+	a.Log().Error("Actor.HandleResponse: unhandled response %#v", response)
 	return nil
 }
 

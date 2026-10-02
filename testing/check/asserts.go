@@ -111,6 +111,50 @@ func (a *SpanAssert) WithAttribute(key, value string) *SpanAssert {
 	return a
 }
 
+// SendRequestAssert asserts over non-blocking requests made on a node (egress).
+type SendRequestAssert struct{ *Assertion[SendRequest] }
+
+// ShouldSendRequest starts a request assertion on this node.
+func (a *Asserter) ShouldSendRequest() *SendRequestAssert {
+	return &SendRequestAssert{For[SendRequest](a.t, a.rec)}
+}
+func (a *SendRequestAssert) From(p gen.PID) *SendRequestAssert {
+	a.Where(func(r SendRequest) bool { return r.From == p })
+	return a
+}
+func (a *SendRequestAssert) To(to any) *SendRequestAssert {
+	a.Where(func(r SendRequest) bool { return reflect.DeepEqual(r.To, to) })
+	return a
+}
+func (a *SendRequestAssert) Request(v any) *SendRequestAssert {
+	a.Where(func(r SendRequest) bool { return reflect.DeepEqual(r.Request, v) })
+	return a
+}
+func (a *SendRequestAssert) Label(v any) *SendRequestAssert {
+	a.Where(func(r SendRequest) bool { return reflect.DeepEqual(r.Label, v) })
+	return a
+}
+func (a *SendRequestAssert) Ref(ref gen.Ref) *SendRequestAssert {
+	a.Where(func(r SendRequest) bool { return r.Ref == ref })
+	return a
+}
+func (a *SendRequestAssert) Timeout(seconds int) *SendRequestAssert {
+	a.Where(func(r SendRequest) bool { return r.Timeout == seconds })
+	return a
+}
+func (a *SendRequestAssert) Priority(p gen.MessagePriority) *SendRequestAssert {
+	a.Where(func(r SendRequest) bool { return r.Priority == p })
+	return a
+}
+func (a *SendRequestAssert) Error(target error) *SendRequestAssert {
+	a.Where(func(r SendRequest) bool { return r.Error == target })
+	return a
+}
+func (a *SendRequestAssert) ErrorIs(target error) *SendRequestAssert {
+	a.Where(func(r SendRequest) bool { return errors.Is(r.Error, target) })
+	return a
+}
+
 // SpawnAssert asserts over child processes spawned on a node (egress).
 type SpawnAssert struct{ *Assertion[Spawn] }
 
