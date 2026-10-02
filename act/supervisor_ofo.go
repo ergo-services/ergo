@@ -167,6 +167,7 @@ func (s *supOFO) childStarted(cs supChildSpec, pid gen.PID) supAction {
 		return action
 	}
 
+	s.mode = 0 // normal
 	return action
 }
 

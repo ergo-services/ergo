@@ -3165,6 +3165,10 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		n.targets.LinkPID(p.pid, p.parent)
 	}
 
+	if options.LinkChild && p.parent.Node == n.name {
+		n.targets.LinkPID(p.parent, p.pid)
+	}
+
 	// switch to sleep state (process already registered above)
 	atomic.StoreInt32(&p.state, int32(gen.ProcessStateSleep))
 	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())

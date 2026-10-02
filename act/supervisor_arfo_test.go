@@ -290,3 +290,35 @@ func TestARFOSignificantChildTerminatesGroup(t *testing.T) {
 		t.Errorf("Significant-induced shutdown should preserve original reason; got %v", sup.shutdownReason)
 	}
 }
+
+func TestARFORestartWithDisabledTailResetsMode(t *testing.T) {
+	// nothing to start after the restarted child: must be back in normal mode
+	sup, pids := setupARFO(t, SupervisorTypeAllForOne, SupervisorSpec{
+		Restart:             SupervisorRestart{Strategy: SupervisorStrategyPermanent},
+		DisableAutoShutdown: true,
+		Children: []SupervisorChildSpec{
+			{Name: "a", Factory: dummyFactory},
+			{Name: "b", Factory: dummyFactory},
+		},
+	})
+
+	if _, err := sup.childDisable("b"); err != nil {
+		t.Fatalf("childDisable: %v", err)
+	}
+	sup.childTerminated("b", pids["b"], gen.TerminateReasonShutdown)
+
+	action := sup.childTerminated("a", pids["a"], errors.New("boom"))
+	if action.do != supActionStartChild {
+		t.Fatalf("expected restart of 'a', got do=%d", action.do)
+	}
+	if next := sup.childStarted(action.spec, makePID(200)); next.do != supActionDoNothing {
+		t.Fatalf("nothing left to start, got do=%d", next.do)
+	}
+
+	if sup.mode != 0 {
+		t.Errorf("supervisor must be back in normal mode, got mode=%d", sup.mode)
+	}
+	if _, err := sup.childEnable("b"); err != nil {
+		t.Errorf("childEnable after restart: %v", err)
+	}
+}

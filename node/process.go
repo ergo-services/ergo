@@ -203,12 +203,7 @@ func (p *process) Spawn(
 		return pid, err
 	}
 
-	if options.LinkChild {
-		// method LinkPID is not allowed to be used in the initialization state,
-		// so we use linking manually.
-		p.node.targets.LinkPID(p.pid, pid)
-	}
-	return pid, err
+	return pid, nil
 }
 
 func (p *process) SpawnRegister(
@@ -252,12 +247,7 @@ func (p *process) SpawnRegister(
 		return pid, err
 	}
 
-	if options.LinkChild {
-		// method LinkPID is not allowed to be used in the initialization state,
-		// so we use linking manually.
-		p.node.targets.LinkPID(p.pid, pid)
-	}
-	return pid, err
+	return pid, nil
 }
 
 func (p *process) SpawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error) {
@@ -366,12 +356,12 @@ func (p *process) RemoteSpawn(
 	}
 
 	if opts.LinkChild {
-		// method LinkPID is not allowed to be used in the initialization state,
-		// so we use linking manually.
-		p.node.targets.LinkPID(p.pid, pid)
+		if err := p.node.targets.LinkPID(p.pid, pid); err != nil {
+			p.node.sendExitMessage(p.node.corePID, p.pid, gen.MessageExitPID{PID: pid, Reason: err})
+		}
 	}
 
-	return pid, err
+	return pid, nil
 }
 
 func (p *process) RemoteSpawnRegister(
@@ -404,12 +394,12 @@ func (p *process) RemoteSpawnRegister(
 	}
 
 	if opts.LinkChild {
-		// method LinkPID is not allowed to be used in the initialization state,
-		// so we use linking manually.
-		p.node.targets.LinkPID(p.pid, pid)
+		if err := p.node.targets.LinkPID(p.pid, pid); err != nil {
+			p.node.sendExitMessage(p.node.corePID, p.pid, gen.MessageExitPID{PID: pid, Reason: err})
+		}
 	}
 
-	return pid, err
+	return pid, nil
 }
 
 func (p *process) State() gen.ProcessState {
