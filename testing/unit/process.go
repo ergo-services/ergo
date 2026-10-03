@@ -838,6 +838,10 @@ func (p *mockProcess) LinkNode(target gen.Atom) error {
 	if p.stateIR() == false {
 		return gen.ErrNotAllowed
 	}
+	if target == p.node.Name() {
+		p.node.rec.Put(check.Link{From: p.pid, Target: target, Error: gen.ErrNotAllowed})
+		return gen.ErrNotAllowed
+	}
 	return p.node.routeLink(p.stubs, p.pid, target)
 }
 func (p *mockProcess) UnlinkNode(target gen.Atom) error {
@@ -909,6 +913,10 @@ func (p *mockProcess) DemonitorEvent(event gen.Event) error {
 }
 func (p *mockProcess) MonitorNode(node gen.Atom) error {
 	if p.stateIR() == false {
+		return gen.ErrNotAllowed
+	}
+	if node == p.node.Name() {
+		p.node.rec.Put(check.Monitor{From: p.pid, Target: node, Error: gen.ErrNotAllowed})
 		return gen.ErrNotAllowed
 	}
 	return p.node.routeMonitor(p.stubs, p.pid, node)

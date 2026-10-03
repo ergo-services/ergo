@@ -270,6 +270,10 @@ func TestLocalLinkMonitorSelfRefused(t *testing.T) {
 		check.ErrorIs(t, breakerDo(t, n, b, kind, b), gen.ErrNotAllowed)
 		check.ErrorIs(t, breakerDo(t, n, b, kind, self), gen.ErrNotAllowed)
 	}
+
+	check.ErrorIs(t, breakerDo(t, n, b, "linkNode", n.Name()), gen.ErrNotAllowed)
+	check.ErrorIs(t, breakerDo(t, n, b, "monitorNode", n.Name()), gen.ErrNotAllowed)
+	check.Equal(t, 0, len(n.Native().Network().Nodes()))
 }
 
 func TestLocalLinkMonitorUnsupportedTarget(t *testing.T) {

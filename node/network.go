@@ -189,6 +189,10 @@ func (n *network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
 func (n *network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.RemoteNode, error) {
 	var emptyVersion gen.Version
 
+	if name == n.node.name {
+		return nil, gen.ErrNotAllowed
+	}
+
 	route.InsecureSkipVerify = n.skipverify.Load()
 
 	if route.Resolver != nil {
@@ -789,6 +793,10 @@ func (n *network) Connection(name gen.Atom) (gen.Connection, error) {
 }
 
 func (n *network) GetConnection(name gen.Atom) (gen.Connection, error) {
+	if name == n.node.name {
+		return nil, gen.ErrNotAllowed
+	}
+
 	v, found := n.connections.Load(name)
 	if found {
 		return v.(gen.Connection), nil

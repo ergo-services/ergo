@@ -243,3 +243,27 @@ func TestLinkAndMonitorNode_SameTarget(t *testing.T) {
 		t.Errorf("Expected 1 monitor, got %d", len(monitors))
 	}
 }
+
+func TestLinkNode_Self_NotAllowed(t *testing.T) {
+	m, _ := newManagerWithMock("node1")
+	consumer := gen.PID{Node: "node1", ID: 100}
+
+	if err := m.LinkNode(consumer, "node1"); err != gen.ErrNotAllowed {
+		t.Errorf("Expected ErrNotAllowed, got %v", err)
+	}
+	if m.getTargetEntry(gen.Atom("node1")) != nil {
+		t.Error("No target entry must be created for the own node")
+	}
+}
+
+func TestMonitorNode_Self_NotAllowed(t *testing.T) {
+	m, _ := newManagerWithMock("node1")
+	consumer := gen.PID{Node: "node1", ID: 100}
+
+	if err := m.MonitorNode(consumer, "node1"); err != gen.ErrNotAllowed {
+		t.Errorf("Expected ErrNotAllowed, got %v", err)
+	}
+	if m.getTargetEntry(gen.Atom("node1")) != nil {
+		t.Error("No target entry must be created for the own node")
+	}
+}

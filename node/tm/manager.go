@@ -322,6 +322,9 @@ func (m *Manager) DemonitorAlias(consumer gen.PID, target gen.Alias) error {
 
 // Node targets are always local; no wire propagation.
 func (m *Manager) LinkNode(consumer gen.PID, target gen.Atom) error {
+	if target == m.core.Name() {
+		return gen.ErrNotAllowed
+	}
 	if m.storage.Register(target, consumer, KindLink) {
 		return nil
 	}
@@ -334,6 +337,9 @@ func (m *Manager) UnlinkNode(consumer gen.PID, target gen.Atom) error {
 }
 
 func (m *Manager) MonitorNode(consumer gen.PID, target gen.Atom) error {
+	if target == m.core.Name() {
+		return gen.ErrNotAllowed
+	}
 	if m.storage.Register(target, consumer, KindMonitor) {
 		return nil
 	}

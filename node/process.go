@@ -1709,6 +1709,10 @@ func (p *process) LinkNode(target gen.Atom) error {
 		return gen.ErrNotAllowed
 	}
 
+	if target == p.node.name {
+		return gen.ErrNotAllowed
+	}
+
 	if p.node.targets.HasLink(p.pid, target) {
 		return gen.ErrTargetExist
 	}
@@ -1942,6 +1946,10 @@ func (p *process) DemonitorEvent(target gen.Event) error {
 
 func (p *process) MonitorNode(target gen.Atom) error {
 	if p.isStateIR() == false {
+		return gen.ErrNotAllowed
+	}
+
+	if target == p.node.name {
 		return gen.ErrNotAllowed
 	}
 

@@ -1,6 +1,8 @@
 package distributed
 
 import (
+	"net"
+	"strconv"
 	"testing"
 
 	"ergo.services/ergo/gen"
@@ -51,4 +53,28 @@ func TestDistConnect(t *testing.T) {
 	// handshake / proto versions agree across the connection
 	check.Equal(t, acc2[0].Info().HandshakeVersion, info1.HandshakeVersion)
 	check.Equal(t, acc2[0].Info().ProtoVersion, info1.ProtoVersion)
+}
+
+// TestDistConnectSelf: a node never dials itself. Asking the network for the node's
+// own name is refused at once, by name and by an explicit route to its own acceptor,
+// and no connection appears.
+func TestDistConnectSelf(t *testing.T) {
+	s := stage.New(t)
+	n1 := s.StartNode("n1")
+	network := n1.Native().Network()
+
+	_, err := network.GetNode(n1.Name())
+	check.True(t, err == gen.ErrNotAllowed)
+
+	acc, err := network.Acceptors()
+	check.NoError(t, err)
+	_, port, err := net.SplitHostPort(acc[0].Info().Interface)
+	check.NoError(t, err)
+	p, err := strconv.Atoi(port)
+	check.NoError(t, err)
+	route := gen.NetworkRoute{Route: gen.Route{Host: "localhost", Port: uint16(p)}}
+	_, err = network.GetNodeWithRoute(n1.Name(), route)
+	check.True(t, err == gen.ErrNotAllowed)
+
+	check.Equal(t, 0, len(network.Nodes()))
 }
