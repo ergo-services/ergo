@@ -6,11 +6,11 @@ Meta-processes are owned by their parent process. When the parent terminates, al
 
 ## The Problem
 
-Actors work sequentially. One message arrives, gets processed, completes. Next message. This simplicity eliminates race conditions and makes reasoning straightforward.
+Actors work sequentially. One message arrives, gets processed, completes. Next message.
 
 Blocking I/O breaks this model. Call `net.Listener.Accept()` in a message handler and the actor freezes. The goroutine blocks waiting for connections. Other messages pile up unprocessed. The actor becomes unresponsive.
 
-The obvious fix fails. Spawn a goroutine for `Accept()` and now two goroutines access the actor's state concurrently. You need locks. The sequential guarantee vanishes. The actor model collapses into traditional concurrent programming with all its complexity.
+The obvious fix fails. Spawn a goroutine for `Accept()` and now two goroutines access the actor's state concurrently. You need locks. The sequential guarantee vanishes.
 
 Meta-processes preserve both. One goroutine blocks on I/O. Another goroutine processes messages sequentially. Neither interferes with the other.
 
@@ -46,7 +46,7 @@ Meta-processes cannot make synchronous calls. Which goroutine should block waiti
 
 Meta-processes cannot create links or monitors. When a linked process terminates, it sends an exit signal as a message. The Actor Handler processes messages, but only when running. Signals could be delayed or lost if the Actor Handler is not active. Incoming links and monitors work because other processes send signals that queue in the mailbox. Creating outgoing links requires guarantees that meta-processes cannot provide.
 
-These are not arbitrary limitations. They follow from having two goroutines with distinct responsibilities.
+The restrictions follow from having two goroutines with distinct responsibilities.
 
 ## Behavior Implementation
 
@@ -231,8 +231,6 @@ Different operations are available in different states:
 - `Spawn()` - Both goroutines can spawn child meta-processes
 - `SendAfter()`, `SendEvery()` - Timers are armed from `Init()` and from the External Reader
 
-The External Reader operates in Sleep state and has minimal capabilities - just sending messages and spawning children. The Actor Handler operates in Running state and has full capabilities for processing requests.
-
 ## Timed and Periodic Messages
 
 A meta-process often needs a heartbeat, a flush on an interval, or a deadline for a handshake that never completed. The tempting fix inside `Start()` is a `time.Ticker` in one more goroutine, and it is wrong for the same reason it is wrong in a process: that goroutine belongs to neither the External Reader nor the Actor Handler, so whatever it touches escapes the two-goroutine discipline the meta-process exists to preserve.
@@ -391,6 +389,6 @@ Do not use meta-processes when:
 - Coordinating between actors
 - Processing messages that do not involve blocking I/O
 
-Meta-processes sit at the boundary between the external world and the actor system. They translate blocking operations into asynchronous messages and execute actor commands using blocking APIs. Regular processes implement everything else.
+Meta-processes sit at the boundary between the external world and the actor system. Regular processes implement everything else.
 
 For complete examples, see [TCP](../meta-processes/tcp.md), [UDP](../meta-processes/udp.md), [Web](../meta-processes/web.md), and [Port](../meta-processes/port.md).

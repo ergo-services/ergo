@@ -606,4 +606,4 @@ func (g *GameServer) handleCommand(player *Player, cmd Command) {
 
 Network equipment can duplicate UDP datagrams (switch mirroring, retransmission logic). Process commands idempotently or track sequence numbers.
 
-UDP meta-process handles the complexity of socket I/O and datagram delivery while maintaining actor isolation. Design your protocol for UDP's unreliable, unordered, connectionless nature - and leverage its simplicity and low latency where reliability isn't critical.
+The UDP meta-process handles socket I/O and datagram delivery while maintaining actor isolation. Design your protocol for UDP's unreliable, unordered, connectionless nature, and use it where low latency matters more than reliability.

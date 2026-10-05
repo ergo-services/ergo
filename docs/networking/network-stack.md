@@ -62,7 +62,7 @@ route := gen.NetworkRoute{
 network.AddRoute("prod-db@example.com", route, 100)
 ```
 
-Now when connecting to `prod-db@example.com`, the framework uses your route directly. No discovery query. No registrar involvement. You've taken control.
+Now when connecting to `prod-db@example.com`, the framework uses your route directly. No discovery query, no registrar involvement.
 
 Static routes support pattern matching (`"prod-.*"`), multiple routes with failover weights, and hybrid approaches (use patterns for selection, resolvers for address lookup). You can configure per-route cookies, certificates, network flags, and atom mappings.
 
@@ -348,10 +348,8 @@ This security model ensures you control exactly what remote nodes can do on your
 
 ## Where to Go Next
 
-This chapter provided an overview of how the network stack operates. For deeper understanding:
+For the details behind each part:
 
 - **[Service Discovery](service-discovering.md)** - How nodes find each other, application routing, configuration management, embedded vs external registrars
 - **[Network Transparency](network-transparency.md)** - How messages are encoded, EDF details, protocol framing, compression, caching, important delivery
 - **[Static Routes](static-routes.md)** - Explicit routing configuration, pattern matching, failover, proxy routes
-
-Each of these chapters dives deep into its specific topic, giving you the details needed for production deployments.

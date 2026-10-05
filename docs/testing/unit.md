@@ -6,7 +6,7 @@ description: The in-process harness for testing a single actor's logic
 
 Most of what an actor does is decide. A message arrives; the actor looks at its state, perhaps asks a dependency something, and reacts - it replies, forwards, spawns a worker, logs a warning, or stops. That decision logic is the core of the actor, and it is what you most want under test: on its own, without a network, a scheduler, or the timing that makes concurrent tests flaky.
 
-`unit` is built for exactly that. It spawns one behavior on a mock node, gives you a `Subject` to drive its callbacks by hand, and records everything the actor does so you can assert on it. The defining fact - the one everything else follows from - is that it is synchronous. There are no real goroutines and no clock: you deliver a message, the actor's handler runs to completion on the calling goroutine, and by the time the call returns the records are already there to read. Tests run in microseconds and give the same answer every time.
+`unit` is built for exactly that. It spawns one behavior on a mock node, gives you a `Subject` to drive its callbacks by hand, and records everything the actor does so you can assert on it. The defining fact is that it is synchronous. There are no real goroutines and no clock: you deliver a message, the actor's handler runs to completion on the calling goroutine, and by the time the call returns the records are already there to read. Tests run in microseconds and give the same answer every time.
 
 ## The Shape of a Test
 
@@ -24,7 +24,7 @@ sub.ShouldSend().To(client).Message("pong").Once().Assert()
 
 `unit.Spawn` runs the behavior's `Init` and returns a `Subject` - the actor under test. The `Subject` carries the assertion grammar from [check](check.md), which is why `sub.ShouldSend(...)` is a method on it. The options are the real `gen.ProcessOptions` (set the log level there, for instance, with `LogLevel`), and any trailing arguments are forwarded to `Init`, exactly as `gen.Node.Spawn` forwards them. When you need more than a default node - a node name, seeded environment, an injected dependency - build it first with `unit.StartNode(...)` and spawn on that; it mirrors how [stage](stage.md) reads.
 
-Notice what did *not* happen after `SendMessage`: no wait. The handler ran inline, the send was recorded during that run, and the assertion read a finished result. Hold on to that - it is the whole reason unit tests are fast and never flake, and it is the one thing that changes when you move up to stage.
+Notice what did *not* happen after `SendMessage`: no wait. The handler ran inline, the send was recorded during that run, and the assertion read a finished result. That is what changes when you move up to stage.
 
 ## Driving Inputs
 
@@ -70,7 +70,7 @@ check.Equal(t, "warm", sub.Behavior().(*session).state)
 
 ## Setting Up the Actor's World
 
-An actor never runs in a vacuum: it calls out to dependencies, and it reads things about itself and its node. To test it in isolation you control both sides of that world, and `unit` gives you a distinct tool for each. What the actor *does* outward - the calls and sends it makes - you shape with typed stubs. What the actor *reads* - its environment, its node, service discovery - you supply with overrides. Everything in the next two sections is one or the other; keeping that split in mind is most of what it takes to write a unit test confidently.
+An actor never runs in a vacuum: it calls out to dependencies, and it reads things about itself and its node. To test it in isolation you control both sides of that world, and `unit` gives you a distinct tool for each. What the actor *does* outward - the calls and sends it makes - you shape with typed stubs. What the actor *reads* - its environment, its node, service discovery - you supply with overrides. Everything in the next two sections is one or the other.
 
 ### Stubbing What the Actor Does
 
@@ -191,7 +191,7 @@ A panic in a callback is recovered into `gen.TerminateReasonPanic`, exactly as t
 
 ## Faithful Runtime Semantics
 
-The mock node is not a loose stand-in; it enforces the rules a real process enforces, so a test catches the same misuse production would. Linking a process to itself is rejected with `gen.ErrNotAllowed`. `SetSendPriority` validates its argument, and the send priority is stateful - seeded from `ProcessOptions` and carried by later sends. The logger gates by level, so a line below the configured level is dropped, never recorded. A message addressed by registered name dispatches to the name split-handler. You do not opt into any of this; it is simply how the harness behaves, which is the point - the actor under test runs against the contract it will meet for real.
+The mock node enforces the rules a real process enforces, so a test catches the same misuse production would. Linking a process to itself is rejected with `gen.ErrNotAllowed`. `SetSendPriority` validates its argument, and the send priority is stateful - seeded from `ProcessOptions` and carried by later sends. The logger gates by level, so a line below the configured level is dropped, never recorded. A message addressed by registered name dispatches to the name split-handler. You do not opt into any of this; the actor under test runs against the contract it will meet for real.
 
 ## Meta Processes
 

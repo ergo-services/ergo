@@ -1,6 +1,6 @@
 # Debugging
 
-Debugging distributed actor systems presents unique challenges. Traditional debugging tools struggle with concurrent message passing, process isolation, and distributed state. This article covers the debugging capabilities built into Ergo Framework and demonstrates practical techniques for troubleshooting common issues.
+Traditional debugging tools struggle with concurrent message passing, process isolation, and distributed state. This article covers the debugging capabilities built into Ergo Framework and practical techniques for troubleshooting common issues.
 
 ## Build Tags
 
@@ -147,7 +147,7 @@ This enables all specified features simultaneously. Use combinations when invest
 
 ## Profiler Integration
 
-The Go profiler is a powerful tool for understanding runtime behavior. Ergo Framework enhances its usefulness by labeling goroutines with their identifiers.
+Ergo Framework labels goroutines with their identifiers, which links profiler output back to actors.
 
 ### Identifying Actor and Meta Process Goroutines
 
@@ -283,8 +283,6 @@ internal/poll.(*FD).Read
 ergo.services/ergo/node.(*process).waitResponse
     /path/node/process.go:1961
 ```
-
-Understanding these patterns helps quickly identify the root cause of stuck processes.
 
 ## Shutdown Diagnostics
 
@@ -446,15 +444,4 @@ Observer runs at `http://localhost:9911` by default when included in your node.
 5. **Profile regularly**: Periodic profiling during development helps catch performance regressions before production.
 
 6. **Test shutdown paths**: Explicitly test graceful shutdown to verify all actors terminate cleanly.
-
-## Summary
-
-Debugging actor systems requires tools that bridge the gap between logical actors and runtime goroutines. Ergo Framework provides this bridge through:
-
-- **Build tags** that enable profiling, diagnostics, and latency measurement without production overhead
-- **Goroutine labels** that link runtime goroutines to their actor (PID) and meta process (Alias) identities
-- **Shutdown diagnostics** that identify processes preventing clean termination
-- **Observer integration** for visual inspection of running systems
-
-Combined with Go's standard profiling tools, these capabilities enable effective debugging of even complex distributed systems.
 

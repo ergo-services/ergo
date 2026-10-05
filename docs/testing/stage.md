@@ -8,7 +8,7 @@ Some behavior only exists when everything is real. A supervisor restarts a crash
 
 The [unit](unit.md) harness deliberately removes all of that: it gives one actor a mock node and runs its callbacks by hand, so a test is fast and perfectly deterministic. `stage` makes the opposite trade. It starts real nodes, runs real actors and applications on them, lets them talk over the real network, and watches what the live runtime actually does. You give up the frozen snapshot and the single-actor focus; in return you can test what only the real runtime exhibits - supervision and restarts, links and monitors across nodes, cross-node messaging, remote spawn, service discovery, disconnects.
 
-Everything else about `stage` follows from one fact: because the system runs for real and concurrently, you do not inspect a result, you wait for it and observe it. The rest of this page builds that idea up from the smallest possible test.
+Everything else about `stage` follows from one fact: because the system runs for real and concurrently, you do not inspect a result, you wait for it and observe it.
 
 ## The Shape of a Test
 
@@ -25,7 +25,7 @@ n.ShouldDeliver().To(ponger).Message(ping{Seq: 1}).Once().Within(time.Second).As
 
 `stage.New` returns a `Stage` - the owner of every node the test starts - and registers cleanup with the test, so the nodes are stopped automatically when it ends; you never tear them down by hand. `s.StartNode` starts one live node and returns a handle to it.
 
-That handle, a `*stage.Node`, is worth a close look, because you work through it for the whole test. It is a thin wrapper around a real `gen.Node`, not the node itself. It surfaces the operations a test reaches for most - `Spawn`, `SpawnRegister`, `Send`, `Call`, `SendExit`, `Kill` - and it carries the assertion grammar from [check](check.md), which is why you write `n.ShouldDeliver(...)` straight on it. For anything the wrapper does not cover - any other method of the underlying node - `n.Native()` returns the real `gen.Node` with its full API. You will need it the moment a second node appears.
+That handle, a `*stage.Node`, is what you work through for the whole test. It is a thin wrapper around a real `gen.Node`, not the node itself. It surfaces the operations a test reaches for most - `Spawn`, `SpawnRegister`, `Send`, `Call`, `SendExit`, `Kill` - and it carries the assertion grammar from [check](check.md), which is why you write `n.ShouldDeliver(...)` straight on it. For anything the wrapper does not cover - any other method of the underlying node - `n.Native()` returns the real `gen.Node` with its full API. You will need it the moment a second node appears.
 
 The last line of that test is the one new idea. In `unit`, an actor has already run by the time you assert, so an assertion reads a finished snapshot. Here the send and its delivery happen on the runtime's own goroutines, and the record of the delivery may not exist the instant you check for it. So `Within` makes the assertion wait: it polls until the assertion holds or the deadline passes. Almost every stage assertion carries a `Within`, and the next sections lean on it constantly.
 
@@ -93,7 +93,7 @@ The grammar itself - `ShouldX`, the cardinalities, `Within`, `Mark`, `Since`, `M
 
 ## Observing a Process Stop
 
-A natural thing to test is that a process stopped - and here stage works differently from unit in a way that reveals its whole philosophy. Stage does not hand you a "terminated" record. It records what the runtime really does at its seams, and a process ending is not a message on a wire; it is something other processes learn about through the mechanisms the framework already provides - a monitor's `Down` or a link's `Exit`. So you observe a stop the way the rest of the system does: watch the process, end it, and assert the notification.
+A natural thing to test is that a process stopped, and here stage works differently from unit. Stage does not hand you a "terminated" record. It records what the runtime really does at its seams, and a process ending is not a message on a wire; it is something other processes learn about through the mechanisms the framework already provides - a monitor's `Down` or a link's `Exit`. So you observe a stop the way the rest of the system does: watch the process, end it, and assert the notification.
 
 ```go
 target := n.Spawn(factoryPonger, gen.ProcessOptions{})
@@ -178,6 +178,6 @@ For more than two nodes, `s.ConnectMesh(nodes...)` connects every pair at once -
 
 ## Choosing Between Unit and Stage
 
-You now have both halves of the testing story. [Unit](unit.md) freezes one actor against a mock node and reads a snapshot: it is fast, fully deterministic, and it models the things stage leaves to the real runtime - termination reasons, scheduled sends, log lines. Stage runs the real system and observes it live: it is the only way to test supervision and restarts, links and monitors across nodes, cross-node messaging, remote spawn, service discovery, and disconnects, and it pays for that with concurrency you wait on rather than control.
+[Unit](unit.md) freezes one actor against a mock node and reads a snapshot: it is fast, fully deterministic, and it models the things stage leaves to the real runtime - termination reasons, scheduled sends, log lines. Stage runs the real system and observes it live: it is the only way to test supervision and restarts, links and monitors across nodes, cross-node messaging, remote spawn, service discovery, and disconnects, and it pays for that with concurrency you wait on rather than control.
 
 A healthy suite uses both, and the division is clean. Test an actor's decision logic - what it does with a message, how it reacts to a failure, what it spawns - in `unit`, where most of your tests should live. Reserve `stage` for behavior that only emerges when the runtime, the network, and more than one node are all real. Both speak the same assertion grammar, [check](check.md), so a test reads the same whichever layer it runs on.

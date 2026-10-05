@@ -51,17 +51,17 @@ sequenceDiagram
     deactivate D
 ```
 
-Process B never opted into tracing. Neither did C or D. The trace reached them because the message carried it. This is the key property: you configure tracing on entry-point processes, and the trace propagates through the entire downstream chain automatically.
+Process B never opted into tracing. Neither did C or D. The trace reached them because the message carried it: you configure tracing on entry-point processes, and it propagates through the downstream chain.
 
 ### Two Layers of a Trace
 
-A complete trace has two layers, and it helps to keep them distinct.
+A complete trace has two layers.
 
 The first layer is the **message flow**: which messages travelled between which processes, and how long each hop took. The framework records this layer on its own. You enable tracing at an entry point, and every observation along the chain appears with no further code. This is the skeleton of the trace, and most of this page is about it.
 
 The second layer is the **business operations**: what each handler actually did while holding a message. Validating an order, reserving stock, creating an invoice. The framework cannot know these, they belong to your domain. You mark them with business spans, and they appear as named intervals nested inside the message flow.
 
-The first layer tells you a message named `ProcessOrder` was handled in 50ms. The second tells you what those 50ms actually did. The first layer is mechanical and free; the second is where a trace starts telling the story of your system. This page builds the first layer first, then adds the second in [Tracing Business Logic](#tracing-business-logic).
+The first layer tells you a message named `ProcessOrder` was handled in 50ms. The second tells you what those 50ms actually did. The first layer is mechanical and free; the second is yours to add. This page builds the first layer first, then adds the second in [Tracing Business Logic](#tracing-business-logic).
 
 ### The Lifecycle of a Trace
 
@@ -111,7 +111,7 @@ The timing gaps between observations tell you where time is spent:
 | Delivered to Processed | Mailbox wait time + handler execution time |
 | Sent to Processed | Total end-to-end latency for this message |
 
-For local messages, Sent and Delivered happen nearly simultaneously. For remote messages, the gap is the network transit time. This makes tracing particularly valuable in distributed systems: you can see exactly how much time is spent in transit versus in processing.
+For local messages, Sent and Delivered happen nearly simultaneously. For remote messages, the gap is the network transit time.
 
 Each observation carries context: which node emitted it, the sender and recipient identities, the message type name, the actor behavior type, a timestamp, and any custom attributes. Together, the observations for a single trace form a tree that you can visualize as a waterfall in tools like Grafana Tempo or the Observer UI.
 
@@ -119,7 +119,7 @@ Each observation carries context: which node emitted it, the sender and recipien
 
 HTTP tracing typically records two points per span: the start and end of a service call. Actor tracing needs three because messages go through a mailbox. In HTTP, when service A calls service B, B starts processing immediately. In an actor system, when A sends to B, the message enters B's mailbox and waits. B might be busy handling a previous message. The wait time can be significant under load.
 
-Without the Delivered point, you'd see Sent at time T and Processed at T+50ms, but you wouldn't know whether the 50ms was network latency, mailbox wait, or handler execution. With Delivered, you know: Sent to Delivered was 2ms (network), Delivered to Processed was 48ms (the message sat in the mailbox for 40ms and the handler took 8ms). This distinction is critical for diagnosing performance issues.
+Without the Delivered point, you'd see Sent at time T and Processed at T+50ms, but you wouldn't know whether the 50ms was network latency, mailbox wait, or handler execution. With Delivered, you know: Sent to Delivered was 2ms (network), Delivered to Processed was 48ms (the message sat in the mailbox for 40ms and the handler took 8ms).
 
 ### What Gets Traced
 
@@ -263,7 +263,7 @@ The gap between Sent and Delivered now represents real network latency. If you s
 
 ## Tracing in Practice: Message Chains
 
-The real power of tracing appears when messages form chains. Process A sends to B, and B sends to C and D while handling A's message. All hops share the same trace.
+Messages usually form chains: process A sends to B, and B sends to C and D while handling A's message. All hops share the same trace.
 
 ```go
 func (p *processor) HandleMessage(from gen.PID, message any) error {
@@ -519,7 +519,7 @@ This means: the sender decides what context to attach at send time. The receiver
 
 In Grafana Tempo or the Observer UI, search by any attribute value. If one observation in a trace has `order_id=ORD-456`, searching for it returns the complete trace, all observations across all nodes in the chain. You don't need the same attribute on every observation.
 
-This makes attributes a powerful debugging tool. Set `order_id` on the entry-point process, and you can find the complete processing trace for any order by searching for its ID.
+Set `order_id` on the entry-point process, and you can find the complete processing trace for any order by searching for its ID.
 
 The `ergo.` prefix is reserved for framework-generated attributes (`ergo.node`, `ergo.from`, `ergo.behavior`). Attempts to set attributes with this prefix are silently ignored.
 
@@ -558,7 +558,7 @@ A span name should describe a business operation, not a mechanism. `validate-ord
 
 ### Spans Contain Their Sends
 
-This is what makes business spans more than timers. Any message a handler sends while a span is open becomes a child of that span: the outgoing Sent observation, and the entire downstream chain it triggers, nest underneath.
+Any message a handler sends while a span is open becomes a child of that span: the outgoing Sent observation, and the entire downstream chain it triggers, nest underneath.
 
 ```go
 func (p *processor) HandleMessage(from gen.PID, message any) error {

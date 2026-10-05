@@ -6,11 +6,11 @@ description: The shared assertion vocabulary that unit and stage are written in
 
 You cannot test an actor the way you test a function. There is no `result := actor.Handle(msg)` to inspect: an actor runs on its own goroutine, keeps private state, and speaks only in messages. What you *can* see is what it does - the messages it sends, the children it spawns, the way it terminates. So the testing tools watch the thing under test and record every such action, and a test then asks questions of that recording: did it send this, how many times, to whom, and after what.
 
-`check` is the language those questions are written in. It is not a harness you run on its own; it is the shared vocabulary - the record types and the assertion grammar - that both [unit](unit.md) and [stage](stage.md) hand you. You will rarely import it directly. You call its assertions on a unit `Subject` or a stage `Node`, and because both layers expose the very same grammar, learning it once here lets you assert anything in either of them. The examples below use a handle - `sub` for a unit subject, `node` for a stage node - which you can read simply as "the thing under test."
+`check` is the language those questions are written in. It is the shared vocabulary - the record types and the assertion grammar - that both [unit](unit.md) and [stage](stage.md) hand you, rather than a harness you run on its own. You will rarely import it directly. You call its assertions on a unit `Subject` or a stage `Node`, and because both layers expose the very same grammar, learning it once here lets you assert anything in either of them. The examples below use a handle - `sub` for a unit subject, `node` for a stage node - which you can read simply as "the thing under test."
 
 ## The Journal of Records
 
-Begin with what is being queried, because every assertion is a query against it. As the thing under test runs, the harness appends each action it observes to an ordered journal, and each entry is a typed *record*. You never build a record - the harness does - and you never read the journal line by line. But picturing it is what makes the grammar make sense.
+Every assertion is a query against the journal. As the thing under test runs, the harness appends each action it observes to an ordered journal, and each entry is a typed *record*. You never build a record - the harness does - and you never read the journal line by line.
 
 A journal captured while one actor handled a single message might read like this:
 
@@ -27,7 +27,7 @@ The entries are different types because they describe different kinds of happeni
 - **Lifecycle** - `Terminated`, the actor's own end.
 - **Ingress** - what *reaches* the actor: `Delivered`, `Down`, `Exit`, `Event`. There is something to record on the way in only where delivery is real, so these appear in [stage](stage.md), not in unit.
 
-Each record carries fields that describe the action - a `Send` has `From`, `To`, `Message`, `Options`, `Error`; a `Spawn` has `Parent`, `Child`, `Register`, `Factory`, `Error`. You match on those fields rather than scanning text. The complete list of record types and their fields is in the package godoc; in practice you meet each one through the assertion that selects it, which is the next thing.
+Each record carries fields that describe the action - a `Send` has `From`, `To`, `Message`, `Options`, `Error`; a `Spawn` has `Parent`, `Child`, `Register`, `Factory`, `Error`. You match on those fields rather than scanning text. The complete list of record types and their fields is in the package godoc; in practice you meet each one through the assertion that selects it.
 
 ## The Assertion Chain
 
@@ -37,7 +37,7 @@ An assertion is a single chain with four parts: choose a record type, narrow it 
 sub.ShouldSend().To(gen.Atom("db")).Message(SaveUser{ID: 7}).Once().Assert()
 ```
 
-Read left to right: of the recorded `Send` actions (`ShouldSend`), the ones addressed to `"db"` and carrying that message (the two filters), there should be exactly one (`Once`); evaluate it now and report a failure if not (`Assert`). There is one `Should...` builder per record type - `ShouldSend`, `ShouldSpawn`, `ShouldCall`, `ShouldLog`, and so on - and everything that follows on this page is a variation of one of those four parts. Learn the chain and you can read any assertion in the framework.
+Read left to right: of the recorded `Send` actions (`ShouldSend`), the ones addressed to `"db"` and carrying that message (the two filters), there should be exactly one (`Once`); evaluate it now and report a failure if not (`Assert`). There is one `Should...` builder per record type - `ShouldSend`, `ShouldSpawn`, `ShouldCall`, `ShouldLog`, and so on - and everything that follows on this page is a variation of one of those four parts.
 
 ## How Many: Cardinalities
 
@@ -93,8 +93,6 @@ On a live node the ingress records become assertions too - `ShouldDeliver` for a
 ```go
 node.ShouldReceiveDown().To(watcher).About(worker).Reason(gen.TerminateReasonKill).Once().Within(time.Second).Assert()
 ```
-
-That `Within` is new; it is the next idea.
 
 ## Reading a Snapshot, or Waiting: Within
 
@@ -162,6 +160,6 @@ One last piece of vocabulary shows up not in assertions but in the stubbing APIs
 sub.OnCall(gen.Atom("db")).Where(check.IsType[Query]()).Respond(rows)
 ```
 
-`IsType[V]` matches a value assignable to `V`: a concrete type matches its exact dynamic type, an interface matches any value that implements it. You will see these in context on the next pages.
+`IsType[V]` matches a value assignable to `V`: a concrete type matches its exact dynamic type, an interface matches any value that implements it.
 
 That is the whole language. What produces the journals it queries - and the inputs you drive to fill them - are [mock](mock.md), [unit](unit.md), and [stage](stage.md).

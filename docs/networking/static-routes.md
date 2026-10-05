@@ -8,7 +8,7 @@ When your code sends a message to a remote process, the framework needs to estab
 
 But sometimes you want more control. Maybe you know exactly where certain nodes are. Maybe you're behind a firewall and can't use dynamic discovery. Maybe you want to connect to external systems with fixed addresses. Static routes let you hardcode connection information directly, bypassing the discovery process entirely.
 
-This isn't just about convenience. It's about control. When you define a static route, you're saying "I know better than the discovery system where this node is, and here's exactly how to reach it." The framework respects that - static routes are checked first, before any discovery queries.
+When you define a static route, you're saying "I know better than the discovery system where this node is, and here's exactly how to reach it." The framework respects that - static routes are checked first, before any discovery queries.
 
 ## How It Works
 
@@ -179,7 +179,7 @@ route := gen.NetworkRoute{
 }
 ```
 
-When sending to this route, the framework automatically replaces `mynode@localhost` with `legacy_node` in all messages. On receiving, it reverses the mapping. This is rarely needed - most systems agree on naming conventions. But when integrating with legacy systems or systems with incompatible naming schemes, atom mapping saves you from rewriting every piece of code that references those atoms.
+When sending to this route, the framework automatically replaces `mynode@localhost` with `legacy_node` in all messages. On receiving, it reverses the mapping. This is rarely needed - most systems agree on naming conventions. But when integrating with an older system, or one with an incompatible naming scheme, atom mapping saves you from rewriting every piece of code that references those atoms.
 
 ### Per-Route Logging
 
@@ -195,7 +195,7 @@ route := gen.NetworkRoute{
 }
 ```
 
-Normally your network stack runs at INFO or WARNING level. But when debugging a specific connection, you want TRACE logs for that connection without drowning in logs from all other connections. Per-route logging gives you surgical debugging.
+Normally your network stack runs at INFO or WARNING level. But when debugging a specific connection, you want TRACE logs for that connection without drowning in logs from all other connections.
 
 ## Multiple Routes and Failover
 
@@ -322,14 +322,11 @@ Static routes are checked first, always. When the framework needs to connect to 
 
 A static route is not a preference the framework may reconsider. If you have one for `prod-db` pointing to `10.0.1.50` and that address is down, the connection fails - the Registrar is never asked, even though it might know a working address. This is by design: you took control, and that includes the failure. Remove or narrow the route to hand the node back to discovery.
 
-But combining them is powerful. You can define static routes with resolvers:
+The two combine through a resolver-backed route:
 
 ```go
 route := gen.NetworkRoute{
     Resolver: etcdRegistrar.Resolver(),
-    Route: gen.Route{
-        TLS: true,  // force TLS even if resolver says otherwise
-    },
 }
 network.AddRoute("prod-.*", route, 100)
 ```
@@ -350,6 +347,6 @@ Now all production nodes use the static route for pattern matching, but the reso
 
 **Security boundaries** - Different routes can use different cookies and certificates. When integrating multiple trust domains, static routes let you configure each boundary explicitly.
 
-Static routes aren't a replacement for discovery. They're a tool for cases where discovery doesn't fit. Most production clusters use discovery for internal nodes (dynamic, automatic) and static routes for fixed external connections (explicit, controlled). The framework supports both, and they work together.
+Static routes are a tool for cases where discovery doesn't fit. Most production clusters use discovery for internal nodes (dynamic, automatic) and static routes for fixed external connections (explicit, controlled).
 
 For details on how connections are established, see [Network Stack](network-stack.md). For understanding the discovery system that static routes bypass, see [Service Discovery](service-discovering.md).

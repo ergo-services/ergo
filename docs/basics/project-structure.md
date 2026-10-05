@@ -4,9 +4,9 @@ description: How to Structure Projects Built with Ergo Framework
 
 # Project Structure
 
-The same codebase can run as a monolith on your laptop or as distributed services across a data center. This flexibility comes from one principle: applications are the unit of composition. How you organize your project determines whether you can use this flexibility or fight against it.
+The same codebase can run as a monolith on your laptop or as distributed services across a data center. This flexibility comes from one principle: applications are the unit of composition.
 
-This chapter covers project organization, message isolation patterns, deployment strategies, and evolution paths. The goal is a structure that supports both development simplicity and production scalability without code changes.
+This chapter covers project organization, message isolation patterns, deployment strategies, and evolution paths.
 
 ## The Flexibility Promise
 
@@ -60,7 +60,7 @@ This works because:
 - Messages define contracts between applications
 - The framework handles routing transparently
 
-Your project structure must preserve these properties. Mix them up, and you lose deployment flexibility.
+Your project structure must preserve these properties.
 
 ## Directory Layout
 
@@ -331,8 +331,6 @@ Libraries are safe to call from actor callbacks because they don't block or mana
 
 Messages define contracts between actors. The visibility of message types controls who can send them and where they can travel. Ergo uses Go's export rules plus EDF serialization requirements to create four isolation levels.
 
-Understanding these levels is critical for proper encapsulation.
-
 ### Level 1: Application-Internal (Same Node)
 
 Messages used only within a single application instance on one node.
@@ -467,7 +465,7 @@ graph LR
     end
 ```
 
-This level is intentionally restrictive. If someone tries to send `StatusQuery` to a remote node, serialization fails. The unexported fields act as a compile-time guard against accidental network use.
+This level is intentionally restrictive. The unexported fields block EDF registration, so `StatusQuery` cannot travel to a remote node.
 
 ### Level 4: Service-Level (Everywhere)
 
@@ -877,8 +875,6 @@ node, _ := ergo.StartNode("api@api-1", gen.NodeOptions{
 Benefits:
 - Independent scaling per tier
 - Fault isolation
-- Resource optimization
-- Zero-downtime updates
 
 ### Pattern 3: Hybrid Deployment
 
@@ -1242,7 +1238,7 @@ apps/
 
 ## What's Next
 
-This article covered project organization for flexible deployment. As your system grows into a distributed cluster, two topics become essential:
+Two topics follow as the system grows into a distributed cluster:
 
 - [Building a Cluster](../advanced/building-a-cluster.md) - service discovery, load balancing, failover, and observability
 - [Message Versioning](../advanced/message-versioning.md) - evolving message contracts during rolling upgrades

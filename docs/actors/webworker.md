@@ -190,4 +190,4 @@ WebWorker implements `gen.ProcessBehavior` at low level. It manages the mailbox 
 
 The `Done()` call is critical. It cancels the context that WebHandler blocks on. Without it, HTTP request would timeout. WebWorker guarantees `Done()` is called even if your callback panics or returns error.
 
-Default implementations for all callbacks exist. Unimplemented HTTP methods log warning and return 501 Not Implemented. This allows implementing only the methods you need without boilerplate for unsupported methods.
+Default implementations for all callbacks exist. Unimplemented HTTP methods log a warning and return 501 Not Implemented.

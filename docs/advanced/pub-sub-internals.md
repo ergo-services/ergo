@@ -4,9 +4,9 @@ description: How the Pub/Sub system works internally
 
 # Pub/Sub Internals
 
-This document explains how Ergo Framework's pub/sub system works under the hood. It's written for developers who want to understand the architecture, network behavior, and performance characteristics when building distributed systems.
+This document explains how Ergo Framework's pub/sub system works internally: the architecture, the network behavior, and the performance characteristics.
 
-For basic usage, see [Links and Monitors](../basics/links-and-monitors.md) and [Events](../basics/events.md). This document assumes you're familiar with those concepts and focuses on how the system works internally.
+For basic usage, see [Links and Monitors](../basics/links-and-monitors.md) and [Events](../basics/events.md), which this document assumes you have read.
 
 ## The Unified Architecture
 
@@ -83,8 +83,6 @@ The key difference: implicit events give you one notification (termination). Exp
 
 ### Why Unification Matters
 
-This unified architecture has practical benefits:
-
 **Consistent behavior** - The same subscription and notification mechanics work for all target types. Once you understand how monitors work for processes, you understand how they work for events.
 
 **Shared optimizations** - Network optimizations (covered later) apply to all subscription types. Whether you're monitoring 100 remote processes or subscribing 100 consumers to a remote event, the same sharing mechanism kicks in.
@@ -93,7 +91,7 @@ This unified architecture has practical benefits:
 
 ## How Local Subscriptions Work
 
-When you subscribe to a target on the same node, the operation is simple and fast.
+When you subscribe to a target on the same node, no network is involved.
 
 ### What You Experience
 
@@ -267,11 +265,11 @@ case gen.MessageDownPID:
     w.handleTargetGone(msg.PID, msg.Reason)
 ```
 
-This failover mechanism compensates for network unreliability. You write code assuming notifications always arrive, because they do.
+This failover mechanism compensates for network unreliability: you can write code assuming the notification arrives.
 
 ## Network Optimization: Shared Subscriptions
 
-This section describes the optimization that makes distributed pub/sub practical at scale. Without it, many common patterns would be impractical.
+This section describes the optimization that makes distributed pub/sub practical at scale.
 
 ### The Problem
 
@@ -469,7 +467,7 @@ When the producer publishes one price update:
 | Without optimization | 1,000,000 |
 | With optimization | 10 |
 
-The optimization transforms O(N) network cost (where N = total subscribers) into O(M) cost (where M = number of nodes). For distributed systems with many subscribers per node, this is the difference between practical and impossible.
+The optimization transforms O(N) network cost (where N = total subscribers) into O(M) cost (where M = number of nodes).
 
 **Actual benchmark results** (from the [distributed-pub-sub-1M](https://github.com/ergo-services/benchmarks/) benchmark):
 
@@ -964,5 +962,4 @@ This ordering ensures:
 
 **For cleanup:**
 - Automatic on any termination
-- No resource leaks possible
 - No manual unsubscription required

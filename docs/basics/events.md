@@ -4,7 +4,7 @@ description: Publish/Subscribe Event Mechanism
 
 # Events
 
-The actor model excels at point-to-point communication. Process A sends a message to process B. Process C makes a request to process D. Each interaction has a specific sender and receiver.
+The actor model is point-to-point. Process A sends a message to process B. Process C makes a request to process D. Each interaction has a specific sender and receiver.
 
 But some scenarios need one-to-many communication. A price feed updates and dozens of trading strategies need the new price. A user logs in and multiple subsystems need notification. A sensor reading arrives and various monitoring processes need to react. You could send individual messages to each interested process, but then the producer needs to track all consumers. When consumers come and go, the producer's consumer list becomes a maintenance burden.
 
@@ -21,7 +21,7 @@ token, err := process.RegisterEvent("price_update", gen.EventOptions{
 })
 ```
 
-The `Notify` option controls whether the producer receives notifications about subscriber changes. When enabled, the producer receives `gen.MessageEventStart` when the first subscriber appears and `gen.MessageEventStop` when the last subscriber leaves. This allows the producer to start or stop expensive operations based on demand. If nobody's watching the price feed, why fetch prices? This option is ignored for events registered at the node level, since the node core does not consume such messages.
+The `Notify` option controls whether the producer receives notifications about subscriber changes. When enabled, the producer receives `gen.MessageEventStart` when the first subscriber appears and `gen.MessageEventStop` when the last subscriber leaves. This allows the producer to start or stop expensive operations based on demand. This option is ignored for events registered at the node level, since the node core does not consume such messages.
 
 The `Buffer` option specifies how many recent events to keep. When a new subscriber joins, it receives the buffered events as a catch-up mechanism. Set this to zero if events are only relevant at the moment they're published. Set it to a reasonable number if new subscribers should see recent history.
 
@@ -174,13 +174,13 @@ This bus is local to each node and is available even with networking disabled. I
 
 ## Network Transparency
 
-Events work across nodes seamlessly. A producer on node A can publish events that subscribers on nodes B, C, and D receive. The framework handles the network distribution.
+A producer on node A can publish events that subscribers on nodes B, C, and D receive.
 
 When you subscribe to a remote event, the framework sends a subscribe request to the remote node. The remote node records your subscription. When the producer publishes an event on the remote node, the remote node sends it to all remote subscribers, including you.
 
 If the network connection fails, subscribers receive termination notifications with reason `gen.ErrNoConnection`. This is consistent with how links and monitors handle network failures for processes.
 
-The buffered events work across nodes too. When you subscribe to a remote event, the remote node sends you the buffered events as part of the subscription response. This catch-up mechanism works regardless of where the producer and subscribers are located.
+The buffered events work across nodes too. When you subscribe to a remote event, the remote node sends you the buffered events as part of the subscription response.
 
 ## Token Delegation
 
@@ -234,8 +234,6 @@ Node-level aggregate counters are also available in `gen.NodeInfo` via `node.Inf
 The [Metrics actor](../extra-library/actors/metrics.md) automatically exports these counters as Prometheus metrics, along with per-event top-N breakdowns by subscribers, published, local deliveries, and remote sent. It also tracks event utilization state: whether events are actively used, waiting on demand, or idle.
 
 ## Practical Patterns
-
-Events fit several common scenarios.
 
 **Data streaming** - A sensor process registers an event and publishes readings. Multiple monitoring processes subscribe. Each reading goes to all monitors. If a monitor crashes and restarts, it subscribes again and receives recent buffered readings to catch up.
 

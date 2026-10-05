@@ -10,7 +10,7 @@ Every process has a mailbox where incoming messages wait to be processed. The ma
 
 When built with `-tags=latency`, each queue tracks the age of its oldest unprocessed message. `ProcessMailbox.Latency()` returns the maximum latency across all four queues in nanoseconds, or -1 if the tag is not enabled. This helps identify processes that are falling behind on message processing. See [Debugging](../advanced/debugging.md) for details.
 
-The process runs only when it has messages to handle. When the mailbox is empty, the process sleeps, consuming no CPU. When a message arrives, the process wakes, handles the message, and sleeps again if nothing else is waiting. This efficiency is why you can have thousands of processes in a single application.
+The process runs only when it has messages to handle. When the mailbox is empty, the process sleeps, consuming no CPU. When a message arrives, the process wakes, handles the message, and sleeps again if nothing else is waiting.
 
 ## Identifying Processes
 
@@ -54,19 +54,19 @@ func createWorker() gen.ProcessBehavior {
 pid, err := node.Spawn(createWorker, gen.ProcessOptions{})
 ```
 
-The factory is called each time you spawn - each process gets a fresh instance. This isolation is important for the actor model.
+The factory is called each time you spawn - each process gets a fresh instance.
 
-`gen.ProcessOptions` configures the new process: mailbox size, environment variables, compression settings, message priority, linking behavior, and initialization timeout. Most options have sensible defaults. The main ones you'll configure are `MailboxSize` (to limit memory) and `Env` (to pass configuration).
+`gen.ProcessOptions` configures the new process: mailbox size, environment variables, compression settings, message priority, linking behavior, and initialization timeout. The main ones you'll configure are `MailboxSize` (to limit memory) and `Env` (to pass configuration).
 
 `InitTimeout` limits how long `ProcessInit` can take. Zero uses the default (5 seconds). If initialization exceeds this timeout, the process is terminated with `gen.ErrTimeout` and spawn returns an error. For remote spawn and application processes, the maximum allowed value is 15 seconds - exceeding this limit returns `gen.ErrNotAllowed`.
 
-Two options deserve explanation: `LinkParent` and `LinkChild`. These options provide a convenient way to establish links automatically after initialization completes. If `LinkChild` is set, the parent links to the child. If `LinkParent` is set, the child links to the parent. These links only work for process-spawned children, not node-spawned processes. Note that you can also call `Link` methods directly during initialization if needed.
+`LinkParent` and `LinkChild` establish links automatically after initialization completes. If `LinkChild` is set, the parent links to the child. If `LinkParent` is set, the child links to the parent. These links only work for process-spawned children, not node-spawned processes. You can also call `Link` methods directly during initialization.
 
 ## Message Handling
 
 Processes are defined by implementing the `gen.ProcessBehavior` interface. This is a low-level interface with four methods: `ProcessInit` for initialization, `ProcessRun` for the message processing loop, `ProcessTerminate` for cleanup, and `ProcessKind`, which classifies the process and is called unconditionally at spawn. All four are required - a type implementing only the first three does not satisfy the interface.
 
-In practice, you rarely implement `gen.ProcessBehavior` directly. Instead, you use `act.Actor`, which implements `gen.ProcessBehavior` and provides a more convenient abstraction. `act.Actor` gives you `HandleMessage` and `HandleCall` callbacks - straightforward methods where you write your message handling logic without worrying about the mailbox mechanics.
+In practice, you rarely implement `gen.ProcessBehavior` directly. Instead, you use `act.Actor`, which implements `gen.ProcessBehavior` and provides a more convenient abstraction. `act.Actor` gives you `HandleMessage` and `HandleCall` callbacks for your message handling logic, with the mailbox mechanics handled for you.
 
 ```go
 type Worker struct {
@@ -84,7 +84,7 @@ The `ProcessInit` callback runs once during startup. Use it to initialize state,
 
 The `ProcessTerminate` callback runs during shutdown. Use it for cleanup: close files, send final messages, log termination. It receives the termination reason, so you can distinguish between normal shutdown and errors.
 
-`act.Actor` handles the `ProcessRun` loop for you, calling your `HandleMessage` and `HandleCall` methods as messages arrive. This separation between the low-level interface (`gen.ProcessBehavior`) and the high-level abstraction (`act.Actor`) keeps the framework flexible while making common cases simple.
+`act.Actor` handles the `ProcessRun` loop for you, calling your `HandleMessage` and `HandleCall` methods as messages arrive.
 
 ## Timed and Periodic Messages
 
@@ -100,11 +100,11 @@ A `SendEvery` ticker lives as long as its owner: it stops when the process termi
 
 Processes inherit environment variables when they spawn. At that moment, variables are copied from multiple sources and merged with a priority order: node variables (lowest priority), then application, then leader, then parent, then variables specified in `gen.ProcessOptions` (highest priority). If the same variable exists in multiple sources, the higher priority value wins.
 
-Once a process is running, its environment is independent. If the node changes an environment variable, running processes don't see the change. Only newly spawned processes inherit the updated values. This isolation is important - it means a process's configuration is stable for its lifetime.
+Once a process is running, its environment is independent. If the node changes an environment variable, running processes don't see the change. Only newly spawned processes inherit the updated values. A process's configuration is stable for its lifetime.
 
 When a process queries a variable with `Env` or `EnvList`, it looks only in its own environment - the merged copy created at spawn time. The hierarchy (Process > Parent > Leader > Application > Node) determines what was copied during spawning, not what's queried during lookup.
 
-Variables are case-insensitive. "database_url", "DATABASE_URL", and "Database_Url" are all the same variable. This eliminates configuration mistakes from case mismatches.
+Variables are case-insensitive. "database_url", "DATABASE_URL", and "Database_Url" are all the same variable.
 
 Use `SetEnv` to modify variables during Init or Running states. Pass `nil` as the value to delete a variable. Changes affect only this process - they don't propagate to children, parents, or the node.
 
@@ -133,7 +133,7 @@ node.Spawn(createWorker, gen.ProcessOptions{
 
 With the flag set, any abnormal termination (panic, callback error, forced `Kill`, exit cascade from a linked process) captures the mailbox into a `*gen.Error` exit reason. The original error is preserved as `Wrapped[0]`, so `errors.Is(reason, originalErr)` keeps working. A supervising parent automatically picks it up and hands it to the restart. The new incarnation runs `Init` on fresh struct state, then its `ProcessRun` loop pulls the surviving messages from the queues in priority order, exactly as if they had just arrived.
 
-This is not a replacement for an external durable queue (Kafka, NATS, etc.). External queues give reliable delivery into the actor; mailbox preservation gives reliable handling within the actor across its own restarts. They complement each other.
+This is not a replacement for an external durable queue (Kafka, NATS, etc.). External queues give reliable delivery into the actor; mailbox preservation gives reliable handling within the actor across its own restarts.
 
 **What is preserved.** All four priority queues (Urgent, System, Main, Log), in original FIFO order, with their tracing information.
 
@@ -162,16 +162,14 @@ Regardless of how termination happens, the node performs comprehensive cleanup. 
 
 ## State-Based Access Control
 
-Not all Process interface methods work in all states. This isn't arbitrary - it reflects what's actually possible.
+Not all Process interface methods work in all states.
 
 During Init, the process can spawn children, send messages, register names, create aliases, register events, establish links and monitors, and make synchronous calls.
 
-During Running, everything is available. The process is fully operational.
+During Running, everything is available.
 
 During Terminated, only sending messages works. You can't spawn new children or create new resources - the process is shutting down.
 
-These restrictions are enforced by the framework. If you call a method in the wrong state, you get `gen.ErrNotAllowed`. This prevents subtle bugs where operations appear to succeed but silently fail because the process isn't in the right state.
+These restrictions are enforced by the framework. If you call a method in the wrong state, you get `gen.ErrNotAllowed`.
 
-The details of which methods work in which states are documented in the `gen.Process` godoc. In practice, you rarely hit these restrictions unless you're doing unusual things during initialization or shutdown.
-
-For a deeper understanding of process operations and lifecycle management, refer to the `gen.Process` interface documentation in the code.
+The details of which methods work in which states are documented in the `gen.Process` godoc.

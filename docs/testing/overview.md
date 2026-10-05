@@ -6,7 +6,7 @@ description: How to test actor systems in Ergo, and which layer to use
 
 An actor is not a function. You cannot call it and inspect a return value. It runs on its own goroutine, communicates only through messages, keeps private state that evolves from one message to the next, spawns children, and can be terminated or restarted by a supervisor. A test that reaches into an actor's fields tests the wrong thing and breaks the isolation the model depends on.
 
-So the testing tools observe an actor the way the rest of the system does: through what it *does*. Every outward action - a message sent, a process spawned, a log line written, an exit signal, a timer scheduled - is captured as a record. You drive the actor with inputs - deliver a message, fire a timer, deliver an exit - and assert on the records it produced. You test behavior, not state. That single idea runs through all four packages this section covers.
+So the testing tools observe an actor the way the rest of the system does: through what it *does*. Every outward action - a message sent, a process spawned, a log line written, an exit signal, a timer scheduled - is captured as a record. You drive the actor with inputs - deliver a message, fire a timer, deliver an exit - and assert on the records it produced. You test behavior, not state.
 
 ## The Observation Model
 
@@ -17,7 +17,7 @@ sub.SendMessage(client, "ping")
 sub.ShouldSend().To(client).Message("pong").Once().Assert()
 ```
 
-The actor received a message and sent one back. The harness recorded the send, and the assertion checks that it happened exactly once, to the right target, with the right payload. The same fluent grammar - a `Should...` builder, filters, a count, a terminal - describes every kind of action, and it reads the same whether the actor runs in a mock or on a live node. There is no `result := actor.Process(msg)` to inspect, because actors do not work that way; instead you verify the messages an actor sends, the children it spawns, the events it emits, and how it terminates.
+The actor received a message and sent one back. The harness recorded the send, and the assertion checks that it happened exactly once, to the right target, with the right payload. The same fluent grammar - a `Should...` builder, filters, a count, a terminal - describes every kind of action, and it reads the same whether the actor runs in a mock or on a live node. Instead of a return value you verify the messages an actor sends, the children it spawns, the events it emits, and how it terminates.
 
 ## The Layers
 
@@ -74,6 +74,6 @@ n.ShouldDeliver().To(worker).Message(Job{ID: "42"}).Within(time.Second).Once().A
 - Testing behavior that needs the real scheduler, the real network, or more than one node: use **stage**.
 - Understanding what `ShouldSend`, `Within`, `Once`, or `Capture` mean in any of the above: read **check**.
 
-`unit` and `stage` are not two ways to write the same test; they answer different questions. A typical project tests the bulk of its actor logic with `unit`, where tests run in microseconds and never flake, and reserves `stage` for the cross-node and supervision scenarios that only the real runtime exhibits.
+`unit` and `stage` answer different questions. A typical project tests the bulk of its actor logic with `unit`, where tests run in microseconds and deterministically, and reserves `stage` for the cross-node and supervision scenarios that only the real runtime exhibits.
 
 Read on in order: [Check](check.md) for the grammar every test is written in, then [Mock](mock.md), [Unit](unit.md), and [Stage](stage.md), each building on the one before.

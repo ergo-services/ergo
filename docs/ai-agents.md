@@ -20,7 +20,7 @@ Four problems appear as soon as you move AI agents out of a notebook:
 
 **Scaling.** Distributing agents across nodes requires rethinking addressing, message delivery, and failure semantics.
 
-Ergo addresses all four: isolated processes with supervision, named event streams for coordination, a built-in MCP diagnostic surface, and network-transparent PIDs. The design choices were made for telecom-class distributed systems. The fit to AI workloads is incidental and exact.
+Ergo addresses all four: isolated processes with supervision, named event streams for coordination, a built-in MCP diagnostic surface, and network-transparent PIDs.
 
 ## Your agent as an actor
 
@@ -58,7 +58,7 @@ What you get automatically:
 - **Event-based coordination.** Agents publish to and subscribe to named event streams, fanning out one network message per node instead of one per subscriber. See [Events](basics/events.md).
 - **Live diagnostics.** Expose the running system to any AI assistant through the MCP surface of the [Observer](extra-library/applications/observer.md) application.
 
-The actor's private state (`notes` in the example) is safe without any synchronization. Messages arrive one at a time. The actor never shares memory with anyone.
+The actor's private state (`notes` in the example) needs no synchronization: messages arrive one at a time.
 
 ## Multi-agent architecture patterns
 

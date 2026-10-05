@@ -120,7 +120,7 @@ if err != nil {
 
 ## Event System
 
-The etcd registrar registers a `gen.Event` and generates messages based on changes in the etcd cluster within the specified cluster. This allows the node to stay informed of any updates or changes within the cluster, ensuring real-time event-driven communication and responsiveness to cluster configurations:
+The etcd registrar registers a `gen.Event` and generates messages based on changes in the etcd cluster within the specified cluster. This is how a node learns about changes within the cluster:
 
 * `etcd.EventNodeJoined` - Triggered when another node is registered in the same cluster
 * `etcd.EventNodeLeft` - Triggered when a node disconnects or its lease expires
@@ -264,8 +264,6 @@ This example demonstrates how to run multiple Ergo nodes using etcd as a registr
 
 ## Development and Testing
 
-The etcd registrar includes comprehensive testing infrastructure:
-
 ### Docker Testing Setup
 
 Use the included Docker Compose setup for testing:
@@ -305,5 +303,3 @@ etcdctl --endpoints=localhost:12379 put \
 # Watch for changes
 etcdctl --endpoints=localhost:12379 watch --prefix "services/ergo/cluster/production/"
 ```
-
-The etcd registrar provides a robust, scalable solution for service discovery and configuration management in distributed Ergo applications, with the reliability and consistency guarantees of etcd.

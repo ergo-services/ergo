@@ -8,13 +8,13 @@ Applications often need tasks to run periodically. Generate a daily report at mi
 
 You could implement this yourself - spawn a process that sleeps, wakes up, performs the task, and sleeps again. But then you're managing wake times, handling timezone changes, accounting for daylight saving time transitions, and ensuring the scheduler itself stays alive. The scheduling logic becomes scattered across your application.
 
-Cron provides scheduled task execution as a framework service. You declare what should run and when using the familiar crontab syntax. The framework handles timing, execution, and all the edge cases around time-based scheduling.
+Cron provides scheduled task execution as a framework service. You declare what should run and when using the familiar crontab syntax. The framework handles timing and execution.
 
 ## How It Works
 
 Every minute, the cron system wakes up and evaluates all job specifications against the current time. Jobs whose specifications match the current minute are queued for execution. Each queued job then runs in its own goroutine.
 
-This design is stateless - no pre-calculated schedules, no complex data structures to maintain. When you add a job, it participates in the next evaluation. When you remove a job, it stops participating. Timezone and daylight saving time transitions are handled naturally because each evaluation uses current time rules.
+This design is stateless - no pre-calculated schedules, no complex data structures to maintain. When you add a job, it participates in the next evaluation. When you remove a job, it stops participating. Each evaluation uses current time rules, so timezone and daylight saving transitions need no precomputed state.
 
 The stateless approach has implications. Multiple executions of the same job can run concurrently if the job takes longer than its interval. A job scheduled every minute that takes two minutes to complete will have two instances running simultaneously. If your job can't handle concurrent execution, implement serialization in the action itself - for example, send a message to a named process that processes requests sequentially.
 
@@ -51,7 +51,7 @@ Fallback: gen.ProcessFallback{
 
 Actions define what happens when a job runs.
 
-The simplest action sends a message. The job triggers, the cron system sends `gen.MessageCron` to the specified process, and the process handles it through normal message processing. This integrates cleanly with the actor model - the scheduled work happens inside an actor's message handler.
+The simplest action sends a message. The job triggers, the cron system sends `gen.MessageCron` to the specified process, and the process handles it through normal message processing. The scheduled work happens inside an actor's message handler.
 
 ```go
 action := gen.CreateCronActionMessage(gen.Atom("worker"), gen.MessagePriorityNormal)
@@ -112,11 +112,9 @@ The `Schedule` and `JobSchedule` methods preview upcoming executions. Since the 
 
 Each job has its own timezone. A job with `Location: time.UTC` scheduled for midnight runs at UTC midnight. A job with a New York timezone runs at New York midnight. The physical location of the node doesn't matter - jobs run in their configured timezone.
 
-This matters for distributed systems where jobs serve different regions. One node can run jobs for multiple timezones. A cleanup job for European users runs at European midnight. A report job for Asian users runs at Asian business hours. Same node, different timezones, correct local timing.
+This matters for distributed systems where jobs serve different regions. One node can run jobs for multiple timezones. A cleanup job for European users runs at European midnight. A report job for Asian users runs at Asian business hours.
 
 ## Daylight Saving Time
-
-Timezone transitions are handled carefully.
 
 When clocks spring forward, an hour disappears. A job scheduled for 02:30 simply does not run on that date: the spec is evaluated against local time, and that local minute never occurs, so nothing matches. It is skipped rather than run an hour early or late.
 
@@ -132,6 +130,6 @@ The action can still tell where it is in time: a message action receives `gen.Me
 
 If a job action returns an error and the job has a configured fallback, the system sends `gen.MessageCronFallback` to the fallback process. The message includes the job name, execution time, error, and an optional tag for identifying the job source.
 
-This allows centralizing monitoring of failed scheduled tasks. A single fallback process can receive failures from all jobs, log them, send alerts, or take corrective action.
+A single fallback process can receive failures from all jobs, log them, send alerts, or take corrective action.
 
 For complete crontab specification syntax and additional examples, refer to the `gen.Cron` interface documentation in the code.

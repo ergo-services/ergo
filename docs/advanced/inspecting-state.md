@@ -4,7 +4,7 @@ description: HandleInspect as the observability surface of an actor, and what it
 
 # Inspecting Actor State
 
-An actor's state is private by design. Nothing outside it can read a field, and that is what makes the actor model safe: no locks, no shared memory, no races. It is also what makes a running actor system opaque. A debugger can pause one goroutine, but a node is thousands of them, and the interesting question is rarely about one process in isolation.
+An actor's state is private by design. Nothing outside it reads a field directly, which is what removes the locking around it. It is also what makes a running actor system opaque. A debugger can pause one goroutine, but a node is thousands of them, and the interesting question is rarely about one process in isolation.
 
 `HandleInspect` is the one sanctioned way out of that. It is not an API for other processes to use, not a message handler, and not a place to compute anything. It is the actor's answer to a single question, asked from the outside at an arbitrary moment: *what do you currently believe?*
 
@@ -142,9 +142,9 @@ A single inspection call is a snapshot of one actor. What makes the callback wor
 
 **A whole cluster, read by an AI.** The [MCP surface of Observer](../extra-library/applications/observer.md) exposes the same inspection as resources and tools an agent asks for on demand: enumerate processes across the cluster, inspect any of them, follow the topology, capture a profile. Every node runs the built-in `system` application that answers those questions, and the one node serving MCP reaches all of them, so a single conversation covers the cluster.
 
-The difference between the two is not convenience, it is method. A dashboard answers questions decided in advance. An agent holding the whole inspection surface can work the other way round: start from a symptom, enumerate what exists, read the state of the processes that look implicated, correlate across nodes, and narrow down. Point diagnosis becomes system diagnosis, because nothing has to be selected up front.
+The two differ in method. A dashboard answers questions decided in advance. An agent holding the whole inspection surface can work the other way round: start from a symptom, enumerate what exists, read the state of the processes that look implicated, correlate across nodes, and narrow down. Point diagnosis becomes system diagnosis, because nothing has to be selected up front.
 
-**And it reads your source.** This is the part that changes the character of the work. An agent that can inspect live actor state and read the code that produced it is looking at cause and effect at once. The state says what the system believes; the source says which branch produced that belief and what it will do next. Neither alone is enough - a field value without the code is a number, and code without runtime state is a hypothesis - and together they close the loop that a debugger closes for a single-threaded program, but across a live distributed system that cannot be paused.
+**And it reads your source.** An agent that can inspect live actor state and read the code that produced it is looking at cause and effect at once. The state says what the system believes; the source says which branch produced that belief and what it will do next. Neither alone is enough - a field value without the code is a number, and code without runtime state is a hypothesis - and together they close the loop that a debugger closes for a single-threaded program, but across a live distributed system that cannot be paused.
 
 That is the reason to treat `HandleInspect` as a design surface rather than a debug convenience. The value of every layer above it - the observer view, the cluster-wide diagnostic, the agent that explains what it found - is bounded by whether the field it needed was exposed.
 

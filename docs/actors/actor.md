@@ -2,7 +2,7 @@
 
 The actor model requires sequential message processing - each actor handles one message at a time in a dedicated goroutine. This eliminates data races within the actor but shifts complexity to the message handling loop: reading from multiple mailbox queues in priority order, dispatching to different handlers based on message type, managing state transitions, converting exit signals to regular messages when trapping is enabled.
 
-You could implement this yourself with `gen.ProcessBehavior`, but you'd rewrite the same logic for every actor. `act.Actor` solves this. It implements the low-level `gen.ProcessBehavior` interface and provides a higher-level `act.ActorBehavior` interface with straightforward callbacks: `Init` for initialization, `HandleMessage` for asynchronous messages, `HandleCall` for synchronous requests, `Terminate` for cleanup. You write business logic, `act.Actor` handles the mailbox mechanics.
+You could implement this yourself with `gen.ProcessBehavior`, but you'd rewrite the same logic for every actor. `act.Actor` implements the low-level `gen.ProcessBehavior` interface and provides a higher-level `act.ActorBehavior` interface with four callbacks: `Init` for initialization, `HandleMessage` for asynchronous messages, `HandleCall` for synchronous requests, `Terminate` for cleanup.
 
 ## Creating an Actor
 
@@ -45,7 +45,7 @@ Spawn it like any process:
 pid, err := node.Spawn(createWorker, gen.ProcessOptions{})
 ```
 
-The factory function is called each time you spawn. Each process gets a fresh instance with its own state. This isolation is fundamental to the actor model - actors share nothing except messages.
+The factory function is called each time you spawn. Each process gets a fresh instance with its own state.
 
 ## Callback Interface
 
@@ -207,7 +207,7 @@ if e, ok := result.(error); ok {
 log.Printf("result: %v", result)
 ```
 
-This separation between transport errors (`err` return from `Call`) and application errors (`result` as error) is fundamental to actor communication. See [Handle Sync](../advanced/handle-sync.md#sendresponse-vs-sendresponseerror-two-channels-for-results) for deeper discussion of error channels and when to use `SendResponseError`.
+Transport errors (the `err` return from `Call`) and application errors (an `error` as the result) travel on separate channels. See [Handle Sync](../advanced/handle-sync.md#sendresponse-vs-sendresponseerror-two-channels-for-results) for deeper discussion of error channels and when to use `SendResponseError`.
 
 ### Asynchronous Handling of Synchronous Requests
 

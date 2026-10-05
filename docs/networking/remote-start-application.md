@@ -8,7 +8,7 @@ Remote application starting means launching an application on another node from 
 
 This capability enables dynamic application deployment and orchestration. You have a cluster of nodes, each with applications loaded but waiting. A coordinator node decides which applications should run where, based on load, topology, or scheduling logic. Remote application starting makes this coordination explicit and controllable.
 
-Like remote spawning, remote application starting isn't automatic. Security matters. You don't want arbitrary nodes starting arbitrary applications. The framework requires explicit permission - the remote node must enable each application individually and can restrict which nodes are allowed to start it.
+Like remote spawning, remote application starting is not automatic. You don't want arbitrary nodes starting arbitrary applications, so the framework requires explicit permission - the remote node must enable each application individually and can restrict which nodes are allowed to start it.
 
 ## Security Model
 
@@ -192,7 +192,7 @@ node, err := ergo.StartNode("scheduler@localhost", gen.NodeOptions{
 
 Now when you start an application remotely, the application's processes receive a copy of the requesting node's core environment. This enables configuration propagation - your scheduler node has configuration in its environment, and applications started remotely inherit it.
 
-**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `node.Network().RegisterType` (see [Network Transparency](network-transparency.md) for details on the type registry; the legacy `edf.RegisterTypeOf` still works but is deprecated). If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote application start fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables: any non-serializable value causes the entire start request to fail.
+**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `node.Network().RegisterType` (see [Network Transparency](network-transparency.md) for details on the type registry; the package-level `edf.RegisterTypeOf` still works but is deprecated). If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote application start fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables: any non-serializable value causes the entire start request to fail.
 
 ## How It Works
 
@@ -240,6 +240,6 @@ If anything fails (application not found, access denied, already running, remote
 
 **Maintenance windows** - During maintenance, you stop applications on a node, perform updates, then start them again. Remote start enables coordinated maintenance across a cluster without manually SSHing to each node.
 
-Remote application starting is about control and coordination. If your cluster has static application deployment (applications always run on specific nodes), you don't need this feature - use supervision trees and let supervisors start applications automatically. If your cluster has dynamic application deployment (applications move between nodes based on conditions), remote application starting enables that flexibility.
+If your cluster has static application deployment (applications always run on specific nodes), you don't need this feature - use supervision trees and let supervisors start applications automatically. If your cluster has dynamic application deployment (applications move between nodes based on conditions), remote application starting enables that flexibility.
 
 For understanding the underlying network mechanics, see [Network Stack](network-stack.md). For controlling connections to remote nodes, see [Static Routes](static-routes.md). For understanding application lifecycle and modes, see [Application](../basics/application.md).

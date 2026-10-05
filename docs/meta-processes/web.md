@@ -2,11 +2,7 @@
 
 HTTP and actors speak different languages. HTTP is fundamentally synchronous - a request arrives, blocks waiting for processing, gets a response, connection closes. The actor model is fundamentally asynchronous - messages arrive in mailboxes, get processed sequentially one at a time, responses are separate messages sent whenever ready.
 
-Integrating these two worlds is possible, but the integration strategy matters. Choose wrong and you lose the benefits of both models. Choose right and you get HTTP's ubiquity with actors' concurrency and distribution capabilities.
-
-This chapter shows two integration approaches, ordered from simple to complex. The simple approach works for most cases and keeps the entire HTTP ecosystem available. The meta-process approach trades tooling for deeper actor integration, enabling patterns impossible with standard HTTP stacks.
-
-Before reaching for meta-processes, understand what you're giving up and what you're gaining. The simple approach might be all you need.
+This chapter shows two integration approaches, ordered from simple to complex. The simple approach works for most cases and keeps the entire HTTP ecosystem available. The meta-process approach trades that tooling for deeper actor integration. The simple approach might be all you need.
 
 ## Simple Approach: Call from HTTP Handlers
 
@@ -198,7 +194,7 @@ Use this when:
 - Backpressure from actors doesn't matter (actors process at their speed, HTTP clients wait)
 - You want simple deployment (separate HTTP gateway, actor backend)
 
-This covers most HTTP/actor integration cases. The HTTP layer is stateless. Actors hold state and logic. HTTP routes requests to actors. Clean architecture.
+This covers most HTTP/actor integration cases. The HTTP layer is stateless. Actors hold state and logic. HTTP routes requests to actors.
 
 For details on synchronous request handling in actors, see [Handling Sync Requests](../advanced/handle-sync.md).
 
@@ -208,7 +204,7 @@ Meta-processes convert HTTP into asynchronous actor messages. Instead of calling
 
 This approach enables:
 - Backpressure: actors control request rate through mailbox capacity
-- **Addressable connections**: each WebSocket/SSE connection becomes an independent actor with `gen.Alias` identifier - any actor anywhere in the cluster can send messages directly to specific client connections through network transparency. This is the killer feature for real-time systems (chat, multiplayer games, live dashboards, collaborative editing) where backend logic must push updates to specific clients across cluster nodes. Impossible with the simple approach.
+- **Addressable connections**: each WebSocket/SSE connection becomes an independent actor with `gen.Alias` identifier - any actor anywhere in the cluster can send messages directly to specific client connections through network transparency. This matters for real-time systems (chat, multiplayer games, live dashboards, collaborative editing) where backend logic must push updates to specific clients across cluster nodes. The simple approach has no equivalent.
 - Per-request routing: route to different actor pools based on request content
 - Unified monitoring: HTTP requests visible as actor messages in system introspection
 

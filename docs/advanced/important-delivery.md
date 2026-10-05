@@ -57,7 +57,7 @@ if err != nil {
 // If no error, message is definitely in the recipient's mailbox
 ```
 
-The framework sends the message, waits for acknowledgment from the remote node, and reports the outcome. Either the message is in the recipient's mailbox (success) or you get an error explaining what went wrong (failure). No ambiguity.
+The framework sends the message, waits for acknowledgment from the remote node, and reports the outcome. Either the message is in the recipient's mailbox (success) or you get an error explaining what went wrong (failure).
 
 ## How to Use Important Delivery
 
@@ -189,7 +189,7 @@ Without the important flag, `ErrProcessUnknown` looks like timeout - you can't t
 
 ## Combining Call and Response Delivery
 
-Things get interesting when you combine important delivery on requests with important delivery on responses. There are four combinations, each with different guarantees.
+Important delivery on the request and on the response combine into four cases, each with different guarantees.
 
 ### Regular Call + Regular Response
 
@@ -309,7 +309,7 @@ func (h *Handler) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 }
 ```
 
-**Guarantees:** Both request and response delivery are confirmed. The handler definitely receives the request, and the caller definitely receives the response. No ambiguity at any point.
+**Guarantees:** Both request and response delivery are confirmed. The handler receives the request, and the caller receives the response.
 
 **Protocol name:** FR-2PC (Fully-Reliable Two-Phase Commit)
 
@@ -367,7 +367,7 @@ If the coordinator crashes after pre-commit, participants know the outcome was "
 
 But 3PC only works if messages are reliably delivered. If a pre-commit message gets lost and a participant doesn't receive it, the protocol breaks - some participants think we're committing, others are still waiting.
 
-FR-2PC guarantees that messages are delivered or errors are reported. This lets you implement 3PC confidently:
+FR-2PC guarantees that messages are delivered or errors are reported, which is what 3PC needs:
 
 ```go
 type Coordinator struct {
@@ -437,7 +437,7 @@ Use important delivery selectively:
 - **Use for:** Critical state updates, transaction coordination, payment processing, data synchronization
 - **Don't use for:** High-frequency updates, informational messages, monitoring events, retryable operations
 
-Most actor communication doesn't need guarantees. The actor model is resilient because actors handle partial failure gracefully. Important delivery is for the cases where partial failure isn't acceptable - where certainty is worth the cost.
+Most actor communication doesn't need guarantees. Important delivery is for the cases where partial failure isn't acceptable.
 
 ## When the Requester Did Not Block
 
@@ -462,7 +462,7 @@ if err != nil {
 
 Local mailbox operations are synchronous - pushing to the mailbox either succeeds or fails immediately. The important flag is unnecessary because there's no network uncertainty. The framework silently treats local important sends as regular sends.
 
-This means your code works identically for local and remote processes. You can use `SendImportant` everywhere without checking if the target is local or remote - the framework optimizes local communication automatically.
+You can use `SendImportant` without checking whether the target is local or remote.
 
 ## Error Types
 
@@ -488,7 +488,5 @@ Important delivery trades performance for certainty. Messages are guaranteed to 
 - Ambiguous timeouts are unacceptable
 - You're implementing distributed protocols that require guaranteed delivery
 - The cost of retrying without knowing if the first attempt succeeded is high
-
-For most actor communication, fire-and-forget messaging is sufficient. The actor model handles uncertainty through supervision, retries, and eventual consistency. Important delivery is for the cases where uncertainty itself is the problem.
 
 For more on handling synchronous requests, see [Sync Request Handling](handle-sync.md).

@@ -6,8 +6,6 @@ description: Grouping and Managing Actors as a Unit
 
 An application groups related actors and manages them as a unit. Instead of starting individual processes and tracking their lifecycles manually, you define an application that specifies which actors to start, in what order, and how the group should behave if individual actors fail.
 
-Think of an application as a recipe. It lists the components (actors and supervisors), describes their startup order, and specifies the rules for what happens when things go wrong. The node follows this recipe when starting the application and monitors the running components according to the specified mode.
-
 {% hint style="info" %}
 **Migrating to 3.3.x.** The `gen.ApplicationBehavior` interface changed in this release. To adapt an existing application:
 
@@ -37,7 +35,7 @@ New optional callbacks `Init` and `Stop` exist on the interface but are no-op by
 
 Starting processes one at a time works for simple systems. But as complexity grows, you face coordination problems. Which processes should start first? What if one fails to start - do you continue or abort? If a critical component terminates, should the service keep running in a degraded state or shut down cleanly?
 
-These aren't implementation details - they're architectural decisions about your service's structure and fault tolerance policy. Applications let you declare these decisions explicitly rather than scattering the logic throughout your code. The specification documents what your service consists of. The mode declares your termination policy. The framework enforces both.
+Applications let you declare these decisions explicitly rather than scattering the logic throughout your code. The specification documents what your service consists of. The mode declares your termination policy. The framework enforces both.
 
 ## Defining an Application
 
@@ -193,9 +191,7 @@ Per-process `gen.ProcessOptions.InitTimeout` has a hard cap of 15 seconds inside
 
 ## Dependencies
 
-Applications can depend on other applications or network services. If application B depends on application A, the node ensures A is running before starting B. Dependencies are declared in `ApplicationSpec.Depends`.
-
-This allows you to structure complex systems with clear startup ordering. A database connection pool application starts before the API server application. The API server starts before the web frontend application. The framework handles the ordering automatically.
+Applications can depend on other applications or network services. If application B depends on application A, the node ensures A is running before starting B. Dependencies are declared in `ApplicationSpec.Depends`. A database connection pool application starts before the API server application, and the API server before the web frontend application.
 
 ## Network Declarations
 
@@ -237,7 +233,7 @@ A stop is not a restart. The node does not bring a stopped application back; rec
 
 ## Environment and Configuration
 
-Applications have environment variables that all their processes inherit. These override node-level variables but are overridden by process-specific variables. This creates a natural layering: node provides defaults, application provides service-specific values, processes can override for their specific needs.
+Applications have environment variables that all their processes inherit. These override node-level variables but are overridden by process-specific variables.
 
 ## Accessing the Application
 
@@ -334,9 +330,9 @@ Common tag patterns:
 - **Blue/green deployment**: "blue", "green"
 - **Canary rollout**: "canary", "stable"
 - **Maintenance state**: "maintenance", "active", "draining"
+- **Geographic region**: "us-east", "eu-west"
 
 The release itself needs no tag: every route carries `Version` from the application's spec, so `route.Version` already tells one rollout from another. Tags express the role an instance plays in a deployment, which is a different question from which build it runs.
-- **Geographic region**: "us-east", "eu-west"
 
 Tags separate deployment strategy from application code. Your application doesn't know it's the "blue" deployment - that's configuration. The routing logic queries tags and makes decisions based on current cluster state.
 
@@ -387,8 +383,6 @@ Why use mapping:
 - **Remote discovery**: Remote nodes query the map to find process names in foreign applications
 - **Stable interface**: Clients depend on roles ("api", "db"), not implementation details
 
-The map provides a service contract. External code knows the application has an "api" role and a "db" role. The actual implementations can change as long as the roles remain consistent.
-
 ## Exposing a Helper API
 
 An application is invoked by code that lives outside it. If that code sends the application's processes raw messages, it has to know their registered names and construct the right message types by hand. That couples every caller to your internals: rename a process or change a message and every call site breaks.
@@ -428,10 +422,6 @@ The helper receives the caller's handle as an argument rather than reading a pac
 
 An application composed of several sub-components re-exports their helpers under one namespace, so callers depend on the application and never import or name the parts. `application/radar` is the model: `radar.RegisterService` delegates to the health actor and `radar.CounterAdd` to the metrics actor, and a caller never learns radar is assembled from separate health and metrics actors.
 
-## The Application Pattern
-
-Applications provide structure to your actor system. Instead of scattered process creation throughout your code, applications centralize the "what runs in this service" question. The specification documents your system's structure. The mode declares your fault tolerance policy. The dependency mechanism ensures correct startup ordering.
-
-This organization becomes especially valuable in distributed systems where services start on different nodes. An application can be started remotely on another node, bringing all its components with the correct configuration and dependencies.
+An application can be started remotely on another node, bringing all its components with the correct configuration and dependencies.
 
 For more details on application lifecycle and options, refer to the `gen.ApplicationBehavior` and `gen.ApplicationSpec` documentation in the code.

@@ -6,7 +6,7 @@ description: Making distributed communication feel local
 
 Network transparency means the location of a process - whether it's in the same goroutine, on the same node, or on a remote node halfway across the world - doesn't change how you interact with it. You send messages the same way. You make calls with the same API. You establish links and monitors with the same methods. The framework handles the complexity of discovering nodes, encoding messages, and routing them across the network.
 
-This isn't just convenient. It's fundamental to building distributed systems in the actor model. If remote operations looked different from local operations, you'd be constantly checking location and branching your logic. That locality awareness would spread throughout your code, making it brittle and hard to reason about. Network transparency lets you design systems as collections of communicating actors, and deployment topology becomes an operational concern rather than a code concern.
+If remote operations looked different from local operations, you'd be constantly checking location and branching your logic. That locality awareness would spread throughout your code, making it brittle and hard to reason about. Network transparency lets you design systems as collections of communicating actors, and deployment topology becomes an operational concern rather than a code concern.
 
 But transparency has limits. Networks are slower than in-process communication. They fail in ways local operations don't. Messages can be lost. Connections drop. Remote nodes crash or become unreachable. The framework makes remote operations look local, but the network's physical reality still matters.
 
@@ -26,7 +26,7 @@ Behind the scenes, the framework does different things:
 
 **For a remote process**: The node extracts the node name from the `gen.PID`, checks if a connection to that node exists, discovers the node's address if needed, establishes a connection pool if necessary, encodes your `OrderRequest` using EDF, wraps it in a protocol frame, sends it over TCP, and waits for the remote node to acknowledge delivery. The remote node receives the frame, decodes it, routes it to the recipient's mailbox, and sends an acknowledgment back. This takes milliseconds.
 
-From your code's perspective, both operations look identical. The framework abstracts the complexity.
+From your code's perspective, both operations look identical.
 
 ## The Transparency Illusion
 
@@ -38,11 +38,11 @@ Network transparency is an illusion carefully maintained by the framework. Sever
 
 **Location independence** - You can receive a `gen.PID` from anywhere - as a return value, in a message, from a registry lookup - and immediately use it for communication. You don't need to check where it's from or set up connections. The framework handles it.
 
-**Failure semantics** - When you send to a local process that doesn't exist, you get an error immediately. When you send to a remote process that doesn't exist, you get... nothing, by default. The message is sent over the network, and if nobody's listening, it's silently dropped. This asymmetry breaks the transparency illusion. The Important delivery flag fixes this: with Important enabled, sending to a missing remote process gives you an immediate error, just like local delivery. The framework makes the network behave like local memory.
+**Failure semantics** - When you send to a local process that doesn't exist, you get an error immediately. When you send to a remote process that doesn't exist, you get... nothing, by default. The message is sent over the network, and if nobody's listening, it's silently dropped. This asymmetry breaks the transparency illusion. The Important delivery flag fixes this: with Important enabled, sending to a missing remote process gives you an immediate error, just like local delivery.
 
 ## How Messages Cross The Network
 
-When you send a message to a remote process, what actually happens? The framework performs a complex series of operations to transform your Go value into bytes, transmit them over TCP, and reconstruct them on the receiving side. Understanding this flow helps you design efficient distributed systems and debug problems when they arise.
+When you send a message to a remote process, what actually happens? The framework transforms your Go value into bytes, transmits them over TCP, and reconstructs them on the receiving side.
 
 The sequence diagram below shows the complete message transmission pipeline, from the moment you call `Send` to the moment the recipient's `HandleMessage` is invoked:
 
@@ -166,8 +166,6 @@ func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
 // Later, during message sending:
 process.Send(to, Order{ID: 42, Items: []string{"item1"}})  // Uses pre-built encoder
 ```
-
-This approach delivers Protocol Buffers-class performance without `.proto` files or `protoc` code generation.
 
 Registration happens at runtime - no build step, no generated files. You call `node.Network().RegisterType()` from your application's `Load()` callback, and the framework builds the optimized encoders. Framework types like `gen.PID`, `gen.Ref`, and `gen.Event` have native support with specialized encodings. During node handshake, both sides exchange their registered type lists and negotiate short numeric IDs, turning a full type name into 3 bytes on the wire. Field names aren't encoded - only field values in declaration order.
 
@@ -486,7 +484,7 @@ For dynamic type registration (registering types based on runtime configuration 
 
 Most applications register types statically from `Load()` and avoid these complications.
 
-## Legacy Registration API
+## Deprecated Registration API
 
 Earlier versions of the framework exposed registration as package-level functions on `ergo.services/ergo/net/edf`:
 
@@ -549,7 +547,7 @@ During handshake, nodes exchange caching dictionaries for frequently used values
 
 The caches are bidirectional - both nodes maintain the same mappings. During encoding, the sender looks up the cache and uses IDs. During decoding, the receiver looks up IDs and reconstructs values. The cache persists for the connection lifetime. If the connection drops and reconnects, a new handshake creates a new cache.
 
-This caching is automatic. You don't manage the cache or invalidate entries. The framework handles it. You just benefit from smaller messages.
+This caching is automatic: you don't manage the cache or invalidate entries.
 
 To measure how much each registered type actually contributes to network traffic and to identify candidates for compression, build the node with `-tags=typestats`. This enables per-type encode/decode counters and wire-byte totals exposed via `Network().RegisteredTypes()` and visible in the Observer Types panel. Counters increment only on root operations (a type sent or received as a message in its own right); bytes embedded inside other messages are accounted to the parent type. The cost is approximately 2-3% on encode/decode throughput; without the tag there is zero overhead. See [The typestats Tag](../advanced/debugging.md#the-typestats-tag) for details.
 
@@ -579,7 +577,7 @@ With Important delivery:
 
 If the acknowledgment arrives, `SendImportant` returns nil. If an error response arrives, it returns the error. If the timeout expires, it returns `gen.ErrTimeout`.
 
-This gives you the same semantics as local delivery: immediate error feedback when something goes wrong. The network becomes transparent for failures too, not just successes.
+This gives you the same semantics as local delivery: immediate error feedback when something goes wrong.
 
 The cost is latency. Normal `Send` returns immediately - it queues the message and continues. `SendImportant` blocks until the remote node responds, adding a network round-trip. For messages that must be delivered, this cost is worth it. For best-effort messages where occasional loss is acceptable, stick with normal `Send`.
 
@@ -673,7 +671,7 @@ The **order byte** (byte 6) controls message ordering and receive queue routing.
 
 ## Limits of Transparency
 
-Network transparency is powerful but not magical. The network has physical properties that can't be abstracted away.
+The network has physical properties that can't be abstracted away.
 
 **Latency** - Remote operations are slower. A local `Send` takes microseconds. A remote `Send` takes milliseconds. That's three orders of magnitude. For a single message, it's negligible. For thousands of messages, the difference is dramatic. Design systems to minimize remote calls, batch operations, and use asynchronous patterns.
 
@@ -688,8 +686,6 @@ Network transparency is powerful but not magical. The network has physical prope
 Network transparency makes distributed programming feel local. But distributed programming has fundamental differences from local programming. The transparency is a tool that simplifies common cases - it doesn't eliminate the need to think about distributed system challenges.
 
 ## Practical Implications
-
-Understanding network transparency helps you design better distributed systems.
 
 **Use local clustering** - Group processes that communicate frequently on the same node. If processes exchange hundreds of messages per second, put them locally. Their communication is microseconds instead of milliseconds, and you avoid network overhead.
 

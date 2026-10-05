@@ -10,8 +10,6 @@ But real systems often need synchronous patterns. A client makes a request and m
 
 The challenge is satisfying these synchronous requirements without actually blocking the actor. If an actor blocks waiting for a response, it can't process other messages in its mailbox. The actor becomes unresponsive to everything else. This defeats the purpose of the actor model - you want concurrent message processing, not sequential blocking.
 
-This chapter explores how to handle synchronous-style requests while maintaining asynchronous actor behavior. You'll learn how the framework implements request-response, how to handle Call requests efficiently, and how to process them asynchronously even when the caller is blocked waiting.
-
 The caller does not have to be blocked, either. `SendRequest` makes the same request without the wait, and the answer arrives in a callback. Everything on this page applies unchanged: the server sees an ordinary `HandleCall` and cannot tell the difference. See [Requests Without Blocking](async-request.md).
 
 ## The Nature of Synchronous Calls in Actors
@@ -34,7 +32,7 @@ database.Send(QueryRequest{SQL: "SELECT * FROM users"})
 doOtherWork()
 ```
 
-The sender doesn't block. The message goes into the database actor's mailbox. When the database actor processes it, it sends a response message back. The original sender handles that response later in its own message loop. This is how actors achieve massive concurrency - no actor ever blocks waiting, so you can run thousands of actors with a small thread pool.
+The sender doesn't block. The message goes into the database actor's mailbox. When the database actor processes it, it sends a response message back. The original sender handles that response later in its own message loop.
 
 But what if the sender legitimately needs to wait? What if it's an HTTP handler that can't return to the client until the query completes?
 
@@ -55,7 +53,7 @@ From the caller's perspective, this looks synchronous - you call, you wait, you 
 5. The response arrives in the caller's mailbox, waking up the blocked goroutine
 6. The caller's `Call` returns with the result
 
-The caller blocks, but blocking is isolated to that one actor. The actor's goroutine is suspended (cheap), not spinning (expensive). Other actors run normally. The recipient processes the request whenever it gets to it in its mailbox, not immediately. The entire system remains asynchronous, but individual actors can use synchronous-style APIs when needed.
+The caller blocks, but blocking is isolated to that one actor. The actor's goroutine is suspended (cheap), not spinning (expensive). Other actors run normally. The recipient processes the request whenever it gets to it in its mailbox, not immediately.
 
 ## Basic HandleCall Implementation
 
@@ -139,8 +137,6 @@ Note the distinction: `err` from `Call` is a framework-level error (timeout, net
 
 ## Why Not Just Use Channels?
 
-You might wonder: why not just use Go channels for request-response?
-
 ```go
 // Tempting but wrong in actor model
 response := make(chan Result)
@@ -157,8 +153,6 @@ This breaks the actor model in subtle ways:
 **Timeout coordination** - Channels don't have built-in timeouts. You'd wrap them in `select` with `time.After`, but timeout cleanup is tricky. With `Call`, timeouts are built-in, and references have deadlines that the receiver can check.
 
 **No network transparency** - `Call` works identically for local and remote processes. Channels don't. If you use channels for local request-response, your code won't work when you move to a distributed deployment.
-
-The framework's `Call` mechanism is designed specifically for request-response in the actor model, works across the network, and integrates properly with the actor lifecycle.
 
 ## Handling Requests with Worker Pools
 
@@ -226,7 +220,7 @@ This gives you concurrent request processing:
 - Each worker responds directly to its caller
 - Pool remains free to route more requests
 
-The caller's experience is unchanged - they call, they block, they get a result. They don't know about the pool. The concurrency is entirely internal to the server.
+The concurrency is entirely internal to the server.
 
 **Worker resilience:**
 
@@ -537,7 +531,7 @@ Use `SendResponse` for all normal cases, including expected errors (validation, 
 
 Use `SendResponseError` only when the error represents an infrastructure failure that the caller should treat the same as transport errors - retry with backoff, circuit breaking, fallback to alternative services.
 
-If in doubt, use `SendResponse`. It keeps transport and application concerns separate, giving the caller maximum clarity.
+If in doubt, use `SendResponse`. It keeps transport and application concerns separate.
 
 ## Using Ref.IsAlive for Timeout Awareness
 
@@ -742,10 +736,6 @@ This uncertainty is a fundamental problem in distributed systems. The framework'
 
 For many use cases, this is fine. Timeouts are acceptable. Callers can retry. Idempotent operations tolerate retries. But some operations can't tolerate uncertainty. A payment authorization must definitely succeed or definitely fail - timeout isn't acceptable.
 
-The solution is **Important Delivery**. When you enable the Important flag, the framework changes from "best effort" to "confirmed delivery." Responses don't just get sent, they get acknowledged. If the response fails to deliver, you know immediately rather than waiting for timeout.
-
-Important Delivery makes the network transparent for failures, not just successes. It turns request-response from "probably works" into "definitely works or definitely fails, no ambiguity."
-
-We'll explore Important Delivery in depth in the next chapter. For now, understand that everything you've learned about `Call` and `HandleCall` still applies. Important Delivery is a layer on top, not a replacement. You'll still handle requests the same way - the framework just makes delivery more reliable.
+**Important Delivery** narrows that window. With the Important flag set, the receiving side acknowledges that the message reached the target's mailbox, so a delivery failure is reported to the sender instead of surfacing as a timeout. It says nothing about whether the request was processed.
 
 For details on how messages and calls flow through the network, see [Network Transparency](../networking/network-transparency.md). For understanding delivery guarantees, continue to [Important Delivery](important-delivery.md).

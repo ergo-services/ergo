@@ -1,10 +1,10 @@
 # Pool
 
-A single actor processes messages sequentially. This is fundamental to the actor model - it eliminates race conditions and makes reasoning about state straightforward. But it also means one actor can become a bottleneck. If messages arrive faster than the actor can process them, the mailbox grows, latency increases, and eventually the system stalls.
+A single actor processes messages sequentially, which keeps its own state free of concurrent access. It also means one actor can become a bottleneck. If messages arrive faster than the actor can process them, the mailbox grows, latency increases, and eventually the system stalls.
 
 The standard solution is to run multiple workers. Instead of sending requests to one actor, distribute them across several identical actors processing in parallel. This works, but now you need routing logic: pick a worker, check if it's alive, handle mailbox overflow, restart dead workers. This boilerplate appears in every pool implementation.
 
-`act.Pool` solves this. It's an actor that manages a pool of worker actors and automatically distributes incoming messages and requests across them. You send to the pool's PID, the pool forwards to an available worker. The pool handles worker lifecycle, automatic restarts, and load balancing. From the sender's perspective, it's just one actor. Under the hood, it's N workers processing in parallel.
+`act.Pool` is an actor that manages a pool of worker actors and distributes incoming messages and requests across them. You send to the pool's PID, the pool forwards to an available worker. The pool handles worker lifecycle, automatic restarts, and load balancing. From the sender's perspective it is one actor; the work is done by N workers in parallel.
 
 ## Creating a Pool
 
@@ -99,7 +99,7 @@ Forwarding happens for messages in the Main queue (normal priority). The pool ma
    - `ErrProcessMailboxFull` → push worker back, try next worker
 4. **Repeat** until successful or all workers tried
 
-If all workers have full mailboxes, or the pool has no workers left at all, the message is dropped. The pool doesn't have its own buffer beyond the workers' mailboxes. This is intentional - backpressure should propagate to senders. What the pool does before dropping is described in [When No Worker Takes the Message](#when-no-worker-takes-the-message).
+If all workers have full mailboxes, or the pool has no workers left at all, the message is dropped. The pool doesn't have its own buffer beyond the workers' mailboxes. What the pool does before dropping is described in [When No Worker Takes the Message](#when-no-worker-takes-the-message).
 
 The pool forwards Regular messages, Requests, and Events. Exit signals and Inspect requests are handled by the pool itself (they're not forwarded to workers).
 
@@ -137,7 +137,7 @@ func (w *Worker) HandleMessage(from gen.PID, message any) error {
 
 The same applies to `Call` requests. Workers see the original caller's `from` and `ref`. When they return a result or call `SendResponse`, it goes directly to the original caller, bypassing the pool entirely.
 
-This is why forwarding is transparent. The worker doesn't know it's part of a pool. It processes messages as if they were sent directly to it.
+The worker doesn't know it's part of a pool. It processes messages as if they were sent directly to it.
 
 ## Intercepting Pool Messages
 
@@ -278,7 +278,7 @@ Pools are for horizontal scaling of stateless work. If workers need state coordi
 
 ## Patterns and Pitfalls
 
-**Set WorkerMailboxSize** to limit backpressure propagation. Unbounded mailboxes let workers accumulate huge queues, hiding the overload until memory exhausts. Bounded mailboxes cause forwarding to try next worker, eventually reaching the sender with backpressure.
+**Set WorkerMailboxSize**. Unbounded mailboxes let workers accumulate huge queues, hiding the overload until memory exhausts. A bounded mailbox makes forwarding try the next worker, and a message nobody takes is dropped and counted.
 
 **Don't forward Exit signals intentionally**. The pool doesn't forward Exit messages to workers. If you need to broadcast shutdown to all workers, iterate manually and send to each worker PID.
 

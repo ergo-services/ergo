@@ -4,13 +4,13 @@ description: Building production clusters with Ergo technologies
 
 # Building a Cluster
 
-Ergo provides a complete technology stack for building distributed systems. Service discovery, load balancing, failover, observability - all integrated and working together. No external dependencies except the registrar. No API gateways, service meshes, or orchestration layers between your services.
+Service discovery, load balancing, failover and observability are part of the framework. The only external dependency is the registrar.
 
-This chapter shows how to use Ergo technologies to build production clusters. You'll see how service discovery enables automatic load balancing, how the leader actor provides failover, how metrics and Observer give you visibility into cluster state. Each technology solves a specific problem; together they cover the full spectrum of distributed system requirements.
+This chapter shows how those pieces build a production cluster: service discovery driving load balancing, the leader actor providing failover, metrics and Observer giving visibility into cluster state.
 
 ## The Integration Cost Problem
 
-Traditional microservice architectures pay a heavy integration tax. Each service needs:
+A microservice architecture adds integration layers. Each service needs:
 
 - HTTP/gRPC endpoints for communication
 - Client libraries with retry logic and circuit breakers
@@ -62,7 +62,7 @@ graph LR
     style B fill:#dfd
 ```
 
-One network hop. One serialization. Built-in load balancing and failover. This isn't a philosophical difference - it's orders of magnitude less infrastructure to deploy, maintain, and debug.
+One network hop. One serialization. Built-in load balancing and failover.
 
 ## Service Discovery with Registrars
 
@@ -1044,15 +1044,6 @@ func main() {
 - **Inspection**: Observer UI shows processes, mailboxes, network traffic
 - **Configuration**: Update settings via etcd; changes propagate immediately
 
-All of this with:
-- No API gateways
-- No service mesh
-- No load balancer services
-- No orchestration layers
-- No client libraries with retry logic
-
-Just Ergo nodes communicating directly through message passing.
-
 ## Summary
 
 Ergo provides integrated technologies for building production clusters:
@@ -1067,8 +1058,6 @@ Ergo provides integrated technologies for building production clusters:
 | **Remote Spawn** | Dynamic process creation | Core framework |
 | **Remote App Start** | Dynamic application deployment | Core framework |
 | **Configuration** | Hierarchical config management | Registrar feature |
-
-These components eliminate the integration layers that dominate traditional microservice architectures. Instead of building infrastructure, you build applications.
 
 For implementation details, see:
 - [Message Versioning](message-versioning.md)

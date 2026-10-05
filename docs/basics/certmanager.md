@@ -6,8 +6,6 @@ description: TLS Certificate Management
 
 Network communication in production systems needs encryption. TLS provides this, but managing TLS certificates introduces operational challenges. Certificates expire. Security incidents require rotation. Updating certificates traditionally means restarting services, causing downtime.
 
-The naive approach loads certificates at startup from files. When you need to update a certificate, you replace the file and restart the service. For a single service, this works. For distributed systems with dozens of nodes and services, coordinating restarts for certificate updates becomes an operational burden.
-
 Ergo Framework provides `gen.CertManager` for live certificate updates. Load a certificate at startup, and you can update it later without restarting. All components using that certificate manager - node acceptors, web servers, TCP servers - automatically use the updated certificate for new connections.
 
 ## Creating a Certificate Manager
@@ -67,8 +65,6 @@ Components using the certificate manager obtain certificates through `GetCertifi
 The typical pattern involves periodic certificate renewal. A cron job or external process watches for approaching expiration. When renewal is needed, it obtains a new certificate (from Let's Encrypt, an internal CA, or however your infrastructure manages certificates) and calls `Update` on the certificate manager.
 
 The certificate manager is passive - it doesn't handle renewal itself. It provides the mechanism for live updates. Your renewal logic is external, allowing integration with whatever certificate provisioning system you use.
-
-This separation is intentional. Certificate renewal policies vary widely. Some organizations use Let's Encrypt with automated renewal. Others use internal CAs with manual processes. Some rotate certificates on a schedule, others only when necessary. The certificate manager doesn't impose policy - it just enables live updates however you choose to implement them.
 
 ## Mutual TLS
 

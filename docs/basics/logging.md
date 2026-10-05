@@ -6,9 +6,9 @@ description: Logging system and logger implementations
 
 Understanding what happens inside a running system requires logging. But logging in distributed actor systems isn't straightforward. Messages pass between dozens of processes. Processes spawn dynamically, handle requests, and terminate. Network connections form and break. Following a single request's path through the system means tracking its journey across multiple processes, possibly across multiple nodes.
 
-Traditional logging compounds the problem. Each component writes to its own log. Process logs go to one file, network logs to another, node events to a third. When something goes wrong, you're piecing together a timeline from scattered sources, correlating by timestamp and hoping you've found all the relevant entries. It's detective work when you need diagnostic clarity.
+Traditional logging compounds the problem. Each component writes to its own log. Process logs go to one file, network logs to another, node events to a third. When something goes wrong, you're piecing together a timeline from scattered sources, correlating by timestamp and hoping you've found all the relevant entries.
 
-Ergo Framework centralizes the logging flow while keeping distribution flexible. Every log call - whether from a process, meta process, or the node itself - flows through a single logging system. That system distributes messages to registered loggers based on configurable filters. One logger might write everything to the console. Another might write only errors to a file. A third might send metrics to a monitoring system. The architecture is simple: centralized input, filtered distribution to multiple outputs.
+Ergo Framework centralizes the logging flow. Every log call - whether from a process, meta process, or the node itself - flows through a single logging system. That system distributes messages to registered loggers based on configurable filters. One logger might write everything to the console. Another might write only errors to a file. A third might send metrics to a monitoring system.
 
 ## How Messages Flow
 
@@ -18,7 +18,7 @@ The subsystem maintains loggers organized by severity level. Each logger, when r
 
 This is fan-out distribution. A single info-level message goes to every logger registered for info level. The default logger writes it to stdout. A file logger appends it to a file. A metrics logger counts it. Each logger receives the same message and processes it independently.
 
-**Hidden Loggers** (introduced in v3.2.0) - Prefix a logger name with "`.`" to create a hidden logger that's excluded from fan-out. Hidden loggers only receive logs from processes that explicitly call `SetLogger(name)`. This creates truly isolated logging streams - bidirectional isolation. For example, register `".debug"` as a hidden logger, then have a specific process use `SetLogger(".debug")`. That process's logs go only to the hidden logger (not to other loggers), and the hidden logger receives logs only from that process (not from fan-out). This is useful for separating verbose debugging output or creating per-process log files without mixing logs from other processes.
+**Hidden Loggers** (introduced in v3.2.0) - Prefix a logger name with "`.`" to create a hidden logger that's excluded from fan-out. Hidden loggers only receive logs from processes that explicitly call `SetLogger(name)`. This creates isolated logging streams in both directions. For example, register `".debug"` as a hidden logger, then have a specific process use `SetLogger(".debug")`. That process's logs go only to the hidden logger (not to other loggers), and the hidden logger receives logs only from that process (not from fan-out). This is useful for separating verbose debugging output or creating per-process log files without mixing logs from other processes.
 
 You can also use `SetLogger("filename")` to send a process's logs to a specific logger. The process's logs go only to that logger, but the logger still receives fan-out logs from other processes. This routes verbose process logs to a dedicated destination but doesn't create isolation - the logger sees both the process's logs and system-wide fan-out.
 
@@ -48,9 +48,9 @@ Two special levels control behavior rather than representing severity:
 
 One more constant exists and is worth knowing about only so it does not surprise you: `gen.LogLevelSystem`. It sits below Trace, prints as `system`, and is included in `gen.DefaultLogLevels`, so a logger built from the defaults subscribes to it. Nothing in the framework writes at that level - `gen.Log` has no method for it - so it is reserved capacity rather than a level you can use or expect to see.
 
-Trace deserves special mention. It's so verbose that enabling it accidentally could flood storage. You can't enable it dynamically via `SetLevel`. It must be set at startup through `gen.NodeOptions.Log.Level` or `gen.ProcessOptions.LogLevel`. This restriction prevents operational mistakes.
+Trace is so verbose that enabling it accidentally could flood storage. You can't enable it dynamically via `SetLevel`. It must be set at startup through `gen.NodeOptions.Log.Level` or `gen.ProcessOptions.LogLevel`.
 
-Panic also deserves explanation. The framework recovers Go panics that occur inside actor callbacks and logs them at this level. A nil pointer dereference in `HandleMessage`, a failed type assertion in `HandleCall`, an index out of bounds in `Init` are all structural problems in actor code, not operational failures. Logging them at Panic level separates them from the business and technical errors you log at Error level. The framework catches these so your node keeps running, but the Panic log entry tells you something in your code needs fixing. Note that Go's standard library `log.Panic()` actually triggers a panic, while Ergo's `Log().Panic()` simply logs at the Panic severity level without panicking. If you are building actors with `act.Actor`, `act.Supervisor`, or `act.Pool`, you won't need to log at this level yourself. The framework handles it. It becomes relevant only if you implement an actor directly through the `gen.ProcessBehavior` interface and want to recover panics in your own processing loop.
+The framework recovers Go panics that occur inside actor callbacks and logs them at this level. A nil pointer dereference in `HandleMessage`, a failed type assertion in `HandleCall`, an index out of bounds in `Init` are all structural problems in actor code, not operational failures. Logging them at Panic level separates them from the business and technical errors you log at Error level. The framework catches these so your node keeps running, but the Panic log entry tells you something in your code needs fixing. Note that Go's standard library `log.Panic()` actually triggers a panic, while Ergo's `Log().Panic()` simply logs at the Panic severity level without panicking. If you are building actors with `act.Actor`, `act.Supervisor`, or `act.Pool`, you won't need to log at this level yourself. The framework handles it. It becomes relevant only if you implement an actor directly through the `gen.ProcessBehavior` interface and want to recover panics in your own processing loop.
 
 The node starts at `gen.LogLevelInfo`. Processes inherit this unless their spawn options specify otherwise. After startup, you can adjust a process's level dynamically with `SetLevel`, allowing surgical verbosity changes during debugging.
 
@@ -92,7 +92,7 @@ With both `IncludeName` and `IncludeBehavior` enabled, the actor type appears:
 2024-07-31 07:53:57 [info] 6EE4478D-90A29F11: connection established
 ```
 
-These visual distinctions make scanning logs easier. At a glance, you can distinguish node events from process activity, meta process operations from network communications. The format itself tells you what layer of the system generated each message.
+The prefix tells you which layer generated the message.
 
 ## Adding Context with Fields
 
@@ -232,7 +232,7 @@ The `Log` method is called synchronously. If it blocks, it delays the logging pa
 
 ## Process-Based Loggers
 
-A process can act as a logger, receiving log messages through its mailbox. This integrates logging with the actor model.
+A process can act as a logger, receiving log messages through its mailbox.
 
 Implement the `HandleLog` callback in your actor:
 
@@ -263,9 +263,7 @@ pid, err := node.Spawn(createMyLogger, gen.ProcessOptions{})
 node.LoggerAddPID(pid, "mylogger", gen.LogLevelError, gen.LogLevelPanic)
 ```
 
-Process-based logging queues messages asynchronously. The `Log` call places the message in the process's Log mailbox and triggers the process. The process handles log messages through `HandleLog`, processing them sequentially. The code that generated the log continues immediately without waiting.
-
-This queuing prevents blocking. If the logger process is busy or the logging logic is expensive, messages queue and are processed when ready. The logging path stays fast.
+Process-based logging queues messages asynchronously. The `Log` call places the message in the process's Log mailbox and triggers the process. The process handles log messages through `HandleLog`, processing them sequentially. The code that generated the log continues immediately without waiting. If the logger process is busy or the logging logic is expensive, messages queue and are processed when ready.
 
 One detail matters: when a logger process terminates, it's automatically removed from the logging system. No need to call `LoggerDeletePID` explicitly.
 
@@ -291,7 +289,7 @@ node.LoggerAdd("file", rotateLogger)  // No filter = all levels
 
 The colored logger handles debug through panic for console display during development. The rotate logger receives everything and writes to rotating files. Trace messages don't appear anywhere because no logger is registered for trace level.
 
-Loggers can be added and removed dynamically. Start with console logging during development. Add file logging in staging. In production, remove console, keep files, add metrics forwarding. The system adapts without code changes.
+Loggers can be added and removed dynamically. Start with console logging during development. Add file logging in staging. In production, remove console, keep files, add metrics forwarding.
 
 ## Controlling Verbosity
 
@@ -318,7 +316,7 @@ tradingProcess.Log().SetLogger(".trading")
 
 This creates isolation - the trading process logs only to `.trading`, and `.trading` receives only trading process logs. Other processes and loggers are unaffected. Without the hidden logger (using a regular logger name), the logger would also receive fan-out logs from all other processes.
 
-Process-based loggers enable sophisticated handling. A logger process can aggregate metrics - count errors per minute, track which processes log most frequently. It can detect patterns - the same error repeating indicates a stuck condition. It can forward to external systems - send errors to Slack, metrics to Prometheus. As an actor, it maintains state, can be supervised for reliability, and integrates naturally with the rest of your system.
+A logger process can aggregate metrics - count errors per minute, track which processes log most frequently. It can detect patterns - the same error repeating indicates a stuck condition. It can forward to external systems - send errors to Slack, metrics to Prometheus. As an actor it keeps state and can be supervised.
 
 ## Logger Implementations
 
@@ -330,6 +328,6 @@ The framework provides three logger implementations in separate packages for com
 
 **Sentry** (`ergo.services/logger/sentry`) - Forwards panics and errors to a Sentry project. Captures the panic origin stack and tags events by ergo subsystem. Centralized error tracking and alerting for production deployments. Operates alongside your console or file logger rather than replacing them.
 
-All three integrate with the logging system through `node.LoggerAdd`. You can combine them - colored for console during development, rotate for persistent storage, sentry for centralized error tracking - each receiving the same filtered log stream.
+All three are registered through `node.LoggerAdd` and can be combined, each receiving the same filtered log stream.
 
 For implementation details and configuration options, see [Colored](../extra-library/loggers/colored.md), [Rotate](../extra-library/loggers/rotate.md) and [Sentry](../extra-library/loggers/sentry.md) in the extra library documentation.

@@ -6,9 +6,9 @@ description: Spawning processes on remote nodes
 
 Remote spawning means starting a process on another node from your code. You call a method, provide a factory name and options, and a process starts on the remote node. From the caller's perspective, it's nearly identical to spawning locally - you get back a `gen.PID` and can communicate with it immediately.
 
-This capability enables dynamic workload distribution. Your node needs to process a job but doesn't have capacity? Spawn a worker on a remote node with available resources. Your application needs to scale horizontally? Spawn processes across multiple nodes and distribute load. Remote spawning makes the cluster feel like one large computing resource rather than isolated nodes.
+This capability enables dynamic workload distribution. Your node needs to process a job but doesn't have capacity? Spawn a worker on a remote node with available resources. Your application needs to scale horizontally? Spawn processes across multiple nodes and distribute load.
 
-But remote spawning isn't automatic. Security matters. You don't want arbitrary nodes spawning arbitrary processes on your infrastructure. The framework requires explicit permission - the remote node must enable each process factory individually and can restrict which nodes are allowed to use it.
+Remote spawning is not automatic. You don't want arbitrary nodes spawning arbitrary processes on your infrastructure, so the framework requires explicit permission - the remote node must enable each process factory individually and can restrict which nodes are allowed to use it.
 
 ## Security Model
 
@@ -249,7 +249,7 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 
 Now when you use `process.RemoteSpawn`, the remote process receives a copy of the calling process's environment. The remote node reads these values and sets them on the spawned process.
 
-**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `node.Network().RegisterType` (see [Network Transparency](network-transparency.md) for details on the type registry; the legacy `edf.RegisterTypeOf` still works but is deprecated). If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote spawn fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables: any non-serializable value causes the entire spawn request to fail.
+**Important:** Environment variable values must be EDF-serializable. Strings, numbers, booleans work fine. Custom types require registration via `node.Network().RegisterType` (see [Network Transparency](network-transparency.md) for details on the type registry; the package-level `edf.RegisterTypeOf` still works but is deprecated). If an environment variable contains a non-serializable value (e.g., a channel, function, or unregistered struct), the remote spawn fails entirely with an error like `"no encoder for type <type>"`. The framework doesn't skip problematic variables: any non-serializable value causes the entire spawn request to fail.
 
 Environment inheritance only works with `process.RemoteSpawn`. Using `RemoteNode.Spawn` doesn't inherit environment because there's no calling process - it's a node-level operation.
 
@@ -297,6 +297,6 @@ If anything fails (factory not found, access denied, remote node terminating, in
 
 **Heterogeneous clusters** - Different nodes run different process types. Scheduler nodes spawn job processors on worker nodes. API nodes spawn request handlers on computation nodes. Remote spawning enables this separation.
 
-Remote spawning isn't always the right answer. For static topologies where processes have fixed homes, use supervision trees and let supervisors spawn locally. For message-passing workloads where spawning overhead matters, use process pools and distribute work via messages. Remote spawning shines when you need dynamic, on-demand process creation across a cluster.
+Remote spawning isn't always the right answer. For static topologies where processes have fixed homes, use supervision trees and let supervisors spawn locally. For message-passing workloads where spawning overhead matters, use process pools and distribute work via messages. Remote spawning fits dynamic, on-demand process creation across a cluster.
 
 For understanding the underlying network mechanics, see [Network Stack](network-stack.md). For controlling connections to remote nodes, see [Static Routes](static-routes.md).

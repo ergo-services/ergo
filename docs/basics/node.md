@@ -4,9 +4,7 @@ description: What is a Node in Ergo Framework?
 
 # Node
 
-A node is the runtime environment where your actors live. Think of it as the container that hosts processes, routes messages between them, and handles the complexities of distributed communication.
-
-When you start a node, you're launching a complete system with several subsystems working together: process management, message routing, networking, and logging. Each subsystem has a specific responsibility, and they coordinate to provide the foundation for your application.
+A node is the runtime environment where your actors live. It hosts processes, routes messages between them, and runs the network stack.
 
 ## What a Node Provides
 
@@ -14,11 +12,11 @@ When you start a node, you're launching a complete system with several subsystem
 
 **Message Routing** - When a process sends a message, the node figures out where it needs to go. Local process? Route it directly to the mailbox. Remote process? Establish a network connection if needed and send it there. The sender doesn't need to know these details.
 
-**Network Stack** - The node handles all network communication. It discovers other nodes, establishes connections, encodes messages, and manages the complexity of distributed communication. This is what makes network transparency possible.
+**Network Stack** - The node handles all network communication. It discovers other nodes, establishes connections, and encodes messages.
 
 **Pub/Sub System** - Links, monitors, and events all work through a publisher/subscriber mechanism in the node core. When a process terminates or an event fires, the node knows who's subscribed and delivers the notifications. The node provides `EventInfo` to query statistics for a specific event and `EventRangeInfo` for callback-based iteration over all registered events with their per-event counters (messages published, local/remote deliveries).
 
-**Logging** - Every log message goes through the node, which fans it out to registered loggers. This centralized logging makes it easy to capture, filter, and route log output.
+**Logging** - Every log message goes through the node, which fans it out to registered loggers.
 
 ## Starting a Node
 
@@ -52,7 +50,7 @@ Message routing is one of the node's core responsibilities.
 
 When a process sends a message locally, the node simply places it in the recipient's mailbox. The recipient's goroutine wakes up (if it was sleeping), processes the message, and goes back to sleep if no more messages are waiting.
 
-When the message goes to a remote process, things are more interesting. The node checks if a connection exists to the remote node. If not, it discovers the remote node's address (through the registrar or static routes) and establishes a connection. The message is encoded into the Ergo Data Format, optionally compressed, and sent over the network. The remote node receives it, decodes it, and delivers it to the recipient's mailbox.
+When the message goes to a remote process, the node checks if a connection exists to the remote node. If not, it discovers the remote node's address (through the registrar or static routes) and establishes a connection. The message is encoded into the Ergo Data Format, optionally compressed, and sent over the network. The remote node receives it, decodes it, and delivers it to the recipient's mailbox.
 
 From the sender's perspective, both paths look identical. That's network transparency.
 
@@ -64,7 +62,7 @@ The first problem is discovery. When you send to a remote process, the node extr
 
 This default approach works for simple setups but has limitations. You're querying individual hosts, which requires them to be directly reachable. There's no cluster-wide view, no centralized configuration, no way to discover which applications are running where.
 
-That's where etcd or Saturn come in. Instead of each node being its own island with a local registrar, you run a centralized registry service. All nodes register there when they start. All discovery queries go there. The central registrar becomes the source of truth for the cluster, providing not just discovery but configuration management, application tracking, and topology change notifications. It transforms independent nodes into a coordinated cluster.
+That's where etcd or Saturn come in. Instead of each node being its own island with a local registrar, you run a centralized registry service. All nodes register there when they start. All discovery queries go there. The central registrar becomes the source of truth for the cluster, providing not just discovery but configuration management, application tracking, and topology change notifications.
 
 Once a node is discovered, connections are established. Multiple TCP connections form a pool to that node, enabling parallel message delivery. The connections negotiate protocol details during handshake: which protocol version to use, whether compression is supported, what features are enabled. This negotiation allows nodes with different capabilities to work together.
 
@@ -72,7 +70,7 @@ Once a node is discovered, connections are established. Multiple TCP connections
 
 Nodes have environment variables that all processes inherit. This provides a way to configure behavior without hardcoding values. A process can override inherited variables or add its own, creating a hierarchy: process environment overrides parent, which overrides leader, which overrides node.
 
-Environment variables are case-insensitive. Whether you set "database_url" or "DATABASE_URL", the process sees the same value. This eliminates a common source of configuration bugs.
+Environment variables are case-insensitive. Whether you set "database_url" or "DATABASE_URL", the process sees the same value.
 
 ## Shutdown
 
@@ -131,10 +129,6 @@ The check applies to all remote operations: `Send`, `Call`, `Link`, `Unlink`, `M
 
 ## The Node's Role
 
-The node is infrastructure, not application logic. It provides the mechanisms - process management, message routing, networking - that your actors use to accomplish work.
-
-This separation is important. Your actors focus on application logic: handling requests, processing data, managing state. The node handles the plumbing: routing messages, establishing connections, managing lifecycles. You don't write code to discover remote nodes or encode messages. The node does that.
-
-This is what makes the framework approachable. You write actors that send and receive messages, and the node makes it all work, whether processes are local or distributed across a cluster.
+The node is infrastructure, not application logic. It provides the mechanisms - process management, message routing, networking - that your actors use. You do not write code to discover remote nodes or encode messages.
 
 The following chapters dive into specific node capabilities. [Process](process.md) explains the actor lifecycle and operations. [Networking](../networking/network-stack.md) covers distributed communication. [Links and Monitors](links-and-monitors.md) explains how processes track each other.

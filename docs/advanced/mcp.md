@@ -8,7 +8,7 @@ description: What your AI agent can do with a live Ergo cluster over MCP
 
 What that changes in practice: instead of opening a dashboard and deciding which panel to look at, you describe the symptom - "orders are slow since the deploy" - and the agent goes and looks. It lists the nodes, finds the processes with deep mailboxes, reads the one that looks implicated, asks it about itself, follows the message chain onto the next node, and comes back with a cause rather than a screenshot.
 
-Three things make it worth wiring up:
+Three properties matter here:
 
 - **One endpoint covers the whole cluster.** Only the node running Observer needs it. Every other node is already inspectable, because each runs the framework's built-in `system` application - nothing to install, no port to open, no agent to deploy.
 - **The agent reads the real thing.** The same counters, mailboxes, links, logs and profiles the framework maintains for itself, not a metrics summary sampled a minute ago.
@@ -120,7 +120,7 @@ Three of those readings accumulate rather than answer once:
 | `ergo://<node>/stream/{event}` | The actual messages flowing through one event |
 | `ergo://<node>/tracing` | The spans the node emits while tracing is on |
 
-They start collecting when first read, so the first answer is usually near-empty and the second one has what happened in between. This is what makes "watch it and tell me when it recovers" a thing an agent can actually do.
+They start collecting when first read, so the first answer is usually near-empty and the second one has what happened in between. That is what makes "watch it and tell me when it recovers" answerable.
 
 ## One question across the cluster
 

@@ -4,13 +4,13 @@ description: Data Types and Interfaces Used in Ergo Framework
 
 # Generic Types
 
-Ergo Framework uses several specialized types for identifying and addressing processes, nodes, and other entities in the system. Understanding these types is essential for working with the framework.
+Ergo Framework uses several specialized types for identifying and addressing processes, nodes, and other entities in the system.
 
 ## Identifiers and Names
 
 ### gen.Atom
 
-`gen.Atom` is a specialized string used for names - node names, process names, event names. While technically just a string, treating it as a distinct type allows the framework to optimize how these names are handled in the network stack.
+`gen.Atom` is a specialized string used for names - node names, process names, event names.
 
 Atoms appear in single quotes when printed:
 
@@ -209,7 +209,7 @@ func (a *MyActor) HandleMessage(from gen.PID, message any) error {
 }
 ```
 
-Process methods enforce state-based access control. Some operations are only available when the process is in certain states, ensuring actor model constraints are maintained.
+Process methods enforce state-based access control: some operations are only available when the process is in certain states.
 
 ### gen.Network
 
@@ -253,12 +253,10 @@ Processes within the application can access the same interface through `Process.
 
 ## Type Design Philosophy
 
-These types reflect a few design decisions worth understanding.
-
 **Hashing for readability** - Node names are hashed in output to keep logs and traces readable while maintaining uniqueness. Full names can be verbose, especially in distributed systems with descriptive naming.
 
 **Separate types for concepts** - `gen.PID`, `gen.ProcessID`, `gen.Alias`, and `gen.Event` are distinct types even though they could have been unified. Each represents a different way of addressing or identifying something in the system, and the type system helps keep these concepts clear.
 
-**Network-aware design** - Many types include the node name. This isn't just for completeness - it's what enables network transparency. A `gen.PID` tells you not just which process, but which node, allowing the framework to route messages appropriately.
+**Network-aware design** - Many types include the node name. A `gen.PID` tells you not just which process, but which node, which is what lets the framework route a message without a lookup.
 
 For detailed API documentation of these interfaces and types, refer to the godoc comments in the source code.

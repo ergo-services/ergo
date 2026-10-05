@@ -6,7 +6,7 @@ description: Standalone fakes of the gen interfaces, for testing code that consu
 
 Not all code that touches the framework is an actor. A helper that takes a `gen.Process` to make a call, a custom resolver that implements `gen.Resolver`, a constructor that reads configuration from a `gen.Node` - these are ordinary functions, and you test them the ordinary way: give them a dependency you control, run them, and check what happened. `mock` provides that dependency. For each of the framework's interfaces it offers a standalone fake you can hand to the code under test in place of the real thing.
 
-These fakes are deliberately dumb, and it helps to say plainly what they are not: a mock is not the [unit](unit.md) harness in disguise. It runs no actor, starts no goroutine, and never fails your test on its own. It implements an interface, lets you override the methods you care about, and returns safe defaults for the rest. Each example names the type doing the work, so it is always clear which mock you are looking at.
+These fakes are deliberately dumb. A mock runs no actor, starts no goroutine, and never fails your test on its own, unlike the [unit](unit.md) harness. It implements an interface, lets you override the methods you care about, and returns safe defaults for the rest. Each example names the type doing the work, so it is always clear which mock you are looking at.
 
 ## A Dumb Mock
 
@@ -40,7 +40,7 @@ db.OnCall(func(to, request any) (any, error) { return Row{ID: 7}, nil })
 check.NoError(t, db.Send(gen.Atom("audit"), "saved")) // Send was never overridden; it just succeeds
 ```
 
-This is the deliberate difference from [unit](unit.md), and it is worth understanding because it tells you which tool you are holding. The unit harness fails loudly when an actor takes an action you did not set up, because there the unexpected action is the bug under test. A mock makes no such judgment: it is a dependency you are injecting, not the subject of the test, so an unconfigured call is simply a no-op with a sensible result.
+This is the deliberate difference from [unit](unit.md). The unit harness fails loudly when an actor takes an action you did not set up, because there the unexpected action is the bug under test. A mock makes no such judgment: it is a dependency you are injecting, not the subject of the test, so an unconfigured call is simply a no-op with a sensible result.
 
 ## When You Want to Assert What the Code Did
 
@@ -59,7 +59,7 @@ So each type comes as a pair: `mock.NewNode` is the dumb form, `mock.NewNodeT(t)
 
 ## Overrides and Recording Together
 
-The two features compose, and in the order you would want. On a recording mock an override decides the return value while the action is still recorded - the override shapes what the call returns, the recorder simply notes that it happened:
+The two features compose. On a recording mock an override decides the return value while the action is still recorded - the override shapes what the call returns, the recorder simply notes that it happened:
 
 ```go
 p := mock.NewProcessT(t)
@@ -75,9 +75,9 @@ The override runs first, because it is the behavior; the record is taken afterwa
 
 ## Composing Mocks
 
-Some interfaces hand back others: a `gen.Node` exposes a `gen.Log`, a `gen.Network`, and a `gen.Cron`; a `gen.Network` exposes a `gen.Registrar`, which in turn exposes a `gen.Resolver`. You do two separate things with that, and keeping them apart is what keeps it simple.
+Some interfaces hand back others: a `gen.Node` exposes a `gen.Log`, a `gen.Network`, and a `gen.Cron`; a `gen.Network` exposes a `gen.Registrar`, which in turn exposes a `gen.Resolver`. You do two separate things with that.
 
-The first is reading them, and it comes for free. A recording mock wires the sub-mocks it owns to share its recorder, so whatever they do collates into one journal. You use them exactly as on a real node and assert through the parent - here the node's own logger lands in the node's journal:
+The first is reading them. A recording mock wires the sub-mocks it owns to share its recorder, so whatever they do collates into one journal. You use them exactly as on a real node and assert through the parent - here the node's own logger lands in the node's journal:
 
 ```go
 n := mock.NewNodeT(t)

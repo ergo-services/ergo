@@ -4,7 +4,7 @@ Actors communicate through message passing within the framework. But what if you
 
 Port meta-process solves this by wrapping external programs as actors. The external program runs as a child process. You send messages to the Port, and it writes them to the program's stdin. The Port reads from stdout and sends you messages. From your actor's perspective, you're just exchanging messages with another actor - the external program's details are abstracted away.
 
-This enables clean integration with legacy systems, specialized libraries in other languages, or any tool that uses stdin/stdout for communication. The actor model stays intact while bridging to external processes.
+This covers existing programs, libraries in other languages, or any tool that uses stdin/stdout for communication. The actor model stays intact while bridging to external processes.
 
 ## Creating a Port
 

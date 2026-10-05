@@ -8,7 +8,7 @@ Distributed systems evolve. Services gain features, data models change, and depl
 
 EDF gives you two ways to handle this, and which one is right is a business decision, not a technical default. Strict by default: a message is its exact Go type, so changing a struct creates a new, incompatible type, and every change is explicit and caught at compile time. Or opt into schema evolution: EDF tolerates fields appended to the end of a struct, so a node that has not learned a new field keeps working. Strict typing buys deliberate, visible change control; evolution buys less coordination during rolling deploys. Which matters more is a property of your domain, not of the framework.
 
-This article covers both - how to version messages explicitly, and when schema evolution fits instead - so your cluster handles upgrades gracefully.
+This article covers both: how to version messages explicitly, and when schema evolution fits instead.
 
 ## Explicit Versioning
 
@@ -181,11 +181,9 @@ This documentation uses version in type name for examples. The approach keeps re
 
 Whichever you choose, stay consistent across the codebase.
 
-The versioning mechanism is clear. The next question: where should these types live, and who controls their evolution?
-
 ## Message Scopes
 
-The answer depends on how the message is used. Not all messages are equal - some travel between two specific services, others broadcast across the entire cluster.
+Some messages travel between two specific services, others broadcast across the entire cluster.
 
 ### Private Messages
 
@@ -290,7 +288,7 @@ Breaking changes require sign-off from all consumers.
 
 ## Repository Organization
 
-With ownership defined, the repository structure follows naturally. Private contracts live with their receivers. Cluster-wide events live in a shared module.
+Private contracts live with their receivers. Cluster-wide events live in a shared module.
 
 ### Version in Type Name
 
@@ -463,8 +461,6 @@ Because of the last two points, evolution is a deliberate trade, not a free upgr
 
 ## Version Lifecycle
 
-With compatibility rules clear, how do versions evolve over time?
-
 ### When to Create New Version
 
 Any change from the compatibility table above requires a new version. Additionally, create a new version when changing field semantics (same type, different meaning).
@@ -503,7 +499,7 @@ Remove in order:
 
 ## Rolling Upgrades
 
-Back to the scenario from the introduction: you're deploying a new version, nodes restart one by one, and for some time the cluster runs mixed code versions. How do you handle this?
+During a rolling upgrade, nodes restart one by one and the cluster runs mixed code versions for a while.
 
 ### Upgrade Strategy
 
@@ -567,7 +563,7 @@ Single implementation handles V2. ACL converts V1 to V2. When V1 is removed, del
 
 ## Contract Testing
 
-With version handling and ACL in place, how do you verify it actually works? [Contract tests](https://martinfowler.com/articles/microservice-testing/#testing-contract-introduction) verify compatibility:
+[Contract tests](https://martinfowler.com/articles/microservice-testing/#testing-contract-introduction) verify compatibility:
 
 ```go
 func TestPaymentActorAcceptsBothVersions(t *testing.T) {

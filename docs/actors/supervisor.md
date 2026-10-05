@@ -418,7 +418,7 @@ Each instance keeps its own counter, linked to its `args`. The counter survives 
 
 If `taskA` crashes 5 times in 10 seconds, only that instance is dropped. `taskB` is untouched, and `StartChild("worker", taskC)` will spawn a fresh instance with a fresh counter at any time.
 
-This is the canonical pattern for per-request actors, per-connection handlers, per-task workers. One bad input should never cascade into a full pool wipeout.
+This is the canonical pattern for per-request actors, per-connection handlers, per-task workers.
 
 ### Pattern 3: Mixed Restart Semantics
 
@@ -752,9 +752,9 @@ Supervisors provide runtime inspection via the `HandleInspect` method, which is 
 All of these keys use the reserved `ergo:` prefix. A `HandleInspect` you implement is merged on top of them, so your fields are added beside these rather than replacing the set - and one of these is overridden only if you name it with the prefix.
 
 
-The history captures up to 50 recent restart decisions and is the fastest path to diagnose "why is this subtree flapping" without parsing logs. For All For One / Rest For One supervisors only the triggering child is recorded, not the cascading sibling kills.
+The history captures up to 50 recent restart decisions, which is usually enough to see why a subtree is flapping without parsing logs. For All For One / Rest For One supervisors only the triggering child is recorded, not the cascading sibling kills.
 
-The Observer UI displays this information in real-time, letting you monitor supervision trees, track restart patterns, and identify failing components. You can also query this data programmatically:
+The Observer UI displays this information. You can also query it programmatically:
 
 ```go
 // From within a process context
@@ -766,11 +766,9 @@ info, err := node.Inspect(supervisorPID)
 // Returns map[string]string with metrics above
 ```
 
-Both methods only work for local supervisors (same node). This integration makes it easy to diagnose issues in production: check restart counts to identify unstable processes, verify child counts match expected scaling, monitor which instances have custom configurations.
+Both methods only work for local supervisors (same node). Restart counts identify unstable processes, child counts show whether scaling matches expectations, and the per-instance keys show which instances carry custom configurations.
 
 ## Restart Intensity Behavior
-
-Understanding restart intensity is critical for reliable systems. Here's exactly how it works:
 
 The supervisor maintains a list of restart timestamps in milliseconds. When a child terminates and restart is needed:
 
@@ -858,7 +856,7 @@ Simple One For One ignores `DisableAutoShutdown` - the supervisor never auto-shu
 
 **Set restart intensity carefully**. Too low and transient failures kill your supervisor. Too high and crash loops consume resources. Start with defaults (`Intensity: 5, Period: 5`) and tune based on observed behavior.
 
-**Use Significant sparingly**. Marking a child significant couples its lifecycle to the entire supervision tree. This is powerful but reduces isolation. Prefer non-significant children and handle critical failures at a higher supervision level.
+**Use Significant sparingly**. Marking a child significant couples its lifecycle to the entire supervision tree, which reduces isolation. Prefer non-significant children and handle critical failures at a higher supervision level.
 
 **Don't call management methods during restart**. `StartChild`, `AddChild`, `EnableChild`, `DisableChild` fail with `ErrSupervisorStrategyActive` if the supervisor is mid-restart. Wait for the restart to complete (check via `Inspect` or wait for `HandleChildStart` callback).
 
@@ -868,7 +866,7 @@ Simple One For One ignores `DisableAutoShutdown` - the supervisor never auto-shu
 
 **KeepOrder is only for stopping**. Children always start sequentially in declaration order. `KeepOrder` controls only the stopping phase of All For One and Rest For One restarts.
 
-**Simple One For One args are persistent per instance**. Args passed to `StartChild` are stored and used for that specific instance across all restarts. If you start a worker with `StartChild("worker", "config-A")` and it crashes, the restarted instance receives "config-A" again, not the template args from the child spec. This persistence ensures each worker maintains its identity and configuration through failures. If you need different args for a restart, you must manually stop the old instance and start a new one with different args.
+**Simple One For One args are persistent per instance**. Args passed to `StartChild` are stored and used for that specific instance across all restarts. If you start a worker with `StartChild("worker", "config-A")` and it crashes, the restarted instance receives "config-A" again, not the template args from the child spec. If you need different args for a restart, you must manually stop the old instance and start a new one with different args.
 
 **Per-child counter does not protect from a global overflow**. A child with `OnExceedDisable` is still terminated as a side effect when another child overflows the supervisor's global counter. If you need a child to truly survive other children's failures, give every child a per-child `Intensity`, or raise the supervisor-level `Intensity` enough to absorb the noise.
 
@@ -880,7 +878,7 @@ Simple One For One ignores `DisableAutoShutdown` - the supervisor never auto-shu
 
 ## Behavior Cookbook
 
-By the time you reach this section every term in the table below has been introduced. Use it as a quick reference: pick the row that matches the behavior you want and apply the combination on the right.
+Pick the row that matches the behavior you want and apply the combination on the right.
 
 | If you want... | Combination |
 |---|---|

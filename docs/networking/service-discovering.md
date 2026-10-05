@@ -216,7 +216,7 @@ Each filter returns a fresh `ApplicationRoutes`. The original slice is unchanged
 
 ### Load Balancing with Weights
 
-Weights enable intelligent load distribution across application instances.
+Weights distribute load across application instances.
 
 When multiple nodes run the same application, each registration includes a weight. Higher weights indicate preference - nodes with more resources, better performance, or strategic positioning get higher weights. When you resolve an application, you get all instances with their weights:
 
@@ -384,7 +384,7 @@ func (w *Worker) HandleEvent(event gen.MessageEvent) error {
 - **Nodes join/leave** - `EventNodeJoined` / `EventNodeLeft` with node name
 - **Applications lifecycle** - `EventApplicationLoaded`, `EventApplicationStarted`, `EventApplicationStopping`, `EventApplicationStopped`, `EventApplicationUnloaded` with application name, node, weight, and mode
 
-Each registrar defines its own event types in its package (`ergo.services/registrar/etcd` or `ergo.services/registrar/saturn`). The event structures are identical, but you must use the correct package import for your registrar. This lets you react to cluster changes in real-time.
+Each registrar defines its own event types in its package (`ergo.services/registrar/etcd` or `ergo.services/registrar/saturn`). The event structures are identical, but you must use the correct package import for your registrar.
 
 **The embedded registrar** supports events too, with a narrower scope: it reports nodes
 joining and leaving this host. See [Listing Nodes and Membership Events](#listing-nodes-and-membership-events).
@@ -451,7 +451,7 @@ External registrars replace the embedded implementation with centralized discove
 
 The etcd registrar does not poll. A node's registration is an etcd **lease**, renewed over the client's gRPC keep-alive stream, and cluster changes arrive on a **prefix watch** - so a peer appearing or leaving is pushed, not discovered on the next tick. The lease is what makes a dead node disappear on its own: stop renewing and the registration expires with the TTL.
 
-What limits it at scale is etcd itself rather than a polling loop - the write load of many nodes renewing and watching the same prefix. It is a good fit up to roughly 50-70 nodes, and it brings proven reliability, extensive tooling and operational familiarity for teams already running etcd.
+What limits it at scale is etcd itself rather than a polling loop - the write load of many nodes renewing and watching the same prefix. It is a good fit up to roughly 50-70 nodes, and the natural choice for teams already running etcd.
 
 **Saturn registrar** (`ergo.services/registrar/saturn`) is purpose-built for Ergo clusters. It's an external Raft-based registry designed specifically for the framework's communication patterns, holding one persistent connection per node and pushing updates as cluster state changes. Both registrars push rather than poll; the difference at scale is the cost per node of holding the registration, and Saturn is built for clusters of thousands where etcd's write load becomes the ceiling.
 
@@ -507,7 +507,7 @@ The node connects to the registrar during startup. If the connection fails, star
 
 ## Discovery in Practice
 
-Service discovery is invisible during normal operation. You send messages, make calls, establish links - discovery happens automatically behind the scenes.
+Service discovery is invisible during normal operation. You send messages, make calls, establish links, and discovery happens automatically.
 
 Where discovery becomes visible is during debugging and operations. When connections fail, understanding discovery helps diagnose why. Is the registrar unreachable? Is the target node not registered? Are the acceptor configurations incompatible?
 

@@ -332,7 +332,7 @@ Override `HandleInspect` to add fields specific to your routing logic.
 
 ## Use Cases
 
-The router's flexibility comes from composition. A slot's factory is typically a regular actor or another router; pool-per-shard and supervised workers live as siblings of the router, addressed through the node registry rather than nested under the router. The following patterns cover the common production layouts.
+A slot's factory is typically a regular actor or another router; pool-per-shard and supervised workers live as siblings of the router, addressed through the node registry rather than nested under the router. The following patterns cover the common production layouts.
 
 ### Content-based dispatch
 
@@ -539,7 +539,7 @@ What happens on failure:
 - **A pool dies.** SupRoot's OFO supervisor restarts it. The shard name in the registry is rebound to the new pool. The router's next forward resolves to the new pool. Workers inside the pool start fresh; their state and mailboxes are gone.
 - **The router dies.** SupRoot restarts it. Senders that were mid-call see a transient failure; senders using fire-and-forget `Send` see no error directly (the message landed in the router's mailbox before it crashed).
 
-This pattern doesn't preserve per-worker mailboxes across worker crashes. If you have stateful workers whose in-flight queue is critical state, fronting them with a Pool is the wrong choice; use a dedicated single-worker shard with a Supervisor configured for `PreserveMailbox`. That pattern is rare in practice; most sharded systems tolerate at-least-once retries from senders rather than design around mailbox preservation.
+This pattern doesn't preserve per-worker mailboxes across worker crashes. If you have stateful workers whose in-flight queue is critical state, fronting them with a Pool is the wrong choice; use a dedicated single-worker shard with a Supervisor configured for `PreserveMailbox`. That pattern is rare in practice; the usual alternative is at-least-once retries from the senders.
 
 ### CQRS (commands and queries)
 
@@ -683,7 +683,7 @@ return act.RouterOptions{
 - You need supervision policy (intensity limits, restart strategies, mailbox preservation). Supervise the worker externally and let the router resolve its registered name through the registry; don't put `act.Supervisor` in a router slot.
 - The senders can address workers directly by registered name and you don't need a dispatcher between them.
 
-Router and Pool are complementary, not competing. A router that needs capacity per shard routes to a pool registered under each shard's name; the pool and the router live as siblings under a common supervisor. A pool that needs content-based dispatch uses a router in front of it. The two primitives compose by name through the registry, not by nesting.
+A router that needs capacity per shard routes to a pool registered under each shard's name; the pool and the router live as siblings under a common supervisor. A pool that needs content-based dispatch uses a router in front of it. The two primitives compose by name through the registry, not by nesting.
 
 ## Patterns and Pitfalls
 

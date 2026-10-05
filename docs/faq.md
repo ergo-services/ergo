@@ -28,7 +28,7 @@ Go 1.21 or higher. No other dependencies.
 
 The actor model is a concurrency paradigm where independent units (actors, also called processes) communicate exclusively through message passing. Each actor has private state and processes messages one at a time, so nothing inside one actor needs a mutex.
 
-Go's goroutines and channels are powerful but give you no structure for that: identity, supervision, and addressing across nodes are all yours to build. Ergo provides them - one goroutine and one mailbox per process, message-only communication, sequential handling.
+Go's goroutines and channels give you no structure for that: identity, supervision, and addressing across nodes are all yours to build. Ergo provides them - one goroutine and one mailbox per process, message-only communication, sequential handling.
 
 What it does not do is take memory isolation out of your hands. A message between two processes on the same node is handed over as the Go value it is, with no copy: send a map, a slice or a pointer and both processes hold the same memory. Only crossing a node boundary encodes, and that is what copies. Send values, or treat a send as handing over ownership. See [Actor Model](basics/actor-model.md).
 
@@ -86,7 +86,7 @@ See [Service Discovering](networking/service-discovering.md).
 
 ### Do I need Kubernetes or a service mesh?
 
-No. Ergo eliminates the integration tax of traditional microservice architectures. No HTTP or gRPC endpoints to define between services, no sidecar proxies, no API gateways for internal routing. Process-to-process communication is direct through the framework's network layer.
+No. There are no HTTP or gRPC endpoints to define between services, no sidecar proxies, no API gateways for internal routing. Process-to-process communication is direct through the framework's network layer.
 
 Ergo does support Kubernetes for deployment. The [Health](extra-library/actors/health.md) actor provides liveness, readiness, and startup health probes, and the [Metrics](extra-library/actors/metrics.md) actor provides Prometheus metrics on a single port.
 
@@ -186,7 +186,7 @@ An Ergo program is built from many small processes that each do one job and talk
 - **Watch things happen in real time**: a filterable live log stream, the actual messages a producer is publishing as they go out, and a single request traced step by step as it travels from process to process and across machines.
 - **Track down memory leaks and freezes**: live memory and goroutine views, including flame graphs, with no special build and no restart.
 
-And it is not just for looking. From the same screen you can change a process's log level, send it a message, restart or stop it, start and stop parts of the application, and switch tracing on, all on the live system.
+Observer is not read-only. From the same screen you can change a process's log level, send it a message, restart or stop it, start and stop parts of the application, and switch tracing on, all on the live system.
 
 One Observer covers the whole cluster. Every Ergo node exposes itself to Observer automatically, so you run it on one node and move between any of them from the sidebar, reaching each through service discovery or by address.
 
@@ -237,7 +237,7 @@ Yes. Ergo's [Web](meta-processes/web.md) meta-process integrates with standard `
 
 ### Can Ergo be used for AI agent infrastructure?
 
-Yes, and it is particularly well-suited. Each AI agent runs as an isolated process with a mailbox. No shared state between agents, no race conditions. Supervisor trees restart stuck or crashed agents automatically. Multiple agents coordinate through message passing. Agents distribute transparently across cluster nodes as load grows. See [AI Agents](ai-agents.md) for patterns and diagnostics.
+Yes. Each AI agent runs as an isolated process with a mailbox, handling one message at a time. Supervisor trees restart stuck or crashed agents automatically. Multiple agents coordinate through message passing. Agents distribute transparently across cluster nodes as load grows. See [AI Agents](ai-agents.md) for patterns and diagnostics.
 
 ### What is MCP support in Ergo?
 

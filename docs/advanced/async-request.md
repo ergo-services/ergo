@@ -33,7 +33,7 @@ func (a *Reader) HandleResponse(response gen.MessageResponse) error {
 }
 ```
 
-Every request ends in exactly one `HandleResponse`: the result, the error the callee replied with, or `gen.ErrTimeout` when the deadline passes. That guarantee is what makes the pattern usable - whatever you remember about a request, you know it will be settled.
+Every request ends in exactly one `HandleResponse`: the result, the error the callee replied with, or `gen.ErrTimeout` when the deadline passes. Whatever you remember about a request, you know it will be settled.
 
 Returning an error from `HandleResponse` terminates the process, like any other callback. The default implementation, which you get by not writing one, logs the answer as an error and keeps the actor running.
 
