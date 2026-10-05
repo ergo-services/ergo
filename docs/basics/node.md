@@ -62,7 +62,7 @@ The first problem is discovery. When you send to a remote process, the node extr
 
 This default approach works for simple setups but has limitations. You're querying individual hosts, which requires them to be directly reachable. There's no cluster-wide view, no centralized configuration, no way to discover which applications are running where.
 
-That's where etcd or Saturn come in. Instead of each node being its own island with a local registrar, you run a centralized registry service. All nodes register there when they start. All discovery queries go there. The central registrar becomes the source of truth for the cluster, providing not just discovery but configuration management, application tracking, and topology change notifications.
+With etcd or Saturn, instead of each node being its own island with a local registrar, you run a centralized registry service. All nodes register there when they start. All discovery queries go there. The central registrar becomes the source of truth for the cluster, providing not just discovery but configuration management, application tracking, and topology change notifications.
 
 Once a node is discovered, connections are established. Multiple TCP connections form a pool to that node, enabling parallel message delivery. The connections negotiate protocol details during handshake: which protocol version to use, whether compression is supported, what features are enabled. This negotiation allows nodes with different capabilities to work together.
 

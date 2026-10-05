@@ -81,7 +81,7 @@ producer.SendEvent("prices", token, PriceUpdate{...})
 
 The key difference: implicit events give you one notification (termination). Explicit events give you N published messages plus termination notification.
 
-### Why Unification Matters
+### What the Unification Gives
 
 **Consistent behavior** - The same subscription and notification mechanics work for all target types. Once you understand how monitors work for processes, you understand how they work for events.
 
@@ -482,7 +482,7 @@ Network messages sent:   10 (1 per consumer node)
 Delivery rate:           2920438 msg/sec
 ```
 
-### Why This Matters for System Design
+### Patterns It Makes Practical
 
 This optimization enables patterns that would be impractical otherwise:
 
@@ -932,7 +932,6 @@ When a process terminates, cleanup happens in a specific order:
 This ordering ensures:
 - You don't receive notifications after your process starts terminating
 - Subscribers to you receive notifications before your resources are freed
-- No race conditions between notification delivery and cleanup
 
 ## Summary
 

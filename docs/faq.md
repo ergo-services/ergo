@@ -26,7 +26,7 @@ Go 1.21 or higher. No other dependencies.
 
 ### What is the actor model and why use it in Go?
 
-The actor model is a concurrency paradigm where independent units (actors, also called processes) communicate exclusively through message passing. Each actor has private state and processes messages one at a time, so nothing inside one actor needs a mutex.
+The actor model is a concurrency paradigm where independent units (actors, also called processes) communicate exclusively through message passing. Each actor has private state and processes messages one at a time, so that state needs no mutex.
 
 Go's goroutines and channels give you no structure for that: identity, supervision, and addressing across nodes are all yours to build. Ergo provides them - one goroutine and one mailbox per process, message-only communication, sequential handling.
 
@@ -40,7 +40,7 @@ What it does not do is take memory isolation out of your hands. A message betwee
 | State | Shared by default | Private by discipline: nothing else reaches it unless you send a reference |
 | Failure recovery | Manual | Automatic via supervision |
 | Cross-node messaging | Not built in | Same API, transparent |
-| Race conditions | Possible | None inside one actor - it handles one message at a time |
+| Race conditions | Possible | None on state the actor alone reaches - it handles one message at a time |
 
 See [Process](basics/process.md) for details.
 

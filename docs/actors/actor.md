@@ -1,6 +1,6 @@
 # Actor
 
-The actor model requires sequential message processing - each actor handles one message at a time in a dedicated goroutine. This eliminates data races within the actor but shifts complexity to the message handling loop: reading from multiple mailbox queues in priority order, dispatching to different handlers based on message type, managing state transitions, converting exit signals to regular messages when trapping is enabled.
+The actor model requires sequential message processing - each actor handles one message at a time in a dedicated goroutine. That keeps the actor's own state free of concurrent access, and shifts the complexity into the message handling loop: reading from multiple mailbox queues in priority order, dispatching to different handlers based on message type, managing state transitions, converting exit signals to regular messages when trapping is enabled.
 
 You could implement this yourself with `gen.ProcessBehavior`, but you'd rewrite the same logic for every actor. `act.Actor` implements the low-level `gen.ProcessBehavior` interface and provides a higher-level `act.ActorBehavior` interface with four callbacks: `Init` for initialization, `HandleMessage` for asynchronous messages, `HandleCall` for synchronous requests, `Terminate` for cleanup.
 

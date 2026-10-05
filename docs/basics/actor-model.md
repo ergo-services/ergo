@@ -6,11 +6,7 @@ description: The Actor Model and Its Properties
 
 The actor model is a computational approach to building concurrent systems, first proposed in the 1970s. Instead of sharing memory and coordinating through locks, components communicate by sending messages to each other.
 
-## The Fundamental Concept
-
 In the actor model, everything is an actor. An actor is an independent entity that has its own private state and processes incoming messages one at a time. Actors never directly access each other's state. Instead, they send messages and wait for responses if needed.
-
-Without shared state, the concurrency bugs that come from unsynchronized access to it cannot occur.
 
 ## What Makes an Actor
 
@@ -22,15 +18,15 @@ An actor consists of three things:
 
 **Mailbox** - A queue where incoming messages wait to be processed. The actor pulls messages from this queue one at a time.
 
-When an actor receives a message, it can do three things: send messages to other actors, create new actors, or decide how to handle the next message. That's it.
+When an actor receives a message, it can do three things: send messages to other actors, create new actors, or decide how to handle the next message.
 
-## Why Sequential Processing Matters
+## Sequential Processing
 
 Each actor processes messages sequentially, one after another.
 
-Consider what happens in traditional concurrent programming: multiple threads might access the same data simultaneously. To prevent corruption, you need locks. But locks introduce their own problems - deadlocks, race conditions, and complex reasoning about what state the data is in at any given moment.
+In a lock-based design several threads reach the same data, and the locks that keep it consistent bring their own problems: deadlocks, lock ordering, and reasoning about what the data holds at any given moment.
 
-Since only one message is processed at a time, the actor's state can only be in one of a finite number of well-defined states. Within an actor there is nothing to race: only one thing happens at a time.
+Since only one message is processed at a time, state that the actor alone reaches moves from one well-defined value to the next, with no interleaving.
 
 ## Location Transparency
 
@@ -50,20 +46,18 @@ The same messaging API is used for local and remote processes, so code written f
 
 Go has goroutines and channels, which seem similar to actors and message passing. But there's a crucial difference: goroutines are not isolated. They can share memory, which means you still need locks and face the same concurrency challenges as traditional threading.
 
-Ergo Framework brings actor model semantics to Go. Each process is an actor with its own goroutine and its own mailbox, and the only way in is a message. Logic inside an actor stays sequential, while actors run concurrently with each other.
+Ergo Framework brings actor model semantics to Go. Each process is an actor with its own goroutine and its own mailbox, and the only way in is a message. The framework never runs two handlers of the same process at the same time; different processes run concurrently.
 
 One boundary the language cannot enforce for us, and it is worth knowing from the start: **memory isolation is a discipline the framework supports, not a constraint it imposes.** A message between two processes on the same node is handed over as the Go value it is, with no copy and no serialization. Send a map, a slice or a pointer and both processes then hold the same memory, and Go's race detector will say so. Only a message that crosses a node boundary is encoded, and the encoding is what makes the copy.
 
 So "no shared state" is yours to keep: send values rather than references, or treat a send as handing over ownership and stop touching what you sent. The framework ships a vet tool, [argus](../tools/argus.md), whose A1001 rule flags exactly this.
 
-## The Actor Mindset
+## Shared Data as an Actor
 
-Working with the actor model requires a shift in thinking. Instead of thinking about shared data structures protected by locks, you think about independent entities sending messages to each other.
+A typical pattern: instead of several goroutines sharing a cache behind a mutex, the cache is an actor. Reads and writes are messages, handled one at a time, so the map itself is reached from one goroutine only.
 
-A typical pattern: instead of having multiple threads access a shared cache, you have a cache actor. Want to read from the cache? Send it a message. Want to write? Send a different message. The cache actor processes these requests sequentially, so there's no possibility of corruption. No locks needed.
+Partitioning the key space across several cache actors, placing them under a supervisor, or moving them to other nodes does not change how callers address them.
 
-Need more throughput? Add more cache actors, each handling a portion of the key space. Need fault tolerance? Supervise the cache actors, so they restart if they crash. Need distribution? Put cache actors on different machines. The code structure remains the same.
-
-## Moving Forward
+## Next
 
 The following chapters explore how these concepts manifest in Ergo Framework's implementation. [Process](process.md) covers the lifecycle and capabilities of actors. [Node](node.md) explains how actors are managed and how they communicate across networks.

@@ -8,7 +8,7 @@ The network stack makes remote messaging work like local messaging. When you sen
 
 This transparency requires three systems working together: service discovery to find nodes, connection management to establish reliable links, and message encoding to serialize data for transmission. Each system handles a specific problem, and together they create the illusion that remote communication is just local communication.
 
-## The Big Picture
+## Sending to a Remote Process
 
 When you send a message to a remote process:
 

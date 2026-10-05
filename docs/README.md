@@ -1,18 +1,16 @@
 # Overview
 
-Building reliable concurrent and distributed systems is hard. In Go, you might start with goroutines and channels. As the system grows, you add mutexes to protect shared state. Then you need to coordinate across multiple services, so you introduce message queues or RPC. Before long, you're managing synchronization primitives, handling partial failures, and debugging race conditions that only appear under load.
+In Go, you might start with goroutines and channels. As the system grows, you add mutexes to protect shared state. Then you need to coordinate across multiple services, so you introduce message queues or RPC. Before long, you're managing synchronization primitives, handling partial failures, and debugging race conditions that only appear under load.
 
-Ergo Framework offers a different foundation. Think of it as making goroutines addressable and message-passing-only, then extending that model across a cluster. Processes are like goroutines - lightweight, multiplexed onto OS threads - but isolated and communicating only through messages. Each process has an identifier that works whether the process is local or on a remote node. Sending a message looks the same either way.
+Ergo Framework makes goroutines addressable and message-passing-only, and extends that model across a cluster. Processes are like goroutines - lightweight, multiplexed onto OS threads - but reached only through messages. Each process has an identifier that works whether the process is local or on a remote node. Sending a message looks the same either way.
 
 The actor model isn't new. Erlang proved these patterns work for systems requiring massive concurrency and high reliability. Ergo brings them to Go, with no external dependencies and familiar Go idioms.
 
 ## Core Components
 
-The framework consists of a few fundamental pieces that work together.
-
 A **node** provides the runtime environment. It manages process lifecycles, routes messages, handles network connections, and provides services like logging and scheduled tasks. When you start a node, you get infrastructure. When you spawn a process, the node handles the mechanics.
 
-**Processes** are lightweight actors. Each has a mailbox where messages queue up, priority-sorted into urgent, system, main, and log queues. The process handles messages one at a time in its own goroutine. When the mailbox empties, the goroutine sleeps, so an idle process costs no CPU. Sequential message handling means no race conditions within a process.
+**Processes** are lightweight actors. Each has a mailbox where messages queue up, priority-sorted into urgent, system, main, and log queues. The process handles messages one at a time in its own goroutine. When the mailbox empties, the goroutine sleeps, so an idle process costs no CPU. The framework never runs two handlers of the same process at the same time, so state the process keeps to itself needs no synchronization.
 
 **Supervision trees** provide fault tolerance. Supervisors monitor worker processes. When a worker crashes, the supervisor restarts it according to a configured strategy. Supervisors can supervise other supervisors, creating a hierarchy. Failures are isolated to subtrees. The rest of the system continues running while the failed part recovers.
 
@@ -20,9 +18,9 @@ A **node** provides the runtime environment. It manages process lifecycles, rout
 
 ## Network Transparency
 
-The framework treats local and remote processes identically. Send a message to a process on the same node or a process on a remote node - the code is the same. The framework handles the difference.
+The messaging API is the same for local and remote processes. Send a message to a process on the same node or a process on a remote node - the code is the same.
 
-When you send to a remote process, the node extracts the target node from the process identifier, discovers that node's address (through static routes or a registrar), establishes a connection if needed, encodes the message, and sends it. The remote node receives it, decodes it, and delivers it to the target process's mailbox. This happens automatically. Your code just sends a message.
+When you send to a remote process, the node extracts the target node from the process identifier, discovers that node's address (through static routes or a registrar), establishes a connection if needed, encodes the message, and sends it. The remote node receives it, decodes it, and delivers it to the target process's mailbox.
 
 This transparency extends to failure detection. Use the Important delivery flag and you get the same error semantics for remote processes as for local ones. Without it, a message to a missing remote process times out (was it slow or dead?). With it, you get immediate error notification (process doesn't exist), just like local delivery.
 
@@ -30,11 +28,11 @@ Nodes discover each other through a registrar. By default, each node runs a mini
 
 ## What This Enables
 
-You write business logic using message passing between processes. The framework handles concurrency (processes run in parallel but each is sequential internally), fault tolerance (supervisors restart failures), and distribution (messages route automatically to remote processes). You're not writing code to manage connections, encode messages, or handle network failures explicitly.
+You write business logic using message passing between processes. The framework handles connection management, message encoding, routing and remote delivery, and restarts failed processes according to the supervision strategy you declared. The application still decides how to react when a target is gone or a connection drops.
 
-Systems built this way have useful properties. They scale by adding nodes and distributing processes across them. The code doesn't change - deployment topology is operational configuration. They handle failures through supervision rather than defensive programming everywhere. They evolve through composition - add new process types, adjust supervision strategies, change message flows - without restructuring the foundation.
+Processes can be distributed across nodes without changing the code that addresses them: deployment topology is operational configuration. Failures are handled through supervision rather than defensive programming at every call site.
 
-The development experience differs from typical microservices. No REST endpoints to define. No service discovery to configure (it's built in). No serialization libraries to manage (the framework handles it). No retry logic scattered throughout (supervision handles recovery).
+Compared with a typical microservice stack, there are no REST endpoints to define between services, no separate service discovery to configure and no serialization library to choose; the framework provides all three.
 
 ## Performance
 
@@ -44,8 +42,6 @@ Benchmarks measuring message passing, network communication, and serialization p
 
 ## Zero Dependencies
 
-The framework uses only the Go standard library. No external dependencies means no version conflicts, no supply chain vulnerabilities, no surprise breaking changes from third-party packages. The requirement is just Go 1.21 or higher.
-
-The framework's behavior depends only on Go itself. Updates are predictable. Supply chain is simple. The code you write today will compile and run the same way years from now, assuming Go maintains backward compatibility (which it does).
+The framework uses only the Go standard library. No external dependencies means no third-party version conflicts, no third-party supply chain to audit, and no breaking changes arriving from packages you did not choose. The requirement is Go 1.21 or higher, and the framework's behavior depends only on Go itself.
 
 For detailed explanations of these concepts, start with [Actor Model](basics/actor-model.md) and explore the [Basics](basics/actor-model.md) section. For API documentation, see the godoc comments in the source code.
