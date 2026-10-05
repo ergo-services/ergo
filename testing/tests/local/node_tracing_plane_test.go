@@ -61,6 +61,23 @@ func TestNodeTracingExporters(t *testing.T) {
 	check.True(t, contains(nd.TracingExporters(), "second"))
 }
 
+func TestNodeTracingExporterTerminateOnStop(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+	nd := n.Native()
+
+	exporter := &collectingExporter{}
+	check.NoError(t, nd.TracingExporterAdd("onstop", exporter, gen.TracingFlagSend))
+
+	nd.Stop()
+	nd.Wait()
+	check.Equal(t, 1, exporter.terminated())
+	check.True(t, contains(nd.TracingExporters(), "onstop") == false)
+
+	nd.Stop()
+	check.Equal(t, 1, exporter.terminated())
+}
+
 func TestNodeTracingExporterByPID(t *testing.T) {
 	s := stage.New(t)
 	n := s.StartNode("n")

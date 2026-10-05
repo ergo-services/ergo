@@ -1277,6 +1277,11 @@ func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 	n.NetworkStop()
 	atomic.StoreInt64(&n.creation, 0)
 
+	n.tracingExporters.Range(func(k, _ any) bool {
+		n.TracingExporterDelete(k.(string))
+		return true
+	})
+
 	// call terminate loggers
 	loggers := make(map[string]gen.LoggerBehavior)
 	for _, l := range n.loggers {
