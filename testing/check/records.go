@@ -82,10 +82,12 @@ func (r Spawn) String() string {
 }
 
 // RemoteSpawn is a process spawned (or attempted) on a remote node by name
-// (egress). Node is the target node, Name the remote factory name, Register the
-// name to register the child under (empty for a plain RemoteSpawn). On failure
-// Child is the zero PID and Error is set.
+// (egress). From is who asked, Parent the parent of the child (the node's core
+// for a spawn through gen.RemoteNode). Node is the target node, Name the remote
+// factory name, Register the name to register the child under (empty for a plain
+// RemoteSpawn). On failure Child is the zero PID and Error is set.
 type RemoteSpawn struct {
+	From     gen.PID
 	Parent   gen.PID
 	Node     gen.Atom
 	Name     gen.Atom
@@ -97,8 +99,8 @@ type RemoteSpawn struct {
 
 func (RemoteSpawn) Kind() string { return "remote_spawned" }
 func (r RemoteSpawn) String() string {
-	return fmt.Sprintf("RemoteSpawn(parent=%s node=%s name=%s register=%s child=%s err=%v)",
-		r.Parent, r.Node, r.Name, r.Register, r.Child, r.Error)
+	return fmt.Sprintf("RemoteSpawn(from=%s parent=%s node=%s name=%s register=%s child=%s err=%v)",
+		r.From, r.Parent, r.Node, r.Name, r.Register, r.Child, r.Error)
 }
 
 // RemoteApplicationStart is an application started (or attempted) on a remote node by a

@@ -195,8 +195,12 @@ type RemoteSpawnAssert struct{ *Assertion[RemoteSpawn] }
 func (a *Asserter) ShouldRemoteSpawn() *RemoteSpawnAssert {
 	return &RemoteSpawnAssert{For[RemoteSpawn](a.t, a.rec)}
 }
-func (a *RemoteSpawnAssert) From(parent gen.PID) *RemoteSpawnAssert {
-	a.Where(func(r RemoteSpawn) bool { return r.Parent == parent })
+func (a *RemoteSpawnAssert) From(pid gen.PID) *RemoteSpawnAssert {
+	a.Where(func(r RemoteSpawn) bool { return r.From == pid })
+	return a
+}
+func (a *RemoteSpawnAssert) Parent(pid gen.PID) *RemoteSpawnAssert {
+	a.Where(func(r RemoteSpawn) bool { return r.Parent == pid })
 	return a
 }
 func (a *RemoteSpawnAssert) To(node gen.Atom) *RemoteSpawnAssert {

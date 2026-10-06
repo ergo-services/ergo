@@ -18,7 +18,23 @@ type nodeEgressActor struct {
 
 func factoryNodeEgressActor() gen.ProcessBehavior { return &nodeEgressActor{} }
 
+type remoteCmd struct{ Node gen.Atom }
+type remoteSpawnCmd struct{ Node gen.Atom }
+
 func (a *nodeEgressActor) HandleMessage(from gen.PID, message any) error {
+	if c, ok := message.(remoteSpawnCmd); ok {
+		a.RemoteSpawn(c.Node, "unknown", gen.ProcessOptions{})
+		return nil
+	}
+	if c, ok := message.(remoteCmd); ok {
+		remote, err := a.Node().Network().GetNode(c.Node)
+		if err != nil {
+			return err
+		}
+		remote.Spawn("unknown", gen.ProcessOptions{})
+		remote.ApplicationStart("unknown_app", gen.ApplicationOptions{})
+		return nil
+	}
 	switch message {
 	case "application":
 		a.Node().ApplicationStart("unknown_app", gen.ApplicationOptions{})
@@ -70,6 +86,34 @@ func TestStageRecordsNodeApplicationEgress(t *testing.T) {
 		ErrorIs(gen.ErrApplicationUnknown).Once().Within(time.Second).Must()
 	n.ShouldApplicationStop().From(pid).Name("unknown_app").Force(true).
 		Once().Within(time.Second).Must()
+}
+
+func TestStageRecordsNetworkEgress(t *testing.T) {
+	s := stage.New(t)
+	n1 := s.StartNode("netegress")
+	n2 := s.StartNode("netpeer")
+
+	check.True(t, n1.Network().Native() == n1.Native().Network())
+
+	remote, err := n1.Network().GetNode(n2.Name())
+	check.NoError(t, err)
+	remote.Spawn("unknown", gen.ProcessOptions{})
+	n1.ShouldRemoteSpawn().From(n1.PID()).Parent(n1.PID()).To(n2.Name()).Name("unknown").
+		ErrorIs(gen.ErrNameUnknown).Once().Assert()
+	remote.ApplicationStart("unknown_app", gen.ApplicationOptions{})
+	n1.ShouldRemoteApplicationStart().From(n1.PID()).Name("unknown_app").
+		ErrorIs(gen.ErrNameUnknown).Once().Assert()
+
+	pid := n1.Spawn(factoryNodeEgressActor, gen.ProcessOptions{})
+	n1.Send(pid, remoteCmd{Node: n2.Name()})
+	n1.ShouldRemoteSpawn().From(pid).Parent(n1.PID()).To(n2.Name()).Name("unknown").
+		ErrorIs(gen.ErrNameUnknown).Once().Within(time.Second).Must()
+	n1.ShouldRemoteApplicationStart().From(pid).Name("unknown_app").
+		ErrorIs(gen.ErrNameUnknown).Once().Within(time.Second).Must()
+
+	n1.Send(pid, remoteSpawnCmd{Node: n2.Name()})
+	n1.ShouldRemoteSpawn().From(pid).Parent(pid).To(n2.Name()).Name("unknown").
+		ErrorIs(gen.ErrNameUnknown).Once().Within(time.Second).Must()
 }
 
 func TestStageRecordsKill(t *testing.T) {

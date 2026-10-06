@@ -89,9 +89,12 @@ func getDecoder(packet []byte, state *stateDecode) (*decoder, []byte, error) {
 			return nil, nil, errDecodeEOD
 		}
 
-		dec, _, err := decodeType(packet[:n], state)
+		dec, rest, err := decodeType(packet[:n], state)
 		if err != nil {
 			return nil, nil, err
+		}
+		if len(rest) > 0 {
+			return nil, nil, fmt.Errorf("extra data in folded type: %#v", rest)
 		}
 		packet = packet[n:]
 		return dec, packet, nil
@@ -167,9 +170,6 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 		decValue, f, err := decodeType(f, state)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to unfold type (map value): %s", err)
-		}
-		if len(f) > 0 {
-			return nil, nil, fmt.Errorf("extra data in folded type (map): %#v", f)
 		}
 
 		if decKey.Type.Comparable() == false {
@@ -254,19 +254,16 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			Decode: fdec,
 		}
 		if state.options.Cache != nil {
-			state.options.Cache.LoadOrStore(string(fold), &dec)
+			state.options.Cache.LoadOrStore(string(fold[:len(fold)-len(f)]), &dec)
 		}
 
-		return &dec, nil, nil
+		return &dec, f, nil
 
 	case edtSlice:
 		// unfold key type
 		decItem, f, err := decodeType(fold[1:], state)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to unfold type (slice): %s", err)
-		}
-		if len(f) > 0 {
-			return nil, nil, fmt.Errorf("extra data in folded type (slice): %#v", f)
 		}
 
 		vtype := reflect.SliceOf(decItem.Type)
@@ -344,10 +341,10 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			Decode: fdec,
 		}
 		if state.options.Cache != nil {
-			state.options.Cache.LoadOrStore(string(fold), &dec)
+			state.options.Cache.LoadOrStore(string(fold[:len(fold)-len(f)]), &dec)
 		}
 
-		return &dec, nil, nil
+		return &dec, f, nil
 
 	case edtArray:
 		// length of the array
@@ -361,9 +358,6 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 		decItem, f, err := decodeType(fold[5:], state)
 		if err != nil {
 			return nil, nil, fmt.Errorf("unable to unfold type (array): %s", err)
-		}
-		if len(f) > 0 {
-			return nil, nil, fmt.Errorf("extra data in folded type (array): %#v", f)
 		}
 
 		if sz := int(decItem.Type.Size()); sz > 0 && n > maxDecodeArrayBytes/sz {
@@ -408,10 +402,10 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 		}
 
 		if state.options.Cache != nil {
-			state.options.Cache.LoadOrStore(string(fold), &dec)
+			state.options.Cache.LoadOrStore(string(fold[:len(fold)-len(f)]), &dec)
 		}
 
-		return &dec, nil, nil
+		return &dec, f, nil
 
 	case edtReg:
 		return getRegDecoder(fold[1:], state)
@@ -471,7 +465,7 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			Decode: fdec,
 		}
 		if state.options.Cache != nil {
-			state.options.Cache.LoadOrStore(string(fold), &dec)
+			state.options.Cache.LoadOrStore(string(fold[:len(fold)-len(f)]), &dec)
 		}
 
 		return &dec, f, nil

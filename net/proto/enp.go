@@ -254,7 +254,7 @@ func (e *enp) RegisterAtom(a gen.Atom) error   { return edf.RegisterAtom(a) }
 
 func (e *enp) RegisterErrors(errs []error) error {
 	for _, err := range errs {
-		if e := edf.RegisterError(err); e != nil && e != gen.ErrTaken {
+		if e := edf.RegisterError(err); e != nil {
 			return e
 		}
 	}
@@ -263,7 +263,7 @@ func (e *enp) RegisterErrors(errs []error) error {
 
 func (e *enp) RegisterAtoms(atoms []gen.Atom) error {
 	for _, a := range atoms {
-		if err := edf.RegisterAtom(a); err != nil && err != gen.ErrTaken {
+		if err := edf.RegisterAtom(a); err != nil {
 			return err
 		}
 	}

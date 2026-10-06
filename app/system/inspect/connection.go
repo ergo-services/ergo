@@ -37,7 +37,7 @@ func (ic *connection) Init(args ...any) error {
 		ic.Log().Error("unable to register connection event: %s", err)
 		return err
 	}
-	ic.Log().Info("registered event %s", inspectNetwork)
+	ic.Log().Info("registered event %s", evname)
 	ic.event = evname
 	ic.token = token
 	ic.SendAfter(ic.PID(), shutdown{}, inspectConnectionIdlePeriod)
@@ -70,7 +70,7 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 		ev.Info = remote.Info()
 
 		if err := ic.SendEvent(ic.event, ic.token, ev); err != nil {
-			ic.Log().Error("unable to send event %q: %s", inspectNetwork, err)
+			ic.Log().Error("unable to send event %q: %s", ic.event, err)
 			return gen.TerminateReasonNormal
 		}
 
@@ -123,5 +123,5 @@ func (ic *connection) HandleMessage(from gen.PID, message any) error {
 }
 
 func (ic *connection) Terminate(reason error) {
-	ic.Log().Debug("network inspector terminated: %s", reason)
+	ic.Log().Debug("connection inspector terminated: %s", reason)
 }

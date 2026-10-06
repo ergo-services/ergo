@@ -56,12 +56,65 @@ func regTypeName(t reflect.Type) string {
 
 func RegisterTypeOf(v any) error {
 	deprecation("edf.RegisterTypeOf", "node.Network().RegisterType")
-	vov := reflect.ValueOf(v)
-	tov := vov.Type()
+	return registerTypeOf(reflect.TypeOf(v), make(map[reflect.Type]bool))
+}
 
+// checkRegistered reports whether the type is registered already. Another
+// type registered with its name is ErrTaken.
+func checkRegistered(tov reflect.Type) (bool, error) {
+	known, found := typesByName.Load(regTypeName(tov))
+	if found == false {
+		return false, nil
+	}
+	if known.(reflect.Type) == tov {
+		return true, nil
+	}
+	return false, gen.ErrTaken
+}
+
+// registerParts registers the structs and the named scalars a field type is
+// made of, so registering a type registers the types of its fields. A named
+// slice, map or array is not registered: it goes as its underlying type.
+func registerParts(t reflect.Type, visiting map[reflect.Type]bool) error {
+	switch t.Kind() {
+	case reflect.Interface, reflect.Chan, reflect.Func, reflect.UnsafePointer:
+		return nil
+	}
+	switch t.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Array, reflect.Pointer:
+	default:
+		if t.PkgPath() == "" {
+			return nil
+		}
+		if _, found := encoders.Load(t); found {
+			return nil
+		}
+		if visiting[t] {
+			return nil
+		}
+		if err := registerTypeOf(t, visiting); err != nil {
+			return fmt.Errorf("%s: %s", regTypeName(t), err)
+		}
+		return nil
+	}
+	switch t.Kind() {
+	case reflect.Map:
+		if err := registerParts(t.Key(), visiting); err != nil {
+			return err
+		}
+		return registerParts(t.Elem(), visiting)
+
+	case reflect.Slice, reflect.Array, reflect.Pointer:
+		return registerParts(t.Elem(), visiting)
+	}
+	return nil
+}
+
+func registerTypeOf(tov reflect.Type, visiting map[reflect.Type]bool) error {
 	if tov.Kind() == reflect.Pointer {
 		return fmt.Errorf("pointer type is not supported")
 	}
+	v := reflect.Zero(tov).Interface()
 
 	switch v.(type) {
 	case error:
@@ -88,6 +141,9 @@ func RegisterTypeOf(v any) error {
 		// unmarshaling must be implemented as a method of a pointer to the object
 		if reflect.PointerTo(tov).Implements(reflect.TypeOf((*Unmarshaler)(nil)).Elem()) == false {
 			return fmt.Errorf("UnmarshalEDF method of %v must be a method of *%v", tov, tov)
+		}
+		if done, err := checkRegistered(tov); done || err != nil {
+			return err
 		}
 		name := regTypeName(tov)
 
@@ -154,6 +210,9 @@ func RegisterTypeOf(v any) error {
 		if reflect.PointerTo(tov).Implements(reflect.TypeOf((*encoding.BinaryUnmarshaler)(nil)).Elem()) == false {
 			return fmt.Errorf("UnmarshalBinary method of %v must be a method of *%v", tov, tov)
 		}
+		if done, err := checkRegistered(tov); done || err != nil {
+			return err
+		}
 		name := regTypeName(tov)
 
 		fenc := func(value reflect.Value, b *lib.Buffer, _ *stateEncode) error {
@@ -212,20 +271,19 @@ func RegisterTypeOf(v any) error {
 
 	}
 
-	return registerType(tov)
+	return registerType(tov, visiting)
 }
 
-func registerType(tov reflect.Type) error {
+func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 
 	name := regTypeName(tov)
 
-	if _, found := encoders.Load(tov); found {
-		return gen.ErrTaken
+	if done, err := checkRegistered(tov); done || err != nil {
+		return err
 	}
 
-	if _, found := decoders.Load(name); found {
-		return gen.ErrTaken
-	}
+	visiting[tov] = true
+	defer delete(visiting, tov)
 
 	switch tov.Kind() {
 	case reflect.Bool:
@@ -445,6 +503,9 @@ func registerType(tov reflect.Type) error {
 			}
 
 			ft := field.Type
+			if err := registerParts(ft, visiting); err != nil {
+				return fmt.Errorf("%s: %s: %s", name, field.Name, err)
+			}
 			enc, err := getEncoder(ft, &stateEncode{})
 			if err != nil {
 				return fmt.Errorf("(struct field encode) type %v must be registered first: %s", ft, err)
@@ -555,6 +616,9 @@ func registerType(tov reflect.Type) error {
 
 	case reflect.Slice:
 		itemType := tov.Elem()
+		if err := registerParts(itemType, visiting); err != nil {
+			return fmt.Errorf("%s: %s", name, err)
+		}
 
 		// encoder
 		enc, err := getEncoder(itemType, &stateEncode{})
@@ -672,6 +736,9 @@ func registerType(tov reflect.Type) error {
 
 	case reflect.Array:
 		itemType := tov.Elem()
+		if err := registerParts(itemType, visiting); err != nil {
+			return fmt.Errorf("%s: %s", name, err)
+		}
 
 		// encoder
 		enc, err := getEncoder(itemType, &stateEncode{})
@@ -742,6 +809,12 @@ func registerType(tov reflect.Type) error {
 	case reflect.Map:
 		typeKey := tov.Key()
 		typeValue := tov.Elem()
+		if err := registerParts(typeKey, visiting); err != nil {
+			return fmt.Errorf("%s: %s", name, err)
+		}
+		if err := registerParts(typeValue, visiting); err != nil {
+			return fmt.Errorf("%s: %s", name, err)
+		}
 
 		// encoders for key/value
 		encKey, err := getEncoder(typeKey, &stateEncode{})
@@ -1055,7 +1128,7 @@ func RegisterTypesOf(types []any) error {
 		progress := false
 		for _, t := range pending {
 			err := RegisterTypeOf(t)
-			if err == nil || err == gen.ErrTaken {
+			if err == nil {
 				progress = true
 				continue
 			}
@@ -1187,7 +1260,7 @@ func addErrCache(e error) error {
 		return fmt.Errorf("too many registered errors")
 	}
 	if _, exist := errCache.LoadOrStore(e, uint16(id)); exist {
-		return gen.ErrTaken
+		return nil
 	}
 	return nil
 }
@@ -1246,7 +1319,7 @@ func addAtomCache(atom gen.Atom) error {
 		return fmt.Errorf("too many registered atoms")
 	}
 	if _, exist := atomCache.LoadOrStore(atom, uint16(id)); exist {
-		return gen.ErrTaken
+		return nil
 	}
 	return nil
 }

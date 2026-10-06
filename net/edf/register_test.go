@@ -174,7 +174,7 @@ func TestRegisterTypeCacheOverflow(t *testing.T) {
 	atomic.StoreUint32(&regCacheID, math.MaxUint16)
 	defer atomic.StoreUint32(&regCacheID, old)
 
-	if err := registerType(reflect.TypeOf(edfOverflowType(0))); err == nil {
+	if err := registerType(reflect.TypeOf(edfOverflowType(0)), make(map[reflect.Type]bool)); err == nil {
 		t.Fatal("registering past the 65535-type cache limit must return an error")
 	}
 }

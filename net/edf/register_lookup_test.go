@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 )
 
@@ -33,7 +32,7 @@ func TestRegisterNamedScalarIsFoundByName(t *testing.T) {
 
 func TestRegisterDurationIsAlreadyRegistered(t *testing.T) {
 	err := RegisterTypeOf(time.Duration(0))
-	if err != nil && err != gen.ErrTaken {
+	if err != nil {
 		t.Fatalf("registering time.Duration answered %v, which fails an application load", err)
 	}
 }

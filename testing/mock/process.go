@@ -482,7 +482,7 @@ func (p *Process) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessO
 	if p.ov.remoteSpawn != nil {
 		child, err = p.ov.remoteSpawn(node, name, options, args...)
 	}
-	p.put(check.RemoteSpawn{Parent: p.pid, Node: node, Name: name, Child: child, Options: options, Error: err})
+	p.put(check.RemoteSpawn{From: p.pid, Parent: p.pid, Node: node, Name: name, Child: child, Options: options, Error: err})
 	return child, err
 }
 
@@ -491,7 +491,7 @@ func (p *Process) RemoteSpawnRegister(node gen.Atom, name gen.Atom, register gen
 	if p.ov.remoteSpawnRegister != nil {
 		child, err = p.ov.remoteSpawnRegister(node, name, register, options, args...)
 	}
-	p.put(check.RemoteSpawn{Parent: p.pid, Node: node, Name: name, Register: register, Child: child, Options: options, Error: err})
+	p.put(check.RemoteSpawn{From: p.pid, Parent: p.pid, Node: node, Name: name, Register: register, Child: child, Options: options, Error: err})
 	return child, err
 }
 

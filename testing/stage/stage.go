@@ -215,6 +215,39 @@ func (n *Node) PID() gen.PID { return n.node.PID() }
 // Native returns the underlying gen.Node.
 func (n *Node) Native() gen.Node { return n.node }
 
+func (n *Node) Network() *Network {
+	return &Network{Network: n.node.Network(), rec: n.rec, from: n.node.PID(), parent: n.node.PID()}
+}
+
+type Network struct {
+	gen.Network
+	rec    *check.Recorder
+	from   gen.PID
+	parent gen.PID
+}
+
+// Native returns the underlying gen.Network.
+func (n *Network) Native() gen.Network { return n.Network }
+
+func (n *Network) GetNode(name gen.Atom) (gen.RemoteNode, error) {
+	return n.record(n.Network.GetNode(name))
+}
+
+func (n *Network) GetNodeWithRoute(name gen.Atom, route gen.NetworkRoute) (gen.RemoteNode, error) {
+	return n.record(n.Network.GetNodeWithRoute(name, route))
+}
+
+func (n *Network) Node(name gen.Atom) (gen.RemoteNode, error) {
+	return n.record(n.Network.Node(name))
+}
+
+func (n *Network) record(remote gen.RemoteNode, err error) (gen.RemoteNode, error) {
+	if err != nil {
+		return nil, err
+	}
+	return &recordRemoteNode{RemoteNode: remote, from: n.from, parent: n.parent, rec: n.rec}, nil
+}
+
 // ProcessPID returns the PID registered under name on this node, as the node
 // reports it.
 func (n *Node) ProcessPID(name gen.Atom) (gen.PID, error) { return n.node.ProcessPID(name) }
@@ -288,24 +321,25 @@ func (n *Node) EnableApplicationStart(name gen.Atom, nodes ...gen.Atom) {
 	}
 }
 
-// recordRemoteNode wraps the gen.RemoteNode returned by Connect so node-level remote
-// egress is observable: Spawn/SpawnRegister record check.RemoteSpawn and the
-// ApplicationStart* family records check.RemoteApplicationStart, attributed to the
-// local node (from). Queries and Disconnect delegate to the real remote unchanged.
+// recordRemoteNode wraps a gen.RemoteNode so Spawn/SpawnRegister record
+// check.RemoteSpawn and the ApplicationStart* family records
+// check.RemoteApplicationStart, from the one who reached it (from); the parent of
+// a spawn is the node's core. Queries and Disconnect delegate unchanged.
 type recordRemoteNode struct {
 	gen.RemoteNode
-	from gen.PID
-	rec  *check.Recorder
+	from   gen.PID
+	parent gen.PID
+	rec    *check.Recorder
 }
 
 func (r *recordRemoteNode) Spawn(name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	pid, err := r.RemoteNode.Spawn(name, options, args...)
-	r.rec.Put(check.RemoteSpawn{Parent: r.from, Node: r.RemoteNode.Name(), Name: name, Child: pid, Options: options, Error: err})
+	r.rec.Put(check.RemoteSpawn{From: r.from, Parent: r.parent, Node: r.RemoteNode.Name(), Name: name, Child: pid, Options: options, Error: err})
 	return pid, err
 }
 func (r *recordRemoteNode) SpawnRegister(register gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	pid, err := r.RemoteNode.SpawnRegister(register, name, options, args...)
-	r.rec.Put(check.RemoteSpawn{Parent: r.from, Node: r.RemoteNode.Name(), Name: name, Register: register, Child: pid, Options: options, Error: err})
+	r.rec.Put(check.RemoteSpawn{From: r.from, Parent: r.parent, Node: r.RemoteNode.Name(), Name: name, Register: register, Child: pid, Options: options, Error: err})
 	return pid, err
 }
 func (r *recordRemoteNode) ApplicationStart(name gen.Atom, options gen.ApplicationOptions) error {
@@ -335,7 +369,7 @@ func (r *recordRemoteNode) ApplicationStartPermanent(name gen.Atom, options gen.
 // deterministic (polls for the reverse registration rather than sleeping).
 func (s *Stage) Connect(a, b *Node) gen.RemoteNode {
 	s.t.Helper()
-	remote, err := a.node.Network().GetNode(b.node.Name())
+	remote, err := a.Network().GetNode(b.node.Name())
 	if err != nil {
 		s.t.Fatalf("stage: connect %s -> %s: %s", a.node.Name(), b.node.Name(), err)
 	}
@@ -351,7 +385,7 @@ func (s *Stage) Connect(a, b *Node) gen.RemoteNode {
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	return &recordRemoteNode{RemoteNode: remote, from: a.node.PID(), rec: a.rec}
+	return remote
 }
 
 // ConnectMesh dials every ordered pair of nodes concurrently, so each link is
@@ -730,6 +764,10 @@ type recordNode struct {
 	gen.Node
 	rec  *check.Recorder
 	from gen.PID
+}
+
+func (n *recordNode) Network() gen.Network {
+	return &Network{Network: n.Node.Network(), rec: n.rec, from: n.from, parent: n.Node.PID()}
 }
 
 func (n *recordNode) Cron() gen.Cron {
@@ -1227,13 +1265,13 @@ func (p *recordProcess) SpawnRegister(register gen.Atom, factory gen.ProcessFact
 
 func (p *recordProcess) RemoteSpawn(node gen.Atom, name gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	pid, err := p.Process.RemoteSpawn(node, name, options, args...)
-	p.rec.Put(check.RemoteSpawn{Parent: p.Process.PID(), Node: node, Name: name, Child: pid, Options: options, Error: err})
+	p.rec.Put(check.RemoteSpawn{From: p.Process.PID(), Parent: p.Process.PID(), Node: node, Name: name, Child: pid, Options: options, Error: err})
 	return pid, err
 }
 
 func (p *recordProcess) RemoteSpawnRegister(node gen.Atom, name gen.Atom, register gen.Atom, options gen.ProcessOptions, args ...any) (gen.PID, error) {
 	pid, err := p.Process.RemoteSpawnRegister(node, name, register, options, args...)
-	p.rec.Put(check.RemoteSpawn{Parent: p.Process.PID(), Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
+	p.rec.Put(check.RemoteSpawn{From: p.Process.PID(), Parent: p.Process.PID(), Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
 	return pid, err
 }
 

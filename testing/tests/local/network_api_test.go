@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
 	"ergo.services/ergo/testing/stage"
@@ -187,6 +188,36 @@ func TestNetworkRemoteSpawnAndApplicationStartACL(t *testing.T) {
 		check.True(t, contains(e.Nodes, gen.Atom("b@localhost")))
 	}
 	check.NoError(t, net.DisableApplicationStart("worker_app"))
+}
+
+type selfSpawner struct{ act.Actor }
+
+func factorySelfSpawner() gen.ProcessBehavior { return &selfSpawner{} }
+
+func (s *selfSpawner) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	if request == "register" {
+		_, err := s.RemoteSpawnRegister(s.Node().Name(), "worker", "self_worker", gen.ProcessOptions{})
+		return errText(err), nil
+	}
+	_, err := s.RemoteSpawn(s.Node().Name(), "worker", gen.ProcessOptions{})
+	return errText(err), nil
+}
+
+func TestNetworkRemoteSpawnOwnNode(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+	check.NoError(t, n.Native().Network().EnableSpawn("worker", factoryT0))
+	p := n.Spawn(factorySelfSpawner, gen.ProcessOptions{})
+
+	res, err := n.Call(p, "plain")
+	check.NoError(t, err)
+	check.Equal(t, gen.ErrNotAllowed.Error(), res)
+
+	res, err = n.Call(p, "register")
+	check.NoError(t, err)
+	check.Equal(t, gen.ErrNotAllowed.Error(), res)
+	_, err = n.Native().ProcessPID("self_worker")
+	check.True(t, err != nil)
 }
 
 func TestNetworkResolveApplicationUnsupported(t *testing.T) {

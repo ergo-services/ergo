@@ -434,7 +434,7 @@ func init() {
 
 	for _, t := range genTypes {
 		err := RegisterTypeOf(t)
-		if err == nil || err == gen.ErrTaken {
+		if err == nil {
 			continue
 		}
 		panic(err)
@@ -442,7 +442,7 @@ func init() {
 
 	for _, e := range genErrors {
 		err := RegisterError(e)
-		if err == nil || err == gen.ErrTaken {
+		if err == nil {
 			continue
 		}
 		panic(err)

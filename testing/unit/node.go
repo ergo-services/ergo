@@ -228,7 +228,7 @@ func (n *mockNode) routeRemoteSpawn(st *stubs, from gen.PID, node, name, registe
 	if ok == false {
 		pid = n.synthPID()
 	}
-	n.rec.Put(check.RemoteSpawn{Parent: from, Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
+	n.rec.Put(check.RemoteSpawn{From: from, Parent: from, Node: node, Name: name, Register: register, Child: pid, Options: options, Error: err})
 	return pid, err
 }
 

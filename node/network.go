@@ -609,7 +609,7 @@ func (n *network) RegisterType(v any) error {
 	var errs []string
 	for _, r := range regs {
 		err := r.registry.RegisterType(v)
-		if err == nil || err == gen.ErrTaken {
+		if err == nil {
 			continue
 		}
 		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
@@ -628,7 +628,7 @@ func (n *network) RegisterTypes(types []any) error {
 	var errs []string
 	for _, r := range regs {
 		err := r.registry.RegisterTypes(types)
-		if err == nil || err == gen.ErrTaken {
+		if err == nil {
 			continue
 		}
 		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
@@ -647,7 +647,7 @@ func (n *network) RegisterError(e error) error {
 	var errs []string
 	for _, r := range regs {
 		err := r.registry.RegisterError(e)
-		if err == nil || err == gen.ErrTaken {
+		if err == nil {
 			continue
 		}
 		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
@@ -666,7 +666,7 @@ func (n *network) RegisterErrors(list []error) error {
 	var errs []string
 	for _, r := range regs {
 		err := r.registry.RegisterErrors(list)
-		if err == nil || err == gen.ErrTaken {
+		if err == nil {
 			continue
 		}
 		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
@@ -685,7 +685,7 @@ func (n *network) RegisterAtom(a gen.Atom) error {
 	var errs []string
 	for _, r := range regs {
 		err := r.registry.RegisterAtom(a)
-		if err == nil || err == gen.ErrTaken {
+		if err == nil {
 			continue
 		}
 		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
@@ -704,7 +704,7 @@ func (n *network) RegisterAtoms(atoms []gen.Atom) error {
 	var errs []string
 	for _, r := range regs {
 		err := r.registry.RegisterAtoms(atoms)
-		if err == nil || err == gen.ErrTaken {
+		if err == nil {
 			continue
 		}
 		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))

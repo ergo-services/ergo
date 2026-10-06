@@ -195,7 +195,7 @@ func TestSmokeRemoteNode(t *testing.T) {
 	rn.OnApplicationStart("app").Fail(gen.ErrNameUnknown)
 
 	a.SendMessage(gen.PID{}, "spawn")
-	a.ShouldRemoteSpawn().From(a.PID()).To("peer@localhost").Name("svc").
+	a.ShouldRemoteSpawn().From(a.PID()).Parent(a.Node().PID()).To("peer@localhost").Name("svc").
 		Child(gen.PID{Node: "peer@localhost", ID: 42}).Once().Assert()
 
 	a.SendMessage(gen.PID{}, "start-app")
@@ -279,7 +279,7 @@ func TestSmokeUnregisterEventRecord(t *testing.T) {
 func TestSmokeRemoteSpawnRecord(t *testing.T) {
 	a, _ := unit.Spawn(t, factoryArtifactor, gen.ProcessOptions{})
 	a.SendMessage(gen.PID{}, "remote-spawn")
-	a.ShouldRemoteSpawn().From(a.PID()).To(gen.Atom("peer@host")).Name(gen.Atom("worker")).Once().Assert()
+	a.ShouldRemoteSpawn().From(a.PID()).Parent(a.PID()).To(gen.Atom("peer@host")).Name(gen.Atom("worker")).Once().Assert()
 	a.SendMessage(gen.PID{}, "remote-spawn-register")
 	a.ShouldRemoteSpawn().To(gen.Atom("peer@host")).Register(gen.Atom("w1")).Once().Assert()
 }

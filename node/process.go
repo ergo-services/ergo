@@ -376,6 +376,10 @@ func (p *process) RemoteSpawnRegister(
 		return gen.PID{}, gen.ErrNotAllowed
 	}
 
+	if p.node.Name() == node {
+		return gen.PID{}, gen.ErrNotAllowed
+	}
+
 	opts := gen.ProcessOptionsExtra{
 		ProcessOptions: options,
 		ParentPID:      p.pid,

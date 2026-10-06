@@ -423,7 +423,7 @@ func (r *mockRemoteNode) doSpawn(register, name gen.Atom, options gen.ProcessOpt
 		pid, err = res.pid, res.err
 	}
 	r.net.node.rec.Put(check.RemoteSpawn{
-		Parent: r.net.node.subjectPID, Node: r.name, Name: name,
+		From: r.net.node.subjectPID, Parent: r.net.node.PID(), Node: r.name, Name: name,
 		Register: register, Child: pid, Options: options, Error: err,
 	})
 	return pid, err
