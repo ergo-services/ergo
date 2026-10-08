@@ -98,6 +98,10 @@ The [Leader](extra-library/actors/leader.md) actor uses a Raft-inspired consensu
 
 Yes. [ergo.cloud](https://ergo.cloud) is a managed overlay network that connects Ergo nodes across AWS, GCP, Azure, and bare metal into one transparent cluster without VPNs, proxies, or tunnels. End-to-end encrypted. Currently available via waitlist.
 
+### How do I pass money amounts in messages?
+
+Use `decimal.Decimal` from `ergo.services/ergo/lib/decimal`, not `float64`. It holds 36 significant digits exactly in 16 bytes, arithmetic does not allocate, and EDF encodes it in 2 to 18 bytes. The method set follows `github.com/shopspring/decimal`, so code using it moves over by changing the import path. See the [package documentation](https://pkg.go.dev/ergo.services/ergo/lib/decimal).
+
 ## Pub/Sub
 
 ### How does distributed Pub/Sub work in Ergo?
