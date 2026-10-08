@@ -1,17 +1,24 @@
 // Package ping measures message throughput between processes: one sender to one
 // receiver, and one pair per CPU, both on a single node and across a network
-// connection between two nodes.
+// connection between two nodes; the round trip of one pair (a message there, the
+// answer back, the next one after it), on a node and across the network; one
+// sender of big messages across the network, each one cut into fragments on the
+// way.
 //
 // What is measured: the window opens before the senders are triggered and
 // closes when the last receiver has handled the last message, so the reported
 // msg/sec is the rate messages are carried end to end - the send loops
 // included, not the rate Send is called at. Each scenario carries b.N messages
-// in total, split evenly across the pairs.
+// in total, split evenly across the pairs; a round trip scenario makes b.N round
+// trips.
 //
 // Run it with `make bench`, or with an exact message count instead of a
 // duration:
 //
 //	go test -run XXX -bench . -benchmem -benchtime 14000000x ./testing/benchmarks/ping
+//
+// With BENCH_UNORDERED set the senders do not keep the network order (a TCP of
+// the pool and a decoder per message, not per sender and receiver).
 package ping
 
 import (
@@ -30,14 +37,23 @@ import (
 
 const (
 	pongName gen.Atom = "pong"
+	echoName gen.Atom = "echo"
 	done     gen.Atom = "done"
+
+	// the size of a message of NetworkBig: cut into fragments of
+	// gen.DefaultFragmentSize bytes on the way
+	big = 1 << 20
 )
+
+// unordered: BENCH_UNORDERED is set, the senders do not keep the network order
+var unordered = os.Getenv("BENCH_UNORDERED") != ""
 
 type send struct{}
 
 type pingOptions struct {
-	remote gen.Atom
-	n      int
+	remote  gen.Atom
+	n       int
+	message any
 
 	ready    chan struct{}
 	finished chan struct{}
@@ -56,6 +72,11 @@ type ping struct {
 
 func (p *ping) Init(args ...any) error {
 	p.options = args[0].(pingOptions)
+	if unordered == true {
+		if err := p.SetKeepNetworkOrder(false); err != nil {
+			return err
+		}
+	}
 
 	if p.options.remote == "" {
 		pid, err := p.Spawn(factoryPong, gen.ProcessOptions{}, p.options.n)
@@ -83,7 +104,7 @@ func (p *ping) HandleMessage(from gen.PID, message any) error {
 	switch message.(type) {
 	case send:
 		for i := 0; i < p.options.n; i++ {
-			if err := p.SendPID(p.pair, 1); err != nil {
+			if err := p.SendPID(p.pair, p.options.message); err != nil {
 				return err
 			}
 		}
@@ -151,7 +172,7 @@ func startNode(b *testing.B, tag string, acceptors ...gen.AcceptorOptions) gen.N
 	return node
 }
 
-func benchmark(b *testing.B, np int, host gen.Node, spawn func(o pingOptions) (gen.PID, error)) {
+func benchmark(b *testing.B, np int, message any, host gen.Node, spawn func(o pingOptions) (gen.PID, error)) {
 	per := b.N / np
 	if per == 0 {
 		per = 1
@@ -164,6 +185,7 @@ func benchmark(b *testing.B, np int, host gen.Node, spawn func(o pingOptions) (g
 	for i := 0; i < np; i++ {
 		options[i] = pingOptions{
 			n:        per,
+			message:  message,
 			ready:    make(chan struct{}),
 			finished: make(chan struct{}),
 		}
@@ -198,26 +220,115 @@ func benchmark(b *testing.B, np int, host gen.Node, spawn func(o pingOptions) (g
 
 func local(b *testing.B, np int) {
 	node := startNode(b, "local")
-	benchmark(b, np, node, func(o pingOptions) (gen.PID, error) {
+	benchmark(b, np, 1, node, func(o pingOptions) (gen.PID, error) {
 		return node.Spawn(factoryPing, gen.ProcessOptions{}, o)
 	})
 }
 
-func network(b *testing.B, np int, acceptors ...gen.AcceptorOptions) {
+// nodes starts two nodes, connected, the second one spawning name for the
+// first one.
+func nodes(b *testing.B, name gen.Atom, factory gen.ProcessFactory, acceptors ...gen.AcceptorOptions) (gen.Node, gen.Node) {
 	nodeping := startNode(b, "net_ping", acceptors...)
 	nodepong := startNode(b, "net_pong", acceptors...)
 
-	if err := nodepong.Network().EnableSpawn(pongName, factoryPong); err != nil {
+	if err := nodepong.Network().EnableSpawn(name, factory); err != nil {
 		b.Fatalf("unable to enable remote spawn: %s", err)
 	}
 	if _, err := nodeping.Network().GetNode(nodepong.Name()); err != nil {
 		b.Fatalf("unable to connect the nodes: %s", err)
 	}
+	return nodeping, nodepong
+}
 
-	benchmark(b, np, nodeping, func(o pingOptions) (gen.PID, error) {
+func network(b *testing.B, np int, message any, acceptors ...gen.AcceptorOptions) {
+	nodeping, nodepong := nodes(b, pongName, factoryPong, acceptors...)
+	benchmark(b, np, message, nodeping, func(o pingOptions) (gen.PID, error) {
 		o.remote = nodepong.Name()
 		return nodeping.Spawn(factoryPing, gen.ProcessOptions{}, o)
 	})
+}
+
+type volleyOptions struct {
+	partner  gen.PID
+	n        int
+	finished chan struct{}
+}
+
+func factoryVolley() gen.ProcessBehavior {
+	return &volley{}
+}
+
+// volley plays round trips with its partner: a message there, the answer
+// back, n times; closes finished at the end.
+type volley struct {
+	act.Actor
+
+	options volleyOptions
+	left    int
+}
+
+func (v *volley) Init(args ...any) error {
+	v.options = args[0].(volleyOptions)
+	v.left = v.options.n
+	if unordered == true {
+		return v.SetKeepNetworkOrder(false)
+	}
+	return nil
+}
+
+func (v *volley) HandleMessage(from gen.PID, message any) error {
+	if _, serve := message.(send); serve == false {
+		v.left--
+		if v.left == 0 {
+			close(v.options.finished)
+			return nil
+		}
+	}
+	return v.SendPID(v.options.partner, 1)
+}
+
+func factoryEcho() gen.ProcessBehavior {
+	return &echo{}
+}
+
+// echo answers every message to its sender.
+type echo struct {
+	act.Actor
+}
+
+func (e *echo) Init(args ...any) error {
+	if unordered == true {
+		return e.SetKeepNetworkOrder(false)
+	}
+	return nil
+}
+
+func (e *echo) HandleMessage(from gen.PID, message any) error {
+	return e.SendPID(from, 1)
+}
+
+// rtt makes b.N round trips between a volley on host and partner.
+func rtt(b *testing.B, host gen.Node, partner gen.PID) {
+	finished := make(chan struct{})
+	pid, err := host.Spawn(factoryVolley, gen.ProcessOptions{}, volleyOptions{
+		partner:  partner,
+		n:        b.N,
+		finished: finished,
+	})
+	if err != nil {
+		b.Fatalf("unable to spawn volley: %s", err)
+	}
+
+	b.ResetTimer()
+	start := time.Now()
+	if err := host.Send(pid, send{}); err != nil {
+		b.Fatalf("unable to trigger the volley: %s", err)
+	}
+	<-finished
+	elapsed := time.Since(start)
+	b.StopTimer()
+
+	b.ReportMetric(float64(b.N)/elapsed.Seconds(), "rtt/sec")
 }
 
 func BenchmarkLocal11(b *testing.B) {
@@ -229,11 +340,42 @@ func BenchmarkLocalNN(b *testing.B) {
 }
 
 func BenchmarkNetwork11(b *testing.B) {
-	network(b, 1)
+	network(b, 1, 1)
 }
 
 func BenchmarkNetworkNN(b *testing.B) {
-	network(b, runtime.NumCPU(), gen.AcceptorOptions{
+	network(b, runtime.NumCPU(), 1, gen.AcceptorOptions{
 		Handshake: handshake.Create(handshake.Options{PoolSize: runtime.NumCPU() / 2}),
 	})
+}
+
+func BenchmarkLocalRtt(b *testing.B) {
+	node := startNode(b, "local")
+	pid, err := node.Spawn(factoryEcho, gen.ProcessOptions{})
+	if err != nil {
+		b.Fatalf("unable to spawn echo: %s", err)
+	}
+	rtt(b, node, pid)
+}
+
+func BenchmarkNetworkRtt(b *testing.B) {
+	nodeping, nodepong := nodes(b, echoName, factoryEcho)
+	remote, err := nodeping.Network().Node(nodepong.Name())
+	if err != nil {
+		b.Fatalf("unable to get the remote node: %s", err)
+	}
+	pid, err := remote.Spawn(echoName, gen.ProcessOptions{})
+	if err != nil {
+		b.Fatalf("unable to spawn echo: %s", err)
+	}
+	rtt(b, nodeping, pid)
+}
+
+func BenchmarkNetworkBig(b *testing.B) {
+	payload := make([]byte, big)
+	for i := range payload {
+		payload[i] = 7
+	}
+	b.SetBytes(big)
+	network(b, 1, payload)
 }

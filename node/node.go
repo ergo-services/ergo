@@ -117,8 +117,7 @@ type node struct {
 
 	coreEventsToken gen.Ref
 
-	enableCTRLC atomic.Bool
-	ctrlc       chan os.Signal
+	ctrlc chan os.Signal
 
 	processesSpawned     uint64
 	processesSpawnFailed uint64
@@ -232,7 +231,8 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 
 		loggers: make(map[gen.LogLevel]*sync.Map),
 
-		wait: make(chan struct{}),
+		wait:  make(chan struct{}),
+		ctrlc: make(chan os.Signal, 1),
 	}
 	node.core = node
 	if extra.WrapCore != nil {
@@ -325,6 +325,10 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 		}
 	}
 
+	// before the applications start, so an application can turn it off from Init
+	node.SetCTRLC(true)
+	go node.waitCTRLC()
+
 	if len(options.Applications) > 0 {
 		node.log.Trace("starting application(s)...")
 		for _, app := range options.Applications {
@@ -345,9 +349,6 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 	}
 
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
-
-	// enable SIGTERM
-	node.SetCTRLC(true)
 
 	return node, nil
 }
@@ -2830,39 +2831,32 @@ func (n *node) dolog(message gen.MessageLog, loggername string) {
 }
 
 func (n *node) SetCTRLC(enable bool) {
-
-	if swapped := n.enableCTRLC.CompareAndSwap(!enable, enable); swapped == false {
-		n.Log().Info("handling SIGTERM is already set: %t", enable)
+	if n.isRunning() == false {
 		return
 	}
 
-	go func() {
-		if n.enableCTRLC.Load() == false {
-			if n.ctrlc != nil {
-				close(n.ctrlc)
-				n.ctrlc = nil
-			}
-			return
-		}
-
-		n.ctrlc = make(chan os.Signal, 1)
+	if enable {
 		signal.Notify(n.ctrlc, os.Interrupt, syscall.SIGTERM)
+		return
+	}
 
-		if sig := <-n.ctrlc; sig == nil {
-			// closed channel. shutdown is in progress already
-			return
-		}
-
-		signal.Reset()
-
-		n.Log().Info("node %s is starting a graceful shutdown...", n.name)
-		n.Stop()
-	}()
+	signal.Stop(n.ctrlc)
 }
 
 //
 // private
 //
+
+func (n *node) waitCTRLC() {
+	select {
+	case <-n.ctrlc:
+		signal.Stop(n.ctrlc)
+		n.Log().Info("node %s is starting a graceful shutdown...", n.name)
+		n.Stop()
+	case <-n.wait:
+		signal.Stop(n.ctrlc)
+	}
+}
 
 func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra) (gen.PID, error) {
 	var empty gen.PID
