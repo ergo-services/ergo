@@ -227,6 +227,10 @@ func (m *metaHeartbeat) HandleCall(from gen.PID, ref gen.Ref, request any) (any,
 	return nil, nil
 }
 
+func (m *metaHeartbeat) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 // counterParent counts what its meta sends it.
 type counterParent struct {
 	act.Actor

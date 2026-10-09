@@ -256,6 +256,10 @@ func (p *port) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	return nil, nil
 }
 
+func (p *port) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (p *port) Terminate(reason error) {
 	if p.cmd != nil {
 		p.in.Close()

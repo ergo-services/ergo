@@ -182,16 +182,22 @@ func sendTarget(to any) bool {
 func (n *mockNode) routeSendRequest(st *stubs, p *mockProcess, to any, request any,
 	options gen.RequestOptions) (gen.Ref, error) {
 
+	if p.requests == nil {
+		p.requests = make(map[gen.Ref]*unitRequest)
+	}
+	return n.routeRequest(st, p.pid, p.requests, to, request, options)
+}
+
+func (n *mockNode) routeRequest(st *stubs, from gen.PID, requests map[gen.Ref]*unitRequest,
+	to any, request any, options gen.RequestOptions) (gen.Ref, error) {
+
 	err, _ := resolveFail(st.send, to)
 	ref := n.synthRef()
 	if err == nil {
-		if p.requests == nil {
-			p.requests = make(map[gen.Ref]*unitRequest)
-		}
-		p.requests[ref] = &unitRequest{label: options.Label, priority: options.Priority}
+		requests[ref] = &unitRequest{label: options.Label, priority: options.Priority}
 	}
 	n.rec.Put(check.SendRequest{
-		From:     p.pid,
+		From:     from,
 		To:       to,
 		Request:  request,
 		Ref:      ref,

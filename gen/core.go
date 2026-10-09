@@ -10,6 +10,9 @@ type Core interface {
 	RouteSendExit(from PID, to PID, reason error) error
 	RouteSendResponse(from PID, to PID, options MessageOptions, message any) error
 	RouteSendResponseError(from PID, to PID, options MessageOptions, err error) error
+	// RouteSendAck delivers an acknowledgement to the process waiting for it,
+	// never to a reply-to of the ref.
+	RouteSendAck(from PID, to PID, options MessageOptions, result error) error
 
 	// call requests
 	RouteCallPID(from PID, to PID, options MessageOptions, message any) error

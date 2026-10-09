@@ -683,7 +683,7 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	}
 
 	order := uint8(from.ID%255 + 1)
-	orderPeer := uint8(to.ID[1]%255 + 1)
+	orderPeer := uint8(to.ID[0]%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
@@ -944,6 +944,58 @@ func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.Mes
 	binary.BigEndian.PutUint64(buf.B[h+41:h+49], options.Ref.ID[2])
 
 	return c.send(buf, order, options.Compression, options.Tracing)
+}
+
+func (c *connection) SendAck(from gen.PID, to gen.PID, options gen.MessageOptions, result error) error {
+	if c.peer_flags.EnableAck == false {
+		options.ImportantDelivery = false
+		return c.SendResponseError(from, to, options, result)
+	}
+
+	if to.Creation != c.peer_creation {
+		return gen.ErrProcessIncarnation
+	}
+
+	order := uint8(from.ID%255 + 1)
+	orderPeer := uint8(to.ID%255 + 1)
+	if options.KeepNetworkOrder == false {
+		order = uint8(0)
+		orderPeer = uint8(0)
+	}
+
+	buf := lib.TakeBuffer()
+	h := protoWrapReserve
+	buf.Allocate(h + 8 + 8 + 1 + 8 + 24 + 1)
+	switch result {
+	case nil:
+		buf.B[h+49] = 0
+	case gen.ErrProcessUnknown:
+		buf.B[h+49] = 1
+	case gen.ErrProcessMailboxFull:
+		buf.B[h+49] = 2
+	case gen.ErrProcessTerminated:
+		buf.B[h+49] = 3
+	default:
+		buf.B[h+49] = 255
+		if e := edf.Encode(result, buf, c.encodeOptions); e != nil {
+			lib.ReleaseBuffer(buf)
+			return e
+		}
+	}
+
+	buf.B[h+0] = protoMagic
+	buf.B[h+1] = protoVersion
+	binary.BigEndian.PutUint32(buf.B[h+2:h+6], uint32(buf.Len()-h))
+	buf.B[h+6] = orderPeer
+	buf.B[h+7] = protoMessageAck
+	binary.BigEndian.PutUint64(buf.B[h+8:h+16], from.ID)
+	buf.B[h+16] = 0
+	binary.BigEndian.PutUint64(buf.B[h+17:h+25], to.ID)
+	binary.BigEndian.PutUint64(buf.B[h+25:h+33], options.Ref.ID[0])
+	binary.BigEndian.PutUint64(buf.B[h+33:h+41], options.Ref.ID[1])
+	binary.BigEndian.PutUint64(buf.B[h+41:h+49], options.Ref.ID[2])
+
+	return c.send(buf, order, gen.Compression{}, gen.Tracing{})
 }
 
 func (c *connection) SendTerminatePID(target gen.PID, reason error) error {
@@ -1226,7 +1278,7 @@ func (c *connection) CallAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	}
 
 	order := uint8(from.ID%255 + 1)
-	orderPeer := uint8(to.ID[1]%255 + 1)
+	orderPeer := uint8(to.ID[0]%255 + 1)
 	if options.KeepNetworkOrder == false {
 		order = uint8(0)
 		orderPeer = uint8(0)
@@ -2144,7 +2196,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			opts.Ref.ID[0] = refID
-			c.SendResponseError(to, from, opts, err)
+			c.SendAck(to, from, opts, err)
 
 		case protoMessageName, protoMessageNameCache: // name, chached name
 			var toName gen.Atom
@@ -2235,7 +2287,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			opts.Ref.ID[0] = refID
-			c.SendResponseError(gen.PID{}, from, opts, err)
+			c.SendAck(gen.PID{}, from, opts, err)
 
 		case protoMessageAlias:
 			if buf.Len() < 49 {
@@ -2290,7 +2342,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 
 			opts.Ref.ID[0] = refID
-			c.SendResponseError(gen.PID{}, from, opts, err)
+			c.SendAck(gen.PID{}, from, opts, err)
 
 		case protoRequestPID:
 			if buf.Len() < 50 {
@@ -2675,7 +2727,7 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 			if err != nil {
 				opts.ImportantDelivery = false
-				c.SendResponseError(to, from, opts, err)
+				c.SendAck(to, from, opts, err)
 			}
 
 		case protoMessageResponseError:
@@ -2754,8 +2806,78 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 			if err != nil {
 				opts.ImportantDelivery = false
-				c.SendResponseError(to, from, opts, err)
+				c.SendAck(to, from, opts, err)
 			}
+			continue
+
+		case protoMessageAck:
+			if buf.Len() < 50 {
+				c.log.Error("malformed message (too small MessageAck)")
+				continue
+			}
+
+			ref := gen.Ref{
+				Node:     c.core.Name(),
+				Creation: c.core.Creation(),
+			}
+			idFrom := binary.BigEndian.Uint64(buf.B[8:16])
+			idTO := binary.BigEndian.Uint64(buf.B[17:25])
+			ref.ID[0] = binary.BigEndian.Uint64(buf.B[25:33])
+			ref.ID[1] = binary.BigEndian.Uint64(buf.B[33:41])
+			ref.ID[2] = binary.BigEndian.Uint64(buf.B[41:49])
+
+			from := gen.PID{
+				Node:     c.peer,
+				ID:       idFrom,
+				Creation: c.peer_creation,
+			}
+			to := gen.PID{
+				Node:     c.core.Name(),
+				ID:       idTO,
+				Creation: c.core.Creation(),
+			}
+
+			var r error // result
+			switch buf.B[49] {
+			case 0:
+				lib.ReleaseBuffer(buf)
+			case 1:
+				lib.ReleaseBuffer(buf)
+				r = gen.ErrProcessUnknown
+			case 2:
+				lib.ReleaseBuffer(buf)
+				r = gen.ErrProcessMailboxFull
+			case 3:
+				lib.ReleaseBuffer(buf)
+				r = gen.ErrProcessTerminated
+			case 255:
+				var ok bool
+
+				msg, tail, err := edf.Decode(buf.B[50:], c.decodeOptions)
+				lib.ReleaseBuffer(buf)
+
+				if err != nil {
+					c.log.Error("unable to decode received message: %s", err)
+					continue
+				}
+
+				r, ok = msg.(error)
+				if ok == false {
+					c.log.Error("received incorrect ack result")
+					continue
+				}
+
+				if len(tail) > 0 {
+					c.log.Warning("ack result %T from %s to %s has %d extra bytes", r, from, to, len(tail))
+				}
+
+			default:
+				lib.ReleaseBuffer(buf)
+				c.log.Error("received incorrect ack result id")
+				continue
+			}
+
+			c.core.RouteSendAck(from, to, gen.MessageOptions{Ref: ref}, r)
 			continue
 
 		case protoMessageTerminatePID:

@@ -65,6 +65,10 @@ func (m *logMeta) HandleMessage(from gen.PID, message any) error { return nil }
 func (m *logMeta) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	return nil, nil
 }
+
+func (m *logMeta) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
 func (m *logMeta) Terminate(reason error)                                       {}
 func (m *logMeta) HandleInspect(from gen.PID, item ...string) map[string]string { return nil }
 

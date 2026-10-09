@@ -30,6 +30,9 @@ type MetaBehavior interface {
 	Start() error
 	HandleMessage(from PID, message any) error
 	HandleCall(from PID, ref Ref, request any) (any, error)
+	// HandleResponse is invoked on the answer to a request made with SendRequest.
+	// Non-nil value of the returning error terminates the meta process.
+	HandleResponse(response MessageResponse) error
 	Terminate(reason error)
 
 	HandleInspect(from PID, item ...string) map[string]string
@@ -98,6 +101,38 @@ type MetaProcess interface {
 	// too: the phase does not drift, and ticks missed by more than a period are
 	// dropped.
 	SendWithPriorityEvery(to any, message any, priority MessagePriority, period time.Duration) (CancelFunc, error)
+
+	// SendRequest makes a request without blocking. The answer arrives in
+	// HandleResponse, matched by the returned ref: the result, the callee's error,
+	// or ErrTimeout. The callee sees an ordinary Call made by the parent process.
+	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
+	// A request to the parent process or to this meta process itself returns
+	// ErrNotAllowed: the meta process speaks with the voice of its parent.
+	// Available in: Sleep, Running states (Init too).
+	// Returns ErrNotAllowed in Terminated state, ErrUnsupported on an unknown target type.
+	SendRequest(to any, request any) (Ref, error)
+
+	// SendRequestImportant is SendRequest with the important delivery flag, so an
+	// undeliverable request answers with the delivery error at once instead of
+	// waiting out the timeout.
+	SendRequestImportant(to any, request any) (Ref, error)
+
+	// SendRequestWithTimeout is SendRequest with the answer deadline in seconds.
+	// Zero means DefaultRequestTimeout.
+	SendRequestWithTimeout(to any, request any, timeout int) (Ref, error)
+
+	// SendRequestWithLabel is SendRequest with a value of yours attached. The label
+	// comes back in MessageResponse, so the answer carries its own context.
+	SendRequestWithLabel(to any, request any, label any) (Ref, error)
+
+	// SendRequestWithOptions is SendRequest with every knob at once.
+	SendRequestWithOptions(to any, request any, options RequestOptions) (Ref, error)
+
+	// CancelRequest drops a request made with SendRequest: no answer is delivered
+	// for it any more, and a late one is discarded.
+	// Available in all states.
+	// Returns ErrUnknown if there is no such request.
+	CancelRequest(ref Ref) error
 
 	// SendResponse sends a response to a Call request.
 	// Used in HandleCall() to respond to synchronous requests.

@@ -51,6 +51,10 @@ func (m *stageMeta) HandleCall(from gen.PID, ref gen.Ref, request any) (any, err
 	return request, nil
 }
 
+func (m *stageMeta) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (m *stageMeta) Terminate(reason error) { close(m.stop) }
 
 func (m *stageMeta) HandleInspect(from gen.PID, item ...string) map[string]string {

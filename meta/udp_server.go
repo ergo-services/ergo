@@ -128,6 +128,10 @@ func (u *udpserver) HandleCall(from gen.PID, ref gen.Ref, request any) (any, err
 	return nil, nil
 }
 
+func (u *udpserver) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (u *udpserver) Terminate(reason error) {
 	defer u.pc.Close()
 

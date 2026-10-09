@@ -199,6 +199,10 @@ func (t *tcpconnection) HandleCall(from gen.PID, ref gen.Ref, request any) (any,
 	return nil, nil
 }
 
+func (t *tcpconnection) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (t *tcpconnection) Terminate(reason error) {
 	defer t.conn.Close()
 

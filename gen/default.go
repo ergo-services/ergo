@@ -49,6 +49,7 @@ var (
 		EnableClockSkew:              true,
 		EnableTracing:                true,
 		EnableWrappedErrors:          true,
+		EnableAck:                    true,
 		EnableSoftwareKeepAlive:      15, // seconds
 	}
 

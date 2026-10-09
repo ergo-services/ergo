@@ -166,7 +166,7 @@ func TestDistSend(t *testing.T) {
 
 		// a mangled alias -> ErrProcessUnknown
 		bad := alias
-		bad.ID[1] = 0
+		bad.ID[0] = 0
 		res, err = n1.Call(snd, sendCmd{Kind: "important", To: bad, Msg: "imp"})
 		check.NoError(t, err)
 		check.Equal(t, gen.ErrProcessUnknown.Error(), res)

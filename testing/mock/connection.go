@@ -24,6 +24,7 @@ type connectionOverrides struct {
 	sendExit               func(from gen.PID, to gen.PID, reason error) error
 	sendResponse           func(from gen.PID, to gen.PID, options gen.MessageOptions, response any) error
 	sendResponseError      func(from gen.PID, to gen.PID, options gen.MessageOptions, err error) error
+	sendAck                func(from gen.PID, to gen.PID, options gen.MessageOptions, result error) error
 	sendTerminatePID       func(target gen.PID, reason error) error
 	sendTerminateProcessID func(target gen.ProcessID, reason error) error
 	sendTerminateAlias     func(target gen.Alias, reason error) error
@@ -87,6 +88,9 @@ func (c *Connection) OnSendResponse(fn func(from gen.PID, to gen.PID, options ge
 }
 func (c *Connection) OnSendResponseError(fn func(from gen.PID, to gen.PID, options gen.MessageOptions, err error) error) {
 	c.ov.sendResponseError = fn
+}
+func (c *Connection) OnSendAck(fn func(from gen.PID, to gen.PID, options gen.MessageOptions, result error) error) {
+	c.ov.sendAck = fn
 }
 func (c *Connection) OnSendTerminatePID(fn func(target gen.PID, reason error) error) {
 	c.ov.sendTerminatePID = fn
@@ -230,6 +234,15 @@ func (c *Connection) SendResponseError(from gen.PID, to gen.PID, options gen.Mes
 		rerr = c.ov.sendResponseError(from, to, options, err)
 	}
 	c.put(check.SendResponse{From: from, To: to, Message: err, Options: options})
+	return rerr
+}
+
+func (c *Connection) SendAck(from gen.PID, to gen.PID, options gen.MessageOptions, result error) error {
+	var rerr error
+	if c.ov.sendAck != nil {
+		rerr = c.ov.sendAck(from, to, options, result)
+	}
+	c.put(check.SendResponse{From: from, To: to, Message: result, Options: options})
 	return rerr
 }
 

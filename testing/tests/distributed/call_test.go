@@ -148,7 +148,7 @@ func TestDistCall(t *testing.T) {
 		check.Equal(t, "ping", v)
 
 		bad := alias
-		bad.ID[1] = 0
+		bad.ID[0] = 0
 		_, err = n1.Native().CallImportant(bad, "ping")
 		check.True(t, err == gen.ErrProcessUnknown)
 	})

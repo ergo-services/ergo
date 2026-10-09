@@ -84,7 +84,14 @@ func (p ProcessID) String() string {
 	return string(buf)
 }
 
-// Ref
+// Ref is a node-unique reference. Its ID words are one field each, and only the
+// node that made the ref reads them; every other node treats a ref as opaque and
+// returns it untouched:
+//
+//	ID[0]  the node counter - the whole uniqueness of the ref
+//	ID[1]  reply-to: zero, or ID[0] of the alias the response to a request with
+//	       this ref is delivered to instead of the requesting PID (a meta process)
+//	ID[2]  deadline in unix seconds, zero for none
 type Ref struct {
 	Node     Atom
 	Creation int64

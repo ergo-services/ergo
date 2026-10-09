@@ -37,6 +37,10 @@ func (m *msMeta) HandleMessage(from gen.PID, message any) error { return nil }
 func (m *msMeta) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	return nil, nil
 }
+
+func (m *msMeta) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
 func (m *msMeta) Terminate(reason error)                                       {}
 func (m *msMeta) HandleInspect(from gen.PID, item ...string) map[string]string { return nil }
 

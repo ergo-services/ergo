@@ -575,6 +575,14 @@ func (n *node) RouteSendResponse(from gen.PID, to gen.PID, options gen.MessageOp
 	}
 	p := value.(*process)
 
+	if options.Ref.ID[1] != 0 {
+		err := n.deliverMetaResponse(p, from, options, message, nil)
+		if err == nil && tracingActive {
+			n.spanResponse(p, from, to, options, parentSpanID, fromBehavior, msgType)
+		}
+		return err
+	}
+
 	if err, delivered := p.deliverResponse(from, options, message, nil); delivered {
 		if tracingActive {
 			n.spanResponse(p, from, to, options, parentSpanID, fromBehavior, msgType)
@@ -751,6 +759,14 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 	}
 	p := value.(*process)
 
+	if options.Ref.ID[1] != 0 && p.awaitingRef() != options.Ref {
+		derr := n.deliverMetaResponse(p, from, options, nil, err)
+		if derr == nil && tracingActive {
+			n.spanResponseError(p, from, to, options, parentSpanID, fromBehavior, msgType, errString)
+		}
+		return derr
+	}
+
 	if derr, delivered := p.deliverResponse(from, options, nil, err); delivered {
 		if tracingActive {
 			n.spanResponseError(p, from, to, options, parentSpanID, fromBehavior, msgType, errString)
@@ -793,6 +809,65 @@ func (n *node) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 				Attributes: *p.tracingAttrs.Load(),
 			})
 		}
+		return nil
+	default:
+		return gen.ErrResponseIgnored
+	}
+}
+
+func (n *node) deliverMetaResponse(p *process, from gen.PID, options gen.MessageOptions, result any, rerr error) error {
+	alias := gen.Alias{
+		Node:     n.name,
+		Creation: atomic.LoadInt64(&n.creation),
+		ID:       [3]uint64{options.Ref.ID[1], 0, 0},
+	}
+	value, found := n.aliases.Load(alias)
+	if found == false {
+		return gen.ErrProcessUnknown
+	}
+	if value.(*process) != p {
+		return gen.ErrResponseIgnored
+	}
+	value, found = p.metas.Load(alias)
+	if found == false {
+		return gen.ErrResponseIgnored
+	}
+	return value.(*meta).deliverResponse(from, options, result, rerr)
+}
+
+func (n *node) RouteSendAck(from gen.PID, to gen.PID, options gen.MessageOptions, result error) error {
+	if n.isRunning() == false {
+		return gen.ErrNodeTerminated
+	}
+
+	if lib.Verbose() {
+		n.log.Trace("RouteSendAck from %s to %s with ref %q", from, to, options.Ref)
+	}
+
+	if to.Node != n.name {
+		// remote
+		connection, err := n.network.GetConnection(to.Node)
+		if err != nil {
+			return err
+		}
+		return connection.SendAck(from, to, options, result)
+	}
+
+	value, loaded := n.processes.Load(to)
+	if loaded == false {
+		return gen.ErrProcessUnknown
+	}
+	p := value.(*process)
+
+	resp := response{
+		ref:  options.Ref,
+		err:  result,
+		from: from,
+	}
+
+	select {
+	case p.response <- resp:
+		atomic.AddUint64(&p.messagesIn, 1)
 		return nil
 	default:
 		return gen.ErrResponseIgnored
@@ -974,6 +1049,9 @@ func (n *node) RouteCallProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
+	if p.pid == from {
+		return gen.ErrNotAllowed
+	}
 	if alive := p.isAlive(); alive == false {
 		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessTerminated
@@ -1088,6 +1166,16 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		return gen.ErrProcessUnknown
 	}
 	p := value.(*process)
+
+	metaValue, toMeta := p.metas.Load(to)
+	if toMeta {
+		if from.Node == n.name && options.Ref.ID[1] == to.ID[0] {
+			return gen.ErrNotAllowed
+		}
+	} else if p.pid == from {
+		return gen.ErrNotAllowed
+	}
+
 	if alive := p.isAlive(); alive == false {
 		atomic.AddUint64(&n.callErrorsLocal, 1)
 		return gen.ErrProcessTerminated
@@ -1105,8 +1193,8 @@ func (n *node) RouteCallAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 	}
 
 	// check if this request should be delivered to the meta process
-	if value, found := p.metas.Load(to); found {
-		m := value.(*meta)
+	if toMeta {
+		m := metaValue.(*meta)
 		if ok := m.main.Push(qm); ok == false {
 			atomic.AddUint64(&n.callErrorsLocal, 1)
 			return gen.ErrMetaMailboxFull
@@ -1604,9 +1692,7 @@ func (n *node) MakeRef() gen.Ref {
 	var ref gen.Ref
 	ref.Node = n.name
 	ref.Creation = atomic.LoadInt64(&n.creation)
-	id := atomic.AddUint64(&n.uniqID, 1)
-	ref.ID[0] = id & ((1 << 18) - 1)
-	ref.ID[1] = id >> 18
+	ref.ID[0] = atomic.AddUint64(&n.uniqID, 1)
 	return ref
 }
 

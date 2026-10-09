@@ -20,6 +20,7 @@ func (m *meta) start() {
 				old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
 				if old != int32(gen.MetaStateTerminated) {
 					m.p.node.aliases.Delete(m.id)
+					m.cancelRequests()
 					atomic.StoreInt32(&m.state, int32(gen.MetaStateTerminated))
 					reason := gen.TerminateReasonPanic
 					m.p.core.RouteTerminateAlias(m.id, reason)
@@ -40,6 +41,7 @@ func (m *meta) start() {
 	old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
 	if old != int32(gen.MetaStateTerminated) {
 		m.p.node.aliases.Delete(m.id)
+		m.cancelRequests()
 		if reason == nil {
 			reason = gen.TerminateReasonNormal
 		}
@@ -74,6 +76,7 @@ func (m *meta) handle() {
 					old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
 					if old != int32(gen.MetaStateTerminated) {
 						m.p.node.aliases.Delete(m.id)
+						m.cancelRequests()
 						reason = gen.TerminateReasonPanic
 						m.p.core.RouteTerminateAlias(m.id, reason)
 						m.behavior.Terminate(reason)
@@ -135,6 +138,12 @@ func (m *meta) handle() {
 				if reason == gen.TerminateReasonNormal && result != nil {
 					m.p.core.RouteSendResponse(m.p.pid, message.From, options, result)
 				}
+			case gen.MailboxMessageTypeResponse:
+				reason = m.behavior.HandleResponse(message.Message.(gen.MessageResponse))
+				if reason == nil {
+					continue
+				}
+
 			case gen.MailboxMessageTypeInspect:
 				result := m.behavior.HandleInspect(message.From, message.Message.([]string)...)
 				options := gen.MessageOptions{
@@ -165,6 +174,7 @@ func (m *meta) handle() {
 			old := atomic.SwapInt32(&m.state, int32(gen.MetaStateTerminated))
 			if old != int32(gen.MetaStateTerminated) {
 				m.p.node.aliases.Delete(m.id)
+				m.cancelRequests()
 				m.p.core.RouteTerminateAlias(m.id, reason)
 				m.behavior.Terminate(reason)
 			}

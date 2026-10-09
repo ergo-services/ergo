@@ -38,6 +38,10 @@ func (m *timerMeta) HandleCall(from gen.PID, ref gen.Ref, request any) (any, err
 	return nil, nil
 }
 
+func (m *timerMeta) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (m *timerMeta) Terminate(reason error) {}
 
 func (m *timerMeta) HandleInspect(from gen.PID, item ...string) map[string]string {

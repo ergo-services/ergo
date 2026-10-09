@@ -72,6 +72,10 @@ func (w *webhandler) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
 	return gen.ErrUnsupported, nil
 }
 
+func (w *webhandler) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (w *webhandler) Terminate(reason error) {
 	w.terminated.Store(true)
 	w.ch <- reason

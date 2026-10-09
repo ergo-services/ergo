@@ -77,6 +77,9 @@ func (c *benchConn) SendResponse(gen.PID, gen.PID, gen.MessageOptions, any) erro
 func (c *benchConn) SendResponseError(gen.PID, gen.PID, gen.MessageOptions, error) error {
 	return nil
 }
+func (c *benchConn) SendAck(gen.PID, gen.PID, gen.MessageOptions, error) error {
+	return nil
+}
 func (c *benchConn) SendTerminatePID(gen.PID, error) error             { return nil }
 func (c *benchConn) SendTerminateProcessID(gen.ProcessID, error) error { return nil }
 func (c *benchConn) SendTerminateAlias(gen.Alias, error) error         { return nil }

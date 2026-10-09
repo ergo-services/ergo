@@ -99,6 +99,10 @@ func (w *webserver) HandleCall(from gen.PID, ref gen.Ref, request any) (any, err
 	return nil, nil
 }
 
+func (w *webserver) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (w *webserver) Terminate(reason error) {
 	w.listener.Close()
 }

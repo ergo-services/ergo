@@ -22,6 +22,7 @@ type coreOverrides struct {
 	routeSendExit           func(from gen.PID, to gen.PID, reason error) error
 	routeSendResponse       func(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error
 	routeSendResponseError  func(from gen.PID, to gen.PID, options gen.MessageOptions, err error) error
+	routeSendAck            func(from gen.PID, to gen.PID, options gen.MessageOptions, result error) error
 	routeCallPID            func(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error
 	routeCallProcessID      func(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error
 	routeCallAlias          func(from gen.PID, to gen.Alias, options gen.MessageOptions, message any) error
@@ -93,6 +94,9 @@ func (c *Core) OnRouteSendResponse(fn func(from gen.PID, to gen.PID, options gen
 }
 func (c *Core) OnRouteSendResponseError(fn func(from gen.PID, to gen.PID, options gen.MessageOptions, err error) error) {
 	c.ov.routeSendResponseError = fn
+}
+func (c *Core) OnRouteSendAck(fn func(from gen.PID, to gen.PID, options gen.MessageOptions, result error) error) {
+	c.ov.routeSendAck = fn
 }
 func (c *Core) OnRouteCallPID(fn func(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error) {
 	c.ov.routeCallPID = fn
@@ -241,6 +245,15 @@ func (c *Core) RouteSendResponseError(from gen.PID, to gen.PID, options gen.Mess
 		rerr = c.ov.routeSendResponseError(from, to, options, err)
 	}
 	c.put(check.SendResponse{From: from, To: to, Message: err})
+	return rerr
+}
+
+func (c *Core) RouteSendAck(from gen.PID, to gen.PID, options gen.MessageOptions, result error) error {
+	var rerr error
+	if c.ov.routeSendAck != nil {
+		rerr = c.ov.routeSendAck(from, to, options, result)
+	}
+	c.put(check.SendResponse{From: from, To: to, Message: result})
 	return rerr
 }
 

@@ -51,6 +51,10 @@ func (m *envMeta) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 	return probeResult{}, nil
 }
 
+func (m *envMeta) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (m *envMeta) Terminate(reason error) { close(m.stop) }
 
 func (m *envMeta) HandleInspect(from gen.PID, item ...string) map[string]string { return nil }

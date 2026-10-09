@@ -9,8 +9,9 @@ import (
 )
 
 // Meta is a standalone gen.MetaProcess mock. Every method has an On<Method> override;
-// unset, Send/SendWithPriority record a check.Send, SendResponse/SendResponseError a
-// check.SendResponse, Spawn a check.SpawnMeta, and the accessors return safe defaults.
+// unset, Send/SendWithPriority record a check.Send, SendRequest* a check.SendRequest,
+// SendResponse/SendResponseError a check.SendResponse, Spawn a check.SpawnMeta, and
+// the accessors return safe defaults.
 type Meta struct {
 	recorder
 	parent      gen.PID
@@ -31,6 +32,12 @@ type metaOverrides struct {
 	sendWithPriorityAfter func(to any, message any, priority gen.MessagePriority, after time.Duration) (gen.CancelFunc, error)
 	sendEvery             func(to any, message any, period time.Duration) (gen.CancelFunc, error)
 	sendWithPriorityEvery func(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error)
+	sendRequest           func(to any, request any) (gen.Ref, error)
+	sendRequestImportant  func(to any, request any) (gen.Ref, error)
+	sendRequestTimeout    func(to any, request any, timeout int) (gen.Ref, error)
+	sendRequestLabel      func(to any, request any, label any) (gen.Ref, error)
+	sendRequestOptions    func(to any, request any, options gen.RequestOptions) (gen.Ref, error)
+	cancelRequest         func(ref gen.Ref) error
 	sendResponse          func(to gen.PID, ref gen.Ref, message any) error
 	sendResponseError     func(to gen.PID, ref gen.Ref, err error) error
 	spawn                 func(behavior gen.MetaBehavior, options gen.MetaOptions) (gen.Alias, error)
@@ -82,6 +89,20 @@ func (m *Meta) OnSendEvery(fn func(to any, message any, period time.Duration) (g
 func (m *Meta) OnSendWithPriorityEvery(fn func(to any, message any, priority gen.MessagePriority, period time.Duration) (gen.CancelFunc, error)) {
 	m.ov.sendWithPriorityEvery = fn
 }
+func (m *Meta) OnSendRequest(fn func(to any, request any) (gen.Ref, error)) { m.ov.sendRequest = fn }
+func (m *Meta) OnSendRequestImportant(fn func(to any, request any) (gen.Ref, error)) {
+	m.ov.sendRequestImportant = fn
+}
+func (m *Meta) OnSendRequestWithTimeout(fn func(to any, request any, timeout int) (gen.Ref, error)) {
+	m.ov.sendRequestTimeout = fn
+}
+func (m *Meta) OnSendRequestWithLabel(fn func(to any, request any, label any) (gen.Ref, error)) {
+	m.ov.sendRequestLabel = fn
+}
+func (m *Meta) OnSendRequestWithOptions(fn func(to any, request any, options gen.RequestOptions) (gen.Ref, error)) {
+	m.ov.sendRequestOptions = fn
+}
+func (m *Meta) OnCancelRequest(fn func(ref gen.Ref) error) { m.ov.cancelRequest = fn }
 func (m *Meta) OnSendResponse(fn func(to gen.PID, ref gen.Ref, message any) error) {
 	m.ov.sendResponse = fn
 }
@@ -170,6 +191,80 @@ func (m *Meta) SendWithPriorityEvery(to any, message any, priority gen.MessagePr
 	}
 	m.put(check.SendEvery{From: m.parent, To: to, Message: message, Period: period, Options: gen.MessageOptions{Priority: priority}, Error: err})
 	return cancel, err
+}
+
+func (m *Meta) SendRequest(to any, request any) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if m.ov.sendRequest != nil {
+		ref, err = m.ov.sendRequest(to, request)
+	}
+	return m.recordRequest(to, request, gen.RequestOptions{}, ref, err)
+}
+
+func (m *Meta) SendRequestImportant(to any, request any) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if m.ov.sendRequestImportant != nil {
+		ref, err = m.ov.sendRequestImportant(to, request)
+	}
+	return m.recordRequest(to, request, gen.RequestOptions{Important: true}, ref, err)
+}
+
+func (m *Meta) SendRequestWithTimeout(to any, request any, timeout int) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if m.ov.sendRequestTimeout != nil {
+		ref, err = m.ov.sendRequestTimeout(to, request, timeout)
+	}
+	return m.recordRequest(to, request, gen.RequestOptions{Timeout: timeout}, ref, err)
+}
+
+func (m *Meta) SendRequestWithLabel(to any, request any, label any) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if m.ov.sendRequestLabel != nil {
+		ref, err = m.ov.sendRequestLabel(to, request, label)
+	}
+	return m.recordRequest(to, request, gen.RequestOptions{Label: label}, ref, err)
+}
+
+func (m *Meta) SendRequestWithOptions(to any, request any, options gen.RequestOptions) (gen.Ref, error) {
+	var ref gen.Ref
+	var err error
+	if m.ov.sendRequestOptions != nil {
+		ref, err = m.ov.sendRequestOptions(to, request, options)
+	}
+	return m.recordRequest(to, request, options, ref, err)
+}
+
+func (m *Meta) recordRequest(to any, request any, options gen.RequestOptions,
+	ref gen.Ref, err error) (gen.Ref, error) {
+
+	if err == nil && ref == (gen.Ref{}) {
+		ref = synthRef(m.next.Add(1))
+	}
+	if options.Timeout < 1 {
+		options.Timeout = gen.DefaultRequestTimeout
+	}
+	m.put(check.SendRequest{
+		From:     m.parent,
+		To:       to,
+		Request:  request,
+		Ref:      ref,
+		Label:    options.Label,
+		Timeout:  options.Timeout,
+		Priority: options.Priority,
+		Error:    err,
+	})
+	return ref, err
+}
+
+func (m *Meta) CancelRequest(ref gen.Ref) error {
+	if m.ov.cancelRequest != nil {
+		return m.ov.cancelRequest(ref)
+	}
+	return nil
 }
 
 func (m *Meta) SendResponse(to gen.PID, ref gen.Ref, message any) error {

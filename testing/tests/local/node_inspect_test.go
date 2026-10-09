@@ -67,6 +67,10 @@ func (m *inspectMeta) HandleMessage(from gen.PID, message any) error {
 func (m *inspectMeta) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	return nil, nil
 }
+
+func (m *inspectMeta) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
 func (m *inspectMeta) Terminate(reason error) { close(m.stop) }
 func (m *inspectMeta) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{"test_meta": "ok"}

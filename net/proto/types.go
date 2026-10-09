@@ -30,6 +30,7 @@ const (
 	protoRequestAlias         byte = 124
 	protoMessageResponse      byte = 129
 	protoMessageResponseError byte = 130
+	protoMessageAck           byte = 131
 
 	// termination messages
 	protoMessageTerminatePID        byte = 181

@@ -298,6 +298,8 @@ type Connection interface {
 	SendExit(from PID, to PID, reason error) error
 	SendResponse(from PID, to PID, options MessageOptions, response any) error
 	SendResponseError(from PID, to PID, options MessageOptions, err error) error
+	// SendAck sends a delivery acknowledgement to the one waiting for it.
+	SendAck(from PID, to PID, options MessageOptions, result error) error
 
 	// target terminated
 	SendTerminatePID(target PID, reason error) error
@@ -516,6 +518,10 @@ type NetworkFlags struct {
 	// skipped, missing ones left zero-valued). Both nodes must enable it. With it
 	// on, an encoded struct is capped at 2^32-1 bytes (4GB).
 	EnableSchemaEvolution bool
+	// EnableAck accepts delivery acknowledgements (important delivery) in a frame
+	// of their own instead of a response error. A peer without it gets them as
+	// response errors.
+	EnableAck bool
 }
 
 // we must be able to extend this structure by introducing new features.
@@ -569,6 +575,9 @@ func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
 	if nf.EnableSchemaEvolution == true {
 		flags |= 1 << 19
 	}
+	if nf.EnableAck == true {
+		flags |= 1 << 20
+	}
 	binary.BigEndian.PutUint64(buf[:], flags)
 	w.Write(buf[:])
 	return nil
@@ -595,6 +604,7 @@ func (nf *NetworkFlags) UnmarshalEDF(buf []byte) error {
 	nf.EnableTracing = (flags & (1 << 17)) > 0
 	nf.EnableWrappedErrors = (flags & (1 << 18)) > 0
 	nf.EnableSchemaEvolution = (flags & (1 << 19)) > 0
+	nf.EnableAck = (flags & (1 << 20)) > 0
 	return nil
 }
 

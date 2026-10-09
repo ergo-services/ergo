@@ -149,6 +149,9 @@ func (c *testConn) SendResponse(from gen.PID, to gen.PID, options gen.MessageOpt
 func (c *testConn) SendResponseError(from gen.PID, to gen.PID, options gen.MessageOptions, err error) error {
 	return nil
 }
+func (c *testConn) SendAck(from gen.PID, to gen.PID, options gen.MessageOptions, result error) error {
+	return nil
+}
 
 func (c *testConn) SendTerminatePID(target gen.PID, reason error) error {
 	c.mu.Lock()

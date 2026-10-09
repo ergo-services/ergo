@@ -18,8 +18,9 @@ import (
 // when the parent and the meta both send.
 //
 // The drivers mirror the meta runtime: DeliverMessage runs HandleMessage, Request
-// runs HandleCall (auto-responding with a non-nil result), Inspect runs
-// HandleInspect, Terminate runs Terminate. The blocking Start() integration loop
+// runs HandleCall (auto-responding with a non-nil result), DeliverResponse and
+// ExpireRequest run HandleResponse, Inspect runs HandleInspect, Terminate runs
+// Terminate. The blocking Start() integration loop
 // is out of scope for the unit harness (it belongs in the stage harness); the thin
 // Start() driver is provided only for non-blocking Start() implementations.
 type MetaSubject struct {
@@ -165,6 +166,49 @@ func (m *MetaSubject) Request(from gen.PID, request any) (any, error) {
 	}
 }
 
+// DeliverResponse answers a request the meta made with SendRequest, running
+// HandleResponse in the Running state. The label it attached to that request
+// comes back with the answer, as on a live node. A non-nil return terminates the
+// meta.
+func (m *MetaSubject) DeliverResponse(from gen.PID, ref gen.Ref, result any, err error) *MetaSubject {
+	m.t.Helper()
+	m.deliverResponse("DeliverResponse", from, ref, result, err)
+	return m
+}
+
+// ExpireRequest answers a request the meta made with SendRequest the way its
+// deadline would: ErrTimeout, no result.
+func (m *MetaSubject) ExpireRequest(ref gen.Ref) *MetaSubject {
+	m.t.Helper()
+	m.deliverResponse("ExpireRequest", gen.PID{}, ref, nil, gen.ErrTimeout)
+	return m
+}
+
+func (m *MetaSubject) deliverResponse(op string, from gen.PID, ref gen.Ref, result any, err error) {
+	m.t.Helper()
+	m.requireInited(op)
+	m.requireAlive(op)
+	request, exist := m.meta.requests[ref]
+	if exist == false {
+		m.t.Fatalf("unit: no request with ref %s to answer; the meta never made it, or it was cancelled", ref)
+		return
+	}
+	delete(m.meta.requests, ref)
+	m.meta.state = gen.MetaStateRunning
+	reason := m.behavior.HandleResponse(gen.MessageResponse{
+		From:   from,
+		Ref:    ref,
+		Label:  request.label,
+		Result: result,
+		Error:  err,
+	})
+	if reason != nil {
+		m.terminate(reason)
+		return
+	}
+	m.meta.state = gen.MetaStateSleep
+}
+
 // Inspect runs HandleInspect in the Running state and returns its map.
 func (m *MetaSubject) Inspect(from gen.PID, items ...string) map[string]string {
 	m.t.Helper()
@@ -254,6 +298,8 @@ type mockMeta struct {
 	state       gen.MetaState
 	compression bool
 	stubs       *stubs // the meta's own egress stubs (shared with its MetaSubject)
+
+	requests map[gen.Ref]*unitRequest
 }
 
 var _ gen.MetaProcess = (*mockMeta)(nil)
@@ -317,6 +363,63 @@ func (m *mockMeta) SendWithPriorityEvery(to any, message any, priority gen.Messa
 	opts := m.options()
 	opts.Priority = priority
 	return m.node.scheduleEvery(m.parent, to, message, period, opts), nil
+}
+
+func (m *mockMeta) SendRequest(to any, request any) (gen.Ref, error) {
+	return m.sendRequest(to, request, gen.RequestOptions{Priority: m.priority})
+}
+
+func (m *mockMeta) SendRequestImportant(to any, request any) (gen.Ref, error) {
+	return m.sendRequest(to, request, gen.RequestOptions{Priority: m.priority, Important: true})
+}
+
+func (m *mockMeta) SendRequestWithTimeout(to any, request any, timeout int) (gen.Ref, error) {
+	return m.sendRequest(to, request, gen.RequestOptions{Priority: m.priority, Timeout: timeout})
+}
+
+func (m *mockMeta) SendRequestWithLabel(to any, request any, label any) (gen.Ref, error) {
+	return m.sendRequest(to, request, gen.RequestOptions{Priority: m.priority, Label: label})
+}
+
+func (m *mockMeta) SendRequestWithOptions(to any, request any, options gen.RequestOptions) (gen.Ref, error) {
+	if options.Priority == 0 {
+		options.Priority = m.priority
+	}
+	return m.sendRequest(to, request, options)
+}
+
+func (m *mockMeta) sendRequest(to any, request any, options gen.RequestOptions) (gen.Ref, error) {
+	if m.state == gen.MetaStateTerminated {
+		return gen.Ref{}, gen.ErrNotAllowed
+	}
+	if options.Timeout < 1 {
+		options.Timeout = gen.DefaultRequestTimeout
+	}
+	switch t := to.(type) {
+	case gen.PID:
+		if t == m.parent {
+			return gen.Ref{}, gen.ErrNotAllowed
+		}
+	case gen.Alias:
+		if t == m.id {
+			return gen.Ref{}, gen.ErrNotAllowed
+		}
+	}
+	if sendTarget(to) == false {
+		return gen.Ref{}, gen.ErrUnsupported
+	}
+	if m.requests == nil {
+		m.requests = make(map[gen.Ref]*unitRequest)
+	}
+	return m.node.routeRequest(m.stubs, m.parent, m.requests, to, request, options)
+}
+
+func (m *mockMeta) CancelRequest(ref gen.Ref) error {
+	if _, exist := m.requests[ref]; exist == false {
+		return gen.ErrUnknown
+	}
+	delete(m.requests, ref)
+	return nil
 }
 
 func (m *mockMeta) SendResponse(to gen.PID, ref gen.Ref, message any) error {

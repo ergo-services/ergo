@@ -132,6 +132,10 @@ func (m *lfMeta) HandleMessage(from gen.PID, message any) error { return nil }
 func (m *lfMeta) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	return nil, nil
 }
+
+func (m *lfMeta) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
 func (m *lfMeta) Terminate(reason error)                                       {}
 func (m *lfMeta) HandleInspect(from gen.PID, item ...string) map[string]string { return nil }
 

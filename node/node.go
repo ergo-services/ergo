@@ -1644,7 +1644,7 @@ handleResponse:
 		}
 
 		// send ack
-		n.RouteSendResponseError(n.corePID, cfrom, options, nil)
+		n.RouteSendAck(n.corePID, cfrom, options, nil)
 	}
 
 	if err != nil {
@@ -1721,7 +1721,7 @@ handleResponse:
 			Ref: ref,
 		}
 		// send ack
-		n.RouteSendResponseError(n.corePID, cfrom, options, nil)
+		n.RouteSendAck(n.corePID, cfrom, options, nil)
 	}
 
 	if err != nil {
@@ -1798,7 +1798,7 @@ handleResponse:
 			Ref: ref,
 		}
 		// send ack
-		n.RouteSendResponseError(n.corePID, cfrom, options, nil)
+		n.RouteSendAck(n.corePID, cfrom, options, nil)
 	}
 
 	if err != nil {

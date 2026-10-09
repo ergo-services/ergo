@@ -141,6 +141,10 @@ func (t *tcpserver) HandleCall(from gen.PID, ref gen.Ref, request any) (any, err
 	return gen.ErrUnsupported, nil
 }
 
+func (t *tcpserver) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (t *tcpserver) Terminate(reason error) {
 	defer t.listener.Close()
 

@@ -43,6 +43,10 @@ func (e *echoMeta) HandleCall(from gen.PID, ref gen.Ref, request any) (any, erro
 	return "pong", nil
 }
 
+func (e *echoMeta) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
+
 func (e *echoMeta) HandleInspect(from gen.PID, item ...string) map[string]string {
 	return map[string]string{"state": "ok"}
 }
@@ -98,6 +102,10 @@ func (g *gateMeta) HandleMessage(from gen.PID, message any) error {
 func (g *gateMeta) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
 	return nil, nil
 }
+
+func (g *gateMeta) HandleResponse(response gen.MessageResponse) error {
+	return nil
+}
 func (g *gateMeta) HandleInspect(from gen.PID, item ...string) map[string]string { return nil }
 func (g *gateMeta) Terminate(reason error)                                       {}
 
@@ -134,6 +142,7 @@ func (c *childSpawner) Init(process gen.MetaProcess) error {
 func (c *childSpawner) Start() error                                                 { return nil }
 func (c *childSpawner) HandleMessage(from gen.PID, message any) error                { return nil }
 func (c *childSpawner) HandleCall(from gen.PID, ref gen.Ref, r any) (any, error)     { return nil, nil }
+func (c *childSpawner) HandleResponse(r gen.MessageResponse) error                   { return nil }
 func (c *childSpawner) HandleInspect(from gen.PID, item ...string) map[string]string { return nil }
 func (c *childSpawner) Terminate(reason error)                                       {}
 

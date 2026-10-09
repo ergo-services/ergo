@@ -8,14 +8,16 @@ import (
 	"ergo.services/ergo/testing/check"
 )
 
-// the whole counter must be carried: ID[0] the low 18 bits, ID[1] the rest.
+// the whole counter must be carried in ID[0]; ID[1] (reply-to) and ID[2]
+// (deadline) are left zero.
 func TestMakeRefCarriesWholeCounter(t *testing.T) {
 	n := &node{name: "test@localhost"}
 
 	ref := n.MakeRef()
 	id := atomic.LoadUint64(&n.uniqID)
-	check.Equal(t, id&((1<<18)-1), ref.ID[0])
-	check.Equal(t, id>>18, ref.ID[1])
+	check.Equal(t, id, ref.ID[0])
+	check.Equal(t, uint64(0), ref.ID[1])
+	check.Equal(t, uint64(0), ref.ID[2])
 }
 
 // refs must stay unique across the window that used to wrap at 2^18.

@@ -314,6 +314,7 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 	if err := m.init(); err != nil {
 		p.node.unregisterAlias(m.id, p)
 		p.metas.Delete(m.id)
+		m.cancelRequests()
 		return alias, err
 	}
 
@@ -749,11 +750,7 @@ func (p *process) sendPID(to gen.PID, message any, priority gen.MessagePriority,
 	options := p.messageOptions(priority, important, true)
 
 	if options.ImportantDelivery {
-		ref := p.node.MakeRef()
-		options.Ref = ref
-		options.Ref.ID[0] = ref.ID[0] + ref.ID[1] + ref.ID[2]
-		options.Ref.ID[1] = 0
-		options.Ref.ID[2] = 0
+		options.Ref = p.node.MakeRef()
 	}
 
 	if err := p.core.RouteSendPID(p.pid, to, options, message); err != nil {
@@ -794,11 +791,7 @@ func (p *process) sendProcessID(to gen.ProcessID, message any, priority gen.Mess
 	options := p.messageOptions(priority, important, true)
 
 	if options.ImportantDelivery {
-		ref := p.node.MakeRef()
-		options.Ref = ref
-		options.Ref.ID[0] = ref.ID[0] + ref.ID[1] + ref.ID[2]
-		options.Ref.ID[1] = 0
-		options.Ref.ID[2] = 0
+		options.Ref = p.node.MakeRef()
 	}
 
 	if err := p.core.RouteSendProcessID(p.pid, to, options, message); err != nil {
@@ -839,11 +832,7 @@ func (p *process) sendAlias(to gen.Alias, message any, priority gen.MessagePrior
 	options := p.messageOptions(priority, important, true)
 
 	if options.ImportantDelivery {
-		ref := p.node.MakeRef()
-		options.Ref = ref
-		options.Ref.ID[0] = ref.ID[0] + ref.ID[1] + ref.ID[2]
-		options.Ref.ID[1] = 0
-		options.Ref.ID[2] = 0
+		options.Ref = p.node.MakeRef()
 	}
 
 	if err := p.core.RouteSendAlias(p.pid, to, options, message); err != nil {
@@ -2368,7 +2357,7 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 			if options.Tracing.ID != [2]uint64{} {
 				p.applyTracingAttrs(&options)
 			}
-			p.core.RouteSendResponseError(p.pid, r.from, options, nil)
+			p.core.RouteSendAck(p.pid, r.from, options, nil)
 		}
 		return true
 	}
@@ -2524,14 +2513,18 @@ func (p *process) CancelRequest(ref gen.Ref) error {
 }
 
 func (p *process) pendingRequests() *requests {
-	if r := p.requests.Load(); r != nil {
+	return requestsOf(&p.requests)
+}
+
+func requestsOf(ptr *atomic.Pointer[requests]) *requests {
+	if r := ptr.Load(); r != nil {
 		return r
 	}
 	r := &requests{pending: make(map[gen.Ref]*pendingRequest)}
-	if p.requests.CompareAndSwap(nil, r) {
+	if ptr.CompareAndSwap(nil, r) {
 		return r
 	}
-	return p.requests.Load()
+	return ptr.Load()
 }
 
 func (r *requests) add(ref gen.Ref, pending *pendingRequest) {
@@ -2540,11 +2533,7 @@ func (r *requests) add(ref gen.Ref, pending *pendingRequest) {
 	r.mu.Unlock()
 }
 
-func (p *process) takeRequest(ref gen.Ref) *pendingRequest {
-	r := p.requests.Load()
-	if r == nil {
-		return nil
-	}
+func (r *requests) take(ref gen.Ref) *pendingRequest {
 	r.mu.Lock()
 	pending, found := r.pending[ref]
 	if found {
@@ -2555,6 +2544,23 @@ func (p *process) takeRequest(ref gen.Ref) *pendingRequest {
 		return nil
 	}
 	return pending
+}
+
+func (r *requests) cancel() {
+	r.mu.Lock()
+	for ref, pending := range r.pending {
+		pending.timer.Stop()
+		delete(r.pending, ref)
+	}
+	r.mu.Unlock()
+}
+
+func (p *process) takeRequest(ref gen.Ref) *pendingRequest {
+	r := p.requests.Load()
+	if r == nil {
+		return nil
+	}
+	return r.take(ref)
 }
 
 func (p *process) expireRequest(ref gen.Ref) {
@@ -2582,7 +2588,7 @@ func (p *process) deliverResponse(from gen.PID, options gen.MessageOptions, resu
 		return gen.ErrProcessMailboxFull, true
 	}
 	if options.ImportantDelivery {
-		p.core.RouteSendResponseError(p.pid, from, gen.MessageOptions{Ref: options.Ref}, nil)
+		p.core.RouteSendAck(p.pid, from, gen.MessageOptions{Ref: options.Ref}, nil)
 	}
 	return nil, true
 }
@@ -2625,12 +2631,7 @@ func (p *process) cancelRequests() {
 	if r == nil {
 		return
 	}
-	r.mu.Lock()
-	for ref, pending := range r.pending {
-		pending.timer.Stop()
-		delete(r.pending, ref)
-	}
-	r.mu.Unlock()
+	r.cancel()
 }
 
 // awaitingRef returns the awaited ref, zero if the process waits for nothing.
