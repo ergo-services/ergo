@@ -30,8 +30,6 @@ type MetaBehavior interface {
 	Start() error
 	HandleMessage(from PID, message any) error
 	HandleCall(from PID, ref Ref, request any) (any, error)
-	// HandleResponse is invoked on the answer to a request made with SendRequest.
-	// Non-nil value of the returning error terminates the meta process.
 	HandleResponse(response MessageResponse) error
 	Terminate(reason error)
 

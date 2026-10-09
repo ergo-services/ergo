@@ -20,7 +20,7 @@ When a meta-process starts, the framework launches two goroutines:
 
 **External Reader**: Runs your `Start()` method from beginning to end. This goroutine is meant for blocking operations - `Accept()` loops, `ReadFrom()` calls, reading from pipes. When external events occur, this goroutine sends messages into the actor system using `Send()`. It never processes incoming messages.
 
-**Actor Handler**: Created on-demand when messages arrive in the mailbox. Processes messages sequentially by calling your `HandleMessage()` and `HandleCall()` methods. When the mailbox empties, this goroutine terminates. Next time messages arrive, a new actor handler spawns. This goroutine never does I/O directly - it handles requests from actors.
+**Actor Handler**: Created on-demand when messages arrive in the mailbox. Processes messages sequentially by calling your `HandleMessage()`, `HandleCall()` and `HandleResponse()` methods. When the mailbox empties, this goroutine terminates. Next time messages arrive, a new actor handler spawns. This goroutine never does I/O directly - it handles requests from actors.
 
 The External Reader runs continuously from spawn until termination. The Actor Handler comes and goes based on message traffic.
 
@@ -34,6 +34,7 @@ The External Reader runs continuously from spawn until termination. The Actor Ha
 | States | Init → Sleep → Running → Terminated | Sleep → Running → Terminated |
 | Spawn children | Processes and meta-processes | Meta-processes only |
 | Synchronous calls | Can make calls with `Call()` | Cannot make calls |
+| Requests without blocking | `SendRequest()`, answered in `HandleResponse()` | `SendRequest()`, answered in `HandleResponse()` |
 | Links and monitors | Can create and receive | Can only receive |
 
 Processes have one goroutine that must handle everything. If it blocks on I/O, message processing stops. If it spawns additional goroutines for I/O, the actor model breaks.
@@ -43,6 +44,8 @@ Meta-processes separate concerns. The External Reader handles I/O. The Actor Han
 ### Restrictions Explained
 
 Meta-processes cannot make synchronous calls. Which goroutine should block waiting for the response? The External Reader is blocked on external I/O. The Actor Handler might not be running. Neither can reliably wait for responses.
+
+Asking without waiting needs neither. `SendRequest()` puts the answer into the mailbox, and the Actor Handler takes it like any other message. See [Requests Without Blocking](#requests-without-blocking).
 
 Meta-processes cannot create links or monitors. When a linked process terminates, it sends an exit signal as a message. The Actor Handler processes messages, but only when running. Signals could be delayed or lost if the Actor Handler is not active. Incoming links and monitors work because other processes send signals that queue in the mailbox. Creating outgoing links requires guarantees that meta-processes cannot provide.
 
@@ -56,6 +59,7 @@ type MetaBehavior interface {
     Start() error
     HandleMessage(from PID, message any) error
     HandleCall(from PID, ref Ref, request any) (any, error)
+    HandleResponse(response MessageResponse) error
     Terminate(reason error)
     HandleInspect(from PID, item ...string) map[string]string
 }
@@ -70,6 +74,8 @@ type MetaBehavior interface {
 `HandleCall()` processes synchronous requests from actors. Return `(result, nil)` and the result is sent back.
 
 The second value is a **termination reason**, not an error to hand to the caller. Any non-nil reason other than `gen.TerminateReasonNormal` sends no response at all: the meta terminates, its alias is deleted, and the caller sits until its own timeout expires. To report a failure, return the error as the **result**, the way the stock metas do - `return gen.ErrUnsupported, nil` - so the caller receives it as the response value.
+
+`HandleResponse()` receives the answer to a request the meta-process made with `SendRequest()`: the result, the callee's error, or `gen.ErrTimeout`. Runs in the Actor Handler. Return `nil` to continue, return an error to terminate. A meta-process that never makes requests never sees it, which is why the stock metas implement it as a plain `return nil`.
 
 `Terminate()` runs during shutdown regardless of how termination occurred. Close resources, flush buffers, clean up. Do not block or panic here.
 
@@ -176,6 +182,10 @@ func (u *UDPServer) HandleCall(from gen.PID, ref gen.Ref, request any) (any, err
     return nil, nil
 }
 
+func (u *UDPServer) HandleResponse(response gen.MessageResponse) error {
+    return nil
+}
+
 func (u *UDPServer) Terminate(reason error) {
     u.socket.Close()
 }
@@ -222,6 +232,7 @@ Different operations are available in different states:
 - `Env()`, `EnvList()`, `EnvDefault()` - Configuration access
 - `Log()` - Logging always available
 - `SendPriority()`, `Compression()` - Read settings
+- `CancelRequest()` - Drop a request made with `SendRequest()`
 
 **Running only**:
 - `SendResponse()`, `SendResponseError()` - Only Actor Handler has the `gen.Ref` from `HandleCall()`
@@ -230,6 +241,7 @@ Different operations are available in different states:
 **Sleep and Running** (not Terminated):
 - `Spawn()` - Both goroutines can spawn child meta-processes
 - `SendAfter()`, `SendEvery()` - Timers are armed from `Init()` and from the External Reader
+- `SendRequest()` and the rest of its family - Requests are made from `Init()`, from the External Reader and from the Actor Handler
 
 ## Timed and Periodic Messages
 
@@ -253,6 +265,44 @@ func (h *Handler) Init(process gen.MetaProcess) error {
 Keeping the returned cancel function is optional for shutdown. A scheduled message is dropped once the meta-process or its parent terminates, so a heartbeat stops on its own when the connection behind it closes and `Terminate()` has nothing to unwind. Cancel explicitly when a schedule should end while the meta-process keeps running: the handshake beat its own deadline, the resource being polled went away. The cancel function reports whether it actually cancelled anything, so a one-shot that already fired answers false.
 
 Targets are the ones `Send()` accepts: a PID, a `gen.ProcessID`, an alias, or a registered name as a `gen.Atom`. A period of zero or less is rejected instead of becoming a busy loop.
+
+## Requests Without Blocking
+
+A meta-process often stands in front of a protocol where every incoming frame needs a decision from an actor: check this token, look up this key, route this command. The actor that decides is usually an ordinary server answering in `HandleCall()`. A meta-process cannot `Call` it, and the workaround was a protocol of its own: the actor had to learn the meta-process's alias and a reply message, and the meta-process matched replies to frames by hand.
+
+`SendRequest()` asks without waiting. The server sees an ordinary request and answers as it always does. The answer arrives in the meta-process's own `HandleResponse()`, in the Actor Handler, one at a time like any other message:
+
+```go
+func (g *Gateway) Start() error {
+    // External Reader: every frame becomes a request, the frame ID rides along
+    for {
+        frame, err := readFrame(g.conn)
+        if err != nil {
+            return err
+        }
+        g.SendRequestWithLabel(gen.Atom("auth"), CheckToken{Token: frame.Token}, frame.ID)
+    }
+}
+
+func (g *Gateway) HandleResponse(response gen.MessageResponse) error {
+    // Actor Handler: the answer goes back to the connection
+    id := response.Label.(uint64)
+    if response.Error != nil {
+        return writeFrame(g.conn, Reject{ID: id, Reason: response.Error.Error()})
+    }
+    return writeFrame(g.conn, Accept{ID: id, User: response.Result.(User)})
+}
+```
+
+Either goroutine can ask: the External Reader, as above, `Init()`, or the Actor Handler from any of its callbacks. The answer always comes to the Actor Handler. The label is how the two goroutines hand a request over without sharing state - the reader attaches what the handler will need, and nothing has to be remembered on either side.
+
+Do not wait for the answer in the External Reader. It goes to the Actor Handler, and a channel between the two goroutines brings back exactly the blocking the meta-process exists to avoid. If the reader cannot go on without the answer, let the handler drive the next step.
+
+The request is made with the voice of the parent. The server sees the parent's PID as the requester, the same PID it sees on everything the meta-process sends, and it does not need to know a meta-process is behind it. Only the answer is routed to the meta-process itself, never to the parent. For the same reason a request to the parent - by PID, by registered name or by its alias - and a request to the meta-process itself return `gen.ErrNotAllowed`: either would be the parent asking itself. Talk to the parent with `Send()`.
+
+Deadlines, labels, cancelling and important delivery work as they do for a process; see [Requests Without Blocking](../advanced/async-request.md). Two things differ. A meta-process has no urgent queue, so the answer to a request sent with `gen.MessagePriorityHigh` or `gen.MessagePriorityMax` lands on the system queue. And when the mailbox is full, the answer is dropped with an error in the log, and the server learns it as `gen.ErrMetaMailboxFull` - from `SendResponse()` on the same node, from `SendResponseImportant()` across the network; the request then ends with `gen.ErrTimeout` at its deadline.
+
+When the meta-process terminates, its pending requests go with it. A server answering afterwards gets `gen.ErrProcessUnknown` the same way, even though the parent is still alive.
 
 ## Shared State
 

@@ -33,7 +33,7 @@ func (a *Reader) HandleResponse(response gen.MessageResponse) error {
 }
 ```
 
-Every request ends in exactly one `HandleResponse`: the result, the error the callee replied with, or `gen.ErrTimeout` when the deadline passes. Whatever you remember about a request, you know it will be settled.
+Every request ends in one `HandleResponse`: the result, the error the callee replied with, or `gen.ErrTimeout` when the deadline passes. Whatever you remember about a request, you know it will be settled - unless you cancel it, or your own mailbox has no room for the answer, both described below.
 
 Returning an error from `HandleResponse` terminates the process, like any other callback. The default implementation, which you get by not writing one, logs the answer as an error and keeps the actor running.
 
@@ -78,7 +78,9 @@ If you lose interest earlier, drop it:
 a.CancelRequest(ref)
 ```
 
-A cancelled request produces no answer at all, and a reply that arrives afterwards is discarded as a late one. This is the only way a request ends without a `HandleResponse`, and it is explicit.
+A cancelled request produces no answer at all, and a reply that arrives afterwards is discarded as a late one. This is one of two ways a request ends without a `HandleResponse`, and the only one you choose.
+
+The other is a mailbox with no room. An answer is a message, and it needs a place in your mailbox like any other. If the mailbox is full when the answer arrives - a process with a `MailboxSize` limit that fell behind - the answer is dropped and the error is logged on your side. A callee on the same node learns it from `SendResponse`, which returns `gen.ErrProcessMailboxFull`; a remote one learns it only if it answered with `SendResponseImportant`. The request stays pending and ends with `gen.ErrTimeout` at its deadline. If the mailbox is still full by then, the timeout is dropped and logged the same way, and the request ends with no answer at all. The framework does not hold answers for a process that cannot take them.
 
 A request to a process that does not exist fails at once: `SendRequest` returns the error itself and nothing is registered. Across the network that error cannot be seen immediately, because the peer learns about the missing process, not you. `SendRequestImportant` asks the peer to report it:
 
@@ -103,6 +105,26 @@ ref, err := a.SendRequestWithOptions(target, request, gen.RequestOptions{
 The answer is an ordinary mailbox message. It goes into the queue that matches the priority the request was sent with, and it takes its turn there: an answer never jumps ahead of messages that arrived before it. A request sent with `gen.MessagePriorityHigh` gets its answer on the System queue, which is how you keep an administrative conversation ahead of the regular traffic.
 
 Nothing arrives in `HandleResponse` that you did not ask for. A process that never calls `SendRequest` never sees the callback, which is why adding it to your actors is free until you use it.
+
+## From a Meta-Process
+
+A meta-process has no `Call`. Of its two goroutines, the External Reader is busy with I/O and the Actor Handler exists only while there are messages to handle, so neither can sit and wait for an answer. A request without waiting needs nobody to wait, and a meta-process has the whole family: `SendRequest`, `SendRequestWithLabel`, `SendRequestWithTimeout`, `SendRequestImportant`, `SendRequestWithOptions` and `CancelRequest`.
+
+```go
+func (g *Gateway) Start() error {
+    for {
+        frame, err := readFrame(g.conn)
+        if err != nil {
+            return err
+        }
+        g.SendRequestWithLabel(gen.Atom("auth"), CheckToken{Token: frame.Token}, frame.ID)
+    }
+}
+```
+
+Whichever goroutine asked, the answer arrives in the meta-process's own `HandleResponse`, in the Actor Handler. The request is made with the voice of the parent: the callee sees the parent's PID, as it does for everything a meta-process sends, yet the answer goes to the meta-process and never to the parent. For the same reason a request to the parent - by PID, by registered name or by its alias - and a request to the meta-process itself return `gen.ErrNotAllowed`: either would be the parent asking itself.
+
+How the two goroutines share a request, and what that means for the code around it, is described in [Meta-Process](../basics/meta-process.md#requests-without-blocking).
 
 ## Keeping Call Where It Belongs
 
