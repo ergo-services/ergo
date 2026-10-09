@@ -395,15 +395,11 @@ func (m *mockMeta) sendRequest(to any, request any, options gen.RequestOptions) 
 	if options.Timeout < 1 {
 		options.Timeout = gen.DefaultRequestTimeout
 	}
-	switch t := to.(type) {
-	case gen.PID:
-		if t == m.parent {
-			return gen.Ref{}, gen.ErrNotAllowed
-		}
-	case gen.Alias:
-		if t == m.id {
-			return gen.Ref{}, gen.ErrNotAllowed
-		}
+	if alias, ok := to.(gen.Alias); ok && alias == m.id {
+		return gen.Ref{}, gen.ErrNotAllowed
+	}
+	if m.proc.isSelf(to) {
+		return gen.Ref{}, gen.ErrNotAllowed
 	}
 	if sendTarget(to) == false {
 		return gen.Ref{}, gen.ErrUnsupported

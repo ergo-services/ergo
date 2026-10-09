@@ -713,6 +713,9 @@ type Process interface {
 	// SendRequest makes a request without blocking. The answer arrives as a
 	// MessageResponse in HandleResponse, matched by the returned ref. Exactly one
 	// answer per request: the result, the callee's error, or ErrTimeout.
+	// An answer that finds the mailbox full is dropped and logged as an error,
+	// and the request ends with ErrTimeout (dropped and logged the same way if
+	// the mailbox is still full by then).
 	// The callee sees an ordinary Call and replies as always.
 	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
 	// Available in: Init, Running states.

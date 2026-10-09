@@ -670,13 +670,34 @@ func (p *mockProcess) sendRequest(to any, request any, options gen.RequestOption
 	if options.Timeout < 1 {
 		options.Timeout = gen.DefaultRequestTimeout
 	}
-	if pid, ok := to.(gen.PID); ok && pid == p.pid {
+	if p.isSelf(to) {
 		return gen.Ref{}, gen.ErrNotAllowed
 	}
 	if sendTarget(to) == false {
 		return gen.Ref{}, gen.ErrUnsupported
 	}
 	return p.node.routeSendRequest(p.stubs, p, to, request, options)
+}
+
+func (p *mockProcess) isSelf(to any) bool {
+	switch t := to.(type) {
+	case gen.PID:
+		return t == p.pid
+	case gen.Atom:
+		return t != "" && t == p.Name()
+	case gen.ProcessID:
+		if t.Node != "" && t.Node != p.node.nodeName {
+			return false
+		}
+		return t.Name != "" && t.Name == p.Name()
+	case gen.Alias:
+		for _, alias := range p.Aliases() {
+			if alias == t {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (p *mockProcess) CancelRequest(ref gen.Ref) error {

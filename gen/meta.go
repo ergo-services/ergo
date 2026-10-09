@@ -104,7 +104,10 @@ type MetaProcess interface {
 
 	// SendRequest makes a request without blocking. The answer arrives in
 	// HandleResponse, matched by the returned ref: the result, the callee's error,
-	// or ErrTimeout. The callee sees an ordinary Call made by the parent process.
+	// or ErrTimeout. An answer that finds the mailbox full is dropped and logged
+	// as an error, and the request ends with ErrTimeout (dropped and logged the
+	// same way if the mailbox is still full by then).
+	// The callee sees an ordinary Call made by the parent process.
 	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
 	// A request to the parent process or to this meta process itself returns
 	// ErrNotAllowed: the meta process speaks with the voice of its parent.

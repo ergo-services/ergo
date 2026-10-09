@@ -231,19 +231,29 @@ func (m *meta) expireRequest(ref gen.Ref) {
 	if pending == nil {
 		return
 	}
-	m.pushResponse(gen.PID{}, ref, pending, nil, gen.ErrTimeout)
+	if m.pushResponse(gen.PID{}, ref, pending, nil, gen.ErrTimeout) == false {
+		m.log.Error("unable to deliver timeout on request %s: mailbox is full", ref)
+		return
+	}
+	m.handle()
 }
 
 func (m *meta) deliverResponse(from gen.PID, options gen.MessageOptions, result any, rerr error) error {
-	pending := m.takeRequest(options.Ref)
-	if pending == nil {
+	r := m.requests.Load()
+	if r == nil {
 		return gen.ErrResponseIgnored
 	}
-	pending.timer.Stop()
-
-	if m.pushResponse(from, options.Ref, pending, result, rerr) == false {
+	found, queued := r.deliver(options.Ref, func(pending *pendingRequest) bool {
+		return m.pushResponse(from, options.Ref, pending, result, rerr)
+	})
+	if found == false {
+		return gen.ErrResponseIgnored
+	}
+	if queued == false {
+		m.log.Error("unable to deliver response on request %s: mailbox is full", options.Ref)
 		return gen.ErrMetaMailboxFull
 	}
+	m.handle()
 	if options.ImportantDelivery {
 		m.p.core.RouteSendAck(m.p.pid, from, gen.MessageOptions{Ref: options.Ref}, nil)
 	}
@@ -274,7 +284,6 @@ func (m *meta) pushResponse(from gen.PID, ref gen.Ref, pending *pendingRequest, 
 	}
 
 	atomic.AddUint64(&m.messagesIn, 1)
-	m.handle()
 	return true
 }
 

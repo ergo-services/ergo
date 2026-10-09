@@ -2546,6 +2546,21 @@ func (r *requests) take(ref gen.Ref) *pendingRequest {
 	return pending
 }
 
+func (r *requests) deliver(ref gen.Ref, push func(*pendingRequest) bool) (bool, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	pending, found := r.pending[ref]
+	if found == false {
+		return false, false
+	}
+	if push(pending) == false {
+		return true, false
+	}
+	delete(r.pending, ref)
+	pending.timer.Stop()
+	return true, true
+}
+
 func (r *requests) cancel() {
 	r.mu.Lock()
 	for ref, pending := range r.pending {
@@ -2571,22 +2586,29 @@ func (p *process) expireRequest(ref gen.Ref) {
 	if pending == nil {
 		return
 	}
-	p.pushResponse(gen.PID{}, ref, pending, nil, gen.ErrTimeout)
+	if p.pushResponse(gen.PID{}, ref, pending, nil, gen.ErrTimeout) == false {
+		p.log.Error("unable to deliver timeout on request %s: mailbox is full", ref)
+		return
+	}
+	p.run()
 }
 
 func (p *process) deliverResponse(from gen.PID, options gen.MessageOptions, result any, rerr error) (error, bool) {
-	if p.requests.Load() == nil {
+	r := p.requests.Load()
+	if r == nil {
 		return nil, false
 	}
-	pending := p.takeRequest(options.Ref)
-	if pending == nil {
+	found, queued := r.deliver(options.Ref, func(pending *pendingRequest) bool {
+		return p.pushResponse(from, options.Ref, pending, result, rerr)
+	})
+	if found == false {
 		return nil, false
 	}
-	pending.timer.Stop()
-
-	if p.pushResponse(from, options.Ref, pending, result, rerr) == false {
+	if queued == false {
+		p.log.Error("unable to deliver response on request %s: mailbox is full", options.Ref)
 		return gen.ErrProcessMailboxFull, true
 	}
+	p.run()
 	if options.ImportantDelivery {
 		p.core.RouteSendAck(p.pid, from, gen.MessageOptions{Ref: options.Ref}, nil)
 	}
@@ -2622,7 +2644,6 @@ func (p *process) pushResponse(from gen.PID, ref gen.Ref, pending *pendingReques
 	}
 
 	atomic.AddUint64(&p.messagesIn, 1)
-	p.run()
 	return true
 }
 
