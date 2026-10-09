@@ -1438,7 +1438,7 @@ func (c *connection) LinkAlias(pid gen.PID, target gen.Alias) error {
 		return gen.ErrProcessIncarnation
 	}
 	order := uint8(pid.ID%255 + 1)
-	orderPeer := uint8(target.ID[1]%255 + 1)
+	orderPeer := uint8(target.ID[0]%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageLinkAlias{
 		Source: pid,
@@ -1465,7 +1465,7 @@ func (c *connection) UnlinkAlias(pid gen.PID, target gen.Alias) error {
 		return gen.ErrProcessIncarnation
 	}
 	order := uint8(pid.ID%255 + 1)
-	orderPeer := uint8(target.ID[1]%255 + 1)
+	orderPeer := uint8(target.ID[0]%255 + 1)
 	ref := c.makeRequestRef()
 	message := MessageUnlinkAlias{
 		Source: pid,
@@ -1637,7 +1637,7 @@ func (c *connection) MonitorAlias(pid gen.PID, target gen.Alias) error {
 	}
 	ref := c.makeRequestRef()
 	order := uint8(pid.ID%255 + 1)
-	orderPeer := uint8(target.ID[1]%255 + 1)
+	orderPeer := uint8(target.ID[0]%255 + 1)
 	message := MessageMonitorAlias{
 		Source: pid,
 		Target: target,
@@ -1663,7 +1663,7 @@ func (c *connection) DemonitorAlias(pid gen.PID, target gen.Alias) error {
 	}
 	ref := c.makeRequestRef()
 	order := uint8(pid.ID%255 + 1)
-	orderPeer := uint8(target.ID[1]%255 + 1)
+	orderPeer := uint8(target.ID[0]%255 + 1)
 	message := MessageDemonitorAlias{
 		Source: pid,
 		Target: target,
@@ -3282,8 +3282,6 @@ func (c *connection) dispatchRoute(msg any) {
 		c.applyCacheUpdate(m)
 		return
 
-	// Slow lane: extract the queue index (shard-aligned with TM) and the
-	// request ref (for deadline filtering) in one type switch.
 	case MessageLinkPID:
 		idx, ref = m.Target.ID&mask, m.Ref
 	case MessageUnlinkPID:
@@ -3294,13 +3292,13 @@ func (c *connection) dispatchRoute(msg any) {
 		idx, ref = m.Target.ID&mask, m.Ref
 
 	case MessageLinkAlias:
-		idx, ref = m.Target.ID[1]&mask, m.Ref
+		idx, ref = m.Target.ID[0]&mask, m.Ref
 	case MessageUnlinkAlias:
-		idx, ref = m.Target.ID[1]&mask, m.Ref
+		idx, ref = m.Target.ID[0]&mask, m.Ref
 	case MessageMonitorAlias:
-		idx, ref = m.Target.ID[1]&mask, m.Ref
+		idx, ref = m.Target.ID[0]&mask, m.Ref
 	case MessageDemonitorAlias:
-		idx, ref = m.Target.ID[1]&mask, m.Ref
+		idx, ref = m.Target.ID[0]&mask, m.Ref
 
 	case MessageLinkProcessID:
 		idx, ref = lib.HashString64(string(m.Target.Name))&mask, m.Ref
@@ -3540,7 +3538,7 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID[1]%255 + 1)
+		order := uint8(m.Target.ID[0]%255 + 1)
 		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
@@ -3553,7 +3551,7 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID[1]%255 + 1)
+		order := uint8(m.Target.ID[0]%255 + 1)
 		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
@@ -3656,7 +3654,7 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID[1]%255 + 1)
+		order := uint8(m.Target.ID[0]%255 + 1)
 		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
@@ -3669,7 +3667,7 @@ func (c *connection) routeMessage(msg any) {
 			return
 		}
 		result := MessageResult{Error: err, Ref: m.Ref}
-		order := uint8(m.Target.ID[1]%255 + 1)
+		order := uint8(m.Target.ID[0]%255 + 1)
 		orderPeer := uint8(m.Source.ID%255 + 1)
 		c.sendAny(result, order, orderPeer, gen.Compression{})
 
