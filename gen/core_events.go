@@ -1,5 +1,7 @@
 package gen
 
+import "time"
+
 // Standard message types published through the node-local CoreEvent system
 // bus (the event named CoreEvent, owned by the node core). Unlike the
 // registrar events, the CoreEvent bus is always available: it does not depend
@@ -24,6 +26,13 @@ type MessageCoreApplicationStopped struct {
 	Name   Atom
 	Mode   ApplicationMode
 	Reason error
+}
+
+// MessageCoreNodeStopping is published when a graceful node shutdown begins, before
+// any application is stopped. Drain is how long the node waits before stopping them.
+// StopForce does not publish it.
+type MessageCoreNodeStopping struct {
+	Drain time.Duration
 }
 
 // MessageCoreNodeConnected is published when a connection with a remote node

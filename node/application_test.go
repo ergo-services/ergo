@@ -8,8 +8,8 @@ import (
 	"ergo.services/ergo/gen"
 )
 
-// info().Uptime must be 0 for an application that never started (a.started == 0),
-// not the full Unix epoch (now - 0).
+// info().Uptime must be 0 for an application that never started (a.started is zero),
+// not the full Unix epoch.
 func TestApplicationInfoUptimeNeverStarted(t *testing.T) {
 	a := &application{node: &node{}}
 
@@ -17,7 +17,7 @@ func TestApplicationInfoUptimeNeverStarted(t *testing.T) {
 		t.Fatalf("uptime for a never-started app = %d, want 0", u)
 	}
 
-	a.started = time.Now().Unix() - 5
+	a.started = time.Now().Add(-5 * time.Second)
 	if u := a.info().Uptime; u < 5 || u > 60 {
 		t.Fatalf("uptime for an app started ~5s ago = %d, want ~5", u)
 	}

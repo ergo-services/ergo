@@ -76,9 +76,20 @@ Environment variables are case-insensitive. Whether you set "database_url" or "D
 
 Stopping a node can be graceful or forced.
 
-Graceful shutdown stops the running applications first, each one through its own `Stop` and `Terminate` callbacks, then sends exit signals to whatever processes are left. Processes receive `gen.TerminateReasonShutdown` and can save state, close connections, or send final messages before terminating, and the node waits for their `ProcessTerminate` callbacks to return rather than only for them to leave the process table. Once everything has stopped, the network stack shuts down, the loggers are closed, and the node exits.
+Graceful shutdown announces itself first: the node publishes `gen.MessageCoreNodeStopping` on its [event bus](events.md#the-nodes-own-event-bus) and waits `ShutdownDrain` before touching anything. Then it stops the running applications, each one through its own `Stop` and `Terminate` callbacks, and sends exit signals to whatever processes are left. Processes receive `gen.TerminateReasonShutdown` and can save state, close connections, or send final messages before terminating, and the node waits for their `ProcessTerminate` callbacks to return rather than only for them to leave the process table. Once everything has stopped, the network stack shuts down, the loggers are closed, and the node exits.
 
-Forced shutdown kills all processes immediately without waiting for cleanup. This is useful when you need to stop quickly, but processes don't get a chance to clean up properly.
+Applications are stopped from the latest started to the earliest. Since an application is started after everything it declares in `Depends`, a dependency outlives what depends on it: a service that collects metrics or answers health probes stays up while the applications using it go down, provided they declare it.
+
+The drain window exists for the subscribers of that announcement. A readiness probe switching to 503 needs the load balancer to notice before the applications start closing, and that takes seconds rather than microseconds. `ShutdownDrain` is zero by default, so nothing waits unless you ask for it.
+
+```go
+options := gen.NodeOptions{
+    ShutdownDrain:   5 * time.Second,
+    ShutdownTimeout: 30 * time.Second,
+}
+```
+
+Forced shutdown kills all processes immediately without waiting for cleanup. It neither announces nor drains, and a `StopForce` issued while the node is draining cuts the wait short. This is useful when you need to stop quickly, but processes don't get a chance to clean up properly.
 
 One subtlety: if you call `Stop` from within a process, you create a deadlock. The process can't terminate because it's waiting for `Stop` to complete, but `Stop` is waiting for all processes (including this one) to terminate. The solution is either to call `Stop` in a separate goroutine or use `StopForce`, which doesn't wait.
 
@@ -114,6 +125,8 @@ During shutdown, the node logs which processes are still running. Every 5 second
 The state tells you what the process is doing: `running` means it's handling a message, `sleep` means it's idle waiting for messages. The queue count shows how many messages are waiting. A process stuck in `running` with a growing queue indicates it's blocked in a callback and not processing its mailbox.
 
 When the timeout fires, the same listing is printed at error level along with the force-kill notice, and the post-settle hard-exit report (if reached) shows whichever processes survived the kill so you can identify culprits that ignore termination signals.
+
+Under an orchestrator the whole sequence has to fit into the window the orchestrator gives you. In Kubernetes that window is `terminationGracePeriodSeconds`, and what has to fit inside it is `ShutdownDrain`, plus up to five seconds per application that does not finish its own teardown in time, plus `ShutdownTimeout` for the remaining processes, plus the five-second settle window after the force-kill. If the sum exceeds the grace period, the kubelet sends SIGKILL in the middle of it and the rest of the sequence never runs.
 
 ## Node Incarnation
 

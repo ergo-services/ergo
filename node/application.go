@@ -22,7 +22,7 @@ type application struct {
 	procs   lib.Map[gen.PID, bool]
 	members atomic.Int64
 
-	started int64
+	started time.Time
 	parent  gen.Atom
 	state   int32
 	reason  error
@@ -336,7 +336,7 @@ func (a *application) start(mode gen.ApplicationMode, options gen.ApplicationOpt
 		return gen.ErrApplicationStopping
 	}
 	a.mu.Lock()
-	a.started = time.Now().Unix()
+	a.started = time.Now()
 	a.mu.Unlock()
 	a.log.Info("started")
 	a.node.publishCoreEvent(gen.MessageCoreApplicationStarted{Name: a.spec.Name, Mode: mode})
@@ -519,7 +519,7 @@ func (a *application) finalize() {
 	stoppedCh := a.stopped
 	a.reason = nil
 	a.initialized = false
-	a.started = 0
+	a.started = time.Time{}
 	a.parent = ""
 	a.mu.Unlock()
 
@@ -666,8 +666,8 @@ func (a *application) info() gen.ApplicationInfo {
 	info.Description = a.spec.Description
 	info.Version = a.spec.Version
 	info.Depends = a.spec.Depends
-	if started > 0 {
-		info.Uptime = time.Now().Unix() - started
+	if started.IsZero() == false {
+		info.Uptime = int64(time.Since(started).Seconds())
 	}
 	info.Group = a.memberPIDs()
 	info.ProcessesTotal = a.procs.Len()
@@ -689,6 +689,12 @@ func (a *application) info() gen.ApplicationInfo {
 
 func (a *application) tryUnload() bool {
 	return atomic.CompareAndSwapInt32(&a.state, int32(gen.ApplicationStateLoaded), 0)
+}
+
+func (a *application) startedAt() time.Time {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	return a.started
 }
 
 func (a *application) isRunning() bool {

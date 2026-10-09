@@ -642,6 +642,11 @@ type NodeOptions struct {
 	// After timeout expires, the node force exits with error code 1.
 	ShutdownTimeout time.Duration
 
+	// ShutdownDrain delays the application teardown during graceful shutdown: the node
+	// publishes MessageCoreNodeStopping, waits this long, then stops the applications.
+	// StopForce cuts the wait short. Default is 0 (no delay).
+	ShutdownDrain time.Duration
+
 	// Applications is the list of applications to load and start automatically.
 	// Applications are started after the node becomes operational.
 	// Empty means no applications auto-started.

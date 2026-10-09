@@ -141,7 +141,7 @@ If your event requires the token check and you only want a specific process to p
 
 The node runs one node-level event for you, always: `gen.CoreEvent`. You do not register it and you never publish to it. The node publishes the facts of its own lifecycle there, and any process can subscribe to react to them without polling.
 
-Today the node reports four things on this bus: an application reached the running state, an application stopped (carrying the reason it stopped), a remote node connected, and a remote node disconnected. You subscribe the same way you subscribe to any event, then handle the message types you care about:
+Today the node reports five things on this bus: a graceful shutdown of this node has begun, an application reached the running state, an application stopped (carrying the reason it stopped), a remote node connected, and a remote node disconnected. You subscribe the same way you subscribe to any event, then handle the message types you care about:
 
 ```go
 func (a *watcher) Init(args ...any) error {

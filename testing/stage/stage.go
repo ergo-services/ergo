@@ -123,6 +123,9 @@ type NodeOptions struct {
 
 	// Security pass-through (e.g. ExposeEnvRemoteSpawn for remote-spawn env inheritance).
 	Security gen.SecurityOptions
+
+	// ShutdownDrain pass-through (gen.NodeOptions.ShutdownDrain). Zero keeps the default.
+	ShutdownDrain time.Duration
 }
 
 // Node is a live node started by the stage. It embeds *check.Asserter, so the
@@ -159,6 +162,7 @@ func (s *Stage) StartNode(prefix string, opts ...NodeOptions) *Node {
 		no.Network.Handshake = handshake.Create(handshake.Options{PoolSize: o.PoolSize})
 	}
 	no.Security = o.Security
+	no.ShutdownDrain = o.ShutdownDrain
 	no.Env = o.Env
 	if o.EnableSystemApp {
 		sysapp := system.CreateApp(system.Options{DisableManage: o.DisableSystemManage})

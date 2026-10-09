@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -108,10 +109,13 @@ type node struct {
 	tracingSampler   atomic.Pointer[gen.TracingSampler]
 
 	shutdownTimeout time.Duration
+	shutdownDrain   time.Duration
 	waitprocesses   sync.WaitGroup
 	wait            chan struct{}
 	once            sync.Once
 	stopping        atomic.Bool // CAS-guard against concurrent Stop/StopForce
+	stopForced      chan struct{}
+	forceOnce       sync.Once
 
 	licenses sync.Map
 
@@ -228,11 +232,13 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 		security:    options.Security,
 
 		shutdownTimeout: options.ShutdownTimeout,
+		shutdownDrain:   options.ShutdownDrain,
 
 		loggers: make(map[gen.LogLevel]*sync.Map),
 
-		wait:  make(chan struct{}),
-		ctrlc: make(chan os.Signal, 1),
+		wait:       make(chan struct{}),
+		ctrlc:      make(chan os.Signal, 1),
+		stopForced: make(chan struct{}),
 	}
 	node.core = node
 	if extra.WrapCore != nil {
@@ -325,7 +331,6 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 		}
 	}
 
-	// before the applications start, so an application can turn it off from Init
 	node.SetCTRLC(true)
 	go node.waitCTRLC()
 
@@ -1224,6 +1229,10 @@ func (n *node) StopForce() {
 }
 
 func (n *node) stop(force bool, shutdownTimeout time.Duration) {
+	if force {
+		n.forceOnce.Do(func() { close(n.stopForced) })
+	}
+
 	if n.isRunning() == false {
 		// already stopped
 		return
@@ -1234,22 +1243,18 @@ func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 	}
 
 	if force == false {
-		n.applications.Range(func(_, v any) bool {
-			app := v.(*application)
-			if app.spec.Name == system.Name {
-				// skip system app
-				return true
-			}
+		n.publishCoreEvent(gen.MessageCoreNodeStopping{Drain: n.shutdownDrain})
+		n.waitShutdownDrain()
 
+		for _, app := range n.applicationsToStop() {
 			n.log.Trace("stopping application %s (waiting 5 seconds) ...", app.spec.Name)
 			if err := app.stop(false, 5*time.Second); err == gen.ErrApplicationStopping {
 				n.log.Trace("stopping application %s is still in progress", app.spec.Name)
-				return true
+				continue
 			}
 
 			n.log.Trace("stopped application: %s", app.spec.Name)
-			return true
-		})
+		}
 	}
 
 	n.processes.Range(func(_, v any) bool {
@@ -1300,6 +1305,40 @@ func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 	n.once.Do(func() {
 		close(n.wait)
 	})
+}
+
+func (n *node) waitShutdownDrain() {
+	if n.shutdownDrain <= 0 {
+		return
+	}
+	n.log.Trace("draining for %s before stopping the applications", n.shutdownDrain)
+	timer := time.NewTimer(n.shutdownDrain)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+	case <-n.stopForced:
+	}
+}
+
+func (n *node) applicationsToStop() []*application {
+	var apps []*application
+	started := make(map[gen.Atom]time.Time)
+
+	n.applications.Range(func(_, v any) bool {
+		app := v.(*application)
+		if app.spec.Name == system.Name {
+			// skip system app
+			return true
+		}
+		apps = append(apps, app)
+		started[app.spec.Name] = app.startedAt()
+		return true
+	})
+
+	sort.SliceStable(apps, func(i, j int) bool {
+		return started[apps[i].spec.Name].After(started[apps[j].spec.Name])
+	})
+	return apps
 }
 
 // waitApplications lets the applications that are still tearing down reach their
