@@ -4,9 +4,9 @@ description: How to Structure Projects Built with Ergo Framework
 
 # Project Structure
 
-The same codebase can run as a monolith on your laptop or as distributed services across a data center. This flexibility comes from one principle: applications are the unit of composition.
+An Ergo project can contain several applications in one binary or deploy those applications on separate nodes. The package boundaries determine which messages other applications can import; the wire types determine which messages can cross node connections.
 
-This chapter covers project organization, message isolation patterns, deployment strategies, and evolution paths.
+This chapter develops a directory layout around those boundaries, then shows how entry points assemble different deployments from the same application code.
 
 ## The Flexibility Promise
 

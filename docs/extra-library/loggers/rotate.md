@@ -1,8 +1,8 @@
 # Rotate Logger
 
-The rotate logger writes log messages to files with automatic rotation based on time intervals. Instead of a single growing log file that eventually fills the disk, the logger creates new files periodically and optionally compresses old ones. This keeps disk usage predictable and makes log files manageable for analysis and archival.
+The rotate logger writes to an active file and rotates that file on a schedule. It can compress rotated files and remove older entries from the list it maintains during the current run.
 
-The logger operates asynchronously - log messages enter a queue and a background goroutine writes them to the file. This design prevents blocking your processes when disk I/O is slow. Logging happens in the background while your actors continue processing messages without waiting for disk writes to complete.
+The retention limit does not include files left by earlier runs. If disk usage must stay bounded across node restarts, configure an external cleanup policy as well.
 
 ## File Rotation Mechanics
 
@@ -13,7 +13,7 @@ Rotation happens based on time periods. You configure a duration - one minute, o
 3. Truncates the active file to start fresh for the new period
 4. Deletes old files if depth limit is configured
 
-This approach ensures the active file always has the same name. You can tail it (`tail -f <Prefix>.log`) and it works across rotations. The timestamped copies accumulate in the log directory, creating a chronological archive.
+The active pathname remains `<Prefix>.log`; rotated copies carry timestamps. A reader following the open file descriptor may keep reading the old file after rotation. Configure the reader to follow the pathname and reopen it, for example with `tail -F` where that option is available.
 
 The timestamp format is `YYYYMMDDHHmi` - year, month, day, hour, minute. This format sorts lexicographically, so `ls -l` shows files in chronological order. It's compact but human-readable.
 
@@ -23,7 +23,7 @@ The logger uses an internal lock-free queue (MPSC - multi-producer single-consum
 
 This design has several advantages:
 
-**Non-blocking** - Logging never blocks your process. If the disk is slow or the file system stalls, your actors continue running. The queue absorbs bursts of messages.
+**Queued writes** - `Log` submits the record to an unbounded queue instead of waiting for the file write. Slow disk I/O delays the writer and can grow the queue in memory. This separates actor logging from the disk wait; it does not provide bounded storage for a sustained backlog.
 
 **Ordering** - Messages from a single producer maintain order. The queue preserves submission order, so logs reflect the actual sequence of events within each process.
 
@@ -39,9 +39,9 @@ The logger requires a rotation period and accepts several optional parameters:
 
 **Prefix** - Filename prefix. Defaults to the executable name. The active file is `<Prefix>.log`, rotated files are `<Prefix>.YYYYMMDDHHmi.log[.gz]`. Use meaningful prefixes if multiple services log to the same directory.
 
-**Compress** - Enables gzip compression for rotated files. The active file stays uncompressed for fast writing. When rotating, the logger compresses the copy, reducing disk usage by 5-10x for text logs. Compressed files have `.log.gz` extension. Use compression if disk space matters more than CPU for compression.
+**Compress** - Enables gzip compression for rotated files. The active file stays uncompressed and compressed copies have a `.log.gz` extension. The space saved depends on the log contents; compression adds work during rotation.
 
-**Depth** - Limits the number of retained log files. When rotating, if the number of files exceeds Depth, the logger deletes the oldest file. Set to 0 (default) for unlimited retention. Set to a specific number (e.g., 24) to keep the last 24 periods. This prevents unbounded disk usage.
+**Depth** - Limits the logger's in-memory list of files rotated during this run. Zero leaves that list unbounded; 24 retains up to 24 such files. Files from earlier runs are not counted. This setting alone does not bound total directory size across restarts.
 
 **TimeFormat** - Timestamp format in log messages. Same as colored logger - any format from `time` package or custom layout. Empty string uses nanosecond timestamps. Choose based on readability vs. precision.
 

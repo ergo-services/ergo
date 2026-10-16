@@ -1,12 +1,12 @@
 # Web
 
-HTTP and actors speak different languages. HTTP is fundamentally synchronous - a request arrives, blocks waiting for processing, gets a response, connection closes. The actor model is fundamentally asynchronous - messages arrive in mailboxes, get processed sequentially one at a time, responses are separate messages sent whenever ready.
+An HTTP handler must write a response before its request finishes. An actor handles a request from its mailbox and may need other messages before it can answer.
 
-This chapter shows two integration approaches, ordered from simple to complex. The simple approach works for most cases and keeps the entire HTTP ecosystem available. The meta-process approach trades that tooling for deeper actor integration. The simple approach might be all you need.
+This chapter connects the two lifecycles. It starts with an ordinary HTTP handler calling an actor, then uses `meta.WebHandler` and `act.WebWorker` to dispatch requests as messages. Choose the arrangement according to how you need to route requests and own connections.
 
 ## Simple Approach: Call from HTTP Handlers
 
-The straightforward way: run a standard HTTP server, call actors from handlers using `node.Call()`, let network transparency distribute requests across the cluster.
+An ordinary HTTP handler can use `node.Call` to request work from an actor, including one on another node.
 
 This keeps HTTP and actors separate. HTTP handles protocol concerns - routing, middleware, headers, status codes. Actors handle business logic - state management, processing, coordination. Clean separation.
 
@@ -89,7 +89,7 @@ Change `Node` to move the actor. Code stays the same. Distribute load across nod
 
 Network transparency means actors can run anywhere in the cluster. The HTTP gateway becomes a router that distributes requests across backend nodes.
 
-Simple consistent hashing distributes load evenly while maintaining request affinity:
+For a fixed set of backend nodes, a hash modulo the node count gives each user a stable destination. This example assumes `clusterSize` is positive and imports `hash/fnv`:
 
 ```go
 func (a *APIServer) handleGetUser(w http.ResponseWriter, r *http.Request) {
@@ -97,11 +97,11 @@ func (a *APIServer) handleGetUser(w http.ResponseWriter, r *http.Request) {
 
     // Route requests for the same user to the same node
     // This improves cache locality - user data stays hot
-    nodeID := consistentHash(userID, a.clusterSize)
+    nodeID := hashModulo(userID, a.clusterSize)
     targetNode := fmt.Sprintf("backend@node%d", nodeID)
 
     result, err := a.node.Call(
-        gen.ProcessID{Name: "user-service", Node: targetNode},
+        gen.ProcessID{Name: "user-service", Node: gen.Atom(targetNode)},
         GetUserRequest{ID: userID},
     )
 
@@ -109,7 +109,17 @@ func (a *APIServer) handleGetUser(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
-Requests for user "alice" always go to the same backend node. That node caches alice's data in memory. Subsequent requests hit warm cache. Change `clusterSize` to add nodes - hashing redistributes load automatically while preserving most affinity.
+The helper makes the partition rule explicit:
+
+```go
+func hashModulo(key string, count int) uint32 {
+    h := fnv.New32a()
+    _, _ = h.Write([]byte(key))
+    return h.Sum32() % uint32(count)
+}
+```
+
+With a fixed `clusterSize`, requests for `"alice"` select the same backend, allowing that actor to retain user-specific cache state. Changing the modulus when adding nodes remaps many keys, not only the new node's share. Use a routing scheme with explicit membership and migration rules if cached state must retain affinity during scaling.
 
 For dynamic topology where nodes join and leave unpredictably, use application discovery. Central registrars (etcd, Saturn) track which nodes are running which applications in real-time:
 
@@ -153,7 +163,7 @@ func (a *APIServer) selectNode(routes []gen.ApplicationRoute) gen.ApplicationRou
 }
 ```
 
-Application discovery returns all nodes currently running the service. Each node reports its weight. Nodes with higher weights (more resources, better hardware, closer proximity) receive proportionally more traffic. Nodes that crash disappear from discovery immediately. New nodes appear as soon as they register. The HTTP gateway adapts to cluster topology changes without restarts.
+Application discovery returns routes from the registrar's current view. The gateway uses their weights to choose a backend. Registrations and failures become visible through that client's discovery mechanism, so membership updates are not instantaneous. Handle a selected route becoming unavailable between lookup and request.
 
 For details on application discovery and central registrars, see [Service Discovery](../networking/service-discovering.md).
 

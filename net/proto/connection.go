@@ -3920,8 +3920,8 @@ func (c *connection) sendFragmented(buf *lib.Buffer, msgStart int, order uint8) 
 	maxPayload := c.fragmentSize - 16 // 16 = ENP header (8) + fragment header (8)
 
 	total := (dataLen + maxPayload - 1) / maxPayload
-	if total > math.MaxUint16 {
-		// fragment index/count are uint16 on the wire
+	if total > maxFragmentCount {
+		// the receiver takes up to maxFragmentCount fragments of a message
 		lib.ReleaseBuffer(buf)
 		return gen.ErrTooLarge
 	}
@@ -4006,6 +4006,8 @@ func (c *connection) sendFragmented(buf *lib.Buffer, msgStart int, order uint8) 
 	return nil
 }
 
+// maxFragmentCount is the most fragments of a message: the sender splits up to
+// it, the receiver takes up to it.
 const maxFragmentCount = 10000
 
 func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint32]*fragmentAssembly) *lib.Buffer {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -21,7 +22,11 @@ const (
 
 func CreateUDPServer(options UDPServerOptions) (gen.MetaBehavior, error) {
 	hp := net.JoinHostPort(options.Host, strconv.Itoa(int(options.Port)))
-	pc, err := net.ListenPacket("udp", hp)
+	addr, err := net.ResolveUDPAddr("udp", hp)
+	if err != nil {
+		return nil, err
+	}
+	pc, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +58,7 @@ func CreateUDPServer(options UDPServerOptions) (gen.MetaBehavior, error) {
 
 type udpserver struct {
 	gen.MetaProcess
-	pc         net.PacketConn
+	pc         *net.UDPConn
 	bufferSize int
 	process    gen.Atom
 	bufpool    *sync.Pool
@@ -90,12 +95,12 @@ func (u *udpserver) Start() error {
 				buf = buf[:u.bufferSize]
 			}
 		}
-		n, addr, err := u.pc.ReadFrom(buf)
+		n, addr, err := u.pc.ReadFromUDPAddrPort(buf)
 		if n > 0 {
 			packet := MessageUDP{
 				ID:   id,
 				Data: buf[:n],
-				Addr: addr,
+				Addr: netip.AddrPortFrom(addr.Addr().Unmap(), addr.Port()),
 			}
 			atomic.AddUint64(&u.bytesIn, uint64(n))
 
@@ -112,7 +117,7 @@ func (u *udpserver) Start() error {
 func (u *udpserver) HandleMessage(from gen.PID, message any) error {
 	switch m := message.(type) {
 	case MessageUDP:
-		n, err := u.pc.WriteTo(m.Data, m.Addr)
+		n, err := u.pc.WriteToUDPAddrPort(m.Data, m.Addr)
 		if u.bufpool != nil {
 			u.bufpool.Put(m.Data)
 		}

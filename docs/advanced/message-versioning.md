@@ -4,11 +4,9 @@ description: Evolving message contracts in distributed clusters
 
 # Message Versioning
 
-Distributed systems evolve. Services gain features, data models change, and deployments happen gradually. During a rolling upgrade, some nodes run new code while others still run the old version. A message sent from a new node must be understood by an old node, and vice versa.
+During a rolling upgrade, old and new nodes exchange messages. The sender and receiver must agree on the wire representation even when their application code differs.
 
-EDF gives you two ways to handle this, and which one is right is a business decision, not a technical default. Strict by default: a message is its exact Go type, so changing a struct creates a new, incompatible type, and every change is explicit and caught at compile time. Or opt into schema evolution: EDF tolerates fields appended to the end of a struct, so a node that has not learned a new field keeps working. Strict typing buys deliberate, visible change control; evolution buys less coordination during rolling deploys. Which matters more is a property of your domain, not of the framework.
-
-This article covers both: how to version messages explicitly, and when schema evolution fits instead.
+EDF uses strict type matching by default. You can version contracts explicitly, or enable schema evolution on both peers to allow differences in trailing fields. This chapter describes the compatibility rules, ownership of contracts and the order of a rollout.
 
 ## Explicit Versioning
 

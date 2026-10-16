@@ -4,9 +4,9 @@ description: Web UI and MCP surface for monitoring, inspecting and managing Ergo
 
 # Observer
 
-Observer is an application that embeds into your node and opens it up for inspection. One HTTP listener serves three things: the web UI built into the binary, the API that UI runs on, and an MCP surface for an AI agent. All three read the same node through the built-in `system` application, and all three are bounded by the same authorization, apart from two deliberately open paths noted below.
+The Observer application serves a web UI, an HTTP API and an MCP endpoint. A listener can expose those surfaces with its own authentication, permission ceiling and limits.
 
-For the tour of the UI, see [Inspecting With Observer](../../advanced/observer.md). For working through an agent, see [Inspecting With an AI Agent](../../advanced/mcp.md). This page is how you add it and what you can configure.
+This page covers deployment and configuration. For a walkthrough of the UI, see [Inspecting With Observer](../../advanced/observer.md); for client use of MCP, see [Inspecting With an AI Agent](../../advanced/mcp.md).
 
 ## Adding Observer to a node
 
@@ -46,7 +46,7 @@ A listener serves three surfaces:
 
 Two paths under `/api/` are deliberately open, because both have to work before a caller is authenticated: `GET /api/capabilities`, which is how a client discovers what this endpoint offers, and `POST /api/enroll`, which is the exchange that authenticates it in the first place. Both are rate-limited, `enroll` on its own hard limit, and neither reveals anything about the node. Everything else under `/api/` goes through the authorizer.
 
-The default configuration serves all three surfaces on `localhost:9911`. That is the right shape for a development machine and the wrong one for a deployment other people can reach, which is what the rest of this page is about.
+The default listener exposes all three surfaces on `localhost:9911` without an authorizer. Configure authentication and permission ceilings before making it reachable by other users.
 
 ## Options
 
@@ -196,7 +196,7 @@ observer.Listener{
 
 `TrustedHeader` verifies nothing. Its whole security is that nothing but the proxy can reach the listener, which is why the node refuses to start when such a listener binds a non-loopback address. State `ReachableOnlyByProxy: true` if the path is restricted some other way, and own that claim.
 
-A caller in several listed groups gets the wider of their ceilings, and that is why the groups must be **comparable**: the node refuses to start if two of them are ceilings where neither contains the other, since a caller holding both would end up with more than either grants. That is the reason `viewer` above repeats the `manage.kill` deny it already gets from `ReadOnly` - without it, read-only and "everything but kill" are two different shapes rather than one inside the other. A caller in no listed group is refused.
+A caller in several configured groups receives the widest of their ceilings. These ceilings must be comparable: startup rejects a pair where neither contains the other. In the example, `viewer` repeats the `manage.kill` deny so its ceiling remains contained by the broader role. A caller matching no configured group is refused.
 
 ## Origins
 

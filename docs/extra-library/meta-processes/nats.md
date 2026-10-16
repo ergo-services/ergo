@@ -1,8 +1,8 @@
 # NATS
 
-NATS is a message broker built around subjects: a publisher sends a message to a subject, and everyone subscribed to that subject receives it. There is no queue to declare, no exchange to bind, no routing key syntax to learn - a subject is a dot-separated string, and a subscription is a string with optional wildcards.
+The NATS meta process connects an actor to a NATS server. It turns subscription deliveries into actor messages and handles requests to publish or manage subscriptions.
 
-The framework provides a NATS meta-process implementation that integrates a NATS connection with the actor model. Messages from the broker arrive in `HandleMessage` like any other message, and publishing is sending a message to the connection.
+Its connection is owned by the process that spawns it. The examples below cover setup, subscriptions and request/reply behavior.
 
 ```go
 import "ergo.services/meta/nats"

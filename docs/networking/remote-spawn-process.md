@@ -4,11 +4,9 @@ description: Spawning processes on remote nodes
 
 # Remote Spawn Process
 
-Remote spawning means starting a process on another node from your code. You call a method, provide a factory name and options, and a process starts on the remote node. From the caller's perspective, it's nearly identical to spawning locally - you get back a `gen.PID` and can communicate with it immediately.
+A remote spawn request names a factory already registered on the destination node. The node checks permission, creates the process and returns its PID. The caller can then address it through the usual messaging methods.
 
-This capability enables dynamic workload distribution. Your node needs to process a job but doesn't have capacity? Spawn a worker on a remote node with available resources. Your application needs to scale horizontally? Spawn processes across multiple nodes and distribute load.
-
-Remote spawning is not automatic. You don't want arbitrary nodes spawning arbitrary processes on your infrastructure, so the framework requires explicit permission - the remote node must enable each process factory individually and can restrict which nodes are allowed to use it.
+The factory's code must already be in the remote binary. Remote spawn sends arguments and options; it does not deploy code. We will enable a factory, request a process and examine what it inherits from its caller.
 
 ## Security Model
 

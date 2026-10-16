@@ -4,7 +4,9 @@ description: Ergo Service Registry and Discovery
 
 # Saturn - Central Registrar
 
-`saturn` is a tool designed to simplify the management of clusters of nodes created using the Ergo Framework. It offers the following features:
+The `saturn` command runs the central registrar used by the [Saturn client](../extra-library/registrars/saturn-client.md). Its configuration defines cluster access and the values supplied to connected nodes.
+
+The source is in [ergo-services/tools](https://github.com/ergo-services/tools). The sections below install the command and describe which configuration changes require a restart.
 
 * A unified registry for node registration within a cluster.
 * The ability to manage multiple clusters simultaneously.

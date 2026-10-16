@@ -6,13 +6,13 @@ description: The Actor Model and Its Properties
 
 The actor model is a computational approach to building concurrent systems, first proposed in the 1970s. Instead of sharing memory and coordinating through locks, components communicate by sending messages to each other.
 
-In the actor model, everything is an actor. An actor is an independent entity that has its own private state and processes incoming messages one at a time. Actors never directly access each other's state. Instead, they send messages and wait for responses if needed.
+An actor keeps state and responds to messages. For example, a cache actor owns a map: callers ask it to store or retrieve a key. It processes those requests sequentially, so accesses to the map do not overlap.
 
 ## What Makes an Actor
 
 An actor consists of three things:
 
-**Private State** - Data that belongs exclusively to this actor. No other actor can read or modify it directly.
+**Private State** - Data owned by the actor. In Go, ownership depends on keeping mutable references inside the actor or transferring them without retaining access.
 
 **Behavior** - The logic that determines how the actor responds to messages. This can change over time as the actor processes different messages.
 
@@ -30,7 +30,7 @@ Since only one message is processed at a time, state that the actor alone reache
 
 ## Location Transparency
 
-When you send a message to an actor, you don't need to know whether it's running in the same process, on the same machine, or halfway around the world. The addressing and the API are the same.
+An actor address identifies its destination node. The messaging API accepts that address whether the node is local or remote.
 
 The same messaging API is used for local and remote processes, so code written for a single machine runs unchanged across several. Remote delivery keeps its own failure semantics: the connection can drop, and the peer can be gone before the message arrives.
 
@@ -44,13 +44,13 @@ The same messaging API is used for local and remote processes, so code written f
 
 ## How This Applies to Go
 
-Go has goroutines and channels, which seem similar to actors and message passing. But there's a crucial difference: goroutines are not isolated. They can share memory, which means you still need locks and face the same concurrency challenges as traditional threading.
+Go provides goroutines and channels, but leaves process identity, mailbox dispatch and lifecycle relationships to application code. Goroutines may share memory; using Ergo does not change that language rule.
 
-Ergo Framework brings actor model semantics to Go. Each process is an actor with its own goroutine and its own mailbox, and the only way in is a message. The framework never runs two handlers of the same process at the same time; different processes run concurrently.
+Ergo assigns each process a mailbox and an address. It runs one handler at a time for that process, while different processes run concurrently.
 
-One boundary the language cannot enforce for us, and it is worth knowing from the start: **memory isolation is a discipline the framework supports, not a constraint it imposes.** A message between two processes on the same node is handed over as the Go value it is, with no copy and no serialization. Send a map, a slice or a pointer and both processes then hold the same memory, and Go's race detector will say so. Only a message that crosses a node boundary is encoded, and the encoding is what makes the copy.
+Local messages pass Go values without copying or serializing their contents. If a value contains a map, slice or pointer, sender and receiver can access the same memory. Concurrent mutation may cause a data race. Messages crossing a node connection are encoded and decoded into separate values.
 
-So "no shared state" is yours to keep: send values rather than references, or treat a send as handing over ownership and stop touching what you sent. The framework ships a vet tool, [argus](../tools/argus.md), whose A1001 rule flags exactly this.
+Keep mutable state private by sending independent values or transferring ownership and ending the sender's access. The [argus](../tools/argus.md) analyzer checks message types for shared-memory risks with rule A1001.
 
 ## Shared Data as an Actor
 
@@ -60,4 +60,4 @@ Partitioning the key space across several cache actors, placing them under a sup
 
 ## Next
 
-The following chapters explore how these concepts manifest in Ergo Framework's implementation. [Process](process.md) covers the lifecycle and capabilities of actors. [Node](node.md) explains how actors are managed and how they communicate across networks.
+Continue with [Node](node.md) to start the runtime, then [Process](process.md) and [Actor](../actors/actor.md) to create a message-handling instance. Return to [Supervision Tree](supervision-tree.md) once process termination is familiar.

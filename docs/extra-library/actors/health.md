@@ -1,8 +1,8 @@
 # Health
 
-The health actor provides Kubernetes-compatible health probe endpoints for Ergo applications. Instead of each application building its own HTTP health check logic, the health actor centralizes probe management into a single process that serves `/health/live`, `/health/ready`, and `/health/startup` endpoints.
+The health actor combines signals from application processes into liveness, readiness and startup probes. A process registers a signal, sends heartbeats when required and reports whether its part of the service is available.
 
-Actors register named signals with the health actor, optionally sending periodic heartbeats. The health actor aggregates signal states and serves HTTP responses that Kubernetes (or any other orchestrator) can use to determine whether to restart a pod, route traffic to it, or wait for it to finish starting.
+HTTP handlers read the probe state maintained by the actor. We will register one signal first, then combine signals and share the HTTP listener with other endpoints.
 
 ## The Problem
 
@@ -14,7 +14,7 @@ Kubernetes uses three types of probes to manage pod lifecycle:
 
 **Startup:** Has the application finished initializing? A failing startup probe prevents liveness and readiness checks from running. Use this for slow-starting applications that need time to load data, run migrations, or establish connections before health checks begin.
 
-In traditional applications, you implement these probes as HTTP handlers that check internal state. In actor systems, the "state" is distributed across many processes. A database connection actor, a cache warmer, and a message queue consumer each know their own status, but no single actor knows the overall health.
+Each participating actor knows its own availability. The health actor aggregates their registered signals into the probe result.
 
 The health actor solves this by accepting signal registrations from any actor in the system. Each actor reports its own status, and the health actor aggregates these signals into per-probe HTTP responses.
 
@@ -323,7 +323,7 @@ The health actor detects failures through three mechanisms:
 
 ### Process Termination
 
-When a process that registered signals terminates (normally or abnormally), the health actor receives `gen.MessageDownPID` through its monitor. All signals from that process are immediately marked as down. This is the fastest and most reliable detection mechanism.
+When a signal owner terminates, its monitor delivers `gen.MessageDownPID` to the health actor. The actor marks that owner's signals down when it handles the notification. For a remote owner, connection loss can also trigger a down notification without establishing that the remote process terminated.
 
 ### Heartbeat Timeout
 

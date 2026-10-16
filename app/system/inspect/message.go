@@ -640,13 +640,82 @@ type ResponseGetErrors struct {
 
 // atoms
 
-type RequestGetAtoms struct {
+type RequestGetNetworkAtomCache struct {
 	Name  string
 	Limit int
 }
 
-type ResponseGetAtoms struct {
+type ResponseGetNetworkAtomCache struct {
 	Atoms     []gen.RegisteredAtomInfo
+	Truncated int
+	Error     error
+}
+
+// Deprecated: use RequestGetNetworkAtomCache.
+type RequestGetAtoms = RequestGetNetworkAtomCache
+
+// Deprecated: use ResponseGetNetworkAtomCache.
+type ResponseGetAtoms = ResponseGetNetworkAtomCache
+
+type AtomLimitInfo struct {
+	Atoms   uint64
+	Limit   uint64
+	Refused uint64
+	SetBy   string
+}
+
+type AtomPeerInfo struct {
+	Peer      gen.Atom
+	Atoms     uint64
+	Limit     uint64
+	Refused   uint64
+	Exception bool
+}
+
+type AtomGroupInfo struct {
+	Key         string
+	Atoms       uint64
+	Bytes       uint64
+	Origin      string
+	OriginAtoms uint64
+}
+
+type AtomInfo struct {
+	Name   string
+	Origin string
+	Born   time.Time
+}
+
+type RequestGetAtomSummary struct{}
+
+type ResponseGetAtomSummary struct {
+	Atoms   uint64
+	Bytes   uint64
+	Long    uint64
+	Program uint64
+	Network uint64
+	Refused uint64
+	Runtime AtomLimitInfo
+	Node    AtomLimitInfo
+	Peer    AtomLimitInfo
+	Peers   []AtomPeerInfo
+	Groups  []AtomGroupInfo
+	Origins []AtomGroupInfo
+	Recent  []AtomInfo
+	Error   error
+}
+
+type RequestGetAtomTable struct {
+	Prefix string
+	Find   string
+	Origin string
+	Long   bool
+	Limit  int
+}
+
+type ResponseGetAtomTable struct {
+	Groups    []AtomGroupInfo
+	Atoms     []AtomInfo
 	Truncated int
 	Error     error
 }

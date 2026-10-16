@@ -1,7 +1,7 @@
 package meta
 
 import (
-	"net"
+	"net/netip"
 	"sync"
 
 	"ergo.services/ergo/gen"
@@ -17,6 +17,6 @@ type UDPServerOptions struct {
 
 type MessageUDP struct {
 	ID   gen.Alias
-	Addr net.Addr
+	Addr netip.AddrPort
 	Data []byte
 }

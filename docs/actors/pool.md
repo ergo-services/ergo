@@ -1,10 +1,10 @@
 # Pool
 
-A single actor processes messages sequentially, which keeps its own state free of concurrent access. It also means one actor can become a bottleneck. If messages arrive faster than the actor can process them, the mailbox grows, latency increases, and eventually the system stalls.
+Suppose an actor processes independent jobs, and each job takes longer than the interval between arrivals. Its mailbox starts to grow. Running several copies of that worker lets jobs proceed concurrently, provided they do not depend on one another's state or completion order.
 
-The standard solution is to run multiple workers. Instead of sending requests to one actor, distribute them across several identical actors processing in parallel. This works, but now you need routing logic: pick a worker, check if it's alive, handle mailbox overflow, restart dead workers. This boilerplate appears in every pool implementation.
+`act.Pool` forwards normal-priority traffic to a group of workers created from the same factory. Workers receive the original sender and reply directly to it. A worker that has died is replaced when the pool next attempts to forward to it.
 
-`act.Pool` is an actor that manages a pool of worker actors and distributes incoming messages and requests across them. You send to the pool's PID, the pool forwards to an available worker. The pool handles worker lifecycle, automatic restarts, and load balancing. From the sender's perspective it is one actor; the work is done by N workers in parallel.
+We will configure a pool, follow a request through it, and then examine what happens when workers stop or their mailboxes fill.
 
 ## Creating a Pool
 
@@ -62,10 +62,10 @@ Workers are created using the `WorkerFactory`. This is the same factory pattern 
 
 ### Rate Limiting Through Pool Configuration
 
-The combination of `PoolSize` and `WorkerMailboxSize` bounds how much work the pool holds: `PoolSize` messages being handled, plus `PoolSize × WorkerMailboxSize` waiting in the workers' mailboxes. A message being handled has already left its mailbox, so the two add up. There is no buffer at the pool itself. Once every mailbox is full, further messages are **dropped** rather than rejected, and the pool tells you rather than the sender, as the next section explains:
+Workers can hold `PoolSize` active messages plus `PoolSize × WorkerMailboxSize` queued messages when the worker mailbox limit is set. The pool also has its own process mailbox, governed by its `gen.ProcessOptions`. The worker capacity is therefore not a bound on the entire entry point. Once every worker mailbox is full, forwarding fails and the pool drops the message:
 
 ```go
-// Rate limit: 5 workers × 20 messages = 100 requests max in flight
+// Worker queues: up to 100 messages, plus active work and the pool mailbox
 return act.PoolOptions{
     PoolSize:          5,
     WorkerMailboxSize: 20,
@@ -73,9 +73,13 @@ return act.PoolOptions{
 }, nil
 ```
 
-That product is the work in flight the pool can hold. Past it the message is **dropped**: the pool increments `ergo:messages_unhandled`, hands the message to your `HandleForwardFailed` and releases it. An asynchronous sender is not told: `Send` to a saturated pool returns `nil`, because `ErrProcessMailboxFull` comes from a target's own queue on the ordinary send path and the pool's forwarding is not that path. A caller of `Call` is told, though: the pool answers it with the same reason at once rather than letting it sit out its whole timeout.
+On a failed forward, the pool increments `ergo:messages_unhandled`, calls `HandleForwardFailed` and releases the message. The original `Send` may already have returned nil after accepting it into the pool mailbox. A waiting `Call` receives the forwarding error before the callback runs.
 
-So this is a limit, not backpressure. If an external API is to answer "503 Service Unavailable" when the pool is saturated, that decision can be made in `HandleForwardFailed`, or before the pool by gating admission in the handler. The pool size controls maximum concurrency and the mailbox size controls burst capacity - tune both against worker processing speed and acceptable latency, and treat a rising drop counter as the signal that the sizing is wrong.
+The worker limits do not provide admission feedback to an asynchronous sender. To return an HTTP 503 on overload, arrange a response from `HandleForwardFailed` or gate admission before sending to the pool. Watch the drop counter while tuning concurrency and queue capacity.
+
+Consider five workers with mailbox limits of 20. A sender first queues a job in the pool mailbox. The pool later takes that job and tries the worker mailboxes. If all five are full at that moment, the forwarding attempt fails even though the sender's earlier `Send` succeeded. Limiting the pool mailbox as well bounds that first queue; it still does not turn submission into confirmation that a worker took the job.
+
+For a request made with `Call`, the pool can return a forwarding error to the waiting caller. For a plain message, the sender needs an application acknowledgment or another admission mechanism if it must learn that error. This distinction is useful when choosing between fire-and-forget work and a request whose result controls an HTTP response.
 
 ## Automatic Message Distribution
 
@@ -99,13 +103,13 @@ Forwarding happens for messages in the Main queue (normal priority). The pool ma
    - `ErrProcessMailboxFull` → push worker back, try next worker
 4. **Repeat** until successful or all workers tried
 
-If all workers have full mailboxes, or the pool has no workers left at all, the message is dropped. The pool doesn't have its own buffer beyond the workers' mailboxes. What the pool does before dropping is described in [When No Worker Takes the Message](#when-no-worker-takes-the-message).
+The message has already left the pool's mailbox when this forwarding loop runs. If no worker accepts it, the pool does not put it back to wait for space: it calls the failure callback and releases it. Other messages may still be queued in the pool's own mailbox. [When No Worker Takes the Message](#when-no-worker-takes-the-message) explains how to report or retain the failed work.
 
 The pool forwards Regular messages, Requests, and Events. Exit signals and Inspect requests are handled by the pool itself (they're not forwarded to workers).
 
 ## When No Worker Takes the Message
 
-A message nobody took is not lost quietly. The pool calls `HandleForwardFailed` with the original sender, the message itself and the reason: `gen.ErrProcessMailboxFull` when every worker mailbox is full, `gen.ErrProcessUnknown` when the pool has no workers at all. The message is released once the callback returns, so keep what you need from it.
+`HandleForwardFailed` receives the original sender, the message value and the forwarding error. When every worker mailbox is full, that error is `gen.ErrProcessMailboxFull`; when the worker queue is empty, it is `gen.ErrProcessUnknown`. A replacement worker can also fail to initialize, so handle other returned errors. The pool releases the mailbox envelope after the callback returns.
 
 ```go
 func (p *WorkerPool) HandleForwardFailed(from gen.PID, message any, reason error) error {
@@ -117,7 +121,7 @@ func (p *WorkerPool) HandleForwardFailed(from gen.PID, message any, reason error
 
 Returning a non-nil error from the callback terminates the pool, the same as from any other callback. The default implementation, which you get by not writing one, logs the drop as an error and keeps the pool running.
 
-A dropped `Call` is a special case: the caller is already waiting, so the pool answers it with the same reason before the callback runs. The caller sees `gen.ErrProcessMailboxFull` immediately instead of sitting out its timeout, and the callback has no way to answer it a second time.
+A failed forward of a `Call` request prompts the pool to send that forwarding error to the caller before invoking `HandleForwardFailed`. On a working connection this avoids waiting for the call deadline. That error response can itself fail to arrive, so the caller must still handle a timeout. The failure callback receives no request reference for a second response.
 
 ## Workers and the Original Sender
 
@@ -181,7 +185,7 @@ func (p *WorkerPool) HandleCall(from gen.PID, ref gen.Ref, request any) (any, er
         // inspect callback, where they are published as strings.
         info := p.HandleInspect(from)
         return PoolStats{
-            Size:      info["ergo:pool_size"],
+            ConfiguredSize: info["ergo:pool_size"],
             Forwarded: info["ergo:messages_forwarded"],
         }, nil
 
@@ -229,7 +233,7 @@ func (p *WorkerPool) HandleMessage(from gen.PID, message any) error {
 
 `AddWorkers` spawns new workers with the same factory and options used during initialization. They're added to the FIFO queue and immediately available for work.
 
-`RemoveWorkers` takes workers from the queue and sends them `gen.TerminateReasonNormal` via `SendExit`. That exit goes to the **Urgent** queue, and every run loop drains Urgent before System before Main, so a removed worker stops at its next dispatch: the message it is handling now finishes, and everything already queued behind it in Main does not. `SetTrapExit` does not soften this either - the trap only applies to an exit from the worker's parent, and here the parent is the pool that sent it.
+`RemoveWorkers` takes workers from the queue and sends them `gen.TerminateReasonNormal` via `SendExit`. That exit goes to the **Urgent** queue, and every run loop drains Urgent before System before Main, so a removed worker stops at its next dispatch: the message it is handling now finishes, and everything already queued behind it in Main does not. `SetTrapExit` does not soften this either - the trap does not apply to a PID exit from the worker's parent, and here the parent is the pool that sent it.
 
 If in-flight work must not be lost, drain before removing: stop feeding the pool, wait for the workers' mailboxes to empty, then call `RemoveWorkers`.
 
@@ -237,9 +241,9 @@ Both methods return the new pool size after the operation. They fail if called f
 
 ## Worker Restarts
 
-Workers are spawned with `LinkParent: true`, which links them to the pool and not the pool to them - a crashing worker sends the pool no signal at all. Detection happens in the `forward` path instead: the pool pops a worker, forwards, and if the answer is `ErrProcessUnknown` or `ErrProcessTerminated` it spawns a replacement with the same factory and arguments and forwards the message to the new worker.
+The worker-to-parent link stops a worker when its pool stops. The reverse link is absent: worker death does not notify the pool. Forwarding to a missing or terminated worker triggers a replacement with the same factory and arguments.
 
-This is automatic restart, not supervision. The pool doesn't track worker history or apply restart strategies, and it does not learn of a death until it next tries to use that worker - a pool sitting idle keeps a dead PID in its queue until the next message. If you need sophisticated restart strategies, use a Supervisor to manage the pool and its workers.
+An idle pool can retain a dead worker PID until the next forward attempt. It has no restart budget or supervisor strategy. When those policies matter, use externally supervised workers with a [Router](router.md), or choose a supervision arrangement explicitly.
 
 ## Pool Statistics
 
@@ -256,11 +260,13 @@ stats, err := node.Inspect(poolPID)
 // - "ergo:messages_unhandled": messages dropped (no worker took them)
 ```
 
+`ergo:pool_size` reports the initial normalized configuration, not the current worker count after `AddWorkers` or `RemoveWorkers`. Use the counts returned by those methods when tracking dynamic size.
+
 All of these keys use the reserved `ergo:` prefix. A `HandleInspect` you implement is merged on top of them, so your fields are added beside these rather than replacing the set - and one of these is overridden only if you name it with the prefix.
 
 Use this for monitoring pool health. High `ergo:messages_unhandled` indicates workers are overwhelmed. High `ergo:worker_restarts` suggests worker stability issues.
 
-`ProcessOptions.Fallback` does not help here, though it is the natural thing to reach for. Two reasons, either of which is enough. `PoolOptions` carries only `PoolSize`, `WorkerMailboxSize`, `WorkerFactory` and `WorkerArgs` - the pool builds its workers' `ProcessOptions` itself and sets no fallback, and there is no runtime setter for one. And the pool delivers with `Forward`, which pushes onto the worker's queue directly and answers `gen.ErrProcessMailboxFull`; the fallback is consulted only on the ordinary routing path that `Send` takes. A message the pool cannot place is dropped, counted and handed to `HandleForwardFailed`, never diverted. The remedies are `AddWorkers`, a larger `WorkerMailboxSize`, or shedding load before the pool.
+`ProcessOptions.Fallback` applies on the ordinary send-routing path. Pool forwarding pushes directly to a worker queue and does not consult it. The pool also constructs worker options itself and exposes no fallback field in `PoolOptions`. Handle failed forwards, enlarge worker capacity or limit incoming work before the pool.
 
 ## When to Use Pools
 

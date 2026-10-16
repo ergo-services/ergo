@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 	"ergo.services/ergo/testing/check"
 	"ergo.services/ergo/testing/mock"
@@ -200,4 +201,13 @@ func TestHandleFragmentUnorderedRejectsOversize(t *testing.T) {
 
 	check.Nil(t, c.handleFragmentUnordered(fragBuf(1, 0, 2, "toolong"))) // 7 bytes > 4, rejected
 	check.Nil(t, c.handleFragmentUnordered(fragBuf(1, 1, 2, "x")))       // assembly already rejected
+}
+
+// the sender splits no more than the receiver takes: a message needing more
+// fragments than maxFragmentCount is refused before anything is sent.
+func TestSendFragmentedRefusesTooManyFragments(t *testing.T) {
+	c := &connection{log: mock.NewLog(), fragmentSize: 32}
+	buf := lib.TakeBuffer()
+	buf.Allocate(16*maxFragmentCount + 1)
+	check.Equal(t, gen.ErrTooLarge, c.sendFragmented(buf, 0, 0))
 }

@@ -1,14 +1,22 @@
 # Actor
 
-The actor model requires sequential message processing - each actor handles one message at a time in a dedicated goroutine. That keeps the actor's own state free of concurrent access, and shifts the complexity into the message handling loop: reading from multiple mailbox queues in priority order, dispatching to different handlers based on message type, managing state transitions, converting exit signals to regular messages when trapping is enabled.
+`act.Actor` is the behavior used for an ordinary message-handling process. Embed it in a Go struct, keep the process's state in that struct, and implement the callbacks your protocol needs. The runtime calls those callbacks sequentially; other actors continue running while this one handles a message.
 
-You could implement this yourself with `gen.ProcessBehavior`, but you'd rewrite the same logic for every actor. `act.Actor` implements the low-level `gen.ProcessBehavior` interface and provides a higher-level `act.ActorBehavior` interface with four callbacks: `Init` for initialization, `HandleMessage` for asynchronous messages, `HandleCall` for synchronous requests, `Terminate` for cleanup.
+The examples below start with initialization and a message handler, then add replies, termination and exit handling. The [Process](../basics/process.md) chapter describes the runtime underneath these callbacks.
 
 ## Creating an Actor
 
-Embed `act.Actor` in your struct and implement the `act.ActorBehavior` callbacks you need:
+The greeting in [Overview](../README.md#first-process) answered a request without retaining application state. Now give the actor a counter. Each incoming increment changes that one actor's value, and its reply reports the new total. Import `act` and `gen` as in the first program, then define the messages and behavior:
 
 ```go
+type IncrementRequest struct {
+    Amount int
+}
+
+type IncrementResponse struct {
+    Counter int
+}
+
 type Worker struct {
     act.Actor
     counter int
@@ -24,7 +32,9 @@ func (w *Worker) HandleMessage(from gen.PID, message any) error {
     switch msg := message.(type) {
     case IncrementRequest:
         w.counter += msg.Amount
-        w.Send(from, IncrementResponse{Counter: w.counter})
+        if err := w.Send(from, IncrementResponse{Counter: w.counter}); err != nil {
+            w.Log().Warning("increment reply not sent: %s", err)
+        }
     }
     return nil
 }
@@ -45,7 +55,9 @@ Spawn it like any process:
 pid, err := node.Spawn(createWorker, gen.ProcessOptions{})
 ```
 
-The factory function is called each time you spawn. Each process gets a fresh instance with its own state.
+Send amounts 2 and 3 to this PID and its replies contain 2 and 5. The second handler sees the state left by the first, because the runtime dispatches them sequentially. `Send` itself does not wait for that reply; the sender must handle `IncrementResponse` as a later message.
+
+Spawn the factory a second time and the new worker begins at zero. The factory creates a fresh `Worker`, so its counter belongs to a different process. The same is true after a supervisor replaces a terminated worker: restart creates fresh behavior state. Later in this chapter, `HandleCall` lets a sender wait for a counter query instead of handling a separate reply message.
 
 ## Callback Interface
 
@@ -78,7 +90,7 @@ type ActorBehavior interface {
 
 All callbacks are optional. `act.Actor` provides default implementations that log warnings for unhandled messages. Implement only what you need.
 
-Since `act.Actor` embeds `gen.Process`, you have direct access to all process methods: `Send`, `Call`, `Spawn`, `Link`, `RegisterName`, etc. No need to store references - they're built in.
+Embedding `act.Actor` exposes the `gen.Process` methods, including `Send`, `Call`, `Spawn`, `Link` and name registration.
 
 ## Initialization
 
@@ -139,10 +151,7 @@ The return value determines whether the actor continues or terminates:
 - Return `gen.TerminateReasonNormal` for clean shutdown
 - Return any other error to terminate (logged as error)
 
-An error you forward is also "any other error". `return a.Send(peer, msg)` reads like delivery
-and means termination: this process stops whenever that peer is gone, which in a distributed
-system is an ordinary condition rather than a failure. Decide what the absence means instead -
-log it and return `nil`, drop the entry, monitor the peer. argus reports this as A2029.
+Returning an error from `HandleMessage` terminates the actor. In particular, `return a.Send(peer, msg)` terminates it if delivery fails. Handle an unavailable peer according to the protocol: log the failure, remove the peer or retry with a bound. argus rule A2029 checks this pattern.
 
 The `from` parameter tells you who sent the message. Use it for replies. If you don't need replies, ignore it.
 
@@ -290,7 +299,7 @@ At this point, the process is in `ProcessStateTerminated` and has been removed f
 
 If a panic occurs during `Init`, `HandleMessage`, or `HandleCall`, the framework catches it and terminates the process with `gen.TerminateReasonPanic`. The `Terminate` callback still runs, giving you a chance to clean up.
 
-What gets logged is the panic value and **one** frame - the function, file and line the recovery saw - not a stack trace:
+The panic log includes the panic value and one origin frame, with function, file and line:
 
 ```
 Actor terminated. Panic reason: "index out of range [3] with length 2" at myapp.(*Worker).HandleMessage[worker.go:42]
@@ -300,7 +309,7 @@ That is usually enough to find the line, but not to see how you got there. For t
 
 ## Trapping Exit Signals
 
-By default, when an actor receives an exit signal (via `SendExit` or from a linked process), it terminates immediately. Enable `TrapExit` to convert exit signals into regular messages:
+By default, an actor handles an exit signal by terminating. `SetTrapExit(true)` converts trappable signals into messages for `HandleMessage`. A PID exit from the actor's parent still terminates it; trapping does not prevent the parent from stopping its child.
 
 ```go
 func (w *Worker) Init(args ...any) error {
@@ -402,7 +411,7 @@ func (w *Worker) HandleLog(message gen.MessageLog) error {
 
 `gen.MessageLog` carries `Time`, `Level`, `Source`, `Format`, `Args` and `Fields`. There is no `PID` field and no preformatted `Message`: the origin is in `Source`, which is a `gen.MessageLogProcess`, `gen.MessageLogNode`, `gen.MessageLogNetwork`, `gen.MessageLogMeta` or `gen.MessageLogApplication`, and the text is yours to format.
 
-Nor is there a stack trace in the message. A logger that wants one on a panic captures it itself, with `runtime.Callers` inside `HandleLog` - that runs synchronously in the framework's recover defer, so the panic frames are still walkable. `logger/sentry` does exactly this.
+`MessageLog` does not include a stack trace. A logger can collect it with `runtime.Callers` while handling a panic record: that callback runs synchronously inside recovery, while the frames are still present. The Sentry logger uses this path.
 
 Log messages have the lowest priority. They're processed after Urgent, System, and Main are empty. This prevents logging from starving regular message processing.
 
@@ -450,7 +459,7 @@ info, err := node.Inspect(workerPID)
 
 Both methods only work for local processes (same node). Inspection requests go to the Urgent queue and bypass normal message processing. Keep `HandleInspect` implementation fast - don't do expensive computations or I/O. Return only string values (serialization limitation). The optional `item` parameters allow filtering which fields to return, though most implementations ignore them and return all fields.
 
-What you choose to expose here decides what can be diagnosed later, and everything built on top of it - the observer view, cluster-wide diagnostics, an AI agent correlating state with your source - is bounded by that choice. See [Inspecting Actor State](../advanced/inspecting-state.md).
+Inspection fields determine which application state an operator can diagnose. See [Inspecting Actor State](../advanced/inspecting-state.md) for field selection and bounded queries.
 
 ## Actor Pools
 
@@ -460,11 +469,11 @@ For workload distribution, use `act.Pool` instead of implementing manual worker 
 
 **Don't spawn goroutines in callbacks**. The actor model is sequential - one message at a time. Spawning goroutines breaks this, introducing data races on actor state. If you need concurrency, spawn child actors and send them messages.
 
-**Don't block on channels or mutexes**. Callbacks run in the actor's goroutine. Blocking it starves message processing. Use async message passing (`Send`) instead of sync primitives.
+**Bound any wait in a callback.** A callback cannot dispatch further messages while waiting. Prefer messages or a child actor for concurrent work. If an external operation must run there, give it a deadline and account for the time the actor is unavailable.
 
 **Don't store `gen.Process` references**. The embedded `act.Actor` provides all process methods. Storing additional references wastes memory and can cause confusion about which instance is authoritative.
 
-**Don't let a callback call its own path back**. A helper that re-enters the callback grows the goroutine stack, and a stack overflow is a fatal runtime error rather than a panic: `recover` does not see it, `Terminate` does not run, the supervisor is never told, and the node goes down with every process on it. Sending to your own PID does not make a stuck loop finish, but it returns to the mailbox between rounds, so an exit signal, a cancel and the supervisor still reach you - a contained fault instead of a dead node. argus reports this as A1013.
+**Avoid recursive callback paths.** A callback that re-enters itself can exhaust the stack. A stack overflow is a fatal Go runtime error and bypasses panic recovery and supervision. Scheduling another message to the same PID lets the dispatcher handle exits and other messages between iterations, but still needs a termination condition. argus rule A1013 checks recursive paths.
 
 **Return errors for termination, not for caller responses**. `HandleCall`'s error return terminates the process. To send errors to callers, return them as the result value.
 

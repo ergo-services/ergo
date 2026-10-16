@@ -1,8 +1,8 @@
 # WebSocket
 
-WebSocket provides persistent bidirectional connections between clients and servers. Unlike HTTP request-response, a WebSocket connection remains open for extended periods, allowing both client and server to send messages at any time.
+The WebSocket extension gives each upgraded connection a meta-process alias. Its reader forwards client messages to an actor, while its message handler writes backend messages to the socket.
 
-The framework provides WebSocket meta-process implementation that integrates WebSocket connections with the actor model. Each connection becomes an independent actor addressable from anywhere in the cluster.
+We will connect those two paths and follow what happens when the client or owning process terminates.
 
 ## The Integration Problem
 

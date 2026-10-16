@@ -4,11 +4,9 @@ description: Starting applications on remote nodes
 
 # Remote Start Application
 
-Remote application starting means launching an application on another node from your code. The remote node has the application loaded but not running. You send a start request, and the application starts on that node with the mode and options you specify. The application runs under the remote node's supervision, part of the remote node's application tree.
+A remote start request starts an application already loaded on the destination node. That node checks whether the requesting peer may start it, then runs the application's normal startup sequence.
 
-This capability enables dynamic application deployment and orchestration. You have a cluster of nodes, each with applications loaded but waiting. A coordinator node decides which applications should run where, based on load, topology, or scheduling logic. Remote application starting makes this coordination explicit and controllable.
-
-Like remote spawning, remote application starting is not automatic. You don't want arbitrary nodes starting arbitrary applications, so the framework requires explicit permission - the remote node must enable each application individually and can restrict which nodes are allowed to start it.
+A coordinator can use this to activate work on selected nodes. It does not transfer an application binary or load an unknown application. The examples below cover permission and startup options.
 
 ## Security Model
 

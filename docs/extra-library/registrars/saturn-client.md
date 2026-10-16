@@ -1,8 +1,8 @@
-# Saturn Сlient
+# Saturn Client
 
-This package implements the `gen.Registrar` interface and serves as a client library for the central registrar, [Saturn](../../tools/saturn.md). In addition to the primary _Service Discovery_ function, it automatically notifies all connected nodes about cluster configuration changes.
+The Saturn client connects a node to a central Saturn registrar. It registers routes and receives application, membership and configuration updates over the connection.
 
-To create a client, use the `Create` function from the `saturn` package. The function requires:
+Configure the registrar address, token and options at node startup. [Saturn](../../tools/saturn.md) covers the server configuration.
 
 * The hostname where the central registrar is running (default port: `4499`, unless specified in `saturn.Options`)
 * A token for connecting to Saturn

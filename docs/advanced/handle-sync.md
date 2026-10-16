@@ -4,17 +4,13 @@ description: Handling synchronous requests in the asynchronous actor model
 
 # Sync Request Handling
 
-The actor model is fundamentally asynchronous. Processes send messages and continue immediately without waiting for responses. This asynchrony is core to the model - actors don't block, they process messages one at a time from their mailbox, and they scale because thousands of actors can run concurrently without threads blocking on I/O or responses.
+`Call` sends a request and waits for a response identified by a `gen.Ref`. The receiver sees the request in `HandleCall`. It can answer from that callback or retain the caller and reference to answer later.
 
-But real systems often need synchronous patterns. A client makes a request and must wait for a response before continuing. An HTTP handler receives a request and can't return to the client until the response is ready. A database query needs to block until the data arrives. These synchronous requirements don't disappear just because your system uses actors.
-
-The challenge is satisfying these synchronous requirements without actually blocking the actor. If an actor blocks waiting for a response, it can't process other messages in its mailbox. The actor becomes unresponsive to everything else. This defeats the purpose of the actor model - you want concurrent message processing, not sequential blocking.
-
-The caller does not have to be blocked, either. `SendRequest` makes the same request without the wait, and the answer arrives in a callback. Everything on this page applies unchanged: the server sees an ordinary `HandleCall` and cannot tell the difference. See [Requests Without Blocking](async-request.md).
+The examples below cover both forms, delegation to workers, application errors and expired requests. The caller still waits in each case; use [Requests Without Blocking](async-request.md) when it must keep processing its mailbox.
 
 ## The Nature of Synchronous Calls in Actors
 
-In traditional synchronous code, when you call a function, you wait for it to return:
+A function call returns when its work is complete:
 
 ```go
 result := database.Query("SELECT * FROM users")
@@ -158,7 +154,7 @@ This breaks the actor model in subtle ways:
 
 A common pattern is a server process that receives many Call requests. If processing each request takes time (database query, HTTP call, complex computation), handling them sequentially in `HandleCall` creates a bottleneck. One slow request delays all subsequent requests.
 
-The solution is `act.Pool` - a specialized actor that automatically distributes requests across a pool of worker actors:
+Use `act.Pool` to distribute independent requests to multiple workers:
 
 ```go
 type Server struct {
@@ -226,7 +222,7 @@ The concurrency is entirely internal to the server.
 
 If a worker dies, the Pool replaces it - but lazily, when it next tries to forward to that worker and gets `ErrProcessUnknown` or `ErrProcessTerminated` back. Nothing notifies the Pool at the moment of death.
 
-If every worker's mailbox is full, the request is **dropped**, not queued. The Pool walks its workers once, pushing each full one back, and when the walk ends it logs "no available worker process. ignored message from ...", increments `ergo:messages_unhandled` and releases the message. There is no Pool-side buffer and no backpressure to the sender: a `Call` in this situation ends in the caller's timeout, and a `Send` disappears silently.
+A request first enters the Pool's own mailbox, then the Pool tries to forward it to a worker. These are separate admission points: successful delivery to the Pool does not mean a worker has accepted the request. If no worker accepts it, the Pool increments `ergo:messages_unhandled` and invokes `HandleForwardFailed`. For a Call request, it also attempts to send the forwarding error to the original caller before invoking that callback. The caller can therefore receive an error; if that response cannot be delivered, the Call can still time out. A Send has no response channel, so use the callback and counter to observe forwarding failures. The Pool does not keep failed requests in a separate retry queue.
 
 `ProcessOptions.Fallback` does not catch these. `PoolOptions` offers no way to give workers a fallback, and the Pool delivers with `Forward`, which bypasses the fallback path entirely - see [Pool Actor](../actors/pool.md). Watch the counter through the inspect callback, and size `PoolSize` and `WorkerMailboxSize` for the peak rather than the average.
 

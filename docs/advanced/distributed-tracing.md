@@ -4,15 +4,15 @@ description: Distributed tracing across actor message chains
 
 # Distributed Tracing
 
-In a distributed actor system, a single user request can touch dozens of processes across multiple nodes. Messages hop from actor to actor, crossing network boundaries invisibly. When something goes wrong (latency spikes, a message seems to disappear, an error surfaces three hops away from its cause) you need to follow the message trail across the entire cluster.
+An incoming request may cause one actor to send messages to several others. Those actors may continue the work on other nodes. To investigate the request, we need to relate the resulting messages and separate time in transit from time spent waiting or processing.
 
-Traditional logging shows you individual perspectives. Process A logged a send at 10:00:00.001, process B logged a receive at 10:00:00.003. Connecting these fragments manually, with hundreds of messages per second, is impractical. Tracing solves this by giving the framework itself the job of tracking messages end-to-end.
+Ergo attaches a trace identity to messages and records observations as they pass through the runtime. This chapter follows that identity through a message chain, then adds spans for work inside a handler.
 
 ## What Is a Trace
 
 A trace is an identity that follows a chain of causally related messages. When a process sends a message and the framework decides to track it, a 128-bit trace ID is generated and attached to that message. From that moment, the trace identity travels with every message in the chain. When the recipient handles the message and sends new messages of its own, those messages carry the same trace ID. When those recipients send further messages, the identity continues. The trace follows the causal chain across processes and nodes until the chain ends.
 
-This is fundamentally different from HTTP tracing. In HTTP, a request enters a service, the service calls other services, and eventually a response comes back. The trace follows a request-response tree with clear boundaries. In an actor system, there are no such boundaries. A message arrives, the handler sends three async messages to different processes, each of those handlers sends more messages, and the chain branches and spreads across the cluster. There's no single "response" that marks the end. The trace ends when the last handler in the chain finishes without sending more traced messages.
+An asynchronous message chain may branch without producing a final response. Its trace identity continues through the outgoing messages sent while handling each traced message. No explicit end message is required.
 
 
 ```mermaid
@@ -61,7 +61,7 @@ The first layer is the **message flow**: which messages travelled between which 
 
 The second layer is the **business operations**: what each handler actually did while holding a message. Validating an order, reserving stock, creating an invoice. The framework cannot know these, they belong to your domain. You mark them with business spans, and they appear as named intervals nested inside the message flow.
 
-The first layer tells you a message named `ProcessOrder` was handled in 50ms. The second tells you what those 50ms actually did. The first layer is mechanical and free; the second is yours to add. This page builds the first layer first, then adds the second in [Tracing Business Logic](#tracing-business-logic).
+A message-flow observation can show that `ProcessOrder` took 50 ms. Business spans can attribute that interval to validation, stock reservation or an external call. We will establish message tracing before adding those spans in [Tracing Business Logic](#tracing-business-logic).
 
 ### The Lifecycle of a Trace
 
@@ -117,7 +117,7 @@ Each observation carries context: which node emitted it, the sender and recipien
 
 ### Why Three Points, Not Two
 
-HTTP tracing typically records two points per span: the start and end of a service call. Actor tracing needs three because messages go through a mailbox. In HTTP, when service A calls service B, B starts processing immediately. In an actor system, when A sends to B, the message enters B's mailbox and waits. B might be busy handling a previous message. The wait time can be significant under load.
+Mailbox delivery precedes handler execution. Recording Delivered separates network transit from the subsequent mailbox wait and handler interval; a send and completion timestamp alone cannot distinguish them.
 
 Without the Delivered point, you'd see Sent at time T and Processed at T+50ms, but you wouldn't know whether the 50ms was network latency, mailbox wait, or handler execution. With Delivered, you know: Sent to Delivered was 2ms (network), Delivered to Processed was 48ms (the message sat in the mailbox for 40ms and the handler took 8ms).
 
@@ -228,7 +228,7 @@ When `a.Send()` executes, the sampler decides to start a new trace. The framewor
 
 3. **Processed** after the receiver's `HandleMessage` returns, capturing: whether the handler succeeded or returned an error, plus any one-shot attributes the receiver set during handling.
 
-The receiver didn't set a sampler. It didn't need to. The trace arrived with the message and the observations were recorded automatically.
+The receiver records observations for the trace it inherited. It needs a sampler only to create new traces.
 
 ### Remote Send
 
@@ -874,7 +874,7 @@ func (gw *APIGateway) Init(args ...any) error {
 
 One percent of requests are traced end-to-end across the entire cluster. The other 99% have near-zero overhead: one `Sample()` call returning `false`.
 
-Downstream processes don't need samplers. They inherit traces from incoming messages. This means adding tracing to a complex system requires changes only at the entry points.
+Downstream processes inherit trace identities from incoming messages. Configure samplers where new message chains enter the application.
 
 ### Rate Limiting Under Load
 

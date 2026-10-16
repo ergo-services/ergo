@@ -1,10 +1,8 @@
 # Port
 
-Actors communicate through message passing within the framework. But what if you need to integrate with an external program written in Python, C, or any other language? You could spawn goroutines to manage stdin/stdout, handle protocol framing, deal with buffer management - but this breaks the actor model and spreads I/O complexity throughout your code.
+A Port meta process starts an external program and connects its standard input and output to actor messages. It also reports process termination so the owning actor can decide whether to restart the program.
 
-Port meta-process solves this by wrapping external programs as actors. The external program runs as a child process. You send messages to the Port, and it writes them to the program's stdin. The Port reads from stdout and sends you messages. From your actor's perspective, you're just exchanging messages with another actor - the external program's details are abstracted away.
-
-This covers existing programs, libraries in other languages, or any tool that uses stdin/stdout for communication. The actor model stays intact while bridging to external processes.
+We will start a program, exchange bytes and then add framing, environment settings and termination handling.
 
 ## Creating a Port
 
@@ -741,5 +739,3 @@ func (c *Controller) processData(data []byte) {
 ```
 
 After `MessagePortTerminate`, the Port is dead. Sending messages returns errors. Handle termination: restart the Port, fail gracefully, or terminate your actor.
-
-Port meta-processes enable clean integration with external programs. They handle process management, I/O buffering, protocol framing, and lifecycle coordination - letting you focus on the protocol logic while maintaining the actor model's isolation and simplicity.

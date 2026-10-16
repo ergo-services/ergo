@@ -4,27 +4,21 @@ description: Build, run, and diagnose multi-agent AI systems on Ergo Framework
 
 # AI Agents
 
-Modern AI systems are multi-agent by nature. A research agent delegates to an analysis agent. A planner coordinates with executors. A conversation manager spawns short-lived task agents. Moving from a demo with a handful of agents to a production deployment with hundreds or thousands surfaces the same problems that distributed systems have solved for decades: crash isolation, supervision, cross-node coordination, observability at scale.
+An LLM-backed worker can keep its conversation state in an actor and accept tasks as messages. Several workers may run in a pool; a supervisor can replace one that terminates; processes on other nodes can address them through the same messaging API.
 
-Ergo was built for telecom workloads where these requirements are baseline. AI agents have the same profile: many concurrent isolated workers with fault tolerance, coordination, and real-time behavior. This page shows how to use Ergo as runtime for your agents and as a live diagnostic surface for the running system.
+The examples on this page apply those mechanisms to agent workloads. They also show how to expose state for inspection. An actor restart does not recover a conversation or retry a completed external operation: persistence, deadlines and duplicate handling remain part of the agent's protocol.
 
 ## Why Ergo fits AI agents
 
-Four problems appear as soon as you move AI agents out of a notebook:
+Consider a research worker that calls an LLM and keeps the findings for a later task. While that call waits, the worker cannot handle another message. Other actors can continue, but this worker needs a deadline so an unavailable service does not occupy it indefinitely.
 
-**Agent crashes.** One stuck LLM call or panicking tool handler takes down the whole process. Everything running in that process dies with it.
+There are two different recovery problems. A supervisor can create a replacement after the actor terminates. Recovering its findings or determining whether a tool already performed an external action requires application state outside that actor. A retry must also account for external effects that may have completed before the answer was lost.
 
-**Coordination.** Agents need to talk to each other. Without a framework this becomes a web of channels, shared state, and custom routing code.
-
-**Observability.** You can't see what's happening inside a running agent system. Mailbox depth, per-agent CPU, which agents are waiting on which external calls, where cascade failures originate.
-
-**Scaling.** Distributing agents across nodes requires rethinking addressing, message delivery, and failure semantics.
-
-Ergo addresses all four: isolated processes with supervision, named event streams for coordination, a built-in MCP diagnostic surface, and network-transparent PIDs.
+The examples below start with one worker, add concurrency for independent tasks, and then route work to specialists. These use the same actor mechanisms described in Basics and Actors.
 
 ## Your agent as an actor
 
-An AI agent in Ergo is just an actor: a process with private state and a mailbox, handling messages sequentially.
+Represent the worker as an actor: a process with private state and a mailbox, handling messages sequentially.
 
 ```go
 type ResearchAgent struct {
@@ -40,9 +34,21 @@ type MessageResearchTask struct {
 func (a *ResearchAgent) HandleMessage(from gen.PID, msg any) error {
     switch m := msg.(type) {
     case MessageResearchTask:
-        result := callLLM(m.Query) // blocking call, isolated per agent
+        ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+        result, err := callLLM(ctx, m.Query)
+        cancel()
+        if err != nil {
+            a.Log().Warning("research failed: %s", err)
+            return nil
+        }
         a.notes = append(a.notes, result)
-        a.Send(m.ReplyTo, result)
+        replyTo := m.ReplyTo
+        if replyTo == (gen.PID{}) {
+            replyTo = from
+        }
+        if err := a.Send(replyTo, result); err != nil {
+            a.Log().Warning("research answer not sent: %s", err)
+        }
     }
     return nil
 }
@@ -50,9 +56,13 @@ func (a *ResearchAgent) HandleMessage(from gen.PID, msg any) error {
 func factory_ResearchAgent() gen.ProcessBehavior { return &ResearchAgent{} }
 ```
 
-What you get automatically:
+In this fragment, `callLLM(ctx, query)` is the application's adapter and must honor the context deadline. Import `context` and `time` as well as the actor packages. A timeout or API error is logged without terminating the actor. A successful finding is added to `notes`, then sent to `ReplyTo` or the original sender when that field is empty.
 
-- **Crash isolation.** A panicking LLM call or tool handler terminates only this actor. See [Process](basics/process.md).
+This message protocol sends an answer only on success. If the caller needs a result for both success and failure, define a response type or use `HandleCall` and an asynchronous request. [Requests Without Blocking](advanced/async-request.md) shows that conversation in detail.
+
+The surrounding runtime provides:
+
+- **Panic recovery.** With recovery enabled, `act.Actor` converts a panic in its callback into actor termination. It does not isolate shared memory or make an external API call cancellable. See [Process](basics/process.md).
 - **Supervision.** Put the agent under a supervisor and it restarts on failure with your chosen strategy. See [Supervisor](actors/supervisor.md).
 - **Distributed addressability.** Each agent has a PID that works across nodes. See [Remote Spawn Process](networking/remote-spawn-process.md).
 - **Event-based coordination.** Agents publish to and subscribe to named event streams, fanning out one network message per node instead of one per subscriber. See [Events](basics/events.md).
@@ -64,7 +74,7 @@ The actor's private state (`notes` in the example) needs no synchronization: mes
 
 ### Agent Pool
 
-Run N identical worker agents and distribute incoming tasks across them. Ideal for stateless agents that process requests in parallel (LLM calls, embedding lookups, tool invocations).
+Run several workers from the same factory for independent tasks such as LLM calls or embedding requests. Avoid a pool when a task needs affinity to one worker's conversation state.
 
 ```go
 type AgentPool struct {
@@ -84,10 +94,10 @@ func factory_AgentPool() gen.ProcessBehavior { return &AgentPool{} }
 poolPID, _ := node.Spawn(factory_AgentPool, gen.ProcessOptions{})
 
 // Send tasks. The pool forwards to an available worker automatically.
-node.Send(poolPID, MessageResearchTask{Query: "Summarize Q3 report"})
+process.Send(poolPID, MessageResearchTask{Query: "Summarize Q3 report"})
 ```
 
-Pool size and worker mailbox size together bound the work held: `PoolSize` tasks running, plus `PoolSize × WorkerMailboxSize` queued behind them. Beyond that the pool drops rather than queues, without telling the sender. See [Pool](actors/pool.md).
+Worker capacity is `PoolSize` active tasks plus `PoolSize × WorkerMailboxSize` queued tasks when the limit is configured. The pool itself also has a mailbox. On a saturated forward it drops asynchronous traffic and calls `HandleForwardFailed`; the original sender may have seen a successful send to the pool. See [Pool](actors/pool.md).
 
 ### Agent Router
 
@@ -124,7 +134,7 @@ For sharded stateful agents (per-user conversation memory, per-tenant context), 
 
 ### Agent Pipeline
 
-Chain agents by sending from one stage to the next. Each stage runs under a supervisor. Failure in any stage is isolated and restarted.
+In a pipeline, one actor sends its output to the next stage. Give each stage an explicit input and result contract, then place it under a supervisor whose policy fits the dependency between stages.
 
 ```go
 // ResearchAgent forwards its result to AnalysisAgent
@@ -138,7 +148,7 @@ func (a *ResearchAgent) HandleMessage(from gen.PID, msg any) error {
 }
 ```
 
-If `AnalysisAgent` crashes, the supervisor restarts it without affecting the other stages. Pipelines compose naturally with pools: a stage can be a single actor or a pool of identical workers.
+If `AnalysisAgent` terminates and is restarted, its replacement has a new PID. Address the stage through a registered name or update the stored PID; otherwise the research worker keeps sending to the old incarnation. Restart alone does not recover a finding lost in the old mailbox. A stage can also be a pool when its tasks are independent.
 
 ### Distributed Agent Cluster
 
@@ -172,11 +182,11 @@ producer.SendEvent("research.findings", token, Finding{Topic: "market-trends"})
 process.MonitorEvent(gen.Event{Name: "research.findings", Node: "research@host"})
 ```
 
-The framework delivers one network message per subscriber node regardless of how many subscribers that node has. 1M subscribers across 10 nodes cost 10 network messages, not 1M. See [Events](basics/events.md) and [Pub/Sub Internals](advanced/pub-sub-internals.md).
+For a remote event, the producer sends one copy to each subscriber node; that node fans it out to its local subscribers. With subscribers on ten remote nodes, that is ten network deliveries plus local mailbox deliveries. This reduces network fan-out without eliminating per-subscriber work. See [Events](basics/events.md) and [Pub/Sub Internals](advanced/pub-sub-internals.md).
 
 ## Live diagnostics for AI systems
 
-AI agents are nondeterministic. Behavior depends on prompts, external API latency, model temperature, and tool responses. Predefined metrics cover known failure modes, but the interesting failures are the ones you didn't anticipate.
+An agent may be waiting on an LLM, executing a tool, retrying a request or deciding its next action. Expose that phase, its start time and the pending operation ID through inspection. Mailbox depth shows queued work; the actor's phase helps explain why that work is waiting.
 
 Add the [Observer](extra-library/applications/observer.md) application to your node. One listener
 serves the web UI, the browser API and the MCP surface:
@@ -215,8 +225,7 @@ AI: reading ergo://cluster ... three orders@* nodes, one restarted 4m ago
     -> parked in external_api.Call(). The payment API is the bottleneck.
 ```
 
-Nothing in that sequence was decided in advance, which is the difference between an agent and a
-dashboard. Each step picked the next from what the previous one said.
+This is an illustrative investigation. Each observation narrows the next query: first locate the backlog, then inspect the waiting actor and its dependency, then check the stack on the node running that dependency. A useful `HandleInspect` makes the intermediate steps possible.
 
 The surface has two halves. A **resource** is a reading with an address: `ergo://<node>/<lens>`,
 read again with `since=` to take only what has landed since. A **tool** is an act that answers
@@ -228,9 +237,7 @@ reason rather than answered with emptiness.
 Only the node serving MCP needs the Observer application. Every node runs the built-in `system`
 application that answers these questions, so one endpoint covers the cluster.
 
-What an agent may do is bounded the same way a person is: capability ceilings per deployment, per
-listener and per caller, so a read-only surface refuses a kill instead of hiding it. Two tools cost
-the observed node a stop-the-world pause, and the surface says so up front.
+Observer combines capability ceilings for the deployment, listener and caller. A read-only ceiling omits mutation tools from the exposed catalog. Some diagnostic tools pause the observed runtime; the tool descriptions identify those costs so the client can limit collection.
 
 For the surface in practice, see [Inspecting With an AI Agent](advanced/mcp.md); for configuring
 and bounding it, [Observer](extra-library/applications/observer.md).
@@ -273,7 +280,7 @@ claude mcp add --transport http ergo http://localhost:9911/mcp
 
 ## Cloud-connected agents
 
-Running agents across AWS, GCP, Azure, or bare metal is supported via [ergo.cloud](https://ergo.cloud), a managed overlay network that connects nodes without VPNs, proxies, or tunnels. End-to-end encrypted. Currently available via waitlist.
+The same actor addresses can be used across hosts when discovery and connection routes are reachable. Register message types on participating nodes, configure TLS and handle connection loss. [Network Stack](networking/network-stack.md) and [Behind the NAT](networking/behind-the-nat.md) explain those deployment conditions.
 
 ## Next steps
 

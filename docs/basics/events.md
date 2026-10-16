@@ -4,11 +4,9 @@ description: Publish/Subscribe Event Mechanism
 
 # Events
 
-The actor model is point-to-point. Process A sends a message to process B. Process C makes a request to process D. Each interaction has a specific sender and receiver.
+An event is a named stream registered on a node. Processes subscribe to the stream with `LinkEvent` or `MonitorEvent`, and its producer publishes messages to them. A subscriber may be on the same node or another node.
 
-But some scenarios need one-to-many communication. A price feed updates and dozens of trading strategies need the new price. A user logs in and multiple subsystems need notification. A sensor reading arrives and various monitoring processes need to react. You could send individual messages to each interested process, but then the producer needs to track all consumers. When consumers come and go, the producer's consumer list becomes a maintenance burden.
-
-Events solve this with publish/subscribe semantics. A producer registers an event and publishes values to it. Consumers subscribe to the event without the producer knowing who they are. The framework handles message distribution - when the producer publishes an event, all current subscribers receive it. Subscribers can come and go dynamically, and the producer's code doesn't change.
+We will register a stream, subscribe to it and publish a message, then cover buffered events and producer notifications.
 
 ## Registering Events
 
@@ -186,7 +184,7 @@ The buffered events work across nodes too. When you subscribe to a remote event,
 
 Event tokens can be delegated. The producer can give its token to another process, allowing that process to publish events under the producer's event registration.
 
-This enables patterns where event generation is separated from event registration. A coordinator registers the event and distributes the token to worker processes. Workers publish events as data becomes available. Subscribers don't know or care which process instance published each event - they just receive events on the registered event name.
+A coordinator can register an event and give its publication token to workers. Their publications reach subscribers under the registered event name, regardless of which worker emitted them.
 
 Token delegation also allows rotating producers. A primary process registers an event and holds the token. A backup process can take over using the same token if the primary fails. Subscribers see a continuous event stream even as the producing process changes.
 

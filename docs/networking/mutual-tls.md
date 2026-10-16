@@ -4,7 +4,9 @@ description: Mutual TLS authentication between nodes
 
 # Mutual TLS
 
-Standard TLS provides server authentication - the client verifies the server's certificate. Mutual TLS (mTLS) adds client authentication - both sides present and verify certificates. Only clients with certificates signed by a trusted CA can connect.
+With mutual TLS, both ends of a node connection present certificates. The listener verifies a client certificate against its configured trust roots, and the dialing node verifies the server certificate.
+
+The settings below configure both directions. Requiring a client certificate is a separate setting from verifying one when it happens to be supplied.
 
 ## Configuration
 

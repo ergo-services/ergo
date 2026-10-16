@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"net"
+	"net/netip"
 	"strconv"
 	"testing"
 	"time"
@@ -387,4 +388,67 @@ func TestLocalTCPClient(t *testing.T) {
 	check.NoError(t, err)
 	tcpReport(t, n, mk, owner, tcpEvent{Kind: "disconnect"})
 	tcpReport(t, n, mk, client, tcpEvent{Kind: "disconnect"})
+}
+
+// tcpAddrOwner spawns a TCP server on the dual-stack wildcard and reports the
+// remote address of each accepted connection to the collector.
+type tcpAddrOwner struct {
+	act.Actor
+	collector gen.PID
+	server    gen.Alias
+}
+
+func factoryTcpAddrOwner() gen.ProcessBehavior { return &tcpAddrOwner{} }
+
+func (o *tcpAddrOwner) Init(args ...any) error {
+	o.collector = args[0].(gen.PID)
+	s, err := meta.CreateTCPServer(meta.TCPServerOptions{Port: 0})
+	if err != nil {
+		return err
+	}
+	o.server, err = o.SpawnMeta(s, gen.MetaOptions{})
+	return err
+}
+
+func (o *tcpAddrOwner) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	if request == "addr" {
+		insp, err := o.InspectMeta(o.server)
+		if err != nil {
+			return err, nil
+		}
+		return insp["listener"], nil
+	}
+	return "ok", nil
+}
+
+func (o *tcpAddrOwner) HandleMessage(from gen.PID, message any) error {
+	if m, ok := message.(meta.MessageTCPConnect); ok {
+		return o.Send(o.collector, m.RemoteAddr)
+	}
+	return nil
+}
+
+// TestLocalTCPAddrUnmapped: an IPv4 client of a dual-stack listener is reported
+// as a 4-byte address, not as the IPv4-mapped IPv6 form the socket returns.
+func TestLocalTCPAddrUnmapped(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+
+	collector := n.Spawn(factoryEcho, gen.ProcessOptions{})
+	owner := n.Spawn(factoryTcpAddrOwner, gen.ProcessOptions{}, collector)
+
+	addrAny, err := n.Call(owner, "addr")
+	check.NoError(t, err)
+
+	mk := n.Mark()
+	conn, err := net.Dial("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(int(portOf(t, addrAny.(string))))))
+	check.NoError(t, err)
+	defer conn.Close()
+
+	rec, ok := n.ShouldSend().From(owner).Since(mk).Within(time.Second).Capture()
+	check.True(t, ok)
+	remote, ok := rec.Message.(netip.AddrPort)
+	check.True(t, ok)
+	check.True(t, remote.Addr().Is4())
+	check.Equal(t, netip.MustParseAddrPort(conn.LocalAddr().String()), remote)
 }

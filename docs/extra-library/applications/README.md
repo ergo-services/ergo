@@ -1,5 +1,8 @@
 # Applications
 
-The additional application library for Ergo Framework contains packages with a narrow specialization or external dependencies since Ergo Framework adheres to the "zero dependencies" principle.&#x20;
+These applications package actors and meta processes for use with an Ergo node.
 
-You can find the source code of these applications in the application library repository at [https://github.com/ergo-services/application](https://github.com/ergo-services/application).
+- [Observer](observer.md) serves the inspection UI, HTTP API and MCP endpoint.
+- [Radar](radar.md) combines health probes and metrics on a shared listener.
+- [Pulse](pulse.md) exports tracing observations to an OTLP/HTTP collector.
+- [Grid](grid.md) replicates a process-owned key registry between nodes.

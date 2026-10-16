@@ -4,9 +4,9 @@ description: Vet Tool for Ergo Actor Model Invariants
 
 # Actor Model Vet Tool
 
-The actor model rests on rules the Go compiler cannot check. A message must not share memory with its sender. A callback must not block without a bound. A goroutine started inside a callback must not reach back into actor state. Break any of these and the code compiles, the tests pass, and the failure arrives later - as a race under load, as a mailbox that never drains, as a node that reports itself healthy while serving nothing.
+`argus` checks Go code for actor-model mistakes that type checking does not detect: sharing mutable state in messages, unbounded waits in callbacks and incorrect use of framework methods.
 
-`argus` reads your packages and reports those breaks. It is a vet tool, so it runs the way `go vet` runs: over the build graph, with your build tags, cached per package.
+It runs as a vet tool over the build graph, using the selected build tags and per-package caching. Its findings identify code to review; passing the analyzer does not prove that a protocol is safe.
 
 ## Installation
 
@@ -89,4 +89,4 @@ Findings already in the baseline stay silent. Anything new is reported.
 
 A codebase written before the tool existed reports plenty. `application/observer` reports A1001 broadly, because any message carrying a `map[string]any` or a slice shares memory on local delivery, and local delivery does not copy. Those findings are correct; whether they matter depends on whether the sender touches the value afterwards.
 
-That is the tool's shape in general: it reports what it can prove about the construct, and leaves the judgement about your specific case to you. Read new findings as signal, not as verdicts.
+Review a finding against the protocol and the rule's documented limitations. Some patterns have legitimate uses that static analysis cannot establish.

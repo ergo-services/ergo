@@ -4,13 +4,9 @@ description: Making a request without taking the caller out of service
 
 # Requests Without Blocking
 
-`Call` is the simplest way to ask another process for something, and for most code it is the right way. It is also the one place where an actor stops behaving like an actor. While the call is out, the process sits in the WaitResponse state and reads nothing from its mailbox. Messages pile up behind the answer it waits for. If the callee is slow, the caller is slow with it. If the callee never answers, the caller is out of service for the whole timeout.
+While an actor waits in `Call`, it does not process its mailbox. This is often appropriate for a worker with one job, but a coordinator may also need to react to child exits, incoming work or answers from other nodes.
 
-For a worker that does one thing at a time, that is fine and even desirable - the blocked call is the back pressure. It stops being fine when the caller has other obligations while it waits. A manager that must keep reacting to the death of its children. An actor that drives a stream and cannot go quiet for five seconds. Anything that asks several nodes at once, where blocking makes the work sequential and the slowest peer sets the pace.
-
-Until now the answer to that was one of three workarounds. Spawn a short-lived process whose only job is to block on `Call` and report back. Invent your own protocol on plain messages, where the server has to learn a second way of answering. Or block and live with it. The first costs a process and loses the caller's context, the second costs a protocol on both sides, and the third costs availability.
-
-`SendRequest` is the missing option: the same request a `Call` makes, without the wait.
+`SendRequest` sends the same kind of request without waiting in the caller. The receiver handles it in `HandleCall`; the caller handles the eventual answer in `HandleResponse`. This chapter follows a request from dispatch to completion, including cancellation and a full mailbox.
 
 ## Asking Without Waiting
 
@@ -39,7 +35,7 @@ Returning an error from `HandleResponse` terminates the process, like any other 
 
 ## The Answer Carries Its Own Context
 
-A ref tells you which request was answered, not what it was about. You could keep a map from ref to your own context, but then both you and the framework track the same request, and you pay a lookup on every answer. Attach the context to the request instead:
+A ref identifies the request. A label associates application context with it, avoiding a separate ref-to-context map when the handler needs only the information supplied at dispatch:
 
 ```go
 for _, node := range nodes {
@@ -47,7 +43,7 @@ for _, node := range nodes {
 }
 ```
 
-The label comes back with the answer, so the handler reads as a handler and not as bookkeeping:
+Read the label in `HandleResponse`:
 
 ```go
 func (c *Collector) HandleResponse(response gen.MessageResponse) error {
@@ -88,7 +84,7 @@ A request to a process that does not exist fails at once: `SendRequest` returns 
 ref, err := a.SendRequestImportant(gen.ProcessID{Name: "inspector", Node: node}, RequestInfo{})
 ```
 
-With the flag set, an undeliverable request comes back as an answer with `gen.ErrProcessUnknown` or `gen.ErrProcessMailboxFull` in about one round trip, instead of waiting out the deadline. In a fan-out over twenty nodes that is the difference between knowing which three are gone right away and learning it from twenty timeouts at once. For the details of what the flag guarantees, see [Important Delivery](important-delivery.md).
+With the flag set, the peer returns request-routing failure as an answer containing `gen.ErrProcessUnknown` or `gen.ErrProcessMailboxFull`. On a working connection this takes a round trip rather than waiting for the request deadline. If the error answer cannot return, the deadline still applies. See [Important Delivery](important-delivery.md) for the distinction between routing reports and processing results.
 
 `SendRequestWithOptions` takes all of it together when a single request needs more than one knob:
 
@@ -104,7 +100,7 @@ ref, err := a.SendRequestWithOptions(target, request, gen.RequestOptions{
 
 The answer is an ordinary mailbox message. It goes into the queue that matches the priority the request was sent with, and it takes its turn there: an answer never jumps ahead of messages that arrived before it. A request sent with `gen.MessagePriorityHigh` gets its answer on the System queue, which is how you keep an administrative conversation ahead of the regular traffic.
 
-Nothing arrives in `HandleResponse` that you did not ask for. A process that never calls `SendRequest` never sees the callback, which is why adding it to your actors is free until you use it.
+`HandleResponse` receives answers only to requests initiated by that process. Actors using only `Call` do not receive answers through this callback.
 
 ## From a Meta-Process
 

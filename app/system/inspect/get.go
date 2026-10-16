@@ -265,7 +265,7 @@ func (i *inspect) responseErrors(r RequestGetErrors) ResponseGetErrors {
 	return out
 }
 
-func (i *inspect) responseAtoms(r RequestGetAtoms) ResponseGetAtoms {
+func (i *inspect) responseNetworkAtomCache(r RequestGetNetworkAtomCache) ResponseGetNetworkAtomCache {
 	registered := i.Node().Network().RegisteredAtoms()
 
 	atoms := registered
@@ -279,7 +279,7 @@ func (i *inspect) responseAtoms(r RequestGetAtoms) ResponseGetAtoms {
 		}
 	}
 
-	out := ResponseGetAtoms{Atoms: atoms}
+	out := ResponseGetNetworkAtomCache{Atoms: atoms}
 	if r.Limit > 0 && len(atoms) > r.Limit {
 		out.Truncated = len(atoms) - r.Limit
 		out.Atoms = atoms[:r.Limit]

@@ -1,16 +1,17 @@
 package meta
 
 import (
-	"ergo.services/ergo/gen"
-	"net"
+	"net/netip"
 	"sync"
 	"time"
+
+	"ergo.services/ergo/gen"
 )
 
 type MessageTCPConnect struct {
 	ID         gen.Alias
-	RemoteAddr net.Addr
-	LocalAddr  net.Addr
+	RemoteAddr netip.AddrPort
+	LocalAddr  netip.AddrPort
 }
 
 type MessageTCPDisconnect struct {

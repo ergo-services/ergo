@@ -12,15 +12,15 @@ Ergo is an open-source Go framework for building concurrent and distributed syst
 
 ### Is Ergo production-ready?
 
-Yes. Ergo is used in production systems. It supports [mTLS](networking/mutual-tls.md), [NAT traversal](networking/behind-the-nat.md), graceful shutdown, panic recovery, and has a comprehensive test suite. The framework has been in active development since 2019.
+The runtime includes supervision, graceful shutdown, panic recovery and [mTLS](networking/mutual-tls.md). Whether an application is ready for production also depends on its message contracts, overload policy, state recovery and deployment. The Testing chapters cover actor behavior and tests across real node connections; the Advanced chapters cover diagnosis and cluster operation.
 
 ### What license is Ergo distributed under?
 
-MIT License. Free to use in commercial projects without restrictions.
+MIT License. See the repository's `LICENSE` file for its terms, including the notice that must accompany copies.
 
 ### What Go version is required?
 
-Go 1.21 or higher. No other dependencies.
+The core module declares Go 1.21 and has no external module dependencies. Extra-library modules can require a newer Go version and their own dependencies; check the `go.mod` of the packages you use.
 
 ## Actor Model
 
@@ -46,11 +46,11 @@ See [Process](basics/process.md) for details.
 
 ### How many processes can run on a single node?
 
-Thousands to hundreds of thousands. Processes sleep when idle and consume no CPU. Memory footprint per process is minimal, comparable to a goroutine plus a small mailbox struct.
+There is no fixed process count suitable for every node. Capacity depends on the state each actor holds, queued messages and the work performed by handlers. Idle processes do not keep dispatching callbacks. Measure memory and latency with representative traffic before choosing a deployment size.
 
 ### Can actors communicate synchronously?
 
-Yes. Ergo supports both async (`Send`) and sync (`Call`) patterns. `Call` blocks the calling process until a response arrives or a timeout occurs, while maintaining full actor model guarantees. See [Handling Sync Requests](advanced/handle-sync.md).
+Yes. `Send` submits a message without waiting for an application response. `Call` waits for an answer or call error and prevents that process from dispatching other mailbox messages while it waits. `SendRequest` returns without waiting and delivers the answer through `HandleResponse`. See [Handling Sync Requests](advanced/handle-sync.md) and [Requests Without Blocking](advanced/async-request.md).
 
 ## Fault Tolerance
 
@@ -63,11 +63,11 @@ Its supervisor detects the failure and applies a restart strategy:
 - **Rest-For-One**: restart the failed child and all children started after it
 - **Simple-One-For-One**: identical children spawned dynamically at runtime, restart failed ones
 
-Supervision trees are hierarchical. A failed subtree is isolated and recovered without affecting the rest of the system. See [Supervision Tree](basics/supervision-tree.md) and [Supervisor](actors/supervisor.md).
+A child failure can be handled within its supervisor, or propagate when a restart budget is exceeded. The chosen strategy may also restart siblings. A new actor begins with fresh behavior state unless the application explicitly restores it. See [Supervision Tree](basics/supervision-tree.md) and [Supervisor](actors/supervisor.md).
 
 ### Do I need to write retry logic?
 
-No. Supervision handles process recovery automatically. For message delivery, use the [Important Delivery](advanced/important-delivery.md) flag: the sender learns that the target was unknown, terminated or full instead of guessing from a timeout. Same node, that error comes back synchronously; across nodes it is the remote's own routing error, forwarded after the remote enqueued or refused the message - which needs `EnableImportantDelivery` in the network flags of **both** nodes.
+For application work, usually yes. Supervision restarts a process according to its policy; it does not automatically repeat an external operation or recover the old actor's state. Important delivery reports a routing attempt, while a timeout can leave the result unknown. Define when to retry, how to recognize a duplicate, and where to obtain the result of work already completed. [Important Delivery](advanced/important-delivery.md) follows this distinction with a job-submission example.
 
 ### What happens if a remote node disconnects?
 
@@ -92,11 +92,11 @@ Ergo does support Kubernetes for deployment. The [Health](extra-library/actors/h
 
 ### How does Ergo handle network partitions?
 
-The [Leader](extra-library/actors/leader.md) actor uses a Raft-inspired consensus algorithm with majority quorum to prevent split-brain scenarios. When a partition occurs, only the partition with a majority of nodes continues to elect a leader. Minority partitions stop processing leader-dependent operations until connectivity is restored.
+The [Leader](extra-library/actors/leader.md) actor uses terms, votes and heartbeats without a replicated log. It requires a majority of each actor's current membership view. With a shared view, a partition prevents the minority from electing; after membership changes or independent discovery, different groups may elect separately. Use fencing or external confirmation for effects that require a single writer.
 
 ### Can I run Ergo nodes across different clouds?
 
-Yes. [ergo.cloud](https://ergo.cloud) is a managed overlay network that connects Ergo nodes across AWS, GCP, Azure, and bare metal into one transparent cluster without VPNs, proxies, or tunnels. End-to-end encrypted. Currently available via waitlist.
+Yes, if the nodes have reachable routes and compatible connection settings. Configure discovery or static routes and TLS for the deployment. A private address returned by discovery may be unreachable from another network; [Behind the NAT](networking/behind-the-nat.md) explains advertised addresses, and [Static Routes](networking/static-routes.md) explains overrides.
 
 ### How do I pass money amounts in messages?
 
@@ -139,7 +139,7 @@ See [Events](basics/events.md).
 
 The framework uses fan-out at the consumer node level, not per subscriber. One network message is sent per remote node regardless of how many subscribers that node has. Local delivery then fans out within the node.
 
-Result: 2.9M messages/second delivery rate to 1,000,000 subscribers across 10 nodes using only 10 network messages, not 1,000,000. See [Pub/Sub Internals](advanced/pub-sub-internals.md).
+This reduces network fan-out when many subscribers share a node. Each receiving node still has to enqueue the event for its local subscribers, so total delivery work grows with their number. See [Pub/Sub Internals](advanced/pub-sub-internals.md) for the routing path and the [benchmarks repository](https://github.com/ergo-services/benchmarks) for a million-subscriber workload.
 
 ### What's the difference between Links, Monitors, and Events?
 
@@ -155,16 +155,15 @@ See [Links and Monitors](basics/links-and-monitors.md) and [Pub/Sub Internals](a
 
 ### How fast is Ergo?
 
-- 21M+ messages/second locally on a 64-core processor
-- ~5.5M messages/second over the network
-- EDF serialization: up to 47% faster encoding than Protobuf, 6 to 14 times faster than Gob
-- Distributed Pub/Sub: 2.9M msg/sec to 1M subscribers across 10 nodes
+Throughput depends on how many processes can work concurrently, message size, handler cost, mailbox limits, and whether delivery crosses a node connection. The [benchmarks repository](https://github.com/ergo-services/benchmarks) includes local and remote ping, serialization, memory usage, and distributed Pub/Sub workloads. Ping benchmarks now live in the framework's `testing/benchmarks/ping` directory and can be run with `make bench`.
 
-Full benchmarks: [benchmarks repository](https://github.com/ergo-services/benchmarks).
+Use these workloads to establish a baseline on your hardware, then measure your own handlers and messages. A transport benchmark with small messages does not predict the throughput of actors waiting on a database or external API.
 
 ### How does Ergo serialization compare to Protobuf?
 
-Ergo uses EDF (Ergo Data Format) with type caching. The two sides exchange their registered type lists during the handshake and agree on a compact id per type, so a message carries a two-byte reference instead of a type name - from the first message onward, not after a warm-up. A type registered later than the handshake still works: it falls back to sending its full canonical name until the next handshake, and that is the only case where type information travels with each message. Together with no reflection on the hot path, this makes EDF significantly faster than Protobuf for encoding and decoding in high-throughput scenarios.
+EDF builds encoding and decoding functions at runtime when you register Go types; it still uses reflection to access values. During a handshake, peers exchange registered types and establish compact numeric references. A cached registered-type marker occupies three bytes: a tag plus a two-byte ID. Types registered after the handshake can be sent by their full canonical name until a later handshake establishes a cached reference. Field values follow the type contract, without repeating struct field names.
+
+These choices affect wire size and encoding cost, but do not establish a universal speed advantage over Protobuf. Compare both formats with representative messages, and consider how each handles schema changes. See [Network Transparency](networking/network-transparency.md#edf-ergo-data-format) and the [serialization benchmarks](https://github.com/ergo-services/benchmarks#serialization-benchmarks-edf-vs-protobuf-vs-gob).
 
 ## Observability
 

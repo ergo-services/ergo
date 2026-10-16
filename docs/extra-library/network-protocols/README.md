@@ -1,6 +1,5 @@
 # Network Protocols
 
-The Ergo Framework allows nodes to run with various network stacks. You can replace the default network stack or add it as an additional stack. For more information, refer to the [Network Stack](../../networking/network-stack.md) section.&#x20;
+A node can configure a different handshake and protocol for connections to peers. [Network Stack](../../networking/network-stack.md) describes the interfaces and their registration.
 
-This library contains implementations of network stacks that are not part of the standard Ergo Framework library.
-
+The [Erlang](erlang.md) module supplies DIST, ETF and EPMD for interoperability with Erlang/OTP nodes.

@@ -1,12 +1,8 @@
 # UDP
 
-UDP is fundamentally different from TCP. There are no connections, no ordering guarantees, no reliability. Datagrams arrive independently, potentially out of order, possibly duplicated, or lost entirely. This makes UDP simpler than TCP, but also requires different handling patterns.
+A UDP server meta process owns one socket and sends each incoming datagram to its handler actor as `MessageUDP`. The message contains the sender's address and the datagram bytes. To reply, send a `MessageUDP` to the server alias with the destination address.
 
-Traditional UDP servers use blocking `ReadFrom` calls in loops. This doesn't fit the actor model's one-message-at-a-time processing. You could spawn goroutines to read packets, but this breaks actor isolation and requires manual synchronization.
-
-UDP meta-process wraps the socket in an actor. It runs a read loop in the `Start` goroutine, sending each received datagram as a message to your actor. To send datagrams, you send messages to the UDP server's meta-process. The actor model stays intact while integrating with blocking UDP operations.
-
-Unlike TCP, UDP has no connections. One meta-process handles the entire socket - all incoming datagrams from all remote addresses. There's no per-connection state, no connection lifecycle, no connect/disconnect messages. Just datagrams in, datagrams out.
+There is no per-client connection or disconnect notification. The examples below handle datagrams, track application state by address and reuse read buffers.
 
 ## Creating a UDP Server
 
@@ -83,10 +79,23 @@ func (d *DNSServer) HandleMessage(from gen.PID, message any) error {
 
 **MessageUDP** contains:
 - **ID**: The UDP server's meta-process ID (same for all datagrams)
-- **Addr**: Remote address that sent this datagram (`net.Addr` - typically `*net.UDPAddr`)
+- **Addr**: Remote address that sent this datagram (`netip.AddrPort` from the standard `net/netip` package)
 - **Data**: The datagram payload (up to `BufferSize` bytes)
 
-To send a datagram, send `MessageUDP` to the server's ID with the destination address and payload. The server writes it to the socket with `WriteTo`. The `ID` field is ignored when sending (it's only used for incoming datagrams).
+To send a datagram, send `MessageUDP` to the server's ID with the destination address and payload. The `ID` field is ignored when sending (it's only used for incoming datagrams).
+
+`netip.AddrPort` is a value: comparable, usable as a map key, and small enough to copy freely. Build one with `netip.ParseAddrPort("10.0.0.1:5353")` or `netip.AddrPortFrom(addr, port)`. An IPv4 peer is always reported as a 4-byte address, even when the socket listens on the dual-stack wildcard.
+
+`MessageUDP` is registered for the network, so the actor that handles datagrams does not have to run on the node that owns the socket. A process on another node sends `MessageUDP` to the server alias and the datagram leaves from this node:
+
+```go
+// anywhere in the cluster, given the server alias
+process.Send(serverID, meta.MessageUDP{
+    ID:   serverID,
+    Addr: netip.MustParseAddrPort("10.0.0.1:5353"),
+    Data: query,
+})
+```
 
 Unlike TCP:
 - No connect/disconnect messages - datagrams are independent
@@ -102,11 +111,10 @@ UDP has no connections. Each datagram is independent. The same remote address mi
 type GameServer struct {
     act.Actor
     udpID   gen.Alias
-    players map[string]*PlayerState  // Key: remote address string
+    players map[netip.AddrPort]*PlayerState  // Key: remote address
 }
 
 type PlayerState struct {
-    addr       net.Addr
     lastSeen   time.Time
     position   Vector3
     health     int
@@ -115,17 +123,12 @@ type PlayerState struct {
 func (g *GameServer) HandleMessage(from gen.PID, message any) error {
     switch m := message.(type) {
     case meta.MessageUDP:
-        addrStr := m.Addr.String()
-        
         // Get or create player state
-        player, exists := g.players[addrStr]
+        player, exists := g.players[m.Addr]
         if !exists {
-            player = &PlayerState{
-                addr:   m.Addr,
-                health: 100,
-            }
-            g.players[addrStr] = player
-            g.Log().Info("new player: %s", addrStr)
+            player = &PlayerState{health: 100}
+            g.players[m.Addr] = player
+            g.Log().Info("new player: %s", m.Addr)
         }
         
         // Update last seen
@@ -161,7 +164,7 @@ options := meta.UDPServerOptions{
 }
 ```
 
-All datagrams go to `metrics_collector` instead of the parent. This enables separation of concerns - the actor that creates the UDP server doesn't need to handle datagrams.
+Datagrams go to `metrics_collector` rather than the owning actor.
 
 Unlike TCP's `ProcessPool`, UDP only has a single `Process` field. You can route to an `act.Pool`:
 
@@ -178,6 +181,44 @@ options := meta.UDPServerOptions{
 Each datagram is forwarded to the pool, which distributes them across workers. **This works for UDP because datagrams are independent** - there's no per-connection state to corrupt. For TCP, `ProcessPool` uses round-robin to maintain connection-to-worker binding. For UDP, the pool can distribute freely.
 
 Use pools when datagram processing is CPU-intensive or slow (database writes, external API calls). Workers process datagrams in parallel, maximizing throughput.
+
+### Handler on another node
+
+`Process` names a process on the node that owns the socket. `MessageUDP` is registered
+for the network, so a process anywhere in the cluster can send a datagram through this
+server by its ID, and the datagram leaves from the node holding the socket.
+
+Pointing `Process` at a remote process is not possible, and deliberately so. The server
+delivers every datagram from the same loop that reads the socket, and sending to another
+node depends on the state of the link between the nodes, so the socket would be read at
+the speed of that link. Put a local actor in front and let it carry the datagrams across:
+
+```go
+options := meta.UDPServerOptions{
+    Port:    8125,
+    Process: "fwd",
+}
+```
+
+```go
+type forwarder struct {
+    act.Actor
+}
+
+func (f *forwarder) HandleMessage(from gen.PID, message any) error {
+    err := f.Send(gen.ProcessID{Name: "collector", Node: "metrics@127.0.0.1"}, message)
+    if m, ok := message.(meta.MessageUDP); ok {
+        bufferPool.Put(m.Data)
+    }
+    return err
+}
+```
+
+The same two responsibilities as for TCP. With `BufferPool` configured the forwarder
+returns the buffer, because the process on the other node cannot. And when the other
+node is unreachable `Send` returns an error: for UDP, dropping the datagram is usually
+the honest answer, since the protocol loses datagrams anyway and the sender must already
+cope with that.
 
 ## Buffer Management
 

@@ -1,492 +1,225 @@
 ---
-description: Guaranteed message delivery with acknowledgment
+description: Mailbox delivery acknowledgments and their limits
 ---
 
 # Important Delivery
 
-In the actor model, messages are typically fire-and-forget. You send a message, and it either arrives or it doesn't. For local communication, errors are immediate - if the process doesn't exist or the mailbox is full, `Send` returns an error. But for remote communication, `Send` succeeds as soon as the message reaches the network layer. You don't know if it arrived at the remote node, if the target process exists, or if the mailbox had space.
+A successful ordinary remote `Send` means the message was passed to the node connection. It does not tell the sender whether the remote recipient exists or has space in its mailbox. Important delivery requests a report of that delivery attempt.
 
-This works fine for many scenarios. Asynchronous messaging doesn't require confirmation. Actors process what arrives and ignore what doesn't. Systems are resilient because actors don't wait for acknowledgments - they keep working.
+The distinction matters when a worker must decide whether to keep or retry a job. Confirmation establishes that the recipient accepted a message. It does not establish that a handler ran, a database write committed or a response was processed. A timeout leaves the outcome unknown.
 
-But some operations need certainty. A payment authorization must definitely be recorded or definitely fail - "maybe it worked" isn't acceptable. A distributed transaction coordinator needs to know that all participants received the commit message before proceeding. Critical state updates can't be silently lost.
+Before choosing a delivery method, consider a dispatcher on node A that submits a job to a worker on node B. There are three separate events: the worker's mailbox accepts the job, the worker performs it, and the dispatcher learns the result. A connection can fail between any two of them.
 
-Important Delivery provides guaranteed message delivery through acknowledgment. When you send with the important flag, the framework tracks the message, waits for confirmation from the recipient, and reports errors if delivery fails.
+If the dispatcher only needs to learn whether node B accepted the submission, it can use `SendImportant`. If it needs the job's result, it should make a request. If it must survive a lost answer without repeating the work, the application also needs an operation ID and a way to recover the recorded result. We will follow these cases in order.
 
 ## The Problem: Network Opacity
 
-Without important delivery, remote communication is opaque:
+Local delivery can report a missing process or full mailbox during the routing operation. Across a node connection, those facts are known on the receiving node. Ordinary remote sends do not send its routing result back:
 
 ```go
-// Local - errors are immediate
-err := process.Send(localPID, message)
+err := process.Send(remotePID, message)
 if err != nil {
-    // ErrProcessUnknown or ErrProcessMailboxFull
-    // You know immediately something is wrong
+    // Handle a routing, connection or encoding error.
 }
-
-// Remote - errors are hidden
-err = process.Send(remotePID, message)
-if err != nil {
-    // Only reports local problems (serialization, no connection)
-    // Cannot report remote problems (process missing, mailbox full)
-}
-// Message sent to network, no idea if it arrived
+// nil does not confirm acceptance by the remote recipient.
 ```
 
-The remote `Send` succeeds even if:
-- The remote process doesn't exist
-- The remote process's mailbox is full
-- The remote node received the message but dropped it
-- The network delivered the message but it got lost before reaching the process
-
-You only discover problems through absence - no response arrives, timeouts fire, but you don't know why. Did the request get lost? Did the process crash? Is it just slow?
+A request sent with `Call` may time out because its recipient was missing, because a handler was slow or because the answer could not return. Those cases require different recovery decisions, but the timeout alone does not distinguish them.
 
 ## The Solution: Confirmed Delivery
 
-Important delivery makes remote communication transparent - errors are immediate, just like local:
+`SendImportant` waits for the receiving node's delivery result:
 
 ```go
 err := process.SendImportant(remotePID, message)
-if err != nil {
-    // Immediate errors:
-    // - ErrProcessUnknown: process doesn't exist on remote node
-    // - ErrProcessMailboxFull: process exists but mailbox is full
-    // - ErrTimeout: remote node received message but no confirmation
-    // - ErrNoConnection: cannot reach remote node
+switch {
+case err == nil:
+    // Routing succeeded. Processing may still be pending; see fallback below.
+case errors.Is(err, gen.ErrProcessUnknown):
+    // The receiver reported that the process was missing.
+case errors.Is(err, gen.ErrProcessMailboxFull):
+    // The receiver reported that the mailbox could not accept the message.
+case errors.Is(err, gen.ErrTimeout):
+    // The result is unknown. The message may have been accepted.
+default:
+    // Handle the returned routing or transport error.
 }
-// If no error, message is definitely in the recipient's mailbox
 ```
 
-The framework sends the message, waits for acknowledgment from the remote node, and reports the outcome. Either the message is in the recipient's mailbox (success) or you get an error explaining what went wrong (failure).
+For our dispatcher, with no mailbox fallback configured, `nil` means that node B accepted the submission into the worker's mailbox. The job may still be waiting behind other messages. To learn that it finished, the dispatcher needs an application response describing that outcome.
+
+A recipient can configure `ProcessOptions.Fallback` to route messages elsewhere when its mailbox is full. In that case, a successful routing report can mean that the fallback process accepted a `gen.MessageFallback`, rather than that the original worker accepted the job. Important delivery reports the runtime's routing result; it follows the recipient's fallback policy. See [Process](../basics/process.md) for mailbox configuration.
+
+Now suppose node B accepted job `job-42`, but the connection failed before its acknowledgment reached node A. `SendImportant` times out. The job may already be running; sending it again under a new ID could run it twice. Keep the original ID when retrying and let the worker look up work already accepted or completed. The lookup and duplicate handling belong to the application; the runtime does not store job results.
+
+There is another failure window: the worker can terminate after accepting the job and before dispatching it. An acknowledgment still described a successful mailbox delivery. Recovering that job requires a durable queue or another application mechanism that survives the worker's termination.
 
 ## How to Use Important Delivery
 
-There are two ways to enable important delivery:
-
-**Method 1: Per-message explicit methods**
-
-Use `SendImportant` and `CallImportant` instead of `Send` and `Call`:
+Use `SendImportant` for a selected message or `CallImportant` for a selected request. `SetImportantDelivery(true)` enables the flag for the process's ordinary sends, calls and responses:
 
 ```go
-func (a *Actor) HandleMessage(from gen.PID, message any) error {
-    switch msg := message.(type) {
-    case CriticalUpdate:
-        // This message must be delivered or we need to know it failed
-        if err := a.SendImportant(targetPID, msg); err != nil {
-            a.Log().Error("failed to send critical update: %s", err)
-            return err
-        }
-        a.Log().Info("critical update confirmed delivered")
-    }
-    return nil
-}
-```
-
-**Method 2: Process-level flag**
-
-Set the important delivery flag on the process - all outgoing messages use important delivery:
-
-```go
-func (a *Actor) Init(args ...any) error {
-    // Enable important delivery for all messages from this process
+func (a *worker) Init(args ...any) error {
     a.SetImportantDelivery(true)
     return nil
 }
-
-func (a *Actor) HandleMessage(from gen.PID, message any) error {
-    // Send uses important delivery automatically
-    err := a.Send(targetPID, message)
-    if err != nil {
-        // Immediate confirmation or error
-    }
-    return nil
-}
 ```
 
-The process-level flag affects all outgoing messages: `Send`, `SendPID`, `SendProcessID`, `SendAlias`, and Call requests. You don't need to use special methods - regular `Send` and `Call` automatically include the important flag.
+Remote important delivery requires the participating peers to advertise `NetworkFlags.EnableImportantDelivery`. It is enabled in the default flags. A send to a peer without that support can return `gen.ErrUnsupported`; copying the default flag set before adjusting it avoids accidentally clearing other capabilities. See [Network Stack](../networking/network-stack.md#network-configuration).
 
-Use the flag when the process primarily deals with critical messages. Use explicit methods when only specific messages require guarantees.
+A request's flag does not enable the responder's flag. Configure the responder separately or use `SendResponseImportant` explicitly when it needs a report about its answer.
 
 ## How Important Delivery Works
 
 ### Send with Important Delivery
 
-Here's what happens when you send a message with important delivery:
+For a remote send, the runtime allocates a reference, sends the message and waits up to `gen.DefaultRequestTimeout` (five seconds by default). The peer attempts routing and returns an acknowledgment with that result.
 
 ```mermaid
 sequenceDiagram
     participant Sender
-    participant SenderNode
-    participant Network
-    participant ReceiverNode
-    participant ReceiverMailbox
-
-    Sender->>SenderNode: SendImportant(msg)
-    Note over Sender: Blocks waiting for ACK
-    
-    SenderNode->>Network: Message + ImportantFlag + Ref
-    Network->>ReceiverNode: Deliver message
-    
-    ReceiverNode->>ReceiverMailbox: Push to mailbox
-    alt Mailbox has space
-        ReceiverMailbox-->>ReceiverNode: Success
-        ReceiverNode->>Network: ACK (via SendResponseError with nil)
-        Network->>SenderNode: ACK received
-        SenderNode-->>Sender: Return nil
-        Note over Sender: Unblocks, message in mailbox
-    else Mailbox full
-        ReceiverMailbox-->>ReceiverNode: ErrProcessMailboxFull
-        ReceiverNode->>Network: NACK (via SendResponseError with error)
-        Network->>SenderNode: Error response
-        SenderNode-->>Sender: Return ErrProcessMailboxFull
-        Note over Sender: Unblocks with error
+    participant Peer
+    participant Mailbox
+    Sender->>Peer: message, important flag, reference
+    Peer->>Mailbox: attempt delivery
+    alt accepted
+        Mailbox-->>Peer: nil
+        Peer-->>Sender: acknowledgment
+    else refused
+        Mailbox-->>Peer: routing error
+        Peer-->>Sender: error acknowledgment
     end
-    
-    Note over ReceiverMailbox: Later, process reads from mailbox
+    Note over Sender: a missing acknowledgment ends in timeout
 ```
 
-The sender blocks until the acknowledgment arrives. The remote node attempts delivery and sends either success (ACK) or failure (error). The sender's `SendImportant` unblocks with the result.
-
-For local sends, the behavior is identical to regular `Send` - immediate error if the process doesn't exist or mailbox is full. The important flag only affects remote sends.
+While waiting, the sending actor does not dispatch other mailbox messages. Other processes on its node continue running.
 
 ### Call with Important Delivery
 
-Call requests already have a response channel (the caller waits for `HandleCall` to return), so important delivery works differently. The ACK is only sent if there's an error - if delivery succeeds, no ACK is sent, and the caller waits for the actual response:
+Change the dispatcher so it asks the worker to execute the job and return a result:
+
+```go
+result, err := process.CallImportant(remotePID, Job{ID: "job-42"})
+```
+
+Here `Job` is the application's request type. Register it on both nodes before establishing their connection; see [Message Versioning](message-versioning.md) for type registration. The worker handles it through the same `HandleCall` callback used for a local request.
+
+`CallImportant` waits for the application response, as `Call` does. If remote routing fails, the peer returns that error rather than leaving the caller to wait for a response that cannot be produced. Successful request delivery does **not** produce a separate positive acknowledgment.
+
+Follow the request through a working connection:
 
 ```mermaid
 sequenceDiagram
-    participant Caller
-    participant CallerNode
-    participant Network
-    participant ReceiverNode
-    participant ReceiverMailbox
-
-    Caller->>CallerNode: CallImportant(req)
-    Note over Caller: Blocks waiting for response
-    
-    CallerNode->>Network: Request + ImportantFlag + Ref
-    Network->>ReceiverNode: Deliver request
-    
-    ReceiverNode->>ReceiverMailbox: Push to mailbox
-    alt Mailbox has space
-        ReceiverMailbox-->>ReceiverNode: Success
-        Note over ReceiverNode: No ACK sent on success
-        Note over ReceiverMailbox: Process reads and handles request
-        ReceiverMailbox->>Caller: SendResponse(result)
-        Note over Caller: Unblocks with result
-    else Process doesn't exist or mailbox full
-        ReceiverMailbox-->>ReceiverNode: Error (ErrProcessUnknown/ErrProcessMailboxFull)
-        ReceiverNode->>Network: Error (via SendResponseError)
-        Network->>CallerNode: Error received
-        CallerNode-->>Caller: Return error immediately
-        Note over Caller: No timeout wait
+    participant Dispatcher
+    participant Peer as worker node
+    participant Worker
+    Dispatcher->>Peer: CallImportant(job-42)
+    alt request cannot be routed
+        Peer-->>Dispatcher: routing error
+    else request accepted
+        Peer->>Worker: request enters mailbox
+        Note over Worker: waits for dispatch, then performs job
+        Worker-->>Dispatcher: application result
     end
 ```
 
-The key difference from regular `Call`: with `CallImportant`, if the remote process doesn't exist or its mailbox is full, you get an **immediate error** instead of waiting for timeout. If delivery succeeds, you wait for the response just like regular `Call`.
+The dispatcher remains blocked until it receives an answer or an error, or its deadline passes. A returned result is evidence of an answer, so the application should define what that answer means: merely queued, completed, or committed to durable storage. The runtime cannot infer this from the result's Go type.
 
-Without the important flag, `ErrProcessUnknown` looks like timeout - you can't tell if the process is slow, dead, or never existed. With important delivery, you know immediately.
+If the worker completed `job-42` but its answer was lost, the caller still sees a timeout. `CallImportant` makes a missing recipient easier to diagnose; it does not resolve uncertainty about work performed after acceptance.
 
 ## Combining Call and Response Delivery
 
-Important delivery on the request and on the response combine into four cases, each with different guarantees.
+Request and response flags cover different routing attempts:
+
+| Request | Response | Additional information |
+|---------|----------|------------------------|
+| Ordinary | Ordinary | Caller receives an answer or a call error; responder does not wait for response acknowledgment |
+| Ordinary | Important | Responder waits for acceptance of its answer |
+| Important | Ordinary | Caller can receive the peer's request-routing error |
+| Important | Important | Request-routing errors are reported and the responder waits for acceptance of its answer |
 
 ### Regular Call + Regular Response
 
-```go
-// Caller
-result, err := process.Call(target, request)
+Return the result from `HandleCall` when the responder does not need a response-delivery report:
 
-// Handler
-func (h *Handler) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-    result := h.process(request)
-    return result, nil  // Framework sends with SendResponse
+```go
+func (h *handler) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+    return h.process(request), nil
 }
 ```
 
-**Guarantees:** None. Request may be lost. Response may be lost. Timeout is ambiguous.
+The second return value is a termination reason, not an application error for the caller. See [Sync Request Handling](handle-sync.md).
 
-**Use case:** Fast, non-critical operations where occasional loss is acceptable.
+### Regular Call + Important Response
 
-### Regular Call + Important Response (RR-2PC)
+Send the response explicitly to handle its delivery error in the callback:
 
 ```go
-// Caller
-result, err := process.Call(target, request)
-
-// Handler
-func (h *Handler) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-    h.SetImportantDelivery(true)  // Or use SendResponseImportant explicitly
+func (h *handler) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
     result := h.process(request)
-    return result, nil  // Framework sends with SendResponseImportant
+    if err := h.SendResponseImportant(from, ref, result); err != nil {
+        h.Log().Warning("response not confirmed: %s", err)
+        // Retain or reconcile the operation's status according to the protocol.
+    }
+    return nil, nil // the response was sent explicitly
 }
 ```
 
-**Guarantees:** Response delivery is confirmed. If the handler returns a result, the caller will receive it (or get an error if delivery fails). Request delivery is not confirmed - the handler might never receive the request.
-
-**Protocol name:** RR-2PC (Response-Reliable Two-Phase Commit)
-
-**Use case:** The handler's work is critical, the caller must know if it succeeded. Example: committing a transaction. If the transaction commits, the caller must know. But it's okay if the request gets lost (request is idempotent, can be retried).
-
-**How it works:**
-
-```mermaid
-sequenceDiagram
-    participant Caller
-    participant Handler
-    
-    Caller->>Handler: Call(request)
-    Note over Caller: Blocks waiting for response
-    Note over Caller: Request may be lost (no guarantee)
-    
-    Note over Handler: If request arrives...
-    Note over Handler: Process in HandleCall
-    
-    Handler->>Caller: SendResponseImportant(result)
-    Note over Handler: Blocks for ACK
-    
-    Caller-->>Caller: Receive response
-    Caller->>Handler: ACK (via SendResponseError)
-    Note over Caller: Returns result to user code
-    
-    Handler-->>Handler: ACK received
-    Note over Handler: Returns from HandleCall
-```
-
-The handler blocks after processing until the caller acknowledges the response. If the caller crashes before sending ACK, the handler's `SendResponseImportant` returns `ErrResponseIgnored` or `ErrTimeout`.
-
-The request has no guarantee - it might be lost, and the caller would timeout. But **if** the handler processed the request and sends a response, that response is guaranteed to be delivered.
+A nil return from `SendResponseImportant` confirms acceptance of the answer. `ErrResponseIgnored` can indicate that the caller no longer has the request pending. A timeout remains ambiguous: the answer may have arrived and its acknowledgment may not have returned.
 
 ### Important Call + Regular Response
 
-```go
-// Caller
-result, err := process.CallImportant(target, request)
+`CallImportant` asks the peer to report request-routing failures. After successful routing, the caller waits for the ordinary response. It receives no intermediate success indication.
 
-// Handler
-func (h *Handler) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-    result := h.process(request)
-    return result, nil  // Regular SendResponse
-}
-```
+### Important Call + Important Response
 
-**Guarantees:** Request delivery is confirmed. The handler will receive the request (or caller gets an error immediately). Response delivery is not confirmed - response may be lost.
+With both flags enabled, the dispatcher can learn about request-routing failure and the worker can learn about response-delivery failure. The two reports help different processes decide what to do next.
 
-**Use case:** The handler must receive the request, but the response is less critical or can be retried. Example: triggering a background job. The job must start, but if the status response is lost, the caller can query status later.
+Suppose the worker has finished `job-42` and `SendResponseImportant` times out. Undoing the job would be unsafe: the dispatcher might already have received the answer and started its next operation. Retain the recorded result so that a later status request or retry can recover it. An acknowledgment confirms a routing event; it is not a vote to commit or roll back an application transaction.
 
-**How it works:**
+## Recovering an Uncertain Job Outcome
 
-```mermaid
-sequenceDiagram
-    participant Caller
-    participant Handler
-    
-    Caller->>Handler: CallImportant(request)
-    Handler-->>Caller: ACK (request received)
-    Note over Caller: Request confirmed, now waiting for response
-    
-    Note over Handler: Process in HandleCall
-    
-    Handler->>Caller: SendResponse(result)
-    Note over Handler: Returns immediately
-    
-    Note over Caller: Response arrives (or times out)
-```
+Delivery acknowledgments alone are insufficient to establish a transaction outcome. For example, a participant can commit and then lose the connection before returning its response. The coordinator sees an error even though the write happened.
 
-The caller gets immediate confirmation that the request arrived, then waits for the response. If the response gets lost, the caller times out - but knows the handler received and processed the request.
+A transaction protocol needs its own durable state, operation identifiers, duplicate handling and recovery rules. Important delivery supplies routing information to that protocol; it does not remove uncertainty about application effects. For `job-42`, one possible recovery protocol is:
 
-### Important Call + Important Response (FR-2PC)
+1. The dispatcher assigns an ID before its first submission and retains it across retries.
+2. The worker records that ID and the job's state in storage appropriate to the required durability. A repeated submission checks the existing record before doing work again.
+3. After a timeout, the dispatcher asks for the recorded state. A completed job returns its saved result; an in-progress job remains pending.
+4. A status that cannot yet be obtained remains unknown. Recovery follows the application's retention and retry rules.
 
-```go
-// Caller
-result, err := process.CallImportant(target, request)
-
-// Handler
-func (h *Handler) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
-    h.SetImportantDelivery(true)
-    result := h.process(request)
-    return result, nil  // Framework sends with SendResponseImportant
-}
-```
-
-**Guarantees:** Both request and response delivery are confirmed. The handler receives the request, and the caller receives the response.
-
-**Protocol name:** FR-2PC (Fully-Reliable Two-Phase Commit)
-
-**Use case:** Critical operations where both request and response must be guaranteed. Example: distributed transaction commit coordination, financial operations, critical state synchronization.
-
-**How it works:**
-
-```mermaid
-sequenceDiagram
-    participant Caller
-    participant Handler
-    
-    Caller->>Handler: CallImportant(request)
-    Note over Caller: Blocks waiting for response
-    
-    alt Request delivery fails
-        Handler->>Caller: Error (process unknown/mailbox full)
-        Note over Caller: Immediate error, unblocks
-    else Request delivered successfully
-        Note over Handler: No ACK for successful request delivery
-        Note over Handler: Process in HandleCall
-        
-        Handler->>Caller: SendResponseImportant(result)
-        Note over Handler: Blocks for ACK
-        
-        Caller-->>Caller: Receive response
-        Caller->>Handler: ACK (via SendResponseError)
-        Note over Caller: Returns result to user code
-        
-        Handler-->>Handler: ACK received
-        Note over Handler: Returns from HandleCall
-    end
-```
-
-With FR-2PC:
-- The caller gets immediate error if request can't be delivered (no ambiguous timeout)
-- If request is delivered, caller waits for response
-- The handler blocks after sending response until caller confirms receipt
-- Both sides know definitively whether delivery succeeded
-
-This is the most reliable pattern but also the most expensive. Use it only when guaranteed delivery is essential.
-
-## FR-2PC as Foundation for 3PC
-
-FR-2PC provides the messaging reliability needed to implement Three-Phase Commit (3PC) and other distributed transaction protocols at the application level.
-
-Traditional Two-Phase Commit (2PC) has a blocking problem: if the coordinator crashes after participants vote "yes" but before sending commit/abort, participants don't know what to do. They're stuck.
-
-Three-Phase Commit solves this by adding a pre-commit phase:
-1. **Prepare:** Can you commit?
-2. **Pre-commit:** Everyone said yes, get ready to commit
-3. **Commit:** Now commit
-
-If the coordinator crashes after pre-commit, participants know the outcome was "commit" and can proceed independently.
-
-But 3PC only works if messages are reliably delivered. If a pre-commit message gets lost and a participant doesn't receive it, the protocol breaks - some participants think we're committing, others are still waiting.
-
-FR-2PC guarantees that messages are delivered or errors are reported, which is what 3PC needs:
-
-```go
-type Coordinator struct {
-    act.Actor
-    participants []gen.PID
-}
-
-func (c *Coordinator) Prepare() error {
-    c.SetImportantDelivery(true)  // FR-2PC for all messages
-    
-    // Phase 1: Prepare
-    for _, p := range c.participants {
-        result, err := c.CallImportant(p, PrepareRequest{})
-        if err != nil {
-            // Participant unreachable - abort
-            return c.abort()
-        }
-        if result != "yes" {
-            // Participant voted no - abort
-            return c.abort()
-        }
-    }
-    
-    // Phase 2: Pre-commit (guaranteed delivery)
-    for _, p := range c.participants {
-        result, err := c.CallImportant(p, PreCommitRequest{})
-        if err != nil {
-            // This is a problem - participant didn't receive pre-commit
-            // But FR-2PC guarantees we know immediately
-            return c.handlePreCommitFailure(p, err)
-        }
-    }
-    
-    // Phase 3: Commit (guaranteed delivery)
-    for _, p := range c.participants {
-        _, err := c.CallImportant(p, CommitRequest{})
-        if err != nil {
-            // Participant didn't receive commit
-            // Need recovery protocol
-            return c.handleCommitFailure(p, err)
-        }
-    }
-    
-    return nil
-}
-```
-
-FR-2PC ensures that:
-- If `CallImportant` returns `nil`, the participant received the message
-- If `CallImportant` returns an error, the participant didn't receive the message
-- No ambiguous timeouts where you don't know if the message arrived
-
-This determinism is essential for 3PC. Without it, you'd need complex timeout-based recovery that can't distinguish "participant is slow" from "participant is dead" from "message was lost."
+These steps describe an application design, not behavior provided by `act.Actor`. How the record and the external effect become consistent depends on the storage and the job itself. Important delivery supplies the routing reports used by that design.
 
 ## Performance Considerations
 
-Important delivery adds overhead:
-- **Extra round trip:** Sender waits for ACK before proceeding
-- **Sender blocks:** Can't process other messages while waiting
-- **Network traffic:** Additional ACK messages
+A remote `SendImportant` adds acknowledgment traffic and a wait in the sender. `CallImportant` sends a routing error only when the request cannot be delivered; it does not add a positive acknowledgment on successful delivery. An important response adds a wait in the responder.
 
-For `SendImportant`, the sender blocks until ACK arrives (success or error) or timeout. For `CallImportant`, the sender gets immediate error if delivery fails, or waits for response if delivery succeeds (no extra ACK on success).
-
-The blocking is process-local - only the sending actor waits. Other actors on the node continue normally. But the sending actor's mailbox isn't processed during the wait.
-
-Use important delivery selectively:
-- **Use for:** Critical state updates, transaction coordination, payment processing, data synchronization
-- **Don't use for:** High-frequency updates, informational messages, monitoring events, retryable operations
-
-Most actor communication doesn't need guarantees. Important delivery is for the cases where partial failure isn't acceptable.
+Use these reports where they affect a recovery decision. If the dispatcher also supervises workers or collects other answers, blocking it for each job can delay those duties. `SendRequestImportant` returns a request reference without waiting; the result later arrives in `HandleResponse`. This is an asynchronous request, so the worker still answers through `HandleCall`. It is not a non-blocking substitute for a plain `SendImportant`. [Requests Without Blocking](async-request.md) develops the caller's state and cancellation rules.
 
 ## When the Requester Did Not Block
 
-A requester that used `SendRequest` instead of `Call` is not parked waiting for the answer: the answer goes into its mailbox, like any other message. An important response to such a requester is confirmed the moment it lands there, not when the actor gets around to handling it.
+An answer to `SendRequest` goes into the requester's mailbox. An important response is acknowledged when the runtime accepts it there, before `HandleResponse` runs. The requester may terminate before handling it.
 
-That keeps one meaning for the flag across the whole API. Important delivery has always confirmed custody, never processing - even for a blocked caller the confirmation leaves before the value reaches your code, so the caller can still fail on the next line. What the mailbox adds is a place for the answer to wait, and the confirmation marks the handover to it.
-
-The practical consequence is worth knowing in both directions. The responder is not held hostage by a busy requester: the confirmation comes back in one round trip whatever the requester's queue looks like, so RR-2PC works against a requester that keeps thousands of answers in flight. And a confirmed answer is an answer the requester owns, not one it has acted on. If that process terminates before reaching it, the answer was delivered and never handled, exactly as with any important message. With `PreserveMailbox` it is still there, in the mailbox the termination reason carries.
+A full mailbox can refuse the answer. If the requester's runtime still has the request pending, its deadline later produces a timeout; that timeout also needs mailbox space. The async-request chapter describes this case.
 
 ## Local vs Remote Behavior
 
-Important delivery only affects remote communication. For local sends:
-
-```go
-// Local send - immediate error, important flag ignored
-err := process.SendImportant(localPID, message)
-if err != nil {
-    // ErrProcessUnknown or ErrProcessMailboxFull
-    // No ACK needed, mailbox operation is synchronous
-}
-```
-
-Local mailbox operations are synchronous - pushing to the mailbox either succeeds or fails immediately. The important flag is unnecessary because there's no network uncertainty. The framework silently treats local important sends as regular sends.
-
-You can use `SendImportant` without checking whether the target is local or remote.
+A local important **send** uses the local routing result without a network acknowledgment. Local delivery can still fail, and success does not wait for handling. Important responses have their own confirmation path, so do not generalize this send behavior to every method carrying the flag.
 
 ## Error Types
 
-Important delivery produces specific errors:
+| Error | What the result establishes |
+|-------|-----------------------------|
+| `ErrProcessUnknown` | The routing attempt could not find its target |
+| `ErrProcessMailboxFull` | The target mailbox refused the delivery attempt |
+| `ErrTimeout` | The caller did not obtain a result before its deadline; acceptance or processing may have occurred |
+| `ErrResponseIgnored` | The response was not accepted as an answer to a pending request |
+| Connection or encoding error | The reported transport operation failed; recovery must account for how far the operation may have progressed |
 
-**ErrProcessUnknown** - The remote process doesn't exist. Without important delivery, you'd discover this through timeout. With important delivery, you know immediately.
-
-**ErrProcessMailboxFull** - The remote process exists but its mailbox is full. Without important delivery, the message would queue in the network layer or be dropped. With important delivery, you get immediate feedback.
-
-**ErrTimeout** - The remote node received the message but didn't send ACK within the timeout period. This is different from Call timeout - it means the node is unresponsive or overloaded.
-
-**ErrResponseIgnored** - For important responses, the caller is no longer waiting (timed out or terminated). The response couldn't be delivered. Without important delivery, the handler wouldn't know the response was ignored.
-
-**ErrNoConnection** - Cannot establish connection to the remote node. This error occurs for both regular and important sends, but important delivery surfaces it immediately instead of silently queueing.
-
-These specific errors let you handle different failure modes appropriately - retry for `ErrTimeout`, provision more resources for `ErrProcessMailboxFull`, fail immediately for `ErrProcessUnknown`.
+Match wrapped errors with `errors.Is`. A retry after an unknown outcome should carry the same application operation ID, so the recipient can recognize work already performed.
 
 ## Summary
 
-Important delivery trades performance for certainty. Messages are guaranteed to be delivered or errors are reported immediately. Use it when:
+Use the important flag to obtain delivery reports. To confirm processing, ask for an application response. To recover work after an uncertain outcome, define status lookup, persistence and duplicate handling in the application protocol.
 
-- The operation is critical and must succeed or definitely fail
-- Ambiguous timeouts are unacceptable
-- You're implementing distributed protocols that require guaranteed delivery
-- The cost of retrying without knowing if the first attempt succeeded is high
-
-For more on handling synchronous requests, see [Sync Request Handling](handle-sync.md).
+Continue with [Sync Request Handling](handle-sync.md) for response semantics and [Message Versioning](message-versioning.md) for contracts between nodes running different code versions.

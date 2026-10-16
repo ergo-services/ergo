@@ -4,9 +4,9 @@ description: Understanding the network stack for distributed communication
 
 # Network Stack
 
-The network stack makes remote messaging work like local messaging. When you send to a process on another node, the framework discovers where that node is, establishes a connection if needed, encodes the message, sends it over TCP, and delivers it to the recipient's mailbox. From your perspective, it's just `Send(pid, message)` - whether the PID is local or remote.
+A remote PID names the node that owns the process. When sending to it, the network stack finds a route, establishes a connection if necessary and encodes the message. The receiving node decodes it and attempts mailbox delivery.
 
-This transparency requires three systems working together: service discovery to find nodes, connection management to establish reliable links, and message encoding to serialize data for transmission. Each system handles a specific problem, and together they create the illusion that remote communication is just local communication.
+This chapter follows that path through discovery, handshake and the connection pool. Later chapters cover the wire format and delivery errors in more detail.
 
 ## Sending to a Remote Process
 
@@ -129,7 +129,7 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 
 The timeout calculation uses the remote node's period, not the local one. If the remote node advertises a 15-second period and you configure 3 misses, the connection is considered dead after 45 seconds of silence. Real messages reset the deadline just like keepalive packets do - on a busy connection, keepalive is never sent because regular traffic keeps the deadline from expiring.
 
-When a keepalive timeout fires on any pool item, the entire connection is terminated - not just the affected TCP link. A single unresponsive link is strong evidence that the whole network path to the remote node is down. This triggers the standard cleanup flow: monitors receive `MessageDown`, links receive `MessageExit`, and the connection is removed from the node's connection map.
+When a pool item's keepalive deadline expires, the runtime terminates the whole node connection, not just that TCP link. The resulting cleanup removes it from the connection map and notifies links and monitors. This is the runtime's failure policy; a timeout does not prove that every link or the remote host failed.
 
 Software keepalive is enabled by default (15-second period, 3 misses, 45-second timeout). Set `EnableSoftwareKeepAlive` to 0 to disable it. Acceptors and routes can override the misses count; zero inherits from `NetworkOptions`.
 
@@ -308,7 +308,7 @@ node, err := ergo.StartNode("myapp@localhost", gen.NodeOptions{
 })
 ```
 
-This enables migration scenarios (gradually migrate from Erlang to Ergo) and integration scenarios (connect to systems using different protocols).
+Configure the appropriate stack when connecting to Erlang nodes or peers using another supported protocol.
 
 ## Remote Operations
 

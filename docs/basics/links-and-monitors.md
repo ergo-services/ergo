@@ -4,13 +4,9 @@ description: Linking and Monitoring Mechanisms
 
 # Links and Monitors
 
-When a process terminates - whether from a crash, graceful shutdown, or network failure - other processes that depend on it or supervise it need to know. Without this knowledge, a supervisor can't restart failed workers, dependent processes continue attempting to use unavailable services, and the system degrades silently.
+A process needs to learn when another process is gone. A link delivers an exit signal, which normally terminates the subscriber. A monitor delivers a down message and leaves the subscriber running.
 
-The challenge is detecting termination without breaking isolation. Processes can't share memory or directly observe each other's state. The traditional approach in distributed systems uses heartbeats: processes periodically signal they're alive, and silence implies failure. But heartbeats introduce overhead, timing sensitivity, and the fundamental ambiguity of distinguishing "slow" from "dead."
-
-Ergo Framework provides a different mechanism. Processes explicitly declare relationships - links and monitors - and the framework delivers termination notifications through these channels. When a process terminates, the node automatically notifies all processes that established relationships with it. The notification is part of the normal message flow.
-
-Links and monitors both deliver termination notifications, but they differ in what happens next. A link couples your lifecycle to the target's - when it terminates, you terminate. A monitor simply informs you of termination, leaving the response up to you. The choice depends on whether you need failure propagation or just failure awareness.
+Both relationships can refer to local or remote targets. We will compare their effects and then examine what a notification means when a node connection fails.
 
 ## Links: Coupling Lifecycles
 

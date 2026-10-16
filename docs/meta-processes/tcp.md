@@ -1,10 +1,8 @@
 # TCP
 
-Network services need to accept TCP connections, read data from sockets, and write responses - all blocking operations that don't fit the one-message-at-a-time actor model. You could spawn goroutines for each connection, but this breaks actor isolation. You need synchronization, careful lifecycle management, and lose the benefits of supervision trees.
+A TCP server meta process accepts sockets and creates a connection meta process for each. Each connection reads bytes into `MessageTCP` messages and writes the bytes sent back to its alias.
 
-TCP meta-processes solve this by wrapping socket I/O in actors. The framework handles accept loops, connection management, and data buffering. Your actors receive messages when connections arrive or data is read. To send data, you send a message to the connection's meta-process. The actor model stays intact while integrating with blocking TCP operations.
-
-Ergo provides two TCP meta-processes: **TCPServer** for accepting connections, and **TCPConnection** for handling established connections (both incoming and outgoing).
+We will build an echo server, route connections to workers and then add framing and buffer reuse. The connection reads a byte stream: application message boundaries need a framing rule.
 
 ## TCP Server: Accepting Connections
 
@@ -82,9 +80,18 @@ func (e *EchoServer) HandleMessage(from gen.PID, message any) error {
 
 **MessageTCPConnect** arrives when the connection is established. It contains the connection's meta-process ID (`m.ID`), remote address, and local address. Save the ID if you need to track connections or send data later.
 
+Both addresses are `netip.AddrPort` values from the standard `net/netip` package: comparable, usable as map keys, and cheap to copy. An IPv4 client is always reported as a 4-byte address, even when the server listens on the dual-stack wildcard.
+
 **MessageTCP** arrives when data is read from the socket. `m.Data` contains the bytes read (up to `ReadBufferSize` at a time). To send data, send a `MessageTCP` back to the connection's ID. The meta-process writes it to the socket.
 
 **MessageTCPDisconnect** arrives when the connection closes (client disconnected, network error, or you terminated the connection). After this, the connection meta-process is dead - sending to its ID returns an error.
+
+All three messages are registered for the network, so the actor that serves a connection does not have to run on the node that accepted it. A process on another node writes to the socket by sending `MessageTCP` to the connection ID:
+
+```go
+// anywhere in the cluster, given the connection ID
+process.Send(connID, meta.MessageTCP{ID: connID, Data: response})
+```
 
 If the connection meta-process cannot send messages to your actor (actor crashed, mailbox full), it terminates the connection and stops. This ensures failed actors don't leak connections.
 
@@ -156,7 +163,7 @@ type TCPWorker struct {
 }
 
 type ConnectionState struct {
-    remoteAddr net.Addr
+    remoteAddr netip.AddrPort
     buffer     []byte
     // ... protocol state
 }
@@ -470,6 +477,74 @@ If `Process` is not set (client) or `ProcessPool` is empty (server), messages go
 
 For servers, `ProcessPool` enables load distribution. For clients, `Process` enables separation of concerns - the actor that initiates connections doesn't need to handle the protocol.
 
+### Handler on another node
+
+`Process` and `ProcessPool` name processes on the node that owns the socket. The
+messages themselves are not confined to it: `MessageTCPConnect`, `MessageTCP` and
+`MessageTCPDisconnect` are registered for the network, so a process anywhere in the
+cluster can write to a connection by its ID, and the bytes leave from the node that
+holds the socket.
+
+What you cannot do is point a connection at a remote process directly, and that is
+deliberate. The connection meta-process delivers every read from the same loop that
+reads the socket. Sending to another node is a heavier operation than a local
+delivery and depends on the state of the link between the two nodes, so a socket
+pointed at a remote process would read at the speed of that link.
+
+Put an ordinary actor in front instead. It lives on the node that owns the socket,
+receives the messages at local speed, and carries them across:
+
+```go
+type forwarder struct {
+    act.Actor
+    worker gen.ProcessID
+}
+
+func (f *forwarder) Init(args ...any) error {
+    f.worker = gen.ProcessID{Name: "worker", Node: "workers@127.0.0.1"}
+    return nil
+}
+
+func (f *forwarder) HandleMessage(from gen.PID, message any) error {
+    return f.Send(f.worker, message)
+}
+```
+
+```go
+options := meta.TCPServerOptions{
+    Port:        8080,
+    ProcessPool: []gen.Atom{"fwd_0", "fwd_1", "fwd_2"},
+}
+```
+
+The distribution is unchanged: each connection is bound to one forwarder for its
+whole lifetime, and a slow hop to the other node fills that forwarder's mailbox
+instead of stalling the sockets.
+
+The worker on the other node replies the usual way, by sending `MessageTCP` to the
+connection's ID. It does not need a route back through the forwarder.
+
+Two things become yours to decide with this layout.
+
+**Buffers.** With `ReadBufferPool` configured, the buffer in `MessageTCP.Data` has to
+come back to the pool, and a process on another node can never do that. Return it in
+the forwarder, after the send to the other node has returned:
+
+```go
+func (f *forwarder) HandleMessage(from gen.PID, message any) error {
+    err := f.Send(f.worker, message)
+    if m, ok := message.(meta.MessageTCP); ok {
+        bufferPool.Put(m.Data)
+    }
+    return err
+}
+```
+
+**An unreachable node.** `Send` returns an error when the other node is down or was
+never connected. The forwarder decides what that means: drop the message, close the
+connection with `SendExitMeta`, or keep a bounded backlog and retry. Until it decides
+otherwise the connection stays open and the client keeps sending.
+
 ## Inspection
 
 TCP meta-processes support inspection for debugging:
@@ -505,7 +580,7 @@ type ConnectionManager struct {
 }
 
 type ConnectionInfo struct {
-    remoteAddr net.Addr
+    remoteAddr netip.AddrPort
     startTime  time.Time
 }
 
@@ -661,5 +736,3 @@ func (w *Worker) HandleMessage(from gen.PID, message any) error {
 ```
 
 Pool buffers are reused. Storing them directly leads to data corruption. Always copy, then return.
-
-TCP meta-processes handle the complexity of socket I/O, connection management, and buffering - letting you focus on protocol implementation while maintaining the actor model's isolation and supervision benefits.

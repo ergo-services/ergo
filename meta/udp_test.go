@@ -31,8 +31,11 @@ func TestUDPServerRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := recvMsg[MessageUDP](t, ch)
-	if string(got.Data) != "ping" || got.Addr == nil {
+	if string(got.Data) != "ping" || got.Addr.IsValid() == false {
 		t.Fatalf("inbound = %q addr %v", got.Data, got.Addr)
+	}
+	if got.Addr.Addr().Is4() == false {
+		t.Fatalf("addr of a 127.0.0.1 peer = %v, want a 4-byte address", got.Addr)
 	}
 
 	// echo back to the sender

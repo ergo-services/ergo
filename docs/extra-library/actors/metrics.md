@@ -1,8 +1,8 @@
 # Metrics
 
-The metrics actor collects runtime statistics from an Ergo node and exposes them as a Prometheus HTTP endpoint. It runs as a regular process: spawn it, and it starts serving `/metrics` with node, network, process, and event telemetry.
+The metrics actor collects node and process measurements and serves them in Prometheus format. Embed it to add measurements from your application, or run the stock actor for the framework metrics.
 
-For application-specific metrics (request rates, business counters), you extend the actor with custom Prometheus collectors.
+We will start the endpoint, add a custom metric and then examine distributions and top-N measurements. Mailbox latency measurements require the `latency` build tag.
 
 ## Why Monitor Actors
 
@@ -146,8 +146,8 @@ Always active. Includes:
 - **Utilization:** ratio of callback running time to uptime. Distribution, max, and top-N.
 - **Init time:** ProcessInit duration. Max and top-N.
 - **Throughput:** messages in/out per process (top-N) and node-level aggregates.
-- **Wakeups and drains:** wakeup count and drain ratio (messages processed per wakeup). Drain ratio distinguishes between slow callbacks (drain ~1) and high-throughput batching (drain ~100) at the same utilization level.
-- **Liveness:** detects processes stuck in blocking calls. Computed as `RunningTime / (Uptime * MailboxLatency)`. A healthy process has RunningTime growing with activity (high score). A process blocked in a mutex, channel, or IO has RunningTime frozen while uptime and latency keep growing (score drops over time). Zombie processes are excluded (detected separately). Bottom-N surfaces the most stuck processes. Requires `-tags=latency`.
+- **Wakeups and drains:** wakeup count and the ratio `MessagesIn / Wakeups`. This compares received messages with dispatcher activations, not completed handlers. A high ratio can reflect batching or a backlog; compare it with queue depth and latency rather than assigning a cause from the ratio alone.
+- **Liveness:** ranks candidates for a stuck process using `RunningTime / (Uptime * MailboxLatency)`. The collector excludes processes younger than 60 seconds, those with no received messages or no positive latency, and zombies. A low score warrants a state and stack check; it does not prove a deadlock. `RunningTime` is accumulated after a dispatch returns, so a long unfinished dispatch can leave the counter unchanged. Requires `-tags=latency`.
 
 ### Event Metrics
 

@@ -4,11 +4,9 @@ description: Making distributed communication feel local
 
 # Network Transparency
 
-Network transparency means the location of a process - whether it's in the same goroutine, on the same node, or on a remote node halfway across the world - doesn't change how you interact with it. You send messages the same way. You make calls with the same API. You establish links and monitors with the same methods. The framework handles the complexity of discovering nodes, encoding messages, and routing them across the network.
+`Send`, `Call`, links and monitors accept remote targets through the same APIs used for local targets. The runtime resolves the target node and encodes values crossing the connection.
 
-If remote operations looked different from local operations, you'd be constantly checking location and branching your logic. That locality awareness would spread throughout your code, making it brittle and hard to reason about. Network transparency lets you design systems as collections of communicating actors, and deployment topology becomes an operational concern rather than a code concern.
-
-But transparency has limits. Networks are slower than in-process communication. They fail in ways local operations don't. Messages can be lost. Connections drop. Remote nodes crash or become unreachable. The framework makes remote operations look local, but the network's physical reality still matters.
+The common API does not erase the boundary. Remote operations have transit time, encoding requirements and failures that local operations do not. We will follow a message over that boundary and examine delivery confirmation, ordering and type registration.
 
 ## What Transparency Means in Practice
 
@@ -38,7 +36,7 @@ Network transparency is an illusion carefully maintained by the framework. Sever
 
 **Location independence** - You can receive a `gen.PID` from anywhere - as a return value, in a message, from a registry lookup - and immediately use it for communication. You don't need to check where it's from or set up connections. The framework handles it.
 
-**Failure semantics** - When you send to a local process that doesn't exist, you get an error immediately. When you send to a remote process that doesn't exist, you get... nothing, by default. The message is sent over the network, and if nobody's listening, it's silently dropped. This asymmetry breaks the transparency illusion. The Important delivery flag fixes this: with Important enabled, sending to a missing remote process gives you an immediate error, just like local delivery.
+**Failure semantics** - A local send can report a missing recipient or full mailbox while routing. An ordinary remote send cannot report the receiving node's delivery result. `SendImportant` requests that result and waits for it; if confirmation does not return before the deadline, acceptance remains unknown.
 
 ## How Messages Cross The Network
 
@@ -146,9 +144,9 @@ This entire pipeline is invisible. You call `Send`, and the framework executes t
 
 ## EDF: Ergo Data Format
 
-EDF (Ergo Data Format) is a binary serialization format designed for distributed actor systems. It solves a fundamental problem: how do you serialize Go values - structs, slices, maps, framework types like `gen.PID` - across the network with the performance of code-generated serializers like Protocol Buffers, but without requiring code generation?
+EDF (Ergo Data Format) serializes Go values for messages sent between nodes. It supports framework types such as `gen.PID` and registered application types without requiring generated source files. Registration describes the wire contract that both nodes must understand.
 
-The answer is dynamic specialization. When you register a type, EDF analyzes its structure and builds specialized encoding and decoding functions specifically for that type. For structs, it creates functions for each field and composes them into a single encoder. This happens once at registration time, not during encoding. When you send a message, EDF uses these pre-built functions - no reflection, no runtime type analysis.
+When you register a type, EDF examines its structure and builds encoding and decoding functions for it. For a struct, these functions walk its fields in declaration order. Registration lets later messages reuse those functions instead of rebuilding the type description. The implementation still uses reflection to obtain values and access fields; caching does not make it reflection-free.
 
 ```go
 type Order struct {
@@ -169,7 +167,7 @@ process.Send(to, Order{ID: 42, Items: []string{"item1"}})  // Uses pre-built enc
 
 Registration happens at runtime - no build step, no generated files. You call `node.Network().RegisterType()` from your application's `Load()` callback, and the framework builds the optimized encoders. Framework types like `gen.PID`, `gen.Ref`, and `gen.Event` have native support with specialized encodings. During node handshake, both sides exchange their registered type lists and negotiate short numeric IDs, turning a full type name into 3 bytes on the wire. Field names aren't encoded - only field values in declaration order.
 
-Performance benchmarks (see `benchmarks/serial/`) show encoding is 50-100% faster than Protocol Buffers, while decoding is 20-60% slower. The encoding advantage comes from the specialized functions built during registration.
+The [serialization benchmarks](https://github.com/ergo-services/benchmarks#serialization-benchmarks-edf-vs-protobuf-vs-gob) compare EDF with other formats. Results depend on the value being encoded, registration and cache settings, allocations, and the Go version. Measure the message shapes your application sends before choosing a format on throughput alone.
 
 EDF enforces strict type contracts - both nodes must register identical type definitions. Type identity is the full package path plus type name, not just the type name. For example, `Order` in package `github.com/myapp/orders` becomes `#github.com/myapp/orders/Order`. Two packages with the same type name `Order` are different types in EDF - this is Go's type system enforced at the protocol level.
 
@@ -480,7 +478,7 @@ For dynamic type registration (registering types based on runtime configuration 
 
 **Register late on both sides** - `node.Network().RegisterType` on each node that will encode or decode the type. Messages flow immediately, carrying the full type name until the next handshake replaces it with an id. Reconnect if that overhead matters on the path in question.
 
-**Use custom marshaling** - Implement `edf.Marshaler`/`Unmarshaler` or `encoding.BinaryMarshaler`/`Unmarshaler`. These don't require pre-registration - they work immediately. The tradeoff is you write the encoding logic yourself.
+**Use custom marshaling** - Implement `edf.Marshaler` and `edf.Unmarshaler`, or their binary counterparts, when the type needs its own encoding. Register the type on both nodes as well: the registry builds the encoders and decoders that invoke these methods. Custom encoding does not remove the registration requirement.
 
 Most applications register types statically from `Load()` and avoid these complications.
 
@@ -501,7 +499,7 @@ Prefer the declarative `ApplicationSpec.Network` field, or, for dynamic cases, `
 
 ## Compression
 
-Large messages are automatically compressed to reduce network bandwidth. Compression is transparent - you configure it on the process or node, and the framework applies it automatically when appropriate.
+Compression is opt-in through process options or `SetCompression`. With it enabled, the protocol considers the threshold and configured algorithm before sending an encoded message. The node-level capability flag controls whether a peer supports compression; it does not turn it on for a process.
 
 When compression is enabled, the framework checks the encoded message size before transmission. If it exceeds the compression threshold (default 1024 bytes), the message is compressed using the configured algorithm. The protocol frame's message type (byte 7) is set to `0xc8` (200, protoMessageZ) and byte 8 contains the compression type ID (100=LZW, 101=ZLIB, 102=GZIP), so the receiving node knows to decompress before decoding.
 
@@ -549,7 +547,7 @@ The caches are bidirectional - both nodes maintain the same mappings. During enc
 
 This caching is automatic: you don't manage the cache or invalidate entries.
 
-To measure how much each registered type actually contributes to network traffic and to identify candidates for compression, build the node with `-tags=typestats`. This enables per-type encode/decode counters and wire-byte totals exposed via `Network().RegisteredTypes()` and visible in the Observer Types panel. Counters increment only on root operations (a type sent or received as a message in its own right); bytes embedded inside other messages are accounted to the parent type. The cost is approximately 2-3% on encode/decode throughput; without the tag there is zero overhead. See [The typestats Tag](../advanced/debugging.md#the-typestats-tag) for details.
+Build with `-tags=typestats` to collect per-type encode/decode counts and wire-byte totals through `Network().RegisteredTypes()` and the Observer Types panel. Root operations are counted; nested values contribute to their containing message. The enabled path adds atomic counter updates, while the disabled path does not collect these statistics. See [The typestats Tag](../advanced/debugging.md#the-typestats-tag).
 
 ## Important Delivery
 
@@ -562,8 +560,7 @@ The Important delivery flag fixes this:
 ```go
 err := process.SendImportant(remotePID, message)
 if err != nil {
-    // Definitely failed - remote process doesn't exist,
-    // or mailbox is full, or connection dropped
+    // Check the returned error. A timeout leaves acceptance unknown.
 }
 ```
 
@@ -577,11 +574,11 @@ With Important delivery:
 
 If the acknowledgment arrives, `SendImportant` returns nil. If an error response arrives, it returns the error. If the timeout expires, it returns `gen.ErrTimeout`.
 
-This gives you the same semantics as local delivery: immediate error feedback when something goes wrong.
+A returned acknowledgment supplies the peer's routing result. A timeout supplies no such result: the recipient may have accepted the message before the acknowledgment was lost. Local routing does not have this network round trip.
 
-The cost is latency. Normal `Send` returns immediately - it queues the message and continues. `SendImportant` blocks until the remote node responds, adding a network round-trip. For messages that must be delivered, this cost is worth it. For best-effort messages where occasional loss is acceptable, stick with normal `Send`.
+A remote `SendImportant` waits in the sender, so it delays that actor's next mailbox dispatch until a report or timeout arrives. Use it when the report changes a recovery decision. If the protocol needs confirmation of processing, request an application result instead.
 
-For detailed exploration of Important Delivery patterns, reliability guarantees, and protocols like RR-2PC and FR-2PC, see [Important Delivery](../advanced/important-delivery.md).
+See [Important Delivery](../advanced/important-delivery.md) for request and response acknowledgments, timeout ambiguity and recovery requirements.
 
 ## Message Ordering
 
@@ -638,7 +635,7 @@ Good candidates for disabling ordering:
 - **Fan-out producers** that distribute work to many recipients
 - **High-throughput event emitters** where each event is self-contained
 
-The tradeoff is straightforward: message arrival order becomes non-deterministic. If your process logic doesn't depend on message order, disabling ordering gives you better throughput.
+With ordering disabled, arrival order is not deterministic. Measure the throughput gain with the application workload before changing it.
 
 ```go
 func (w *Worker) Init(args ...any) error {
@@ -697,8 +694,8 @@ Network transparency makes distributed programming feel local. But distributed p
 
 **Keep messages small** - Encoding and network transmission costs scale with message size. Large messages cause memory allocation, encoding overhead, network congestion. If you're sending megabytes of data, consider whether it belongs in messages or should use a different mechanism (file transfer, streaming, database).
 
-**Leverage compression** - Enable compression for processes that send large messages. The CPU cost of compression is usually worth the network bandwidth savings. But don't compress tiny messages - the overhead exceeds the benefit.
+**Measure before enabling compression** - Compare bandwidth and CPU use with representative messages. The threshold avoids compressing smaller values, but its useful setting depends on the data and deployment.
 
-**Register types early** - Do all type registration from your application's `Load` callback so types are in the registry before any traffic. Avoid dynamic type registration that requires connection cycling. Static registration is simpler and more reliable.
+**Register types before traffic** - Use the application's network declarations so missing registrations fail during loading. Late registration is supported, but all peers need the type before receiving it, and compact cache IDs are negotiated on a later handshake.
 
 For details on how the network stack implements transparency, see [Network Stack](network-stack.md). For understanding how nodes discover each other, see [Service Discovery](service-discovering.md).

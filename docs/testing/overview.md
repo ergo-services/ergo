@@ -4,9 +4,9 @@ description: How to test actor systems in Ergo, and which layer to use
 
 # Overview
 
-An actor is not a function. You cannot call it and inspect a return value. It runs on its own goroutine, communicates only through messages, keeps private state that evolves from one message to the next, spawns children, and can be terminated or restarted by a supervisor. A test that reaches into an actor's fields tests the wrong thing and breaks the isolation the model depends on.
+Actor tests can check replies, outgoing messages, spawned children and termination. The test packages record these actions so assertions can match their fields.
 
-So the testing tools observe an actor the way the rest of the system does: through what it *does*. Every outward action - a message sent, a process spawned, a log line written, an exit signal, a timer scheduled - is captured as a record. You drive the actor with inputs - deliver a message, fire a timer, deliver an exit - and assert on the records it produced. You test behavior, not state.
+Start with `unit` for one actor's callback logic. Use `stage` when the behavior depends on the scheduler, supervision or node connections. `mock` supplies interface implementations for testing ordinary helper code, and `check` supplies the records and assertions shared by the harnesses.
 
 ## The Observation Model
 

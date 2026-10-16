@@ -1,8 +1,8 @@
 # Radar
 
-Running an Ergo node in production typically requires two things: health probes for Kubernetes and a Prometheus metrics endpoint. Setting them up separately means two HTTP servers on two ports, two actor packages to import, and the same wiring code repeated on every node.
+Radar packages the health and metrics actors in one application. It can expose their endpoints on a shared listener, so a deployment can serve probes and Prometheus measurements together.
 
-Radar bundles both into a single application on one HTTP port. Internally it runs a [Health](../actors/health.md) actor for probe endpoints, a [Metrics](../actors/metrics.md) actor for base Ergo telemetry, and a pool of metrics workers for custom metric updates, all behind a shared mux served by one HTTP server. Actors interact with Radar through helper functions in the `radar` package without importing the underlying packages or knowing the internal actor names.
+The following examples configure that listener and add application signals and metrics.
 
 ## Adding to Your Node
 
@@ -29,7 +29,7 @@ func main() {
 }
 ```
 
-With no signals registered, all three health endpoints return 200 with `{"status":"healthy"}`. The metrics endpoint immediately serves base Ergo metrics. No additional configuration is required for a working production setup.
+With no signals registered, the three health endpoints return 200 with `{"status":"healthy"}`; this reports the absence of failed signals, not that every application dependency was checked. Register the signals that define readiness and liveness for your service. The metrics endpoint serves the base Ergo metrics without signal registration.
 
 ## Configuration
 

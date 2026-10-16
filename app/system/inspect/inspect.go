@@ -119,7 +119,10 @@ func Types() []any {
 		RequestGetHeapProfile{}, HeapRecord{}, ResponseGetHeapProfile{},
 		RequestGetTypes{}, ResponseGetTypes{},
 		RequestGetErrors{}, ResponseGetErrors{},
-		RequestGetAtoms{}, ResponseGetAtoms{},
+		RequestGetNetworkAtomCache{}, ResponseGetNetworkAtomCache{},
+		AtomLimitInfo{}, AtomPeerInfo{}, AtomGroupInfo{}, AtomInfo{},
+		RequestGetAtomSummary{}, ResponseGetAtomSummary{},
+		RequestGetAtomTable{}, ResponseGetAtomTable{},
 
 		RequestGetNode{}, ResponseGetNode{},
 		RequestGetNetwork{}, ResponseGetNetwork{},
@@ -641,8 +644,14 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 	case RequestGetErrors:
 		return i.responseErrors(r), nil
 
-	case RequestGetAtoms:
-		return i.responseAtoms(r), nil
+	case RequestGetNetworkAtomCache:
+		return i.responseNetworkAtomCache(r), nil
+
+	case RequestGetAtomSummary:
+		return ResponseGetAtomSummary{Error: gen.ErrUnsupported}, nil
+
+	case RequestGetAtomTable:
+		return ResponseGetAtomTable{Error: gen.ErrUnsupported}, nil
 
 	case RequestGetNode:
 		return i.responseNode(), nil

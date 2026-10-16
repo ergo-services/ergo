@@ -4,9 +4,9 @@ description: Distributed leader election for coordinating work across a cluster
 
 # Leader
 
-The leader actor elects exactly one coordinator among a group of nodes and tells your code when it becomes that coordinator and when it stops being one. You embed it, implement two callbacks, and the work that must run in exactly one place starts and stops on its own.
+The leader actor coordinates elections among actors with the same cluster ID. Each member maintains a view of the peers it knows and requires a majority of that view before taking leadership.
 
-Discovery is not part of it. Resolve peers however suits your deployment - a registrar lookup, static configuration, a message from another system - and hand the names to `Join`. The actor negotiates with them from there, and membership spreads through the protocol once one side knows the other.
+Membership and reachability affect that calculation. This chapter covers discovery, election callbacks and the conditions under which different views can elect different leaders. External writes that require exclusivity need fencing or an authority that can reject a stale leader.
 
 ## The Problem
 
@@ -14,7 +14,7 @@ Plenty of work must happen once, not once per node. A scheduler that fires cron 
 
 The obvious shortcut is to pick deterministically: sort the node names, lowest one wins. It needs no messages and it is genuinely appealing, right up to the moment two nodes disagree about the list. Node A believes the set is `{A, B, C}` and picks A; node B has just begun suspecting A and believes the set is `{B, C}`, so it picks B. Both act. Nothing in the scheme prevents it, because nothing in the scheme requires anyone to agree.
 
-Election is the fix. A node cannot take leadership by deciding it deserves it; it has to be granted by a majority of the group it believes in. Two nodes whose views differ slightly cannot both collect a majority, because their views overlap and a voter grants one vote per term.
+An election requires grants from other members, rather than each node independently choosing a winner from its reachable peers. This relies on the membership views; overlap alone is not a general guarantee of exclusive leadership.
 
 ## How It Works
 
@@ -62,17 +62,17 @@ sequenceDiagram
     Note over B: leader at term 2
 ```
 
-**The contract, in three sentences.** There is exactly one leader per cluster. A network partition does not put two leaders in one cluster - it splits one cluster into two, each electing its own, and a side too small to meet `MinClusterSize` or to hold a majority of its own view elects none. When connectivity returns they converge back into one cluster with one leader.
+Leadership requires a majority of the local membership view and confirmation through the configured callback. A shared view constrains simultaneous elections, but diverged views can elect independently. `GhostTTL` eventually changes a view after unreachable members are removed.
 
-That last point deserves the attention it gets in [What It Guarantees](#what-it-guarantees) below, because it decides what you may safely build on top.
+See [What It Guarantees](#what-it-guarantees) for the consequences of membership changes and external fencing.
 
 ## Setup
 
-Two steps, and both fail quietly if you skip them: the node starts, nothing errors, and the problem shows up later as a cluster that never converges.
+Register the election protocol before starting the actor, and choose the minimum cluster size explicitly. Missing protocol registration is checked during actor initialization.
 
 ### Register the wire types
 
-The package registers nothing on import. Type registration is node-scoped, so it cannot happen in a package `init()`, and doing it inside the actor would be too late - a node whose leader process starts after a connection is already established could not decode a peer's message, and could not repair that after the fact.
+The package does not register its protocol on import. Register it on the node that runs the actor. Putting the registration in the application spec makes the required types available during application loading, before the group starts. A late registration can be used, but peers must also know the types before decoding them.
 
 The actor checks this at `Init` and refuses to start if its protocol is not registered: an unregistered vote fails to encode on every send, so the alternative is a healthy-looking node that never joins an election.
 
@@ -91,7 +91,7 @@ gen.ApplicationSpec{
 }
 ```
 
-`ApplicationSpec.Network` is processed during `ApplicationLoad`, before any process in the application is spawned, which is exactly the timing this needs. Registering on the node directly works too, as long as it happens before the node starts serving:
+`ApplicationSpec.Network` is processed during `ApplicationLoad`, before the application's processes spawn. You can also register directly on the node; check the returned errors and finish registration on all participating nodes before sending election traffic:
 
 ```go
 node.Network().RegisterTypes(leader.NetworkTypes())
@@ -104,12 +104,12 @@ node.Network().RegisterErrors(leader.ErrorTypes())
 
 `MinClusterSize` is the smallest view - this node plus the peers it knows - that may have a leader at all. The default is 3: the smallest size whose majority, two, survives losing one node.
 
-Lower values are permitted and warned about rather than rejected, because both have legitimate uses and neither breaks the contract:
+Lower values are permitted with warnings:
 
 - `1` lets a lone node appoint itself. A single-node deployment must set this explicitly, and nothing then prevents a fragment of one from operating alone.
 - `2` gives a quorum of two out of two, so losing either node ends leadership. Sensible only when an external authority gates leadership through `HandleConfirmLeader`.
 
-Inheriting the default silently is the thing to avoid. Decide the number, write it down.
+Set the value according to the membership and failure policy of the deployment.
 
 ## Basic Usage
 
@@ -191,7 +191,7 @@ func main() {
 }
 ```
 
-Two habits in that code worth copying. `Join` runs from a handler frame rather than from `Init`, and it re-runs on a timer - discovery is your responsibility, and a one-shot lookup leaves a node that started early with no peers forever. And `HandleBecomeFollower` stops the work unconditionally; treat it as the only place leadership ends, because it is.
+`Join` runs after initialization has applied the options. Repeat discovery so nodes that start before their peers can find them later. `HandleBecomeFollower` stops the work begun by `HandleBecomeLeader`.
 
 ## Configuration
 
@@ -219,7 +219,7 @@ leader.Options{
 
 **GhostTTL** is how long a peer whose connection dropped stays in the view before being dropped. It exists because those two things - a blip and a departure - look identical from here, and neither extreme works: keep an unreachable peer forever and, with dynamic node names, the view fills with names that will never return until quorum exceeds the number of nodes that exist; drop it immediately and a one-second blip lowers quorum. Five seconds separates the cases - far longer than a 150-300 ms election cycle, far shorter than a stage of a rolling deploy.
 
-It is not a safety control; `MinClusterSize` is. `GhostTTL` only bounds how long a gone peer keeps inflating quorum, and it is a net under `Leave` rather than a replacement for it - see [Membership](#membership). The cost of the window is that quorum is briefly too high, so a node that dies while the cluster sits exactly on its quorum leaves it leaderless for up to that long. That is the reason not to raise it to a minute.
+`GhostTTL` bounds how long an unreachable peer contributes to the view. Before expiry, a departed member may prevent quorum. After expiry, the smaller view may elect independently. Use `Leave` for known departures, and use fencing for exclusive external effects.
 
 The defaults suit a local network. On a pod-to-pod network across zones, or anywhere a garbage-collection pause can exceed a couple of hundred milliseconds, raise all three together - for example 1000 / 2000 / 300. Aggressive timeouts do not make failover safer, they make spurious elections more likely.
 
@@ -277,62 +277,43 @@ Discovery belongs to your code. The actor's job is to negotiate with the names y
 
 ## What It Guarantees
 
-**Within a cluster, one leader.** A node cannot hold leadership without a majority of its view having granted it for the current term, and a voter grants one vote per term.
+A candidate needs a majority of its current membership view to win an election. A voter grants one vote per term. While members share that view, two disjoint groups cannot each collect a majority of the same set.
 
-**A leader that loses contact steps down by itself.** On each heartbeat tick it requires evidence of reaching a quorum - an accepted send or any inbound protocol message within one election timeout. Without it, it relinquishes leadership without waiting to be told. This is what prevents an isolated leader from holding on indefinitely, since every other exit from leadership needs an inbound message and an isolated node receives none.
+An active leader also checks recent contact with a quorum. If it cannot reach enough members, it steps down on a heartbeat tick. Election and heartbeat callbacks must be able to run for these checks to take effect; a blocked callback delays the check.
 
-**A cluster reconverges after a partition.** When the two sides can talk again, the higher term wins and the other side steps down; the view grows back and quorum is recomputed over it.
+The membership view is dynamic. An unreachable peer initially remains in it, but `GhostTTL` eventually removes that peer and lowers the quorum denominator. `Leave` also removes a member. After a long partition, two sides can therefore have different views and elect separately if both views satisfy `MinClusterSize`.
 
-**No leader below the floor.** A group smaller than `MinClusterSize` reports `unclustered` and elects nobody.
+For example, six members can split into two groups of three. Before ghost expiry, each group needs four votes and neither can elect. After each group removes the unreachable members, each needs two votes and can elect with the default `MinClusterSize: 3`. The original six-node view no longer provides a shared quorum constraint.
 
-And what it does not guarantee:
+If the deployment has a fixed maximum of six distinct members, setting `MinClusterSize: 4` prevents either three-member fragment from qualifying. That trades availability for a stricter membership floor. It is not a durable lease, and it does not fence a stale leader's writes to an external resource.
 
-**Not a fixed number of clusters.** The invariant is one leader per cluster, but the number of clusters is not fixed - so from outside, looking at the deployment as one thing, you can see two leaders at once, for as long as the split lasts. Worth being precise about when:
-
-- **A connectivity partition of a converged cluster does not do this.** A lost connection keeps the peer in the view - only what the actor knew about reaching it is forgotten - so the quorum denominator does not shrink. Two disjoint groups cannot both be a majority of the same set, so at most one side elects and the other reports `unclustered` or waits.
-- **Diverged views do.** If each side only ever learned about its own members, each holds a majority of its own smaller view and each elects. That is the cold-start case: nodes come up, discovery resolves only what is reachable, and two groups form without ever having been one.
-- **So does losing members for real.** A process that actually died, or a peer you withdrew with `Leave`, leaves the view and lowers quorum with it.
-
-This is the price of dynamic membership with no seed list: the actor is never told how large the deployment is meant to be, so it cannot tell a group of three from half of six. If you would rather pay in availability than in duplicate leadership, that is what `MinClusterSize` is for - **set it above half the expected node count**, and two disjoint groups can never both qualify, at the cost of no leader in any partition smaller than that.
-
-**No replicated state.** Leadership changes hands; nothing carries state across. If the new leader needs to know what the old one did, put that somewhere both can read.
-
-**No persistence.** Election state lives in memory. A restarted node rejoins with a fresh term.
-
-**Nothing about your external resources.** Leadership is scoped to a cluster; a database row, a queue or a lock is not. See below.
+The actor replicates no application state and persists no election state. A restarted process rejoins with fresh in-memory state. Store any job progress that a successor needs outside the leader process, and protect external effects as described below.
 
 ## Leadership Safety
 
-Three properties are usually conflated, and only the middle one is the election's job.
+A leadership callback tells an actor what role its election currently assigns it. An external database or queue does not observe that transition automatically. A process can start a write while leading, lose leadership, and have the write complete later. Different membership views can also elect leaders independently.
 
-**Two nodes briefly believing they lead.** Unavoidable in an asynchronous system - a superseded leader learns late. Harmless on its own.
-
-**Two nodes acting as leader inside one cluster.** Prevented, by majority voting and the quorum requirement above.
-
-**Two nodes performing an irreversible external action.** Not addressed by any election, including this one. When a partition turns one cluster into two, a shared resource is now serving two clusters, each with a legitimate leader, and nothing in the protocol can tell it which to obey.
-
-If leadership authorises something irreversible, the resource has to arbitrate. Two mechanisms, and they compose:
-
-**Gate leadership on an external authority.** Implement `HandleConfirmLeader` so that winning the election is necessary but not sufficient - the node must also hold something only one holder can have. A Kubernetes `Lease` is the natural choice where you already run on Kubernetes: no new infrastructure, and `metadata.resourceVersion` increases monotonically, so it doubles as a fencing token.
+Use `HandleConfirmLeader` when an external authority must approve leadership after the election:
 
 ```go
 func (c *coordinator) HandleConfirmLeader() (bool, error) {
-    return c.lease.Held(), nil // cheap read of locally cached state
+    return c.lease.Held(), nil // application-managed, locally cached authority
 }
 ```
 
-The callback runs on the actor's goroutine. It may talk over the network - it is called once per won election, not on a hot path - but bound it with a timeout well under the election timeout, and prefer answering from state that a separate process keeps up to date. That separate process is also the right place to relinquish leadership when a renewal fails, which the callback alone cannot do because it is only consulted at the transition.
+Here `c.lease` is an application component, not part of the leader package. The callback runs when the actor wins an election. It is not a periodic renewal check. Keep the authority's state current separately and arrange for the application to stop leader work when that authority is lost. Bound any network operation in the callback: while it waits, the actor cannot dispatch election messages.
 
-**Fence the resource.** Carry a monotonically increasing token with every irreversible action and let the resource reject a stale one:
+Where stale writes must be rejected, the resource needs fencing. An authority assigns increasing tokens to successive holders, and every protected write carries its token. The resource checks the token as part of the write, rather than relying on the actor to check `IsLeader` just before sending it.
+
+For example, an application might use an atomic update of this form:
 
 ```sql
-UPDATE resources SET owner_token = :token
-WHERE id = :id AND (owner_token IS NULL OR owner_token < :token)
+UPDATE resources
+SET value = :value, owner_token = :token
+WHERE id = :id AND (owner_token IS NULL OR owner_token <= :token)
 ```
 
-Zero rows updated means a newer holder exists, and the caller must stop. This is the only part of the arrangement that does not depend on timing, and it is what turns "we try to have one writer" into "a superseded writer cannot take effect".
-
-A lock without a monotonic token - a plain `SETNX` in Redis, for instance - shrinks the window rather than closing it, and cannot survive a failover that promotes a replica which never saw the write. Worth knowing which of the two you have built.
+Once a newer token has been recorded, this predicate refuses an older holder's write. Equal tokens allow further writes by the same holder. The application must obtain tokens from an authority that orders holders, and must use the check on every relevant write. The actor's in-memory term alone is not such an authority across restarted processes or independent membership views.
 
 ## Partitions and Healing
 
@@ -340,9 +321,9 @@ Take a five-node cluster, `{A,B,C,D,E}`, `MinClusterSize: 3`, A leading at term 
 
 **The majority side.** A still reaches B and C: two peers plus itself is three, a majority of its view, so it keeps leadership at term 4. Nothing changes for the work it is running.
 
-**The minority side.** D and E stop hearing heartbeats and campaign. Their views stay at five - a lost connection does not remove a member, it only forgets how to reach it - so the quorum they need is still three, and between them they can muster two. Neither wins, and they keep retrying until the partition heals.
+**The minority side.** D and E stop hearing heartbeats and campaign. Initially their views stay at five, so they need three votes and cannot win with only two. After `GhostTTL`, their views can shrink to two. With `MinClusterSize: 3`, they become `unclustered` rather than electing. This floor matters: with a floor of two, the smaller side could elect after its view shrinks.
 
-That is the reason a converged cluster does not split into two leaders: the denominator survives the partition, and two disjoint groups cannot both be a majority of the same five. Two leaders need diverged views, not a dropped connection - see [What It Guarantees](#what-it-guarantees).
+While both sides retain the same view, two disjoint groups cannot each hold a majority. This reasoning no longer applies after their views diverge, including through ghost expiry; see [What It Guarantees](#what-it-guarantees).
 
 **Healing.** Connectivity returns. Each side rediscovers the other through the protocol: a vote request or heartbeat resolves the peers, the views grow back to five, and quorum returns to three. If the far side had elected a leader at a higher term, the term comparison settles it - A adopts the higher term and steps down, and one leader remains. If nobody outranked A, its heartbeats simply reach D and E again and they follow.
 

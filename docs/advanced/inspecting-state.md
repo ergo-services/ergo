@@ -4,9 +4,9 @@ description: HandleInspect as the observability surface of an actor, and what it
 
 # Inspecting Actor State
 
-An actor's state is private by design. Nothing outside it reads a field directly, which is what removes the locking around it. It is also what makes a running actor system opaque. A debugger can pause one goroutine, but a node is thousands of them, and the interesting question is rarely about one process in isolation.
+The runtime can report a process's mailbox and lifecycle, but only the actor knows which job it is waiting on or which peers it believes are present. `HandleInspect` exposes that state as a map of strings while the actor is running.
 
-`HandleInspect` is the one sanctioned way out of that. It is not an API for other processes to use, not a message handler, and not a place to compute anything. It is the actor's answer to a single question, asked from the outside at an arbitrary moment: *what do you currently believe?*
+An inspection request is handled on the actor's dispatcher. It cannot interrupt a callback that is stuck, and it must itself return quickly. This chapter describes useful fields and bounded queries that Observer and the MCP endpoint can read.
 
 ```go
 func (w *Worker) HandleInspect(from gen.PID, item ...string) map[string]string {
@@ -24,19 +24,19 @@ The division of labour is worth stating plainly, because it is unusual. The fram
 
 ## What you do not expose does not exist
 
-This is the whole of it. Diagnosis is limited to the fields you chose to expose, and that choice is made months before the incident by someone who does not know what the incident will be.
+An operator can read only the fields the actor exposes. Choose fields that explain its decisions, including paths that wait, reject work or discard a message. A counter alone may show activity without explaining why progress stopped.
 
 The failure mode is specific and easy to walk into. An actor exposes the values that were easy to format - a name, a counter, a boolean - and omits the ones that carry the decision it just made. Everything looks reasonable in the inspection output, and the actual state is unreachable.
 
-A concrete case. A leader-election actor exposed four fields: cluster id, term, a boolean "am I the leader", and a peer count. Every one of them is true and none of them is enough. The actor has three roles, not two - follower, candidate, leader - and a boolean cannot say which of the first two it is. So a replica stuck as a candidate for hours, campaigning and never winning, was indistinguishable from a healthy follower on every surface the system offered. The peer count said `3` without saying which three, so a stale entry pointing at a process that no longer existed looked identical to a live peer. Nothing reported whether an election timer was still armed, which is the difference between a replica that will try again and one that has stopped trying.
+Consider a leader-election actor that exposes a cluster ID, term, leader boolean and peer count. A candidate repeatedly losing elections and a healthy follower both report `leader=false`. The current implementation also has an `unclustered` role. Report the resolved role so these conditions can be distinguished. Likewise, `peers=3` says nothing about which three peers are present or reachable. Timer state helps distinguish a candidate waiting to retry from one that has stopped scheduling elections.
 
-The state was recoverable, but only sideways: by comparing per-connection message counters between nodes to prove that a leader had emitted nothing for a day, and by taking four inspection readings twenty minutes apart to prove a term had stopped advancing. Each of those would have been one field.
+Without those fields, diagnosis requires indirect evidence. Comparing connection counters can show that heartbeats stopped; repeated term readings can show that elections stopped advancing. Explicit timestamps and timer state let an operator answer these questions from the actor itself.
 
-The rule that follows is not "expose more". It is: **expose the state your code branches on.** If a line of your actor reads a field to decide what to do, an operator will eventually need to read the same field to understand what was done.
+Start with the state used in decision branches. If a handler chooses an action based on a field, that field or its derived meaning is a useful candidate for inspection. Keep the default output bounded, as the later examples demonstrate.
 
 ## Five fields that carry most of the value
 
-In practice, five kinds of field carry almost all the diagnostic value.
+The following five kinds of field are a useful starting point. Which ones matter depends on the actor's state machine.
 
 **The derived role, not the raw flags.** If your actor has three states and you store two booleans, expose the resolved state as a word. Whoever reads it should not have to reconstruct your state machine from its parts.
 
@@ -48,7 +48,7 @@ In practice, five kinds of field carry almost all the diagnostic value.
 
 **When the last transition happened.** A value plus the timestamp it last changed answers "is this stuck?" in one reading. Without the timestamp it takes two readings and a guess about how long to wait between them.
 
-Keep it cheap. The callback runs on the actor's own goroutine, so while it runs the mailbox is not being drained. Format what you already hold; do not compute, do not call out, do not touch the network.
+`HandleInspect` runs on the actor dispatcher. Format existing state and return promptly; network calls, long computations and waits delay the actor's other work.
 
 ## Composing with an embedded behavior
 
@@ -67,9 +67,9 @@ case gen.MailboxMessageTypeInspect:
     p.SendResponse(message.From, message.Ref, result)
 ```
 
-So a consumer adds fields, and may deliberately replace one, but cannot erase the rest. If you are implementing `HandleInspect` on top of one, you can rely on it: the framework's fields will be there beside yours.
+Your returned fields are merged over the base fields. Naming an existing key deliberately replaces its value.
 
-The base behaviors namespace their own keys with a reserved `ergo:` prefix - `ergo:pool_size`, `ergo:children_total`, `ergo:state` and so on. That is what makes the merge safe in both directions: a field of yours cannot collide with one of theirs by accident, and you can still override one deliberately by naming it with the prefix. If you write a base behavior of your own, follow the same shape and the same prefix; if you are the consumer, keep your keys unprefixed and they will never clash.
+Base keys use the reserved `ergo:` prefix, such as `ergo:pool_size`. Keep application keys unprefixed to avoid collisions. Use the prefix only when deliberately overriding a framework field.
 
 ## When the state is too large to return
 
@@ -122,7 +122,7 @@ func (m *SessionManager) HandleInspect(from gen.PID, item ...string) map[string]
 }
 ```
 
-Four things that matter in that shape.
+Queries need explicit bounds:
 
 **Cap every answer.** A query that can match a million entries must return the first `n` and say so. An unbounded answer reintroduces the problem the queries exist to avoid.
 
@@ -132,31 +132,31 @@ Four things that matter in that shape.
 
 **Keep it read-only.** A query language over `item` is a good idea; a command language over it is not. Callers treat inspection as free - tools cache and retry it, an agent exploring a symptom calls it dozens of times - so anything that changes state belongs in `HandleCall` instead.
 
-Answering queries also changes what the vocabulary itself tells a reader. `session <id>`, `user <id>`, `top slowest` says that this actor is indexed by session and by user and tracks latency, before anyone looks at a single value. That is diagnostic information in its own right: two actors with the same number of fields can differ enormously in how much they will let you ask, and `help` is where the difference becomes visible.
+A `help` response should name the available query forms and their limits. It lets an operator or client discover whether the actor can answer by session, user or another index without reading its source first.
 
 ## From one process to the whole system
 
-A single inspection call is a snapshot of one actor. What makes the callback worth designing carefully is that everything above it is built from those snapshots.
+Observer and the MCP endpoint build their application-state views from individual inspection responses.
 
 **One node, read by a human.** [Observer](observer.md) shows a process list, its tree, and the inspection output of whichever process you open, updating live. This is the view for "I know roughly where the problem is".
 
 **A whole cluster, read by an AI.** The [MCP surface of Observer](../extra-library/applications/observer.md) exposes the same inspection as resources and tools an agent asks for on demand: enumerate processes across the cluster, inspect any of them, follow the topology, capture a profile. Every node runs the built-in `system` application that answers those questions, and the one node serving MCP reaches all of them, so a single conversation covers the cluster.
 
-The two differ in method. A dashboard answers questions decided in advance. An agent holding the whole inspection surface can work the other way round: start from a symptom, enumerate what exists, read the state of the processes that look implicated, correlate across nodes, and narrow down. Point diagnosis becomes system diagnosis, because nothing has to be selected up front.
+The web UI presents selected views. An MCP client can request those observations in an order chosen during an investigation and correlate results across nodes.
 
-**And it reads your source.** An agent that can inspect live actor state and read the code that produced it is looking at cause and effect at once. The state says what the system believes; the source says which branch produced that belief and what it will do next. Neither alone is enough - a field value without the code is a number, and code without runtime state is a hypothesis - and together they close the loop that a debugger closes for a single-threaded program, but across a live distributed system that cannot be paused.
+**Correlating with source.** A client with repository access can compare reported state with the branch that produced it. That helps interpret fields, but the observations are snapshots taken at different times; they do not pause the system.
 
-That is the reason to treat `HandleInspect` as a design surface rather than a debug convenience. The value of every layer above it - the observer view, the cluster-wide diagnostic, the agent that explains what it found - is bounded by whether the field it needed was exposed.
+Expose the state needed to explain decisions, including rejected inputs and pending transitions. Generic runtime counters cannot supply it.
 
 ## Taken far enough, it is an admin view
 
-Follow the query vocabulary to its conclusion and a summary plus a handful of drill-downs stops being a debug aid. Look up one entity by id, list what belongs to one tenant, show the worst ten by latency - that is the read half of an admin panel, over live state, for the cost of a switch statement. No separate service, no query layer, no HTTP handlers, no second deployment, and no copy of the data: the actor already holds the state, and it already maintains the indexes because it needs them to do its job. The observer and MCP supply the front end.
+Bounded queries can also support an operator view: one entity by ID, the entries for a tenant or the slowest ten operations. The actor answers from its current state and indexes. Observer and MCP can display those answers, subject to the access controls described below.
 
-Worth being clear about the boundaries, so nobody builds the wrong thing on it.
+Keep these boundaries explicit:
 
 **It is the read half only.** Commands go through `HandleCall`, for the reasons above.
 
-**It is for operators, not end users.** There is no authentication on it beyond access to the node, no per-tenant scoping, and no audit trail. Whoever can reach the observer or the MCP entry point can ask anything the actor answers. That is the right trade for an engineering tool and the wrong one for a customer-facing feature.
+**Operator access.** Inspection has no built-in per-tenant filtering or audit log. Observer may authenticate callers and restrict access with ceilings, but an allowed inspection sees whatever the actor returns. Do not expose customer data through it without appropriate scoping.
 
 **It is a diagnostic surface, not a data API.** Values are strings, keys are yours to rename, and nothing versions them. If another system needs this data, give it a proper request and response instead of parsing an inspection map.
 

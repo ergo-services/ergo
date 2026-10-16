@@ -1,6 +1,8 @@
 # Debugging
 
-Traditional debugging tools struggle with concurrent message passing, process isolation, and distributed state. This article covers the debugging capabilities built into Ergo Framework and practical techniques for troubleshooting common issues.
+When an actor stops responding, first identify its PID and whether it is processing a callback or waiting for work. A mailbox snapshot, a goroutine stack and the actor's own inspection fields answer different parts of that question.
+
+This chapter covers the build tags and profiler output used to collect that evidence, then follows several common failures. [Observer](observer.md) provides the corresponding views on a running node.
 
 ## Build Tags
 
@@ -90,7 +92,7 @@ This activates:
 
 Without the tag, `Latency()` returns -1 (disabled) and there is zero runtime overhead: no timestamps are recorded, no atomic operations are added to the message path.
 
-The overhead with the tag enabled is approximately 10-25% on micro-benchmarks (LOCAL 1-1 scenario with a single producer and consumer exchanging messages). In real applications with many processes, the overhead is lower because the cost is amortized across concurrent operations.
+Timestamping queue operations adds work to message delivery. The impact depends on traffic, contention and handler cost. Compare builds with and without `latency` under the same representative workload before choosing whether to keep the measurement enabled.
 
 Latency measurement answers the question "how long has the oldest message been sitting in this process's mailbox?" A high value means the process is not keeping up with incoming messages: it is either overloaded, stuck in a long-running callback, or blocked. This is particularly useful for:
 
@@ -117,7 +119,7 @@ This activates:
 
 Without the tag, counters remain zero, `Stats.Enabled` is `false`, and there is zero runtime overhead. Encode and decode go through pass-through wrappers that the Go inliner reduces to direct calls.
 
-The overhead with the tag enabled is approximately 2-3% on encode/decode throughput, from two `atomic.AddInt64` operations per root call.
+With `typestats`, a registered root encode or decode updates two atomic counters. Measure the cost with your message mix; the implementation alone does not establish a fixed percentage of throughput overhead.
 
 A counter increments only when a value of that type is the message itself, the top of an `Encode` or `Decode` call. Built-in primitives like `gen.PID`, `gen.Atom`, `gen.Ref` typically appear as fields inside other messages, so their bytes contribute to the parent message's byte total, not to their own counters. Encoded and Decoded are independent: a node may receive some types only and send others only.
 
@@ -143,7 +145,26 @@ or with type statistics:
 go run --tags "pprof,latency,typestats" ./cmd
 ```
 
-This enables all specified features simultaneously. Use combinations when investigating complex issues that span multiple subsystems.
+Combine only the tags needed for the investigation. Their individual sections describe the measurements and overhead.
+
+## Reading Process Counters Over Time
+
+Suppose a worker has 800 queued messages. A single snapshot cannot tell whether it is draining a burst, continuously falling behind or blocked inside one callback. Read its runtime fields twice over a known interval and keep the PID and node incarnation the same in both readings.
+
+| Observation | What it tells you |
+|-------------|-------------------|
+| `MessagesIn` increases | More messages were received; it does not count completed handlers |
+| Mailbox depth and oldest-message age decrease | The pending backlog is shrinking |
+| `StateTime` grows while state remains `running` | The current dispatch has not returned; inspect its stack to distinguish work from a wait |
+| State remains `wait response` | The actor is waiting for a synchronous result; check the request's configured timeout |
+| `RunningTime` increases between completed dispatches | The dispatcher spent more elapsed time running; this is not per-actor CPU time |
+| `Wakeups` increases | The process was activated from Sleep to Running again |
+
+The runtime adds to `RunningTime` after `ProcessRun` returns. It does not continually add the duration of an unfinished dispatch to this accumulator. A flat counter during a long callback therefore needs to be read alongside `StateTime`, mailbox age and a stack trace.
+
+An idle actor has no active mailbox dispatcher goroutine: after finding its queues empty, the runtime returns from that dispatch. Its absence from a goroutine dump is expected. A meta process differs because its `Start` path may still be waiting on I/O.
+
+When comparing network counters, read both ends of the same connection and compare interval changes. The snapshots are taken at different times and traffic can still be queued or in flight. A discrepancy is evidence to investigate, not by itself proof of message loss. A reconnect changes the connection history, so avoid combining its counters with the previous connection's readings.
 
 ## Profiler Integration
 
@@ -324,10 +345,7 @@ Common causes:
 - Deadlock with another process via synchronous calls
 - External service call without timeout
 
-Solution approach:
-- Never use blocking operations (channels, mutexes) in actor callbacks
-- Always use timeouts for external calls
-- Use asynchronous messaging patterns where possible
+Once the stack identifies the wait, give that operation a deadline or move the wait to an I/O component that reports through messages. `Call` already has a request timeout; check whether the configured value matches the actor's required responsiveness. A lock or channel wait also needs a dependency review: a timeout does not make it safe if its releaser is waiting for this actor.
 
 ### Scenario: Memory Growth
 
@@ -416,7 +434,7 @@ Observer runs at `http://localhost:9911` by default when included in your node.
 
 ## Best Practices
 
-1. **Always use build tags in development**: Run with `--tags pprof` during development to have profiler and goroutine labels available when needed.
+1. **Enable the measurements needed for the investigation**: Run with `--tags pprof` during development to have profiler and goroutine labels available when needed.
 
 2. **Configure reasonable shutdown timeout**: A shorter timeout (30-60 seconds) in development helps identify stuck processes quickly.
 

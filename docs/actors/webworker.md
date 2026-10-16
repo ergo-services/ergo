@@ -1,8 +1,8 @@
 # WebWorker
 
-WebWorker is a specialized actor for handling HTTP requests sent as `meta.MessageWebRequest` messages. It automatically routes requests to HTTP-method-specific callbacks and ensures the request completion signal is called.
+`act.WebWorker` handles the HTTP request messages produced by `meta.WebHandler`. It dispatches each request to a callback for its HTTP method and calls `Done` when processing ends, including when a callback returns an error or panics.
 
-Used with `meta.WebHandler` to convert HTTP requests into actor messages. See [Web](../meta-processes/web.md) for integration approaches.
+Embed it in your worker and implement the methods your endpoint accepts. For the HTTP side of this arrangement, see [Web](../meta-processes/web.md).
 
 ## Purpose
 

@@ -4,65 +4,15 @@ description: Building production clusters with Ergo technologies
 
 # Building a Cluster
 
-Service discovery, load balancing, failover and observability are part of the framework. The only external dependency is the registrar.
+A cluster consists of nodes that discover one another and exchange messages. Applications determine what runs on each node. Routing code selects an instance; supervisors handle local process failures. A leader actor can coordinate work that should have one active owner.
 
-This chapter shows how those pieces build a production cluster: service discovery driving load balancing, the leader actor providing failover, metrics and Observer giving visibility into cluster state.
+This chapter combines those pieces in a job-processing service. Start with [Network Stack](../networking/network-stack.md) and [Application](../basics/application.md) if the node connection and application lifecycle are unfamiliar.
 
 ## The Integration Cost Problem
 
-A microservice architecture adds integration layers. Each service needs:
+Between Ergo applications, requests can be Go messages addressed to a process. The native connection handles encoding and remote routing. An HTTP gateway may still be needed at the external boundary, and a registrar supplies routes when node addresses change.
 
-- HTTP/gRPC endpoints for communication
-- Client libraries with retry logic and circuit breakers
-- Service mesh sidecars for traffic management
-- API gateways for routing and load balancing
-- Health check endpoints and probes
-- Metrics exporters and tracing spans
-- Configuration management and secret injection
-
-Each layer adds latency, complexity, and failure modes. A simple call between two services traverses client library, sidecar proxy, load balancer, another sidecar, server library. Each hop serializes, deserializes, and can fail independently.
-
-```mermaid
-graph LR
-    subgraph "Service A"
-        A[App] --> AC[Client Lib]
-        AC --> AS[Sidecar]
-    end
-
-    subgraph "Infrastructure"
-        AS --> LB[Load Balancer]
-        LB --> BS[Sidecar]
-    end
-
-    subgraph "Service B"
-        BS --> BC[Server Lib]
-        BC --> B[App]
-    end
-
-    style AS fill:#fdd
-    style LB fill:#fdd
-    style BS fill:#fdd
-```
-
-Ergo eliminates these layers. Processes communicate directly through message passing. The framework handles serialization, routing, load balancing, and failure detection. No sidecars, no API gateways, no client libraries.
-
-```mermaid
-graph LR
-    subgraph "Node A"
-        A[Process A]
-    end
-
-    subgraph "Node B"
-        B[Process B]
-    end
-
-    A -->|message| B
-
-    style A fill:#dfd
-    style B fill:#dfd
-```
-
-One network hop. One serialization. Built-in load balancing and failover.
+For the cluster below, we need to decide how workers are discovered, how a caller selects one and what happens when that instance becomes unavailable. Those decisions also apply to the coordinator.
 
 ## Service Discovery with Registrars
 
@@ -130,11 +80,11 @@ etcd registrar capabilities:
 | Configuration | Hierarchical config with type conversion |
 | Events | Real-time notifications of cluster changes |
 
-**Use for**: Teams already running etcd, clusters up to 50-70 nodes, deployments needing application discovery.
+**Use for**: Deployments already operating etcd and needing application discovery or shared configuration. Size the registrar from measured registration and watch load.
 
 ### Saturn Registrar
 
-Saturn is purpose-built for Ergo. Instead of polling (like etcd), it maintains persistent connections and pushes updates immediately. Topology changes propagate in milliseconds.
+Saturn distributes changes over persistent client connections. The etcd client also receives updates through watches; the difference is the registrar backend and its operational model, rather than push versus polling.
 
 ```go
 import "ergo.services/registrar/saturn"
@@ -153,13 +103,13 @@ Saturn vs etcd:
 
 | Aspect | etcd | Saturn |
 |--------|------|--------|
-| Update propagation | Polling (seconds) | Push (milliseconds) |
-| Connection model | HTTP requests | Persistent TCP |
-| Scalability | 50-70 nodes | Thousands of nodes |
-| Event latency | Next poll cycle | Immediate |
+| Update propagation | Prefix watches | Persistent client connection |
+| Connection model | etcd client with leases and watches | Persistent TCP |
+| Capacity planning | Measure lease and watch load on etcd | Measure server and client load |
+| Event latency | Watch propagation and local processing | Server propagation and local processing |
 | Infrastructure | General-purpose KV store | Purpose-built for Ergo |
 
-**Use for**: Large clusters, real-time topology awareness, production systems where discovery latency matters.
+**Use for**: Deployments choosing a dedicated Ergo registrar for discovery and configuration.
 
 ## Application Discovery and Load Balancing
 
@@ -214,7 +164,7 @@ Weights enable traffic distribution. A node with weight 100 receives twice as mu
 
 - **Canary deployments**: New version with weight 10, stable with weight 90
 - **Capacity matching**: Powerful nodes get higher weights
-- **Graceful draining**: Set weight to 0 before maintenance
+- **Graceful draining**: Set a negative weight to withdraw the route, then wait for admitted work to finish
 
 ```go
 // Canary deployment
@@ -264,7 +214,7 @@ func (c *Client) selectNode(routes []gen.ApplicationRoute) gen.Atom {
 }
 ```
 
-This is application-level load balancing without external infrastructure. No load balancer service, no sidecar proxies.
+The caller selects an application instance from the routes. Its message is then addressed to a process on that instance's node.
 
 ## Running Multiple Instances for Load Balancing
 
@@ -338,7 +288,7 @@ func (c *Coordinator) distributeWork(job Job) error {
 
 **Scale up**: Start new node with the same application. It registers with the registrar. Other nodes discover it through events or next resolution.
 
-**Scale down**: Set weight to 0 (drain), wait for in-flight work, stop the node. Registrar removes the registration when the lease expires.
+**Scale down**: Set the application weight to a negative value and let discovery clients observe the change. Wait for admitted work to finish, then stop the node. A zero weight is normalized to one and does not withdraw the route. Clients that cache destinations need their own refresh and drain policy.
 
 ```go
 // Drain before shutdown
@@ -383,15 +333,15 @@ func (c *Coordinator) HandleEvent(event gen.MessageEvent) error {
 }
 ```
 
-No polling. No service mesh. Events arrive within milliseconds (Saturn) or at the next poll cycle (etcd).
+Saturn delivers changes over its client connection; etcd delivers them through a prefix watch. Propagation and application processing take time, so a caller must still handle a destination that disappears after resolution.
 
 ## Running Multiple Instances for Failover
 
-Failover means having standby instances ready to take over when the primary fails. The leader actor implements distributed leader election - exactly one instance is active (leader) while others wait (followers).
+The leader actor elects an active coordinator among the members of its current view. Followers can take over after the leader stops responding. Membership may diverge during a partition, so external work requiring exclusivity also needs fencing or another authority.
 
 ### The Leader Actor
 
-The `leader.Actor` from `ergo.services/actor/leader` implements Raft-based leader election. Embed it in your actor to participate in elections:
+The `leader.Actor` from `ergo.services/actor/leader` implements Raft-style leader election without a replicated log. Embed it in your actor to participate in elections:
 
 ```go
 import "ergo.services/actor/leader"
@@ -471,7 +421,7 @@ sequenceDiagram
     Note over F1,F2: Node 2 is now leader
 ```
 
-Failover happens automatically. No manual intervention. The surviving nodes elect a new leader within the election timeout (150-300ms by default).
+Followers campaign after the configured election timeout, 150-300 ms by default. Successful failover also requires quorum, reachable peers and a successful confirmation callback; the timeout range is not a bound on recovery time.
 
 ### Use Cases
 
@@ -537,7 +487,7 @@ func (s *Scheduler) HandleMessage(from gen.PID, message any) error {
 
 ### Quorum and Split-Brain
 
-Leader election requires a majority (quorum) to prevent split-brain:
+An election requires a majority of the membership view held by that actor. For a converged view, the vote counts are:
 
 | Cluster Size | Quorum | Tolerated Failures |
 |--------------|--------|-------------------|
@@ -549,7 +499,7 @@ If a network partition splits 5 nodes into groups of 3 and 2:
 - The group of 3 can elect a leader (has quorum)
 - The group of 2 cannot (no quorum)
 
-This prevents both sides from having leaders and making conflicting decisions.
+This calculation assumes both sides retain the same membership view. Unreachable members are eventually removed after `GhostTTL`, and independently discovered groups can have different views. See [Leader guarantees](../extra-library/actors/leader.md#what-it-guarantees) before relying on leadership for external writes.
 
 ```mermaid
 graph TB
@@ -1038,11 +988,11 @@ func main() {
 ### What You Get
 
 - **Load balancing**: Jobs distribute across workers based on weights
-- **Failover**: If coordinator leader fails, another takes over in <300ms
+- **Failover**: A follower can take over after an election, subject to membership, quorum and confirmation
 - **Discovery**: Workers auto-register; coordinators discover them via events
 - **Metrics**: Prometheus scrapes all nodes for cluster-wide visibility
 - **Inspection**: Observer UI shows processes, mailboxes, network traffic
-- **Configuration**: Update settings via etcd; changes propagate immediately
+- **Configuration**: Update settings via etcd; clients receive changes through watches
 
 ## Summary
 

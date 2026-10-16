@@ -4,13 +4,9 @@ description: What is a Process in Ergo Framework
 
 # Process
 
-A process is an actor - a lightweight entity that handles messages sequentially in its own goroutine. It's the fundamental building block of an Ergo application.
+A process is a running instance of a behavior. The node assigns it a PID, a mailbox and a lifecycle. The behavior handles messages and keeps the instance's state.
 
-Every process has a mailbox where incoming messages wait to be processed. The mailbox contains four queues with different priorities: Urgent for critical system messages, System for framework control, Main for regular application messages, and Log for logging. When the process wakes up to handle messages, it processes them in priority order, taking from Urgent first, then System, then Main, and finally Log.
-
-When built with `-tags=latency`, each queue tracks the age of its oldest unprocessed message. `ProcessMailbox.Latency()` returns the maximum latency across all four queues in nanoseconds, or -1 if the tag is not enabled. This helps identify processes that are falling behind on message processing. See [Debugging](../advanced/debugging.md) for details.
-
-The process runs only when it has messages to handle. When the mailbox is empty, the process sleeps, consuming no CPU. When a message arrives, the process wakes, handles the message, and sleeps again if nothing else is waiting.
+We will spawn a process, address it and follow its transition from initialization to termination. [Actor](../actors/actor.md) builds on this runtime with callbacks for ordinary messages and requests.
 
 ## Identifying Processes
 
@@ -20,7 +16,7 @@ The creation timestamp is the node's startup time. If a node restarts, the creat
 
 Besides PIDs, processes can be identified by registered names. A process can register one name, making it addressable as `gen.ProcessID{Name: "worker", Node: "node@host"}`. This is useful for well-known processes that other parts of the system need to find without knowing their `gen.PID`.
 
-Processes can also create aliases - temporary identifiers that provide additional addressing options. Unlike registered names (one per process), a process can create unlimited aliases using `gen.Alias`. They're useful when you need multiple ways to address the same process, such as in request-response patterns or when implementing services with multiple endpoints.
+A process may also create several aliases. An alias is an additional address tied to that process's lifetime; deleting it withdraws that address without terminating the process. Use one for a temporary endpoint or a protocol that needs several independently revocable addresses. See [Generic Types](generic-types.md) for its representation.
 
 ## Process Lifecycle
 
@@ -88,7 +84,7 @@ The `ProcessTerminate` callback runs during shutdown. Use it for cleanup: close 
 
 ## Timed and Periodic Messages
 
-Sometimes a process needs to act later, or on a schedule, rather than in response to an incoming message. The wrong way is to start a `time.Timer` or `time.Ticker` inside a callback: it fires on its own goroutine, outside the mailbox, and touching process state from there breaks the single-threaded guarantee.
+Sometimes a process needs to act later, or on a schedule. A timer callback runs outside mailbox dispatch. If that callback changes actor state, it can race with `HandleMessage`. Schedule a message to the actor instead: it will perform the state change when dispatching that message.
 
 Instead, let the process message itself. `SendAfter` delivers a message to a target once after a delay; `SendEvery` delivers it repeatedly on a fixed period, reusing a single timer so it does not allocate on each tick. Both return a cancel function, and both route the message through the mailbox - it is handled in `HandleMessage` like any other, on the process's own goroutine and in order. The delivery options (priority, compression, network order) are captured when you schedule, not re-read on each fire.
 
@@ -158,7 +154,7 @@ Processes can also be terminated externally. Sending an exit signal with `SendEx
 
 The most forceful option is `Kill`. If the process is idle (Sleep state), it transitions directly to Terminated and `ProcessTerminate` is called. If the process is actively handling a message (Running or WaitResponse states), it's marked as Zombee. In Zombee state, all operations return `gen.ErrNotAllowed`. The process finishes its current message, then terminates and calls `ProcessTerminate`. A process waiting for a response does not sit out its budget first: the kill ends the wait as well, the call returns `gen.ErrProcessTerminated`, and the process unwinds from there. Use `Kill` when you need to stop a process that isn't responding to exit signals.
 
-Regardless of how termination happens, the node performs comprehensive cleanup. Events the process registered are unregistered. Its registered name becomes available for reuse. Aliases are deleted. Links and monitors are removed. If the process was acting as a logger, it's removed from the logging system. Meta processes spawned by this process are terminated. This ensures no dangling references remain after a process is gone.
+Process cleanup unregisters its events and names, removes aliases and subscriptions, removes logger registration and terminates owned meta processes. A registered name may then identify a replacement process with a different PID.
 
 ## State-Based Access Control
 

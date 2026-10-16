@@ -1,6 +1,7 @@
 # Meta-Processes
 
-An extra library of meta-process implementations not included in the standard Ergo Framework library. This library contains packages with a narrow specialization. It also includes packages with external dependencies, as Ergo Framework adheres to a "zero dependency" policy.
+These modules integrate additional protocols with actors. The core TCP, UDP, Port and Web behaviors are described in [Meta Processes](../../basics/meta-process.md).
 
-
-
+- [WebSocket](websocket.md) connects a bidirectional socket to an actor.
+- [SSE](sse.md) sends backend events through an HTTP event stream.
+- [NATS](nats.md) bridges NATS subscriptions and publications to actor messages.

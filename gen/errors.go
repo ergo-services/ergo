@@ -109,6 +109,7 @@ var (
 	ErrTaken        = errors.New("resource is taken")
 
 	ErrAtomTooLong = errors.New("too long Atom (max: 255)")
+	ErrAtomLimit   = errors.New("atom limit reached")
 
 	ErrTimeout     = errors.New("timed out")
 	ErrCanceled    = errors.New("canceled")

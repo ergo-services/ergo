@@ -1,8 +1,8 @@
 # Pulse
 
-Tracing in Ergo Framework records observations locally on each node. To see the complete picture of a trace spanning multiple nodes, you need to send those observations to an external system that assembles them. Pulse exports tracing observations to any OTLP-compatible backend (Grafana Tempo, Jaeger, OpenTelemetry Collector) over HTTP.
+Pulse receives tracing observations from an Ergo node and exports them to an OTLP/HTTP collector. Its workers batch observations and translate their causal relationships into spans.
 
-Pulse runs as an application on your node. It registers itself as a tracing exporter, receives observations from the framework, batches them, and periodically flushes them to the configured collector. Each node in your cluster runs its own Pulse instance pointing to the same collector, and the backend assembles cross-node traces automatically.
+Configure the collector URL on each node whose observations you need. The examples below cover export settings and how the resulting spans represent message flow.
 
 ## Adding to Your Node
 

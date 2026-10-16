@@ -1,8 +1,8 @@
 # Sentry Logger
 
-The sentry logger forwards panics and errors to a Sentry project, complete with stack traces pointing at the panic origin. When a production node recovers a panic in an actor callback, that event is usually written to a file and noticed hours later, if at all. Sentry-backed logging surfaces the same event in your issue tracker within seconds, grouped by panic value, with the originating frames marked as application code.
+The Sentry logger forwards recovered panics and selected errors to Sentry. It records source identity and captures the panic stack while the framework's recovery handler is active.
 
-The logger does not replace your console or file logger. It runs alongside them and captures a narrow slice of the log stream: every panic from anywhere in the framework, and errors from the higher-level subsystems (node, network, application). Meta processes and individual actors are off by default to keep noisy actor-level errors from drowning your Sentry quota, and can be turned on per source when needed.
+Configure a DSN and register the logger on the node. The filtering settings below determine which non-panic errors are exported.
 
 ## What Gets Sent
 
@@ -15,7 +15,7 @@ Two severities are forwarded; the others stay local. The matrix maps source agai
 
 Every panic event reaches Sentry regardless of which subsystem produced it. The framework recovers panics in actor callbacks, supervisors, pools, web workers, meta processes, applications, cron jobs and network handlers; each recovery site formats a `Log().Panic()` message which the logger sees and captures.
 
-Error-level events from the node, network and application subsystems are forwarded by default. These are the operational layer: a network handshake failure, an application that refuses to start, a node configuration error. They tend to be infrequent and worth a Sentry issue every time.
+By default, error records from node, network and application sources are exported. Process and meta-process errors require opt-in; see the filtering options below.
 
 Error-level events from meta processes and individual actors are opt-in via `CaptureMetaErrors` and `CaptureProcessErrors`. A misbehaving actor can produce many errors per second, and you usually want to investigate those in your local logs first rather than pay for ingest in Sentry. Turn the flag on when you have specific signals you want to track centrally.
 

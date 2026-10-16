@@ -4,13 +4,13 @@ description: The in-process harness for testing a single actor's logic
 
 # Unit
 
-Most of what an actor does is decide. A message arrives; the actor looks at its state, perhaps asks a dependency something, and reacts - it replies, forwards, spawns a worker, logs a warning, or stops. That decision logic is the core of the actor, and it is what you most want under test: on its own, without a network, a scheduler, or the timing that makes concurrent tests flaky.
+The `unit` harness runs one actor behavior against a mock node. A `Subject` delivers inputs to its callbacks synchronously and records outgoing actions. When a delivery returns, its callback has finished and the records are available for assertions.
 
-`unit` is built for exactly that. It spawns one behavior on a mock node, gives you a `Subject` to drive its callbacks by hand, and records everything the actor does so you can assert on it. The defining fact is that it is synchronous. There are no real goroutines and no clock: you deliver a message, the actor's handler runs to completion on the calling goroutine, and by the time the call returns the records are already there to read. Tests run in microseconds and give the same answer every time.
+The harness does not reproduce scheduling or node connections. Use it for protocol decisions and state transitions, then use [Stage](stage.md) for behavior that depends on the real runtime.
 
 ## The Shape of a Test
 
-A unit test reads the same way every time: spawn the actor, drive an input, assert the reaction.
+Begin by spawning the behavior, delivering an input and asserting the recorded action.
 
 ```go
 sub, err := unit.Spawn(t, factoryWorker, gen.ProcessOptions{})
@@ -24,7 +24,7 @@ sub.ShouldSend().To(client).Message("pong").Once().Assert()
 
 `unit.Spawn` runs the behavior's `Init` and returns a `Subject` - the actor under test. The `Subject` carries the assertion grammar from [check](check.md), which is why `sub.ShouldSend(...)` is a method on it. The options are the real `gen.ProcessOptions` (set the log level there, for instance, with `LogLevel`), and any trailing arguments are forwarded to `Init`, exactly as `gen.Node.Spawn` forwards them. When you need more than a default node - a node name, seeded environment, an injected dependency - build it first with `unit.StartNode(...)` and spawn on that; it mirrors how [stage](stage.md) reads.
 
-Notice what did *not* happen after `SendMessage`: no wait. The handler ran inline, the send was recorded during that run, and the assertion read a finished result. That is what changes when you move up to stage.
+`SendMessage` ran the handler inline, so this assertion reads the completed delivery's records. Stage assertions instead wait for observations from concurrently running processes.
 
 ## Driving Inputs
 

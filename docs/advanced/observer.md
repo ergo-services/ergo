@@ -4,13 +4,11 @@ description: Real-time inspection and management of Ergo nodes
 
 # Inspecting With Observer
 
-A running Ergo node is not one program you can step through with a debugger. It is thousands of processes, each on its own goroutine, each handling its own messages, being restarted by supervisors as failures happen. You cannot pause one and read its variables the way you would a function, and adding print statements changes the very timing you are trying to understand.
+Observer is a web interface for a running Ergo node. It displays processes and their relationships, messages, logs, network connections and profiles. It also exposes controls for selected runtime settings and process or application lifecycle operations.
 
-Observer takes a different approach. It watches the live node the way the system itself does: what each process is doing right now, how messages travel between them, and where CPU and memory go. It embeds into the node, streams updates to your browser as they happen, and needs no changes to the processes it observes. And it is not read-only: from the same screen you can change a setting, send a message, or stop a process on the running system.
+One node runs the Observer application. It queries other nodes through their built-in `system` application, so those nodes need no additional observer deployment. The tour below starts with node health, narrows to a process and then covers the views used to investigate it. For installation and permissions, see [Observer Application](../extra-library/applications/observer.md).
 
-You deploy Observer on a single node and inspect the whole cluster from it. Every Ergo node runs the built-in `system` application, which is what Observer talks to, so switching to another node needs nothing extra deployed there. For installation and options, see [Observer Application](../extra-library/applications/observer.md).
-
-To try it against a live cluster:
+To try these views against the example cluster:
 
 ```bash
 git clone https://github.com/ergo-services/examples
@@ -22,7 +20,7 @@ This starts a multi-node cluster with Observer, tracing, health probes, Promethe
 
 ## How to read this page
 
-The tour goes from the outside in. First how to move around the interface at all, then the node at a glance, its applications, and finding the one process that matters among thousands. Then everything about that process and how to act on it. After that come the specialized views, each answering a specific question: how messages flow, how the node is connected, what the logs say, where memory and time go, and how a single request travels across the system. Then how to point any of these views at any node in the cluster, and last, the same data read by an AI agent rather than by you.
+The following sections move from node and application views to one process, then to events, connections, logs, profiles and traces. The final sections cover remote nodes and MCP access.
 
 Screenshots are collapsed. Open the one you need; the page stays light if you do not.
 
@@ -397,6 +395,6 @@ The map of the whole cluster, every node at once with the traffic between them, 
 
 ## The same node, read by an agent
 
-Every view on this page is a layout somebody decided on in advance, which is what makes it fast to read and useless for a question nobody anticipated. The same observer serves a second surface for exactly those questions: an [MCP](mcp.md) endpoint where an AI agent reads the node as addressable resources and calls tools on demand.
+The [MCP endpoint](mcp.md) exposes the same observations as resources and tools. A client can select queries during an investigation rather than follow the web UI layout.
 
-It is the same data, the same node, and the same authorization: a read-only ceiling refuses an agent's kill for the same reason it hides yours. What differs is who chooses the next question. See [Inspecting With an AI Agent](mcp.md).
+The MCP endpoint applies the Observer access model as well. A read-only ceiling refuses mutations through either surface. See [Inspecting With an AI Agent](mcp.md).

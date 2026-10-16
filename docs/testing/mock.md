@@ -4,9 +4,9 @@ description: Standalone fakes of the gen interfaces, for testing code that consu
 
 # Mock
 
-Not all code that touches the framework is an actor. A helper that takes a `gen.Process` to make a call, a custom resolver that implements `gen.Resolver`, a constructor that reads configuration from a `gen.Node` - these are ordinary functions, and you test them the ordinary way: give them a dependency you control, run them, and check what happened. `mock` provides that dependency. For each of the framework's interfaces it offers a standalone fake you can hand to the code under test in place of the real thing.
+The `mock` package implements framework interfaces for tests of ordinary Go code. For example, a helper that accepts `gen.Process` can receive a mock with a configured `Call` method.
 
-These fakes are deliberately dumb. A mock runs no actor, starts no goroutine, and never fails your test on its own, unlike the [unit](unit.md) harness. It implements an interface, lets you override the methods you care about, and returns safe defaults for the rest. Each example names the type doing the work, so it is always clear which mock you are looking at.
+A standalone mock runs no actor or scheduler. Override the methods the test depends on; the other methods return defaults. The `unit` harness adds recording and stricter behavior when testing an actor.
 
 ## A Dumb Mock
 

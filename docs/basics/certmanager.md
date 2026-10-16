@@ -4,9 +4,9 @@ description: TLS Certificate Management
 
 # CertManager
 
-Network communication in production systems needs encryption. TLS provides this, but managing TLS certificates introduces operational challenges. Certificates expire. Security incidents require rotation. Updating certificates traditionally means restarting services, causing downtime.
+`gen.CertManager` stores the certificate used by TLS listeners and clients. Replace that certificate with `Update` while the node is running; new handshakes read the current value.
 
-Ergo Framework provides `gen.CertManager` for live certificate updates. Load a certificate at startup, and you can update it later without restarting. All components using that certificate manager - node acceptors, web servers, TCP servers - automatically use the updated certificate for new connections.
+The manager does not obtain or renew certificates. Your renewal service supplies them. Existing connections retain the TLS session established before an update.
 
 ## Creating a Certificate Manager
 

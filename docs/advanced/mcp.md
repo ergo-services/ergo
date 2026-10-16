@@ -4,11 +4,9 @@ description: What your AI agent can do with a live Ergo cluster over MCP
 
 # Inspecting With an AI Agent
 
-[Observer](../extra-library/applications/observer.md) serves an MCP endpoint beside its web UI. Point Claude Code, Cursor or any MCP-compatible client at it, and your agent can inspect and operate the running cluster directly.
+[Observer](../extra-library/applications/observer.md) serves an MCP endpoint alongside its web UI. An MCP client can query the running node, inspect other nodes through it and, when permitted, perform operational actions.
 
-What that changes in practice: instead of opening a dashboard and deciding which panel to look at, you describe the symptom - "orders are slow since the deploy" - and the agent goes and looks. It lists the nodes, finds the processes with deep mailboxes, reads the one that looks implicated, asks it about itself, follows the message chain onto the next node, and comes back with a cause rather than a screenshot.
-
-Three properties matter here:
+For example, an investigation of delayed orders might begin with mailbox depths, inspect a waiting actor and then examine goroutines on the node running its dependency. The endpoint supplies the observations; diagnosis depends on the state your actors expose and the client's interpretation.
 
 - **One endpoint covers the whole cluster.** Only the node running Observer needs it. Every other node is already inspectable, because each runs the framework's built-in `system` application - nothing to install, no port to open, no agent to deploy.
 - **The agent reads the real thing.** The same counters, mailboxes, links, logs and profiles the framework maintains for itself, not a metrics summary sampled a minute ago.
@@ -29,9 +27,9 @@ claude mcp add --transport http ergo http://localhost:9911/mcp \
   --header "Authorization: Bearer ${TOKEN}"
 ```
 
-That is the whole setup. The surface tells the client where to start and what it may do, so there is no tool list to maintain on your side.
+The client obtains tool and resource listings from the endpoint.
 
-Worth setting once: `Instructions` in [The MCP surface](../extra-library/applications/observer.md#the-mcp-surface). It is where you write down what no amount of inspection reveals - which node runs which part of the business, where a flow begins, what must not be touched. The agent is told this before it asks anything.
+Set `Instructions` in [The MCP surface](../extra-library/applications/observer.md#the-mcp-surface) to describe node roles, business flows and operational constraints that inspection cannot infer.
 
 ## What your agent can ask for
 
@@ -120,7 +118,7 @@ Three of those readings accumulate rather than answer once:
 | `ergo://<node>/stream/{event}` | The actual messages flowing through one event |
 | `ergo://<node>/tracing` | The spans the node emits while tracing is on |
 
-They start collecting when first read, so the first answer is usually near-empty and the second one has what happened in between. That is what makes "watch it and tell me when it recovers" answerable.
+Collection begins on the first read. Read again to obtain observations captured since subscription, for example while a mailbox drains.
 
 ## One question across the cluster
 
@@ -175,7 +173,7 @@ A symptom in plain words: orders are slow since the deploy. What follows is the 
 
 **Watch it recover.** Read the process listing and the log again as the dependency comes back, and watch the mailbox drain.
 
-Nothing in that sequence was decided in advance. Each step chose the next from what the previous one answered.
+Each observation narrows the next query. If the state is incomplete or inconsistent, record the remaining uncertainty instead of treating the sequence as proof of a cause.
 
 ## See also
 

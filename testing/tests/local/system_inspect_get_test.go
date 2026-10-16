@@ -109,10 +109,10 @@ func errorsOf(t *testing.T, n *stage.Node, request inspect.RequestGetErrors) ins
 	return response
 }
 
-func atomsOf(t *testing.T, n *stage.Node, request inspect.RequestGetAtoms) inspect.ResponseGetAtoms {
+func atomsOf(t *testing.T, n *stage.Node, request inspect.RequestGetNetworkAtomCache) inspect.ResponseGetNetworkAtomCache {
 	t.Helper()
 
-	response, ok := inspectGet(t, n, request).(inspect.ResponseGetAtoms)
+	response, ok := inspectGet(t, n, request).(inspect.ResponseGetNetworkAtomCache)
 	if ok == false {
 		t.Fatalf("unexpected response to %T", request)
 	}
@@ -185,7 +185,7 @@ func TestSystemInspectGetAtoms(t *testing.T) {
 		t.Fatalf("RegisterAtom: %s", err)
 	}
 
-	all := atomsOf(t, n, inspect.RequestGetAtoms{})
+	all := atomsOf(t, n, inspect.RequestGetNetworkAtomCache{})
 	if len(all.Atoms) == 0 {
 		t.Fatal("an atom was just registered, yet the cache came back empty")
 	}
@@ -193,7 +193,7 @@ func TestSystemInspectGetAtoms(t *testing.T) {
 		t.Errorf("an unfiltered answer reports %d omitted", all.Truncated)
 	}
 
-	mine := atomsOf(t, n, inspect.RequestGetAtoms{Name: "inspect-get-atoms-probe"})
+	mine := atomsOf(t, n, inspect.RequestGetNetworkAtomCache{Name: "inspect-get-atoms-probe"})
 	if len(mine.Atoms) != 1 {
 		t.Fatalf("the registered atom matched %d entries, expected 1", len(mine.Atoms))
 	}
@@ -204,7 +204,7 @@ func TestSystemInspectGetAtoms(t *testing.T) {
 		t.Error("a cached atom carries id 0, which the encoder never uses")
 	}
 
-	none := atomsOf(t, n, inspect.RequestGetAtoms{Name: "no.such.atom.anywhere"})
+	none := atomsOf(t, n, inspect.RequestGetNetworkAtomCache{Name: "no.such.atom.anywhere"})
 	if len(none.Atoms) != 0 || none.Truncated != 0 {
 		t.Errorf("a filter matching nothing returned %d atoms and %d omitted",
 			len(none.Atoms), none.Truncated)

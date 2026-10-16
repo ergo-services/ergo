@@ -4,7 +4,9 @@ description: Grouping and Managing Actors as a Unit
 
 # Application
 
-An application groups related actors and manages them as a unit. Instead of starting individual processes and tracking their lifecycles manually, you define an application that specifies which actors to start, in what order, and how the group should behave if individual actors fail.
+An application groups processes that start and stop together. Its specification declares the initial members, their order and dependencies. Lifecycle callbacks open shared resources before the group starts and release them after it stops.
+
+We will define a small application, follow its lifecycle and examine how its mode reacts when a group member terminates.
 
 {% hint style="info" %}
 **Migrating to 3.3.x.** The `gen.ApplicationBehavior` interface changed in this release. To adapt an existing application:
@@ -33,9 +35,9 @@ New optional callbacks `Init` and `Stop` exist on the interface but are no-op by
 
 ## The Need for Applications
 
-Starting processes one at a time works for simple systems. But as complexity grows, you face coordination problems. Which processes should start first? What if one fails to start - do you continue or abort? If a critical component terminates, should the service keep running in a degraded state or shut down cleanly?
+An application declares startup order and group-level termination behavior. These are separate from a supervisor's child restart policy.
 
-Applications let you declare these decisions explicitly rather than scattering the logic throughout your code. The specification documents what your service consists of. The mode declares your termination policy. The framework enforces both.
+Use the specification for initial members and dependencies, and the mode for the effect of a member terminating.
 
 ## Defining an Application
 

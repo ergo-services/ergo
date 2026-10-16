@@ -1,10 +1,8 @@
 # Grid
 
-In a cluster, processes on different nodes need to find each other by name, know when one appears or disappears, and broadcast to a set of interested processes that changes over time. Building this by hand means maintaining monitors between nodes, tracking which node hosts what, and agreeing on a naming scheme, all while nodes join and leave.
+Grid maintains a replicated registry of keys owned by processes. Nodes in the same domain exchange registrations and notify processes watching a key, prefix or the whole registry.
 
-Grid provides three capabilities as an application: a distributed registry that maps a key to a single owner process, lifecycle monitors that notify you when keys appear, change, or vanish, and process groups for per-key publish/subscribe.
-
-Grid runs as an application on your node. Every node keeps a full local copy of the registry, so a lookup is a local read that returns immediately. Writes are serialized per key by a shard actor and replicate to peer nodes in the background. Grid is AP and eventually consistent: it stays available during a partition and converges when the partition heals, at the cost of brief windows where two nodes may disagree.
+The registry is available during partitions and resolves conflicting writes when peers exchange state. It is not a consensus store. The examples below cover registration, monitoring and the consequences of concurrent ownership.
 
 ## Adding to Your Node
 

@@ -39,16 +39,21 @@ const (
 	CapLog             = "inspect.log"
 	CapTracing         = "inspect.tracing"
 
-	CapGetProcessState  = "inspect.process_state"
-	CapGetProcessLookup = "inspect.process_lookup"
-	CapGetMetaState     = "inspect.meta_state"
-	CapGetAppTree       = "inspect.app_tree"
-	CapGetSubtree       = "inspect.subtree"
-	CapGetGoroutines    = "inspect.goroutines"
-	CapGetHeapProfile   = "inspect.heap_profile"
-	CapGetTypes         = "inspect.types"
-	CapGetErrors        = "inspect.errors"
-	CapGetAtoms         = "inspect.atoms"
+	CapGetProcessState     = "inspect.process_state"
+	CapGetProcessLookup    = "inspect.process_lookup"
+	CapGetMetaState        = "inspect.meta_state"
+	CapGetAppTree          = "inspect.app_tree"
+	CapGetSubtree          = "inspect.subtree"
+	CapGetGoroutines       = "inspect.goroutines"
+	CapGetHeapProfile      = "inspect.heap_profile"
+	CapGetTypes            = "inspect.types"
+	CapGetErrors           = "inspect.errors"
+	CapGetNetworkAtomCache = "inspect.network_atom_cache"
+	CapGetAtomSummary      = "inspect.atom_summary"
+	CapGetAtomTable        = "inspect.atom_table"
+
+	// Deprecated: use CapGetNetworkAtomCache.
+	CapGetAtoms = CapGetNetworkAtomCache
 
 	CapGetCronInfo     = "inspect.cron_info"
 	CapGetCronSchedule = "inspect.cron_schedule"
@@ -112,7 +117,7 @@ func Capabilities() []string {
 		CapGetHeapProfile,
 		CapGetTypes,
 		CapGetErrors,
-		CapGetAtoms,
+		CapGetNetworkAtomCache,
 		CapGetCronInfo,
 		CapGetCronSchedule,
 		CapGetRegistrarNodes,

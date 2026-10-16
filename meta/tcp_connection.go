@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"net/netip"
 	"strconv"
 	"sync/atomic"
 
@@ -99,10 +100,20 @@ func (t *tcpconnection) Start() error {
 		}
 	}()
 
+	var remote, local netip.AddrPort
+	if a, ok := t.conn.RemoteAddr().(*net.TCPAddr); ok {
+		ap := a.AddrPort()
+		remote = netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+	}
+	if a, ok := t.conn.LocalAddr().(*net.TCPAddr); ok {
+		ap := a.AddrPort()
+		local = netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port())
+	}
+
 	message := MessageTCPConnect{
 		ID:         t.ID(),
-		RemoteAddr: t.conn.RemoteAddr(),
-		LocalAddr:  t.conn.LocalAddr(),
+		RemoteAddr: remote,
+		LocalAddr:  local,
 	}
 	if err := t.Send(to, message); err != nil {
 		t.Log().Error("unable to send MessageTCPConnect to %v: %s", to, err)

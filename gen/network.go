@@ -763,6 +763,19 @@ type RemoteNodeInfo struct {
 	// ClockSkew is the estimated clock offset relative to the remote node (nanoseconds).
 	// Positive value means remote clock is ahead. Zero if not yet measured.
 	ClockSkew int64
+
+	// QueuedOut is the bytes queued for the TCP connections of the pool and not written yet.
+	// Zero for a node that does not limit its queues.
+	QueuedOut uint64
+	// SendWaits is the total number of sends that waited for room in a full queue of a TCP
+	// connection of the pool.
+	SendWaits uint64
+	// QueuedIn is the bytes read from the TCP connections of the pool and not decoded yet.
+	// Zero for a node that does not limit its queues.
+	QueuedIn uint64
+	// ReadPauses is the total number of times a reader of the pool stopped reading until the
+	// decoders caught up.
+	ReadPauses uint64
 }
 
 // RemoteNodeShortInfo is the essential information about a connection to a

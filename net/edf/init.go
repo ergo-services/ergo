@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/meta"
 )
 
 var (
@@ -97,6 +98,11 @@ var (
 		gen.TracingFlags(0),
 		gen.TracingSpan{},
 
+		meta.MessageTCPConnect{},
+		meta.MessageTCPDisconnect{},
+		meta.MessageTCP{},
+		meta.MessageUDP{},
+
 		gen.RegisteredTypeStats{},
 		gen.RegisteredTypeInfo{},
 		gen.RegisteredErrorInfo{},
@@ -143,6 +149,7 @@ var (
 		gen.ErrTaken,
 
 		gen.ErrAtomTooLong,
+		gen.ErrAtomLimit,
 
 		gen.ErrTimeout,
 		gen.ErrCanceled,

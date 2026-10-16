@@ -4,11 +4,9 @@ description: Logging system and logger implementations
 
 # Logging
 
-Understanding what happens inside a running system requires logging. But logging in distributed actor systems isn't straightforward. Messages pass between dozens of processes. Processes spawn dynamically, handle requests, and terminate. Network connections form and break. Following a single request's path through the system means tracking its journey across multiple processes, possibly across multiple nodes.
+Logs emitted through the framework carry their source: a process, meta process, application, node or network peer. Registered loggers receive those records and choose how to format or export them.
 
-Traditional logging compounds the problem. Each component writes to its own log. Process logs go to one file, network logs to another, node events to a third. When something goes wrong, you're piecing together a timeline from scattered sources, correlating by timestamp and hoping you've found all the relevant entries.
-
-Ergo Framework centralizes the logging flow. Every log call - whether from a process, meta process, or the node itself - flows through a single logging system. That system distributes messages to registered loggers based on configurable filters. One logger might write everything to the console. Another might write only errors to a file. A third might send metrics to a monitoring system.
+This chapter starts with logging from an actor, then covers levels, structured fields and logger registration. Source identity lets you correlate a record with the process information described in [Debugging](../advanced/debugging.md).
 
 ## How Messages Flow
 

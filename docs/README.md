@@ -1,47 +1,99 @@
 # Overview
 
-In Go, you might start with goroutines and channels. As the system grows, you add mutexes to protect shared state. Then you need to coordinate across multiple services, so you introduce message queues or RPC. Before long, you're managing synchronization primitives, handling partial failures, and debugging race conditions that only appear under load.
+Ergo is an actor runtime for Go. A node hosts processes, and each process handles messages and keeps its own state. Processes have addresses that other processes can use on the same node or across a node connection.
 
-Ergo Framework makes goroutines addressable and message-passing-only, and extends that model across a cluster. Processes are like goroutines - lightweight, multiplexed onto OS threads - but reached only through messages. Each process has an identifier that works whether the process is local or on a remote node. Sending a message looks the same either way.
+This documentation assumes familiarity with Go. The Basics chapters introduce the runtime; Actors describes the supplied behaviors; Meta Processes connects actors to external I/O. Networking follows messages between nodes. Testing and Advanced cover tests, deployment and diagnosis. The extra library and Tools sections describe separately distributed packages.
 
-The actor model isn't new. Erlang proved these patterns work for systems requiring massive concurrency and high reliability. Ergo brings them to Go, with no external dependencies and familiar Go idioms.
+## Reading the Documentation
+
+For a first reading, follow [Actor Model](basics/actor-model.md), [Node](basics/node.md), [Process](basics/process.md) and [Actor](actors/actor.md). These chapters explain the execution model and the callbacks used in the example below.
+
+Next, read [Links and Monitors](basics/links-and-monitors.md), [Supervision Tree](basics/supervision-tree.md), [Supervisor](actors/supervisor.md) and [Application](basics/application.md). They describe process relationships, recovery and startup. [Project Structure](basics/project-structure.md) combines them in a project layout.
+
+Once you can run a local application, choose a branch according to the work you need to do:
+
+- [Pool](actors/pool.md) and [Router](actors/router.md) distribute work among processes.
+- [Meta-Process](basics/meta-process.md) introduces the I/O behaviors, including [TCP](meta-processes/tcp.md) and [Web](meta-processes/web.md).
+- [Network Stack](networking/network-stack.md) starts the explanation of node connections and remote delivery.
+- [Testing](testing/overview.md) leads to a first actor test with [Unit](testing/unit.md).
+- [Debugging](advanced/debugging.md) and [Observer](advanced/observer.md) explain how to investigate a running system.
+
+[Generic Types](basics/generic-types.md) is a reference for the identifiers used throughout these chapters. API signatures and comments are also available in the package godoc.
+
+## First Process
+
+A behavior factory creates a fresh instance for each process. This actor accepts a string request, logs it and returns a reply:
+
+```go
+package main
+
+import (
+    "ergo.services/ergo"
+    "ergo.services/ergo/act"
+    "ergo.services/ergo/gen"
+)
+
+type greeting struct {
+    act.Actor
+}
+
+func factoryGreeting() gen.ProcessBehavior {
+    return &greeting{}
+}
+
+func (g *greeting) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+    if text, ok := request.(string); ok {
+        g.Log().Info("%s", text)
+        return "received", nil
+    }
+    return "unsupported request", nil
+}
+
+func main() {
+    node, err := ergo.StartNode("example@localhost", gen.NodeOptions{})
+    if err != nil {
+        panic(err)
+    }
+    defer node.Stop()
+
+    pid, err := node.Spawn(factoryGreeting, gen.ProcessOptions{})
+    if err != nil {
+        panic(err)
+    }
+    if _, err := node.Call(pid, "hello"); err != nil {
+        panic(err)
+    }
+}
+```
+
+`Spawn` runs initialization before returning the PID. `Call` waits for a response, so the greeting is handled before `main` exits. The deferred node shutdown then stops the actor. [Actor](actors/actor.md) introduces asynchronous messages and extends the behavior with state and termination handling.
 
 ## Core Components
 
-A **node** provides the runtime environment. It manages process lifecycles, routes messages, handles network connections, and provides services like logging and scheduled tasks. When you start a node, you get infrastructure. When you spawn a process, the node handles the mechanics.
+A **node** owns process lifecycles, names, aliases and connections. It also provides logging and scheduled jobs.
 
-**Processes** are lightweight actors. Each has a mailbox where messages queue up, priority-sorted into urgent, system, main, and log queues. The process handles messages one at a time in its own goroutine. When the mailbox empties, the goroutine sleeps, so an idle process costs no CPU. The framework never runs two handlers of the same process at the same time, so state the process keeps to itself needs no synchronization.
+A **process** has a mailbox with urgent, system, main and log queues. The runtime runs its callbacks sequentially. When there is no work, it stops dispatching until a message arrives. State used only by that process needs no lock. Go still permits shared references: passing a map, slice or pointer in a local message can expose the same memory to both processes.
 
-**Supervision trees** provide fault tolerance. Supervisors monitor worker processes. When a worker crashes, the supervisor restarts it according to a configured strategy. Supervisors can supervise other supervisors, creating a hierarchy. Failures are isolated to subtrees. The rest of the system continues running while the failed part recovers.
+A **supervisor** starts children and applies a restart policy when they terminate. Restart creates a new behavior instance. State recovery and retrying application work require an explicit design.
 
-**Meta processes** solve a specific problem: integrating blocking I/O with the actor model. HTTP servers block waiting for requests. TCP servers block accepting connections. A meta process uses two goroutines - one runs your blocking code (like `http.ListenAndServe`), the other handles messages from other actors. This bridges synchronous APIs with asynchronous actor communication.
+A **meta process** integrates blocking I/O. One execution path reads a socket or runs an external program; another handles messages addressed to its alias. Its owner controls its lifecycle.
 
 ## Network Transparency
 
-The messaging API is the same for local and remote processes. Send a message to a process on the same node or a process on a remote node - the code is the same.
+A remote address uses the same messaging methods as a local address. The node resolves a route, opens a connection if needed, encodes the value and sends it to the peer. Message types crossing the connection must be registered for encoding.
 
-When you send to a remote process, the node extracts the target node from the process identifier, discovers that node's address (through static routes or a registrar), establishes a connection if needed, encodes the message, and sends it. The remote node receives it, decodes it, and delivers it to the target process's mailbox.
+Delivery results differ across this boundary. Ordinary remote `Send` does not report a missing remote recipient. [Important Delivery](advanced/important-delivery.md) requests that report, but even an acknowledged message can be lost if the recipient dies before handling it. A timeout does not establish whether delivery occurred.
 
-This transparency extends to failure detection. Use the Important delivery flag and you get the same error semantics for remote processes as for local ones. Without it, a message to a missing remote process times out (was it slow or dead?). With it, you get immediate error notification (process doesn't exist), just like local delivery.
-
-Nodes discover each other through a registrar. By default, each node runs a minimal registrar. Nodes on the same host find each other through localhost. For remote nodes, the framework queries the registrar on the remote host. For production clusters, configure an external registrar like etcd or Saturn for centralized discovery, cluster configuration, and application deployment tracking.
+Nodes use an embedded registrar by default. External registrars such as etcd and Saturn add cluster-wide discovery, application routes and configuration. [Service Discovering](networking/service-discovering.md) describes their scope and configuration.
 
 ## What This Enables
 
-You write business logic using message passing between processes. The framework handles connection management, message encoding, routing and remote delivery, and restarts failed processes according to the supervision strategy you declared. The application still decides how to react when a target is gone or a connection drops.
-
-Processes can be distributed across nodes without changing the code that addresses them: deployment topology is operational configuration. Failures are handled through supervision rather than defensive programming at every call site.
-
-Compared with a typical microservice stack, there are no REST endpoints to define between services, no separate service discovery to configure and no serialization library to choose; the framework provides all three.
+Applications can communicate through process addresses without defining an HTTP or RPC interface between every pair of services. You still design the message contracts, choose where applications run and handle unavailable peers. [Building a Cluster](advanced/building-a-cluster.md) follows those decisions in a deployment example.
 
 ## Performance
 
-Lock-free queues in process mailboxes avoid contention. Processes sleep when idle, consuming no CPU. Connection pooling uses multiple TCP connections per remote node for parallel delivery.
-
-Benchmarks measuring message passing, network communication, and serialization performance are available at [github.com/ergo-services/benchmarks](https://github.com/ergo-services/benchmarks).
+Mailboxes use lock-free queues. Node connections use a pool of TCP links to carry traffic concurrently. Measurements depend on the message size, number of processes and deployment; benchmark programs are available at [ergo-services/benchmarks](https://github.com/ergo-services/benchmarks).
 
 ## Zero Dependencies
 
-The framework uses only the Go standard library. No external dependencies means no third-party version conflicts, no third-party supply chain to audit, and no breaking changes arriving from packages you did not choose. The requirement is Go 1.21 or higher, and the framework's behavior depends only on Go itself.
-
-For detailed explanations of these concepts, start with [Actor Model](basics/actor-model.md) and explore the [Basics](basics/actor-model.md) section. For API documentation, see the godoc comments in the source code.
+The core module uses the Go standard library and declares Go 1.21 as its minimum version. Packages in the extra library are separate modules and may have their own dependencies.

@@ -4,9 +4,9 @@ description: How the Pub/Sub system works internally
 
 # Pub/Sub Internals
 
-This document explains how Ergo Framework's pub/sub system works internally: the architecture, the network behavior, and the performance characteristics.
+Links, monitors and events use the same subscription machinery. A process subscribes to a target; the runtime records that relationship and delivers the target's notifications to the subscriber.
 
-For basic usage, see [Links and Monitors](../basics/links-and-monitors.md) and [Events](../basics/events.md), which this document assumes you have read.
+We will follow a local subscription, extend it across a node connection and examine how shared subscriptions reduce network traffic. For the API and first examples, read [Links and Monitors](../basics/links-and-monitors.md) and [Events](../basics/events.md).
 
 ## The Unified Architecture
 
@@ -79,7 +79,7 @@ producer.SendEvent("prices", token, PriceUpdate{...})
 // - MessageDownEvent when producer terminates or unregisters
 ```
 
-The key difference: implicit events give you one notification (termination). Explicit events give you N published messages plus termination notification.
+An implicit event reports target termination. An explicit event also carries the producer's published messages.
 
 ### What the Unification Gives
 
@@ -132,7 +132,7 @@ The Target Manager maintains subscription records. When a process terminates, Ta
 
 **Instant subscription** - No waiting, no blocking. The subscription is recorded synchronously.
 
-**Guaranteed notification** - If the target terminates after you subscribe, you will receive notification. The notification mechanism is part of the termination process itself.
+**Termination notification** - When a subscribed target terminates, the target manager attempts to deliver a notification. This is part of termination handling, but it is not a durable delivery protocol. A watcher that has terminated or whose bounded mailbox is full may not receive it.
 
 **Asynchronous delivery** - Notifications arrive in your mailbox like any other message. You process them in your `HandleMessage` callback.
 
@@ -140,7 +140,7 @@ The Target Manager maintains subscription records. When a process terminates, Ta
 
 ## How Remote Subscriptions Work
 
-Remote subscriptions involve network communication but provide the same guarantees as local subscriptions.
+Remote subscriptions add a network request to establish the relation. Once established, the local target manager also tracks the connection: losing it generates a notification with a network failure reason, even if the remote node cannot send its own termination report.
 
 ### What You Experience
 
@@ -206,9 +206,9 @@ _, err := process.MonitorEvent(gen.Event{Name: "unknown", Node: "node@host"})
 // err == gen.ErrEventUnknown
 ```
 
-### Guaranteed Notification Delivery
+### Termination and Connection-Loss Notifications
 
-Remote subscriptions guarantee you receive exactly one termination notification. This guarantee holds even when networks fail. Two paths can deliver your notification:
+An established remote subscription has two notification paths. The target manager resolves the relation when it learns of target termination or connection loss, and removes it during cleanup. This avoids leaving a subscription waiting forever for a peer that is no longer reachable; it does not guarantee exactly-once delivery or processing by the watcher.
 
 **Path 1: Normal Delivery**
 
@@ -251,7 +251,7 @@ func (w *Worker) HandleMessage(from gen.PID, message any) error {
 
 **Why This Works**
 
-You're guaranteed notification through one of two mechanisms:
+The target manager can learn that the target is unavailable through either path:
 
 1. Remote node delivers it (normal case)
 2. Local node generates it when detecting connection failure (failover)
@@ -265,7 +265,7 @@ case gen.MessageDownPID:
     w.handleTargetGone(msg.PID, msg.Reason)
 ```
 
-This failover mechanism compensates for network unreliability: you can write code assuming the notification arrives.
+Connection-loss handling covers a failure that the remote node cannot report over the broken connection. Mailbox admission remains a separate concern: monitor notifications use the System queue, which can be bounded by `MailboxSize`. The target manager does not retry a notification rejected by that queue. When a missed notification would leave application state stuck indefinitely, arrange a deadline or reconciliation step as well.
 
 ## Network Optimization: Shared Subscriptions
 
@@ -574,7 +574,7 @@ for _, msg := range buffered {
 }
 ```
 
-The problem: different subscribers joining at different times need different buffer contents.
+Subscribers joining at different times need the buffer contents available at their respective subscription times.
 
 ```go
 // Process 1 subscribes at 10:00:00
@@ -682,7 +682,7 @@ token, _ := process.RegisterEvent("system.metrics", gen.EventOptions{
 
 ## Producer Notifications
 
-Producers can receive notifications when subscriber interest changes. This enables demand-driven data production.
+A producer can request notification when its event gains its first subscriber or loses its last. It can use those transitions to start or stop data production.
 
 ### Enabling Notifications
 
@@ -809,7 +809,7 @@ token2, _ := process.RegisterEvent("prices.crypto", gen.EventOptions{Notify: tru
 
 ## Automatic Cleanup
 
-Subscriptions clean up automatically when any participant terminates. This eliminates resource leaks from forgotten subscriptions.
+Termination removes the participant's subscriptions and produces the applicable notifications.
 
 ### When Target Terminates
 
@@ -920,26 +920,21 @@ Explicit unsubscription is useful when:
 
 But in most cases, you don't need explicit unsubscription. Let termination handle cleanup.
 
-### Cleanup Order Guarantees
+### Cleanup and Termination Callbacks
 
-When a process terminates, cleanup happens in a specific order:
+Termination removes the process from the node's process table, then removes its registered name and aliases and resolves incoming subscriptions for those addresses and the PID. The target manager also removes the process's outgoing subscriptions and its registered events. Pending requests are cancelled and owned meta processes are asked to stop.
 
-1. Process state changes to Terminated
-2. All outgoing subscriptions (where process is consumer) are removed
-3. All incoming subscriptions (where process is target) generate notifications
-4. Process resources are freed
+The behavior's `ProcessTerminate` callback runs after this core cleanup. Application termination accounting and the node shutdown barrier wait for the callback to return, so it can release resources still needed by its termination code.
 
-This ordering ensures:
-- You don't receive notifications after your process starts terminating
-- Subscribers to you receive notifications before your resources are freed
+Notification routing is part of cleanup; notification handling is asynchronous. The terminating process does not wait for watchers to run their callbacks, and a bounded watcher mailbox can reject a notification. Avoid using receipt of a down message as proof that another process has already finished its own resource cleanup.
 
 ## Summary
 
 | Concept | How It Works |
 |---------|--------------|
 | **Unified architecture** | Links, monitors, and events share the same subscription mechanism |
-| **Local subscriptions** | Instant creation, guaranteed notification, asynchronous delivery |
-| **Remote subscriptions** | Network round-trip, guaranteed notification via normal or failover path |
+| **Local subscriptions** | Synchronous creation, notification attempt during termination, asynchronous handling |
+| **Remote subscriptions** | Network round-trip, target-termination and connection-loss notification paths |
 | **Shared subscriptions** | Multiple local subscribers share one network subscription to remote target |
 | **Event publishing** | One network message per subscriber node, local fanout to subscribers |
 | **Buffered events** | Shared delivery, but each subscriber retrieves buffer individually |

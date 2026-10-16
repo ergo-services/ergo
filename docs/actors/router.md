@@ -1,8 +1,10 @@
 # Router
 
-Sometimes the right worker for a message depends on the message: payments to the payments service, shipments to the shipments service, per-user requests to the shard that owns the user's state. A pool of identical workers picks the next worker in order without looking at what arrived, so this decision has to live somewhere else.
+A payment request and a shipment request need different workers. Requests belonging to one user may need the same worker every time. These decisions depend on the message, so round-robin distribution through a [Pool](pool.md) does not fit.
 
-`act.Router` is that somewhere. It owns a set of named routes (or none) and asks your code which route should handle each incoming message. Async sends go through `RouteMessage`, sync calls through `RouteCall`. The Router resolves the returned name to a local PID (own routes first, then the node's process registry) and forwards the message. The original sender is preserved, so the destination worker responds directly to whoever asked. Routes are stable through worker restarts, so hash-based affinity and content-based dispatch stay coherent across failures.
+`act.Router` asks `RouteMessage` or `RouteCall` for a destination name. It resolves that name through its owned routes and then the local process registry, and forwards the message with the original sender intact. The destination replies directly to the caller. An owned route keeps its name when its worker is replaced.
+
+The first example routes by message type. Later examples use the same mechanism for key affinity and externally supervised workers.
 
 ## Creating a Router
 
@@ -164,6 +166,15 @@ A router can own its workers, route only to externally registered processes, or 
 **Free router.** Return `RouterOptions{}` from `Init` with no `Routes` field. The router starts with zero workers. Every name returned by `RouteMessage` / `RouteCall` resolves through the local registry. This is the gateway pattern: the router dispatches, but the actors it dispatches to are supervised elsewhere in the system.
 
 **Mixed.** Owned routes and registry fallback coexist. The router checks its own routes first; anything not found there goes through the registry. You can start a free router and add owned routes later, or start with owned routes and let `RouteMessage` occasionally return registered external names.
+
+**Routes are local.** Both kinds resolve to a process on the router's own node: an
+owned route is a child the router spawns, a free route is a name in this node's
+registry. This is deliberate rather than an omission. Every routed message passes
+through the router's single process, so one destination that is expensive to reach
+delays all the others, and a process on another node is exactly that kind of
+destination. If a worker lives elsewhere in the cluster, make the route a local actor
+whose only job is that hop, and let it decide what to do when the other node is
+unreachable. The router keeps dispatching at local speed meanwhile.
 
 ## Worker Lifecycle
 

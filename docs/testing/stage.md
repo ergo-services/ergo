@@ -4,11 +4,9 @@ description: The live multi-node harness for testing the real runtime end to end
 
 # Stage
 
-Some behavior only exists when everything is real. A supervisor restarts a crashed child on its own goroutine. A monitor fires a `Down` after the process it watched - on another node - dies. A message leaves one node, is serialized, crosses a TCP connection, and lands in a mailbox a few milliseconds later. None of this is decision logic you can step through callback by callback; it is the runtime doing its job, concurrently, in real time. That is the gap `stage` fills.
+The `stage` harness starts real nodes and runs actors and applications on them. It records actions and deliveries while the scheduler and network continue running.
 
-The [unit](unit.md) harness deliberately removes all of that: it gives one actor a mock node and runs its callbacks by hand, so a test is fast and perfectly deterministic. `stage` makes the opposite trade. It starts real nodes, runs real actors and applications on them, lets them talk over the real network, and watches what the live runtime actually does. You give up the frozen snapshot and the single-actor focus; in return you can test what only the real runtime exhibits - supervision and restarts, links and monitors across nodes, cross-node messaging, remote spawn, service discovery, disconnects.
-
-Everything else about `stage` follows from one fact: because the system runs for real and concurrently, you do not inspect a result, you wait for it and observe it.
+Use it for supervision, remote messaging, links and monitors across nodes, discovery and disconnects. Assertions must wait for observations rather than assume the work is complete when an input method returns.
 
 ## The Shape of a Test
 
@@ -58,7 +56,7 @@ a.ShouldSend().From(pinger).Message(ping{Seq: 1}).Once().Within(time.Second).Mus
 b.ShouldDeliver().To(ponger).Message(ping{Seq: 1}).Once().Within(time.Second).Must()  // ingress, on b
 ```
 
-The send is asserted on `a`, where the pinger runs; the delivery on `b`, where the ponger runs. That is the whole rule: assert egress on the actor's node, ingress on the recipient's node.
+Assert the outgoing send on `a`, where the pinger runs, and the incoming delivery on `b`, where the ponger runs.
 
 Two smaller things in that test are worth naming. The nodes were never explicitly connected - the first time `a` addressed a process on `b`, the runtime looked `b` up through the registrar and dialed it for you. And every value that crosses the wire must be registered with `RegisterType`, because the network serializes it; this is where the `Native()` escape hatch first earns its keep, since type registration is a node-level concern the wrapper does not surface.
 

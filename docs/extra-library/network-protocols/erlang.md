@@ -4,15 +4,9 @@ description: Erlang network stack
 
 # Erlang
 
-This package implements the Erlang network stack, including the DIST protocol, ETF data format, EPMD registrar functionality, and the Handshake mechanism.
+The `erlang23` module supplies the DIST protocol, ETF codec, EPMD registrar and handshake used to connect Ergo nodes to Erlang/OTP.
 
-It is compatible with OTP-23 to OTP-29. The source code is available on the project's GitHub page at [https://github.com/ergo-services/proto](https://github.com/ergo-services/proto) in the `erlang23` directory.
-
-The source code is distributed under the MIT License, like the rest of the framework, and is free to use in commercial projects without restrictions.
-
-### EPMD
-
-The `epmd` package implements the `gen.Registrar` interface. To create it, use the `epmd.Create` function with the following options:
+Configure the registrar, handshake and protocol together. The following sections explain the wire types and Go conversions that differ from the native Ergo protocol. The source is in [ergo-services/proto](https://github.com/ergo-services/proto), under `erlang23`, and is distributed under the MIT license.
 
 * **Port**: Registrar port number (default: `4369`).
 * **EnableRouteTLS**: Enables TLS for all `gen.Route` responses on resolve requests. This is necessary if the Erlang cluster uses TLS.
@@ -149,7 +143,7 @@ In this case, all outgoing and incoming connections will be handled by the Erlan
 
 #### `net_adm:ping` says `pang`
 
-The first thing anyone tries from the Erlang shell is a ping, and it fails on a node that works perfectly:
+An Erlang shell ping needs a `net_kernel` process answering its request:
 
 ```erlang
 1> net_adm:ping('ergo@localhost').

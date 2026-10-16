@@ -4,23 +4,19 @@ description: Controlling outgoing connections with static routing
 
 # Static Routes
 
-When your code sends a message to a remote process, the framework needs to establish a connection to that node. But how does it know where the node is? By default, it asks the [Service Discovery](service-discovering.md) system (the Registrar) to look up the node's address. This works well for dynamic clusters where nodes come and go.
+A static route supplies connection settings for node names matching a pattern. The network stack tries matching static routes before asking the registrar.
 
-But sometimes you want more control. Maybe you know exactly where certain nodes are. Maybe you're behind a firewall and can't use dynamic discovery. Maybe you want to connect to external systems with fixed addresses. Static routes let you hardcode connection information directly, bypassing the discovery process entirely.
-
-When you define a static route, you're saying "I know better than the discovery system where this node is, and here's exactly how to reach it." The framework respects that - static routes are checked first, before any discovery queries.
+Use one when the address is fixed or discovery returns an address you cannot reach. A matched route that fails does not fall back to ordinary discovery; the routing sequence below describes this distinction.
 
 ## How It Works
 
-The framework maintains an internal routing table. When you create an outgoing connection to a remote node, the framework:
+For a new outgoing connection, the runtime checks static direct routes first. If a pattern matches, it tries the matching routes in descending weight order. If none succeeds, it returns `gen.ErrNoRoute`; it does not ask the default registrar for an alternative.
 
-1. **Checks static routes first** - Looks in the routing table for a match
-2. **Falls back to discovery** - If no static route exists, queries the Registrar
-3. **Tries proxy routes** - If direct connection fails, attempts proxy routes
+With no matching direct route, it next checks static proxy routes. With no match there either, it asks the registrar for direct routes and then proxy routes. Proxy connection establishment currently returns `gen.ErrUnsupported`, so a proxy route does not provide a working fallback in this implementation.
 
-This order is important, and step 2 is reached only when step 1 found **nothing**. A matching static route is not a preference, it is the whole answer: every matching route is tried by weight, and if they all fail the attempt ends with `gen.ErrNoRoute`. The registrar is never asked as a second chance. Defining a route for `"prod-*"` therefore takes `prod-db@example.com` out of discovery permanently - you have taken control, including of the failure.
+Suppose discovery already knows the address of `prod-db@example.com`. Adding a static route for that name overrides this discovery path. If the static address later becomes unreachable, connection establishment fails until the route is corrected or removed. Static routes give the application control over the address and responsibility for that address's failures.
 
-The routing table uses pattern matching. When the framework needs to connect to `prod-db@example.com`, it checks all static routes against that name using Go's `regexp.MatchString`. Any routes whose patterns match become candidates. If multiple routes match, they're sorted by weight (higher weights first), and the framework tries them in order until one succeeds.
+Patterns use Go regular expressions. A match need not cover the whole name unless the pattern has `^` and `$` anchors. Escape literal dots as `\.`; otherwise a dot matches any character. The examples below distinguish exact names from groups of names.
 
 ## Adding Static Routes
 
@@ -45,7 +41,7 @@ if err != nil {
 
 This tells the framework: "When connecting to `prod-db@example.com`, use host `10.0.1.50` on port `4370` with TLS enabled. This route has weight 100."
 
-The **match pattern** is a regular expression. Exact names like `"prod-db@example.com"` match only that node. Patterns like `"prod-.*"` match multiple nodes - `prod-db@example.com`, `prod-api@example.com`, `prod-cache@example.com`. Use anchors (`^` and `$`) for precise matching: `"^prod-db@example.com$"` matches exactly that name and nothing else.
+The **match pattern** is a regular expression. An unanchored pattern such as `"prod-db@example.com"` can also match part of a longer name, and its dot is a wildcard. Patterns like `"prod-.*"` match multiple nodes - `prod-db@example.com`, `prod-api@example.com`, `prod-cache@example.com`. Use anchors (`^` and `$`) for precise matching: `"^prod-db@example\\.com$"` in a Go string matches that exact name.
 
 The **weight** determines priority when multiple routes match the same node. Higher numbers mean higher priority. If you have two routes for `"prod-.*"` - one with weight 100 (the default datacenter) and one with weight 200 (a faster backup datacenter) - the framework tries weight 200 first.
 
@@ -53,16 +49,16 @@ The **weight** determines priority when multiple routes match the same node. Hig
 
 ```go
 // Exact match - only this specific node
-network.AddRoute("database@prod", route1, 100)
+network.AddRoute("^database@prod$", route1, 100)
 
 // Prefix match - all production nodes
 network.AddRoute("prod-.*", route2, 100)
 
 // Suffix match - all nodes in a domain
-network.AddRoute(".*@example.com", route3, 100)
+network.AddRoute("@example\\.com$", route3, 100)
 
 // Complex pattern - production databases only
-network.AddRoute("^prod-db[0-9]+@example.com$", route4, 100)
+network.AddRoute("^prod-db[0-9]+@example\\.com$", route4, 100)
 ```
 
 When the framework looks up `prod-db2@example.com`, it finds all matching routes: the prefix match (`prod-.*`), the suffix match (`.*@example.com`), and the complex pattern (`^prod-db[0-9]+@example.com$`). It sorts them by weight and tries the highest-weight route first.

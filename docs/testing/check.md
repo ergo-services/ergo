@@ -4,9 +4,9 @@ description: The shared assertion vocabulary that unit and stage are written in
 
 # Check
 
-You cannot test an actor the way you test a function. There is no `result := actor.Handle(msg)` to inspect: an actor runs on its own goroutine, keeps private state, and speaks only in messages. What you *can* see is what it does - the messages it sends, the children it spawns, the way it terminates. So the testing tools watch the thing under test and record every such action, and a test then asks questions of that recording: did it send this, how many times, to whom, and after what.
+The `check` package defines records of actor actions and assertions over those records. Both `unit` and `stage` expose this assertion API.
 
-`check` is the language those questions are written in. It is the shared vocabulary - the record types and the assertion grammar - that both [unit](unit.md) and [stage](stage.md) hand you, rather than a harness you run on its own. You will rarely import it directly. You call its assertions on a unit `Subject` or a stage `Node`, and because both layers expose the very same grammar, learning it once here lets you assert anything in either of them. The examples below use a handle - `sub` for a unit subject, `node` for a stage node - which you can read simply as "the thing under test."
+The examples below select records by their fields and constrain count, order and observation time. Read [Unit](unit.md) first if you need a subject to drive, or [Stage](stage.md) for a running node.
 
 ## The Journal of Records
 
@@ -162,4 +162,4 @@ sub.OnCall(gen.Atom("db")).Where(check.IsType[Query]()).Respond(rows)
 
 `IsType[V]` matches a value assignable to `V`: a concrete type matches its exact dynamic type, an interface matches any value that implements it.
 
-That is the whole language. What produces the journals it queries - and the inputs you drive to fill them - are [mock](mock.md), [unit](unit.md), and [stage](stage.md).
+The [unit](unit.md) and [stage](stage.md) harnesses produce the records these assertions query. [Mock](mock.md) supplies the standalone interface fakes.

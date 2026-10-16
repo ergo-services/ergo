@@ -4,11 +4,9 @@ description: Schedule tasks on a repetitive basis
 
 # Cron
 
-Applications often need tasks to run periodically. Generate a daily report at midnight. Clean up expired sessions every hour. Send weekly summary emails. Poll an external API every five minutes.
+A node's cron scheduler runs named jobs according to calendar expressions. A job can send a message, start an application or invoke another supported action. Its schedule includes the timezone, so daylight-saving changes matter.
 
-You could implement this yourself - spawn a process that sleeps, wakes up, performs the task, and sleeps again. But then you're managing wake times, handling timezone changes, accounting for daylight saving time transitions, and ensuring the scheduler itself stays alive. The scheduling logic becomes scattered across your application.
-
-Cron provides scheduled task execution as a framework service. You declare what should run and when using the familiar crontab syntax. The framework handles timing and execution.
+The examples below register jobs, inspect upcoming runs and handle the messages they produce.
 
 ## How It Works
 

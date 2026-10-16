@@ -1,10 +1,8 @@
 # etcd Client
 
-This package implements the `gen.Registrar` interface and serves as a client library for [etcd](https://etcd.io/), a distributed key-value store that provides a reliable way to store data that needs to be accessed by a distributed system or cluster of machines. In addition to the primary _Service Discovery_ function, it automatically notifies all connected nodes about cluster configuration changes and supports hierarchical configuration management with type conversion.
+The etcd registrar stores node routes, application routes and configuration in etcd. Its client maintains a local mirror through prefix watches; leases and suspect-state cleanup track registrations whose owners stop renewing.
 
-To create a client, use the `Create` function from the `etcd` package. The function requires a set of options `etcd.Options` to configure the connection and behavior.
-
-Then, set this client in the `gen.NetworkOption.Registrar` options:
+Configure it as the node's registrar before startup. The examples below cover connection settings, configuration precedence and event subscriptions.
 
 ```go
 import (

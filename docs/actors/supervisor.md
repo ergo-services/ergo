@@ -1,12 +1,10 @@
 # Supervisor
 
-Actors fail. They panic, encounter errors, or lose external resources. In traditional systems, you add defensive code: catch exceptions, retry operations, validate state. This spreads failure handling throughout your codebase, mixing recovery logic with business logic.
+A supervisor starts child processes and decides what to do when they terminate. A worker that loses a connection can stop; its supervisor can start a fresh instance. If several workers depend on one another's state, the supervisor may need to restart them together.
 
-The actor model takes a different approach: let it crash. When an actor fails, terminate it cleanly and restart it in a known-good state. This requires something watching the actor and managing its lifecycle - a supervisor.
+`act.Supervisor` implements these policies. Embed it in your struct and return a `SupervisorSpec` from `Init`. The spec defines the children, their start order and the conditions under which they restart.
 
-`act.Supervisor` is an actor that manages child processes. It starts them during initialization, monitors them for failures, and applies restart strategies when they terminate. Supervisors can manage other supervisors, creating hierarchical fault tolerance trees where failures are isolated and recovered automatically.
-
-Like `act.Actor`, the `act.Supervisor` struct implements the low-level `gen.ProcessBehavior` interface and has the embedded `gen.Process` interface. To create a supervisor, you embed `act.Supervisor` in your struct and implement the `act.SupervisorBehavior` interface.
+Restart creates a new instance. It does not recover the failed worker's state or retry the message it was handling. We will begin with independent children, then look at dependencies, restart limits and mailbox preservation.
 
 The only mandatory method is `Init`, which returns a `SupervisorSpec` describing the children and the restart policy:
 
@@ -64,7 +62,7 @@ pid, err := node.Spawn(createSupervisorFactory, gen.ProcessOptions{})
 
 The supervisor spawns all children during `Init` (except Simple One For One, which starts with zero children). Each child is connected to the supervisor with a pair of unidirectional links (`LinkChild` and `LinkParent` set automatically). If a child terminates, the supervisor receives an exit signal and applies the restart strategy.
 
-Children are started sequentially in declaration order. If any child's spawn fails (the factory's `ProcessInit` returns an error), the supervisor terminates immediately with that error. This ensures the supervision tree is fully initialized or not at all - no partial states.
+Children start in declaration order. If a child cannot initialize, supervisor initialization returns that error and cleanup stops the children already started.
 
 ## Supervision Types
 
@@ -474,7 +472,7 @@ SupervisorChildSpec{
 }
 ```
 
-That single flag is the entire user-facing knob. The framework handles the rest: when the worker terminates abnormally, the runtime captures its mailbox into a `*gen.Error` exit reason. The supervisor extracts the mailbox from that reason and hands it to the next spawn. The new incarnation begins life with the surviving messages already in its queues, in their original priority order.
+On abnormal termination, the runtime attaches the captured mailbox to a `*gen.Error` exit reason. The supervisor passes it into the replacement spawn, which starts with the surviving queues in their original priority order.
 
 ### What Triggers Preservation
 
@@ -635,7 +633,7 @@ for _, child := range children {
 
 **Critical**: These methods fail with `act.ErrSupervisorStrategyActive` if called while the supervisor is executing a restart strategy (stopping children, waiting for their exit signals, or starting replacements). You must wait for the strategy to finish before issuing management calls.
 
-There is a second gate in front of that one, and it catches the more common mistake: each of these methods first requires the supervisor to be in the **Running** state, and returns `gen.ErrNotAllowed` otherwise. `Init` runs in the Init state, so calling `StartChild` or `AddChild` from your own `Init` fails there. Declare the children in the returned spec, or post a message to yourself and add them from the handler that receives it.
+Management methods also require the supervisor to be Running. Calling `StartChild` or `AddChild` from `Init` returns `gen.ErrNotAllowed`. Declare initial children in the spec; to add them later, send a message to the supervisor and handle it after initialization.
 
 While a restart strategy is running, the supervisor processes only the Urgent queue (where exit signals arrive) and ignores System and Main queues. This guarantees exit signals are handled promptly without interference from management commands or regular messages.
 

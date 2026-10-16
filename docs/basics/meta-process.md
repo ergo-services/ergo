@@ -1,8 +1,8 @@
 # Meta-Process
 
-A meta-process solves a specific problem: how to integrate blocking I/O with the actor model without breaking its guarantees. It runs two goroutines - one executes your blocking I/O code, the other handles actor messages. This separation preserves sequential message processing while allowing continuous external I/O operations.
+A socket reader cannot wait inside an actor callback indefinitely: the actor would stop processing its mailbox. A meta process gives that blocking operation a separate execution path while keeping its lifecycle attached to an owning process.
 
-Meta-processes are owned by their parent process. When the parent terminates, all its meta-processes terminate with it. This dependency is by design - meta-processes extend the parent's capabilities rather than existing as independent entities in the supervision tree.
+One goroutine runs `Start`; another handles incoming messages when needed. The meta process has an alias rather than a PID. We will follow both paths and identify which operations each may perform.
 
 ## The Problem
 
@@ -10,9 +10,9 @@ Actors work sequentially. One message arrives, gets processed, completes. Next m
 
 Blocking I/O breaks this model. Call `net.Listener.Accept()` in a message handler and the actor freezes. The goroutine blocks waiting for connections. Other messages pile up unprocessed. The actor becomes unresponsive.
 
-The obvious fix fails. Spawn a goroutine for `Accept()` and now two goroutines access the actor's state concurrently. You need locks. The sequential guarantee vanishes.
+A separate goroutine can run `Accept`, but it must hand accepted connections to the actor without changing the actor's private state. Otherwise it races with callbacks. A meta process supplies the lifecycle and messaging API for that separate I/O path.
 
-Meta-processes preserve both. One goroutine blocks on I/O. Another goroutine processes messages sequentially. Neither interferes with the other.
+The I/O path can continue reading while a mailbox callback handles a message. Fields accessed by both paths still need a concurrency design: pass values through messages, keep ownership on one side, or synchronize access where the I/O API requires it.
 
 ## Two Goroutines, Two Purposes
 
@@ -20,7 +20,7 @@ When a meta-process starts, the framework launches two goroutines:
 
 **External Reader**: Runs your `Start()` method from beginning to end. This goroutine is meant for blocking operations - `Accept()` loops, `ReadFrom()` calls, reading from pipes. When external events occur, this goroutine sends messages into the actor system using `Send()`. It never processes incoming messages.
 
-**Actor Handler**: Created on-demand when messages arrive in the mailbox. Processes messages sequentially by calling your `HandleMessage()`, `HandleCall()` and `HandleResponse()` methods. When the mailbox empties, this goroutine terminates. Next time messages arrive, a new actor handler spawns. This goroutine never does I/O directly - it handles requests from actors.
+**Actor Handler**: Runs when mailbox messages need dispatch, calling `HandleMessage`, `HandleCall` and `HandleResponse` sequentially. It stops dispatching when the mailbox empties. A socket implementation commonly writes outgoing data here while `Start` reads incoming data. A slow write delays other messages to this meta process, so set suitable write deadlines.
 
 The External Reader runs continuously from spawn until termination. The Actor Handler comes and goes based on message traffic.
 
@@ -37,17 +37,17 @@ The External Reader runs continuously from spawn until termination. The Actor Ha
 | Requests without blocking | `SendRequest()`, answered in `HandleResponse()` | `SendRequest()`, answered in `HandleResponse()` |
 | Links and monitors | Can create and receive | Can only receive |
 
-Processes have one goroutine that must handle everything. If it blocks on I/O, message processing stops. If it spawns additional goroutines for I/O, the actor model breaks.
+A regular process dispatches callbacks sequentially. Blocking I/O inside a callback prevents it from handling the next message. An extra goroutine can report I/O through messages, but its lifetime and state ownership then need to be managed by the application.
 
 Meta-processes separate concerns. The External Reader handles I/O. The Actor Handler handles messages. Both run independently.
 
 ### Restrictions Explained
 
-Meta-processes cannot make synchronous calls. Which goroutine should block waiting for the response? The External Reader is blocked on external I/O. The Actor Handler might not be running. Neither can reliably wait for responses.
+The `gen.MetaProcess` interface has no synchronous `Call` method. Use `SendRequest` when the I/O component needs an answer from another actor, and handle that answer in `HandleResponse`.
 
 Asking without waiting needs neither. `SendRequest()` puts the answer into the mailbox, and the Actor Handler takes it like any other message. See [Requests Without Blocking](#requests-without-blocking).
 
-Meta-processes cannot create links or monitors. When a linked process terminates, it sends an exit signal as a message. The Actor Handler processes messages, but only when running. Signals could be delayed or lost if the Actor Handler is not active. Incoming links and monitors work because other processes send signals that queue in the mailbox. Creating outgoing links requires guarantees that meta-processes cannot provide.
+The interface also has no methods for creating outgoing links or monitors. Let the owning process establish those relationships and decide how a peer's termination affects the I/O component. Other processes can link to or monitor the meta process by its alias.
 
 The restrictions follow from having two goroutines with distinct responsibilities.
 
@@ -87,7 +87,7 @@ The second value is a **termination reason**, not an error to hand to the caller
 
 **Running**: Both goroutines active. External Reader continues I/O operations. Actor Handler processes messages from the mailbox. Both work simultaneously without blocking each other.
 
-**Terminated**: Both goroutines stopped. `Start()` returned and Actor Handler completed its final message.
+**Terminated**: The runtime has withdrawn the alias and stopped accepting work for this meta process. `Terminate` must close or cancel the I/O resource so `Start` can return. A state transition cannot interrupt an arbitrary blocking operation by itself.
 
 Transitions are automatic. Message arrives → Actor Handler spawns → Sleep becomes Running. Mailbox empties → Actor Handler exits → Running becomes Sleep. `Start()` returns → Terminated regardless of current state.
 
@@ -245,7 +245,7 @@ Different operations are available in different states:
 
 ## Timed and Periodic Messages
 
-A meta-process often needs a heartbeat, a flush on an interval, or a deadline for a handshake that never completed. The tempting fix inside `Start()` is a `time.Ticker` in one more goroutine, and it is wrong for the same reason it is wrong in a process: that goroutine belongs to neither the External Reader nor the Actor Handler, so whatever it touches escapes the two-goroutine discipline the meta-process exists to preserve.
+A meta process may need a periodic flush or a handshake deadline. Sending a timer message lets the Actor Handler update its own state sequentially. A separate `time.Ticker` goroutine would need explicit synchronization with both `Start` and the mailbox callbacks; use it only when the I/O design requires that extra execution path.
 
 Let the meta-process message instead. `SendAfter` schedules one message after a delay, `SendEvery` repeats it on a period reusing a single timer, and both deliver through a mailbox. Addressed to `Parent()` the tick lands in the parent actor's `HandleMessage`; addressed to `ID()` it wakes the meta-process's own Actor Handler, one message at a time, like any other message.
 

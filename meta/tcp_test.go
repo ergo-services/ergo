@@ -61,8 +61,11 @@ func TestTCPConnectionRoundTrip(t *testing.T) {
 	go func() { done <- c.Start() }()
 
 	connect := recvMsg[MessageTCPConnect](t, ch)
-	if connect.RemoteAddr == nil || connect.LocalAddr == nil {
+	if connect.RemoteAddr.IsValid() == false || connect.LocalAddr.IsValid() == false {
 		t.Fatal("MessageTCPConnect must carry both addresses")
+	}
+	if connect.RemoteAddr.Addr().Is4() == false {
+		t.Fatalf("remote addr of a 127.0.0.1 peer = %v, want a 4-byte address", connect.RemoteAddr)
 	}
 
 	// inbound: bytes written by the peer surface as MessageTCP

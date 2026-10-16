@@ -1,8 +1,8 @@
 # Colored Logger
 
-The colored logger provides visual clarity for console output by applying color highlighting to log messages. Instead of monochrome text where errors blend with informational messages, each log level gets a distinct color, and framework types are highlighted automatically. This makes it easier to scan logs during development and debugging.
+The colored logger formats framework records for a terminal and writes them to standard output. Colors distinguish severity and identifier types, while the source identifies the process or component that emitted the record.
 
-The logger writes directly to standard output with immediate formatting - no buffering, no delays. When a process logs a message, it appears instantly in your terminal with colors applied. This synchronous approach keeps logs simple and predictable during interactive development.
+Register it during node setup when you want this format for local development.
 
 ## Visual Organization
 

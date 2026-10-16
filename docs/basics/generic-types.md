@@ -4,7 +4,9 @@ description: Data Types and Interfaces Used in Ergo Framework
 
 # Generic Types
 
-Ergo Framework uses several specialized types for identifying and addressing processes, nodes, and other entities in the system.
+The `gen` package defines the identifiers and interfaces shared by nodes, processes and network protocols. You will encounter `PID` when addressing a process, `Ref` when correlating a request and `Alias` when addressing a meta process or another alias target.
+
+Use this chapter to look up their representation and comparison rules as they appear in the examples elsewhere.
 
 ## Identifiers and Names
 

@@ -1,8 +1,8 @@
 # SSE (Server-Sent Events)
 
-SSE provides unidirectional server-to-client streaming over HTTP. Unlike WebSocket bidirectional connections, SSE is designed for scenarios where server pushes updates to clients - live feeds, notifications, real-time dashboards.
+The SSE extension represents an open HTTP event stream as a meta process. Backend actors send messages to its alias; the connection formats them as events for the browser.
 
-The framework provides SSE meta-process implementation that integrates SSE connections with the actor model. Each connection becomes an independent actor addressable from anywhere in the cluster.
+The stream carries data from server to client. Client commands need a separate HTTP request or another channel. We will set up the handler and then examine event IDs, reconnects and shutdown.
 
 ## The Integration Problem
 

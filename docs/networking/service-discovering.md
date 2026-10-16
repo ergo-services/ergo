@@ -4,9 +4,9 @@ description: How nodes find each other and establish connections
 
 # Service Discovery
 
-Service discovery solves a fundamental problem in distributed systems: how does one node find another node when all it has is a name?
+To connect to `worker@host`, a node needs an address, port and compatible protocol settings. A registrar supplies those routes from registrations made by the nodes it serves.
 
-When you send a message to a remote process, the target identifier contains the node name - a `gen.PID` includes the node where that process runs, a `gen.ProcessID` specifies both process name and node, and a `gen.Alias` includes the node. But what does that node name mean in network terms? What IP address? What port? Is TLS required? What protocol versions are supported? Service discovery answers these questions, translating logical node names into concrete connection parameters.
+The embedded registrar handles host-level discovery. External registrars also provide application routes and configuration. We will follow registration and resolution before using those additional services.
 
 ## The Discovery Problem
 
@@ -451,14 +451,14 @@ External registrars replace the embedded implementation with centralized discove
 
 The etcd registrar does not poll. A node's registration is an etcd **lease**, renewed over the client's gRPC keep-alive stream, and cluster changes arrive on a **prefix watch** - so a peer appearing or leaving is pushed, not discovered on the next tick. The lease is what makes a dead node disappear on its own: stop renewing and the registration expires with the TTL.
 
-What limits it at scale is etcd itself rather than a polling loop - the write load of many nodes renewing and watching the same prefix. It is a good fit up to roughly 50-70 nodes, and the natural choice for teams already running etcd.
+Capacity depends on lease renewal load, prefix watches and the etcd deployment. Measure these with the expected number of nodes and rate of changes; the client does not impose a 70-node limit.
 
 **Saturn registrar** (`ergo.services/registrar/saturn`) is purpose-built for Ergo clusters. It's an external Raft-based registry designed specifically for the framework's communication patterns, holding one persistent connection per node and pushing updates as cluster state changes. Both registrars push rather than poll; the difference at scale is the cost per node of holding the registration, and Saturn is built for clusters of thousands where etcd's write load becomes the ceiling.
 
 Which registrar you choose depends on your deployment:
-- Small clusters (< 10 nodes), same host or trusted network: embedded registrar
-- Medium clusters (10-70 nodes), existing etcd infrastructure: etcd registrar
-- Large clusters (70+ nodes) or real-time requirements: Saturn registrar
+- Host-level discovery on a reachable, trusted network: embedded registrar
+- Existing etcd infrastructure and application discovery needs: etcd registrar
+- A dedicated registrar service for application discovery and configuration: Saturn registrar
 
 The choice is transparent to application code. You specify the registrar in `gen.NodeOptions.Network.Registrar` at startup. Everything else - registration, resolution, failover - works the same way regardless of which registrar you use.
 

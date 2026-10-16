@@ -4,9 +4,9 @@ description: Boilerplate Generator for Ergo Framework Projects
 
 # Boilerplate Code Generation
 
-The `ergo` tool generates the initial structure and source code for Ergo Framework projects. Instead of writing actor definitions, supervisor specs, and application boilerplate by hand, you describe what you want and the tool writes it for you.
+The `ergo` tool generates actors, supervisors, applications and entry points from a project description. Generated files hold structural wiring; separate user files hold handlers and customization hooks.
 
-The generated code is plain Go that you own and can modify freely. The tool understands which parts are structural wiring (regenerated as the project grows) and which parts are your business logic (never touched again).
+This separation matters when the project changes: regeneration replaces the generated files and keeps the user files. We will create a project, add processes and adjust their specifications through those hooks.
 
 ## Installation
 

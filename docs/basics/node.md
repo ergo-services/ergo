@@ -4,7 +4,9 @@ description: What is a Node in Ergo Framework?
 
 # Node
 
-A node is the runtime environment where your actors live. It hosts processes, routes messages between them, and runs the network stack.
+A node is the runtime that owns processes and their registries. It starts and stops them, routes messages and hosts services such as logging, cron and the network stack.
+
+Start one node to run local actors. Give nodes distinct names and configure their connections when those actors need to communicate across a cluster. This chapter covers startup, options and shutdown.
 
 ## What a Node Provides
 
@@ -40,7 +42,7 @@ The node manages the complete process lifecycle.
 
 When you spawn a process, the node creates it, registers it in the process table, calls its `ProcessInit` callback, and transitions it to the sleep state. The process is now live and can receive messages.
 
-When the process terminates (either naturally or through an exit signal), the node calls `ProcessTerminate`, removes it from the process table, and notifies any processes that were linked or monitoring. Resources are cleaned up, and the `gen.PID` becomes invalid.
+When a process terminates, the runtime removes its PID, name and aliases from their registries and runs subscription cleanup. It attempts to notify linked and monitoring processes, cancels pending requests and stops owned meta processes. The behavior's `ProcessTerminate` callback runs after this core cleanup; application termination accounting waits for that callback to return. The old PID no longer addresses a live process.
 
 Processes can register names, making them addressable by name rather than PID. This is useful for well-known processes that other parts of the system need to find. The node maintains a name registry, ensuring each name maps to exactly one process.
 
@@ -48,11 +50,11 @@ Processes can register names, making them addressable by name rather than PID. T
 
 Message routing is one of the node's core responsibilities.
 
-When a process sends a message locally, the node simply places it in the recipient's mailbox. The recipient's goroutine wakes up (if it was sleeping), processes the message, and goes back to sleep if no more messages are waiting.
+When a process sends a message locally, the node places it in the recipient's mailbox and schedules dispatch if the process is asleep. A dispatch goroutine runs the process callbacks and returns when there is no more work. Sleep describes a process state; it does not mean that every idle process keeps a parked goroutine.
 
 When the message goes to a remote process, the node checks if a connection exists to the remote node. If not, it discovers the remote node's address (through the registrar or static routes) and establishes a connection. The message is encoded into the Ergo Data Format, optionally compressed, and sent over the network. The remote node receives it, decodes it, and delivers it to the recipient's mailbox.
 
-From the sender's perspective, both paths look identical. That's network transparency.
+The sender uses the same method and address type for both paths. Their failure reports differ: a local send can report a missing recipient during routing, while an ordinary remote send does not return the peer's routing result. [Important Delivery](../advanced/important-delivery.md) explains how to request that report.
 
 ## Network Communication
 
@@ -62,7 +64,7 @@ The first problem is discovery. When you send to a remote process, the node extr
 
 This default approach works for simple setups but has limitations. You're querying individual hosts, which requires them to be directly reachable. There's no cluster-wide view, no centralized configuration, no way to discover which applications are running where.
 
-With etcd or Saturn, instead of each node being its own island with a local registrar, you run a centralized registry service. All nodes register there when they start. All discovery queries go there. The central registrar becomes the source of truth for the cluster, providing not just discovery but configuration management, application tracking, and topology change notifications.
+With etcd or Saturn, nodes register with an external service that also tracks application routes and configuration. The client may resolve from a local mirror maintained by watches or events, so a lookup need not contact the service each time. That mirror can temporarily lag a membership change. [Service Discovering](../networking/service-discovering.md) describes the client behavior.
 
 Once a node is discovered, connections are established. Multiple TCP connections form a pool to that node, enabling parallel message delivery. The connections negotiate protocol details during handshake: which protocol version to use, whether compression is supported, what features are enabled. This negotiation allows nodes with different capabilities to work together.
 

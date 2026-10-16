@@ -4,11 +4,9 @@ description: Running nodes behind NAT or load balancers
 
 # Behind the NAT
 
-When a node starts, it registers its routes with a registrar. A route contains connection parameters: port number, TLS flag, handshake version, protocol version, and optionally a host address. When another node needs to connect, it resolves the target node's routes from the registrar and uses these parameters to establish a connection.
+A node's listening address may differ from the address other nodes can reach. Behind NAT, for example, the listener binds a private interface while peers connect to a public address and forwarded port.
 
-The host address in the route is optional. When empty, the connecting node extracts the host from the target's node name. If you're connecting to `worker@10.0.1.50`, the framework extracts `10.0.1.50` and connects to that address on the resolved port.
-
-This works when node names reflect reachable addresses. But when a node is behind NAT, its node name contains a private IP that external nodes can't reach. The solution is to include a public address in the route itself using `RouteHost` and `RoutePort`.
+`RouteHost` and `RoutePort` advertise those reachable values. They do not change the listener or configure the NAT gateway. We will set them separately from `Host` and `Port`.
 
 ## How Route Resolution Works
 

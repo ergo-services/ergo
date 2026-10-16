@@ -31,6 +31,10 @@ const (
 	CapAppStart  = "manage.app_start"
 	CapAppStop   = "manage.app_stop"
 	CapAppUnload = "manage.app_unload"
+
+	CapSetRuntimeAtomLimit = "manage.set_runtime_atom_limit"
+	CapSetAtomLimit        = "manage.set_atom_limit"
+	CapSetPeerAtomLimit    = "manage.set_peer_atom_limit"
 )
 
 // Capabilities returns every capability of the mutating plane. The system
