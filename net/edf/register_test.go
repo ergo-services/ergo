@@ -121,21 +121,17 @@ func TestRegCacheTypes(t *testing.T) {
 				}
 			}
 			rcDec := new(sync.Map)
-			names := []string{}
-			for k, v := range defaultRegistry.GetRegCache() {
-				names = append(names, v)
+			d := defaultRegistry.Since(0)
+			for k, v := range d.Types {
 				rcDec.Store(k, v)
 			}
-
-			if len(names) == 0 {
+			if len(d.Types) == 0 {
 				t.Fatal("decoding reg cache is empty")
 			}
-			rcEnc := defaultRegistry.MakeEncodeRegTypeCache(names)
-			if rcEnc == nil {
-				t.Fatal("encoding reg cache is nil")
-			}
+			known := new(atomic.Uint64)
+			known.Store(d.Revision)
 
-			if err := Encode(c.value, b, Options{RegCache: rcEnc, Cache: cache}); err != nil {
+			if err := Encode(c.value, b, Options{Revision: known, Cache: cache}); err != nil {
 				t.Fatal(err)
 			}
 			value, _, err := Decode(b.B, Options{RegCache: rcDec, Cache: cache})

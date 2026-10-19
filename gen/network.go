@@ -178,7 +178,7 @@ type Network interface {
 
 	// LookupType resolves a registered type name to its reflect.Type via the
 	// registries. Returns the first match.
-	// Accepts either the canonical name ("#pkgpath/Type") or a short name ("Type").
+	// The name is canonical ("#pkgpath/Type"), matched exactly.
 	LookupType(name string) (reflect.Type, bool)
 }
 
@@ -521,6 +521,10 @@ type NetworkFlags struct {
 	// of their own instead of a response error. A peer without it gets them as
 	// response errors.
 	EnableAck bool
+	// EnableCacheUpdate accepts the types, atoms and errors registered after the
+	// handshake into the wire caches of the connection. Both nodes must enable
+	// it; otherwise they go in full until the next connection.
+	EnableCacheUpdate bool
 }
 
 // we must be able to extend this structure by introducing new features.
@@ -577,6 +581,9 @@ func (nf NetworkFlags) MarshalEDF(w io.Writer) error {
 	if nf.EnableAck == true {
 		flags |= 1 << 20
 	}
+	if nf.EnableCacheUpdate == true {
+		flags |= 1 << 21
+	}
 	binary.BigEndian.PutUint64(buf[:], flags)
 	w.Write(buf[:])
 	return nil
@@ -604,6 +611,7 @@ func (nf *NetworkFlags) UnmarshalEDF(buf []byte) error {
 	nf.EnableWrappedErrors = (flags & (1 << 18)) > 0
 	nf.EnableSchemaEvolution = (flags & (1 << 19)) > 0
 	nf.EnableAck = (flags & (1 << 20)) > 0
+	nf.EnableCacheUpdate = (flags & (1 << 21)) > 0
 	return nil
 }
 

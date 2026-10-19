@@ -57,6 +57,8 @@ func TestBootstrap(t *testing.T) {
 
 So each type comes as a pair: `mock.NewNode` is the dumb form, `mock.NewNodeT(t)` the recording one; likewise `NewProcess` / `NewProcessT`, `NewLog` / `NewLogT`, and the rest. Because the recording mock carries the grammar from [check](check.md), the whole vocabulary - `ShouldSend`, filters, cardinalities, `Capture` - is available on it.
 
+A recording mock notes what its own interface does, which is not the same as every method on it. `mock.NewProcessT` covers the span of what a process does: sends and calls, requests made with `SendRequest`, spawns, links and monitors, timers, events, forwards. `mock.NewNodeT` covers what the node interface itself does - sends, calls, spawns, exits, events - plus the lines its logger writes. What a node does to the system around it, such as starting an application, killing a process or registering a name, is not recorded here; those become records when a real process performs them, in [unit](unit.md) and [stage](stage.md). Where a mock does not record an action you need to check, override the method and record it yourself in the override.
+
 ## Overrides and Recording Together
 
 The two features compose. On a recording mock an override decides the return value while the action is still recorded - the override shapes what the call returns, the recorder simply notes that it happened:

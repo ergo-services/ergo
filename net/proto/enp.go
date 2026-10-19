@@ -95,11 +95,8 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		tls:       opts.TLS,
 
 		encodeOptions: edf.Options{
-			Registry:  opts.Registry,
-			AtomCache: opts.EncodeAtomCache,
-			RegCache:  opts.EncodeRegCache,
-			ErrCache:  opts.EncodeErrCache,
-			Cache:     new(sync.Map),
+			Registry: opts.Registry,
+			Cache:    new(sync.Map),
 			WrappedErrorsSupported: result.NodeFlags.EnableWrappedErrors &&
 				result.PeerFlags.EnableWrappedErrors,
 			SchemaEvolution: result.NodeFlags.EnableSchemaEvolution &&
@@ -119,10 +116,17 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		},
 		requests: make(map[gen.Ref]chan MessageResult),
 
+		registry: opts.Registry,
+		snapshot: opts.Revision,
+		cacheUpdate: result.NodeFlags.EnableCacheUpdate &&
+			result.PeerFlags.EnableCacheUpdate,
+
 		softwareKeepAlive: result.NodeFlags.EnableSoftwareKeepAlive > 0 &&
 			result.PeerFlags.EnableSoftwareKeepAlive > 0,
 	}
 	conn.done = make(chan struct{})
+	conn.defined.Store(opts.Revision)
+	conn.encodeOptions.Revision = &conn.defined
 
 	if conn.softwareKeepAlive {
 		myPeriod := time.Duration(result.NodeFlags.EnableSoftwareKeepAlive) * time.Second
@@ -178,12 +182,9 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		}
 	}
 
-	// decode caches must be non-nil so a peer's MessageUpdateCache can LoadOrStore into them
+	// decode caches must be non-nil so the peer's cache updates can be installed
 	if conn.decodeOptions.AtomCache == nil {
 		conn.decodeOptions.AtomCache = &sync.Map{}
-	}
-	if conn.decodeOptions.AtomMapping == nil {
-		conn.decodeOptions.AtomMapping = &sync.Map{}
 	}
 	if conn.decodeOptions.RegCache == nil {
 		conn.decodeOptions.RegCache = &sync.Map{}
@@ -191,6 +192,7 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 	if conn.decodeOptions.ErrCache == nil {
 		conn.decodeOptions.ErrCache = &sync.Map{}
 	}
+	conn.reportSnapshot()
 
 	// init recv queues. create 4 recv queues per connection
 	// since the decoding is more costly comparing to the encoding

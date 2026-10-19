@@ -149,45 +149,12 @@ func (h *handshake) readMessage(conn net.Conn, chunk []byte, maxlen int) (any, [
 	}
 }
 
-func (h *handshake) makeEncodeAtomCache(local map[uint16]gen.Atom) *sync.Map {
-	if len(local) == 0 {
-		return nil
-	}
-	cache := new(sync.Map)
-	for k, v := range local {
-		cache.Store(v, k)
-	}
-	return cache
-}
-
-func (h *handshake) makeEncodeRegCache(r *edf.Registry, local map[uint16]string) *sync.Map {
-	var names []string
-	for _, name := range local {
-		names = append(names, name)
-	}
-	if len(names) == 0 {
-		return nil
-	}
-	return r.MakeEncodeRegTypeCache(names)
-}
-
 func nodeRegistry(node gen.NodeHandshake) (*edf.Registry, error) {
 	r, ok := node.TypeRegistry().(*edf.Registry)
 	if ok == false || r == nil {
 		return nil, fmt.Errorf("node %s has no EDF type registry", node.Name())
 	}
 	return r, nil
-}
-
-func (h *handshake) makeEncodeErrCache(local map[uint16]error) *sync.Map {
-	if len(local) == 0 {
-		return nil
-	}
-	cache := new(sync.Map)
-	for k, v := range local {
-		cache.Store(v, k)
-	}
-	return cache
 }
 
 func (h *handshake) makeDecodeAtomCache(remote map[uint16]gen.Atom) *sync.Map {
@@ -212,21 +179,13 @@ func (h *handshake) makeDecodeRegCache(remote map[uint16]string) *sync.Map {
 	return cache
 }
 
-func (h *handshake) makeDecodeErrCache(local, remote map[uint16]error) *sync.Map {
+func (h *handshake) makeDecodeErrCache(r *edf.Registry, remote map[uint16]error) *sync.Map {
 	if len(remote) == 0 {
 		return nil
 	}
 	c := new(sync.Map)
-	localRegisteredErrors := make(map[string]error)
-	for _, v := range local {
-		localRegisteredErrors[v.Error()] = v
-	}
 	for k, v := range remote {
-		if err, exist := localRegisteredErrors[v.Error()]; exist {
-			c.Store(k, err)
-			continue
-		}
-		c.Store(k, v)
+		c.Store(k, r.RemoteError(v))
 	}
 	return c
 }

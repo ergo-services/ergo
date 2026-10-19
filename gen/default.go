@@ -50,6 +50,7 @@ var (
 		EnableTracing:                true,
 		EnableWrappedErrors:          true,
 		EnableAck:                    true,
+		EnableCacheUpdate:            true,
 		EnableSoftwareKeepAlive:      15, // seconds
 	}
 

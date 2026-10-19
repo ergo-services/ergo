@@ -29,7 +29,7 @@ The `ergo.services/proto/erlang23/dist` package implements the `gen.NetworkProto
 
 The Erlang DIST proto deliberately does **not** implement `gen.TypeRegistry`, because the Erlang external term format (ETF) carries primitives, atoms, lists, tuples, and binaries directly on the wire without a separate type-registration step. Use `etf.RegisterTypeOf` (described below) to teach the Erlang decoder how to map incoming tuples or atoms to your Go types.
 
-Note what that means for `node.Network().RegisterType` and for `ApplicationSpec.Network.RegisterTypes`: they do not reach the Erlang wire, and they do not tell you so. A node always keeps the native proto registered alongside whatever you configured, so those calls find a TypeRegistry to write into and return `nil` even on a node that speaks nothing but DIST. An application whose spec lists its wire types therefore loads without complaint, and the types are in the EDF registry that this node never uses. For the Erlang side, `etf.RegisterTypeOf` is the only registration that counts.
+Note what that means for `node.Network().RegisterType` and for `ApplicationSpec.Network.RegisterTypes`: they do not reach the Erlang wire, and they do not tell you so. A node always has its own EDF type registry, so those calls write into it and return `nil` even on a node that speaks nothing but DIST. An application whose spec lists its wire types therefore loads without complaint, and the types are in the EDF registry that this node never uses. For the Erlang side, `etf.RegisterTypeOf` is the only registration that counts.
 
 To use this package, include `ergo.services/proto/erlang23/dist`.
 

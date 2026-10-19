@@ -1314,7 +1314,12 @@ func decodeError(value *reflect.Value, packet []byte, state *stateDecode) (*refl
 		if found == false {
 			return nil, nil, fmt.Errorf("unknown ErrCache id %d", id)
 		}
-		err = v.(error)
+		switch x := v.(type) {
+		case RemoteError:
+			err = x.Value()
+		case error:
+			err = x
+		}
 	default:
 		l := int(id)
 		if len(packet) < l {

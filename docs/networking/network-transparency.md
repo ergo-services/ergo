@@ -204,7 +204,7 @@ These limits are enforced during encoding. If you attempt to encode a 70,000 byt
 
 ## Type Registration Requirements
 
-For custom types to cross the network, both sending and receiving nodes must register them. Registration tells the active wire-format proto how to encode and decode the type, and creates a numeric ID that's shared during handshake for efficient encoding.
+For custom types to cross the network, both sending and receiving nodes must register them. Registration tells the node how to encode and decode the type, and creates a numeric ID that the node shares with its peers for efficient encoding.
 
 The preferred way is to declare wire-format values in the application's spec. The framework registers them during `ApplicationLoad`, before any process in the application is spawned:
 
@@ -238,7 +238,7 @@ func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
 }
 ```
 
-`Network().RegisterType` distributes registration across every active wire-format proto (e.g., the default ENP/EDF stack). If your node has multiple wire-format protocols configured (for example, a previous-generation ENP and a newer one running side by side), one call registers in all of them. The call fails if any proto rejects the type. Wire-format consistency is enforced strictly to prevent silent split-brain registries.
+`Network().RegisterType` registers the type in the node's type registry, which the standard ENP/EDF stack encodes with. A proto with a registry of its own receives the registration too, and the call fails if any registry rejects the type. Registries belong to nodes: two nodes running in one OS process do not share their registrations, so each node registers what it sends and receives.
 
 For batch registration of multiple types, use `RegisterTypes` (see the **Nested types** subsection below for the dependency-resolution behavior):
 
@@ -392,7 +392,7 @@ func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
 
 Imperative equivalents are `Network().RegisterError` (single) and `Network().RegisterErrors` (batch). The same shape applies to atoms via `Network.RegisterAtoms` and `Network().RegisterAtom`/`Network().RegisterAtoms`.
 
-If both peers have a sentinel registered, the receiver decodes it to its own local instance, so `errors.Is(err, ErrInvalidOrder)` returns true across the network. If the sender has not registered it, the error arrives with the correct text but a fresh identity, and `errors.Is` against the original sentinel returns false. Code that branches on identity needs the sentinel registered on the sender side.
+If both peers have a sentinel registered, the receiver decodes it to its own local instance, so `errors.Is(err, ErrInvalidOrder)` returns true across the network. If the sender has not registered it, the error arrives with the correct text but a fresh identity, and `errors.Is` against the original sentinel returns false. Code that branches on identity needs the sentinel registered on the sender side. The receiver may register its sentinel later than the sender: from then on the same error decodes to the local instance, on established connections as well.
 
 Sentinels have to be `errors.New` values. `gen.Errorf` produces a `*gen.Error`, which the error cache refuses to register: the encoder has a dedicated branch for `*gen.Error` and takes it before it consults the cache, so a registered chain would still be encoded field by field and rebuilt as a new value on the receiver, leaving `errors.Is` false against the original. The text arrives intact, which is what makes this mistake invisible in logs and in single-node tests.
 
@@ -464,38 +464,19 @@ Two consequences follow from the set being flat. A membership the sender forgot 
 
 ## Type Registration Timing
 
-Type registration must happen before connection establishment. During handshake, nodes exchange their registered type lists and error lists. These lists become the encoding dictionaries for that connection.
+Types, errors and atoms can be registered at any time. During handshake, nodes exchange their registries, and these become the encoding dictionaries of the connection. What is registered later reaches established connections without reconnecting: before the first message that needs a new entry, the sender passes the entries the peer has not seen yet over every link of the connection, then encodes the message with the cache id. The first message after a registration is already compact, and a sentinel error keeps its identity from that first message.
 
-Registering a type after a connection is established does not break that connection. The dictionary is a compression device, not a gate: when a type has no cache id for this connection, the encoder writes its full canonical name instead, and the receiver resolves that name against the types **it** has registered. Nothing checks the peer's list before sending.
+Both peers must enable the `EnableCacheUpdate` network flag, which is on by default. When either side has it off, entries registered after the handshake go in full - the canonical type name, the atom, the error text - until the next connection. The connection keeps working either way: the dictionary is a compression device, not a gate, and the receiver resolves a full name against the types **it** has registered.
 
-What the missing entry costs is size, and what it requires is symmetry. The name travels with every message rather than a two-byte id, and the receiving node must have registered the same type - otherwise it fails there, at decode, with "unknown reg type". Reconnecting is worth doing to get the compact ids back on a hot path, not to make the type usable.
+What registration still requires is symmetry. The receiving node must have registered the same type, otherwise decoding fails there with "unknown reg type". When a peer announces types the node has not registered, or errors with no local sentinel, the node logs one warning listing them. A type or sentinel registered on the receiver later starts to work with the next message.
 
-The recommended place to register types is the application's `Load` callback. Applications are loaded after the network stack is initialized but before any outgoing or incoming traffic, so all types end up in the handshake dictionaries. An application owns its message types and registers them itself, keeping registration co-located with the code that defines the types.
+The recommended place to register types is the application's `Load` callback. An application owns its message types and registers them itself, keeping registration co-located with the code that defines the types. For dynamic registration (types based on runtime configuration or plugin loading):
 
-For dynamic type registration (registering types based on runtime configuration or plugin loading), the options differ in cost rather than in whether they work:
-
-**Register before any traffic** - Load your configuration, determine which types you need, register them in your application's `Load()` callback. This is the one that gets you cache ids on every connection.
-
-**Register late on both sides** - `node.Network().RegisterType` on each node that will encode or decode the type. Messages flow immediately, carrying the full type name until the next handshake replaces it with an id. Reconnect if that overhead matters on the path in question.
+**Register on both sides** - `node.Network().RegisterType` on each node that will encode or decode the type, in any order and at any time. Established connections pick up the cache ids on their own.
 
 **Use custom marshaling** - Implement `edf.Marshaler` and `edf.Unmarshaler`, or their binary counterparts, when the type needs its own encoding. Register the type on both nodes as well: the registry builds the encoders and decoders that invoke these methods. Custom encoding does not remove the registration requirement.
 
-Most applications register types statically from `Load()` and avoid these complications.
-
-## Deprecated Registration API
-
-Earlier versions of the framework exposed registration as package-level functions on `ergo.services/ergo/net/edf`:
-
-```go
-// Deprecated. Use node.Network().RegisterType / RegisterError / RegisterAtom instead.
-edf.RegisterTypeOf(Order{})
-edf.RegisterError(ErrInvalidOrder)
-edf.RegisterAtom("my_atom")
-```
-
-These functions remain for backward compatibility but are **deprecated**. They write directly into the EDF package state, bypassing the `gen.Network` abstraction. In a multi-proto setup (more than one wire-format proto registered on the node), they only register in EDF, and other protos won't see the type. The new `Network` API distributes registration to every active wire-format proto strictly.
-
-Prefer the declarative `ApplicationSpec.Network` field, or, for dynamic cases, `node.Network().RegisterType` / `RegisterTypes` / `RegisterError` / `RegisterErrors` / `RegisterAtom` / `RegisterAtoms` from your application's `Load()` callback. The package-level functions emit a one-time deprecation warning when called from user code.
+The package-level registration functions of earlier versions (`edf.RegisterTypeOf`, `edf.RegisterError`, `edf.RegisterAtom`) are removed: registries belong to nodes, so registration goes through `node.Network()` or the declarative `ApplicationSpec.Network` field.
 
 ## Compression
 
@@ -535,15 +516,15 @@ Compression happens per-message. Each message is independently compressed or not
 
 ## Caching and Optimization
 
-During handshake, nodes exchange caching dictionaries for frequently used values. This caching reduces message sizes significantly.
+During handshake, nodes exchange caching dictionaries for frequently used values, and entries registered later follow as cache updates (see [Type Registration Timing](#type-registration-timing)). This caching reduces message sizes significantly.
 
 **Atom caching** - Node names, process names, event names - these atoms appear repeatedly in messages. Every `gen.PID` contains the node name. Every message frame contains sender and recipient identifiers. Instead of encoding `"mynode@localhost"` repeatedly (2-byte length + 17 bytes = 19 bytes), the handshake assigns it a numeric ID. Cached atoms encode as 2 bytes (uint16 ID, where ID > 255). All subsequent uses of that atom encode as the 2-byte ID.
 
 **Type caching** - Registered types get numeric IDs. A `User` struct registered on both sides gets an agreed-upon ID. Messages containing `User` values encode the ID instead of the full type name and structure. A typical struct name like `"#mypackage/User"` might be 20-30 bytes - cached, it's 3 bytes (`0x83` + 2-byte cache ID where ID > 4095).
 
-**Error caching** - Registered errors get IDs. Framework errors are pre-registered with well-known IDs. Custom errors get IDs during handshake. Error responses that might encode as 50+ bytes (error string message) encode as 3 bytes with caching (type tag + 2-byte ID where ID > 32767).
+**Error caching** - Registered errors get IDs. Framework errors are pre-registered on every node. Error responses that might encode as 50+ bytes (error string message) encode as 3 bytes with caching (type tag + 2-byte ID where ID > 32767).
 
-The caches are bidirectional - both nodes maintain the same mappings. During encoding, the sender looks up the cache and uses IDs. During decoding, the receiver looks up IDs and reconstructs values. The cache persists for the connection lifetime. If the connection drops and reconnects, a new handshake creates a new cache.
+Each node assigns IDs from its own registry and announces them to the peer, so the two directions of a connection use different IDs for the same value. During encoding, the sender uses the IDs the peer has learned; during decoding, the receiver looks up the peer's IDs and reconstructs values. The cache lives as long as the connection and grows with new registrations. If the connection drops and reconnects, a new handshake creates a new cache.
 
 This caching is automatic: you don't manage the cache or invalidate entries.
 
@@ -655,7 +636,7 @@ Each frame has an 8-byte header:
 - Byte 1: Protocol version (1 for current version)
 - Bytes 2-5: Frame length (uint32, total size in bytes)
 - Byte 6: Order byte (derived from the recipient for PID and Alias sends, from the sender for name-addressed sends; `0` means unordered)
-- Byte 7: Message type (101 for PID message, 121 for call request, 129 for response, 200 for compressed, etc.)
+- Byte 7: Message type (101 for PID message, 121 for call request, 129 for response, 200 for compressed, 210 for a cache update, etc.)
 
 For PID messages, the frame contains:
 - Sender PID (8 bytes - just the ID, node is known from connection)
@@ -696,6 +677,6 @@ Network transparency makes distributed programming feel local. But distributed p
 
 **Measure before enabling compression** - Compare bandwidth and CPU use with representative messages. The threshold avoids compressing smaller values, but its useful setting depends on the data and deployment.
 
-**Register types before traffic** - Use the application's network declarations so missing registrations fail during loading. Late registration is supported, but all peers need the type before receiving it, and compact cache IDs are negotiated on a later handshake.
+**Register types before traffic** - Use the application's network declarations so missing registrations fail during loading. Late registration is supported, and established connections pick up its cache IDs, but all peers need the type before receiving it.
 
 For details on how the network stack implements transparency, see [Network Stack](network-stack.md). For understanding how nodes discover each other, see [Service Discovery](service-discovering.md).

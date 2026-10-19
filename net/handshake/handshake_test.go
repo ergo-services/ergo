@@ -3,7 +3,6 @@ package handshake
 import (
 	"fmt"
 	"net"
-	"reflect"
 	"testing"
 
 	"ergo.services/ergo/gen"
@@ -181,8 +180,8 @@ func TestHandshakeIntroduceOverUint16(t *testing.T) {
 
 type hsOnlyDialer struct{ A int }
 
-// each side announces and encodes with its own node registry: a type registered
-// on the dialer goes to its encode cache and to the acceptor decode cache only.
+// each side announces its own node registry: a type registered on the dialer
+// reaches the acceptor decode cache only.
 func TestHandshakeNodeRegistry(t *testing.T) {
 	hs := Create(Options{})
 	dc, ac := net.Pipe()
@@ -213,10 +212,12 @@ func TestHandshakeNodeRegistry(t *testing.T) {
 	check.True(t, d.Registry == dialer.registry)
 	check.True(t, a.Registry == acceptor.registry)
 
-	_, found := d.EncodeRegCache.Load(reflect.TypeOf(hsOnlyDialer{}))
-	check.True(t, found)
-	_, found = a.EncodeRegCache.Load(reflect.TypeOf(hsOnlyDialer{}))
-	check.False(t, found)
+	check.Equal(t, dialer.registry.Revision(), d.Revision)
+	check.Equal(t, acceptor.registry.Revision(), a.Revision)
+	d.DecodeRegCache.Range(func(_, v any) bool {
+		check.True(t, v.(string) != name)
+		return true
+	})
 
 	announced := false
 	a.DecodeRegCache.Range(func(_, v any) bool {

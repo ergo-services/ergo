@@ -1,8 +1,12 @@
 package edf
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"reflect"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"ergo.services/ergo/gen"
@@ -85,25 +89,25 @@ func TestRegistryCodecIsolation(t *testing.T) {
 }
 
 func TestRegistryProfile(t *testing.T) {
-	fresh := NewRegistry()
-	def := defaultRegistry.GetRegCache()
-	for id, name := range fresh.GetRegCache() {
-		if def[id] != name {
-			t.Fatalf("type id %d: %q in a new registry, %q in the default one", id, name, def[id])
+	freshRegistry := NewRegistry()
+	fresh := freshRegistry.Since(0)
+	def := defaultRegistry.Since(0)
+	for id, name := range fresh.Types {
+		if def.Types[id] != name {
+			t.Fatalf("type id %d: %q in a new registry, %q in the default one", id, name, def.Types[id])
 		}
 	}
-	defErrs := defaultRegistry.GetErrCache()
-	for id, e := range fresh.GetErrCache() {
-		if defErrs[id] != e {
-			t.Fatalf("error id %d: %v in a new registry, %v in the default one", id, e, defErrs[id])
+	for id, e := range fresh.Errors {
+		if def.Errors[id] != e {
+			t.Fatalf("error id %d: %v in a new registry, %v in the default one", id, e, def.Errors[id])
 		}
 	}
-	if len(fresh.GetErrCache()) != len(genErrors) {
-		t.Fatalf("a new registry has %d errors, want %d", len(fresh.GetErrCache()), len(genErrors))
+	if len(fresh.Errors) != len(genErrors) {
+		t.Fatalf("a new registry has %d errors, want %d", len(fresh.Errors), len(genErrors))
 	}
 	for _, v := range []any{gen.PID{}, gen.Ref{}, gen.Atom(""), int64(0), "", gen.Version{}} {
 		buf1, buf2 := lib.TakeBuffer(), lib.TakeBuffer()
-		if err := Encode(v, buf1, Options{Registry: fresh}); err != nil {
+		if err := Encode(v, buf1, Options{Registry: freshRegistry}); err != nil {
 			t.Fatal(err)
 		}
 		if err := Encode(v, buf2, Options{}); err != nil {
@@ -118,7 +122,7 @@ func TestRegistryProfile(t *testing.T) {
 }
 
 func cacheID(r *Registry, name string) uint16 {
-	for id, n := range r.GetRegCache() {
+	for id, n := range r.Since(0).Types {
 		if n == name {
 			return id
 		}
@@ -127,10 +131,181 @@ func cacheID(r *Registry, name string) uint16 {
 }
 
 func hasError(r *Registry, e error) bool {
-	for _, known := range r.GetErrCache() {
+	for _, known := range r.Since(0).Errors {
 		if known == e {
 			return true
 		}
 	}
 	return false
+}
+
+// cachedIDs makes o encode exactly the given keys by the given cache ids: a
+// reflect.Type for a type, gen.Atom for an atom, an error for an error.
+func cachedIDs(t *testing.T, o Options, ids map[any]uint16) Options {
+	t.Helper()
+	r := defaultRegistry
+	for k, id := range ids {
+		key := k
+		var cache *sync.Map
+		var entry any
+		switch k.(type) {
+		case reflect.Type:
+			cache, entry = &r.regCache, regEntry{[]byte{edtReg, byte(id >> 8), byte(id)}, 0}
+		case gen.Atom:
+			cache, entry = &r.atomCache, cacheEntry{id, 0}
+		case error:
+			cache, entry = &r.errCache, cacheEntry{id, 0}
+		default:
+			t.Fatalf("unsupported cache key %T", k)
+		}
+		prev, had := cache.Load(key)
+		cache.Store(key, entry)
+		t.Cleanup(func() {
+			if had {
+				cache.Store(key, prev)
+				return
+			}
+			cache.Delete(key)
+		})
+	}
+	o.Revision = new(atomic.Uint64)
+	return o
+}
+
+type registryRevA struct{ A int }
+type registryRevB struct{ B int }
+
+func TestRegistrySince(t *testing.T) {
+	r := NewRegistry()
+	base := r.Revision()
+	if base == 0 || r.Since(0).Revision != base {
+		t.Fatalf("the profile publishes revisions: %d, %d", base, r.Since(0).Revision)
+	}
+	if err := r.RegisterType(registryRevA{}); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := errors.New("registry since")
+	if err := r.RegisterError(sentinel); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterAtom("registry.since"); err != nil {
+		t.Fatal(err)
+	}
+	d := r.Since(base)
+	if d.Revision != base+3 || len(d.Types) != 1 || len(d.Errors) != 1 || len(d.Atoms) != 1 {
+		t.Fatalf("unexpected delta: %+v", d)
+	}
+	for _, name := range d.Types {
+		if name != regTypeName(reflect.TypeOf(registryRevA{})) {
+			t.Fatalf("unexpected type %q", name)
+		}
+	}
+	if empty := r.Since(d.Revision); empty.Revision != d.Revision || empty.Types != nil {
+		t.Fatalf("nothing is newer than the last revision: %+v", empty)
+	}
+	if err := r.RegisterError(sentinel); err != nil || r.Revision() != d.Revision {
+		t.Fatal("registering the same error again publishes nothing")
+	}
+	if e, found := r.Sentinel("registry since"); found == false || e != sentinel {
+		t.Fatal("the sentinel is found by its text")
+	}
+}
+
+func TestRegistryEncodeByRevision(t *testing.T) {
+	r := NewRegistry()
+	if err := r.RegisterType(registryRevA{}); err != nil {
+		t.Fatal(err)
+	}
+	known := new(atomic.Uint64)
+	known.Store(r.Revision() - 1)
+	o := Options{Registry: r, Revision: known, Cache: new(sync.Map)}
+
+	encode := func(v any) []byte {
+		b := lib.TakeBuffer()
+		defer lib.ReleaseBuffer(b)
+		if err := Encode(v, b, o); err != nil {
+			t.Fatal(err)
+		}
+		return append([]byte(nil), b.B...)
+	}
+	full := encode([]any{registryRevA{A: 1}, []registryRevA{{A: 2}}})
+	known.Store(r.Revision())
+	cached := encode([]any{registryRevA{A: 1}, []registryRevA{{A: 2}}})
+	if len(cached) >= len(full) {
+		t.Fatalf("the known type goes by id: %d bytes, %d by name", len(cached), len(full))
+	}
+	name := regTypeName(reflect.TypeOf(registryRevA{}))
+	if bytes.Contains(cached, []byte(name)) {
+		t.Fatal("a memoized encoder kept the name the peer had not known yet")
+	}
+
+	sentinel := errors.New("registry by revision")
+	if err := r.RegisterError(sentinel); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(encode(sentinel), []byte("registry by revision")) == false {
+		t.Fatal("an error newer than the peer revision goes as text")
+	}
+	known.Store(r.Revision())
+	if bytes.Contains(encode(sentinel), []byte("registry by revision")) {
+		t.Fatal("a known error goes by id")
+	}
+}
+
+func TestRegistrySinceConcurrent(t *testing.T) {
+	r := NewRegistry()
+	seen := r.Revision()
+	var wg sync.WaitGroup
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				if err := r.RegisterAtom(gen.Atom(fmt.Sprintf("concurrent.%d.%d", g, i))); err != nil {
+					t.Error(err)
+					return
+				}
+			}
+		}(g)
+	}
+	for i := 0; i < 100; i++ {
+		d := r.Since(seen)
+		if d.Revision < seen {
+			t.Fatal("the revision went back")
+		}
+		if uint64(len(d.Atoms)) != d.Revision-seen {
+			t.Fatalf("delta (%d, %d] has %d atoms", seen, d.Revision, len(d.Atoms))
+		}
+		seen = d.Revision
+	}
+	wg.Wait()
+	if d := r.Since(0); len(d.Atoms) != 800 {
+		t.Fatalf("all atoms are published: %d", len(d.Atoms))
+	}
+}
+
+func TestRegistryRemoteError(t *testing.T) {
+	r := NewRegistry()
+	sentinel := errors.New("registry remote error")
+	dec := new(sync.Map)
+	dec.Store(uint16(40000), r.RemoteError(errors.New(sentinel.Error())))
+	packet := []byte{edtError, 0x9c, 0x40}
+
+	v, _, err := Decode(packet, Options{Registry: r, ErrCache: dec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v == sentinel || v.(error).Error() != sentinel.Error() {
+		t.Fatalf("before the registration the received error is decoded: %v", v)
+	}
+	if err := r.RegisterError(sentinel); err != nil {
+		t.Fatal(err)
+	}
+	v, _, err = Decode(packet, Options{Registry: r, ErrCache: dec})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v != sentinel {
+		t.Fatal("after the registration the local sentinel is decoded")
+	}
 }

@@ -19,6 +19,7 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 	if err != nil {
 		return result, err
 	}
+	dict := reg.Since(0)
 
 	salt := lib.RandomString(64)
 	hash := sha256.New()
@@ -73,9 +74,9 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 
 		MaxMessageSize: options.MaxMessageSize,
 
-		AtomCache: reg.GetAtomCache(),
-		RegCache:  reg.GetRegCache(),
-		ErrCache:  reg.GetErrCache(),
+		AtomCache: dict.Atoms,
+		RegCache:  dict.Types,
+		ErrCache:  dict.Errors,
 	}
 
 	hash = sha256.New()
@@ -145,12 +146,10 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 		PoolDSN:         accept.PoolDSN,
 		TLS:             isTLS,
 		Registry:        reg,
-		EncodeAtomCache: h.makeEncodeAtomCache(intro.AtomCache),
-		EncodeRegCache:  h.makeEncodeRegCache(reg, intro.RegCache),
-		EncodeErrCache:  h.makeEncodeErrCache(intro.ErrCache),
+		Revision:        dict.Revision,
 		DecodeAtomCache: h.makeDecodeAtomCache(intro2.AtomCache),
 		DecodeRegCache:  h.makeDecodeRegCache(intro2.RegCache),
-		DecodeErrCache:  h.makeDecodeErrCache(intro.ErrCache, intro2.ErrCache),
+		DecodeErrCache:  h.makeDecodeErrCache(reg, intro2.ErrCache),
 	}
 	result.Custom = custom
 

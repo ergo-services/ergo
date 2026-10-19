@@ -161,7 +161,7 @@ Use these workloads to establish a baseline on your hardware, then measure your 
 
 ### How does Ergo serialization compare to Protobuf?
 
-EDF builds encoding and decoding functions at runtime when you register Go types; it still uses reflection to access values. During a handshake, peers exchange registered types and establish compact numeric references. A cached registered-type marker occupies three bytes: a tag plus a two-byte ID. Types registered after the handshake can be sent by their full canonical name until a later handshake establishes a cached reference. Field values follow the type contract, without repeating struct field names.
+EDF builds encoding and decoding functions at runtime when you register Go types; it still uses reflection to access values. During a handshake, peers exchange registered types and establish compact numeric references. A cached registered-type marker occupies three bytes: a tag plus a two-byte ID. Types registered after the handshake reach established connections as cache updates, so they get a cached reference without reconnecting when both peers enable `EnableCacheUpdate` (the default). Field values follow the type contract, without repeating struct field names.
 
 These choices affect wire size and encoding cost, but do not establish a universal speed advantage over Protobuf. Compare both formats with representative messages, and consider how each handles schema changes. See [Network Transparency](networking/network-transparency.md#edf-ergo-data-format) and the [serialization benchmarks](https://github.com/ergo-services/benchmarks#serialization-benchmarks-edf-vs-protobuf-vs-gob).
 

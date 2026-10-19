@@ -21,6 +21,7 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 	if err != nil {
 		return result, err
 	}
+	dict := reg.Since(0)
 
 	v, tail, err := h.readMessage(conn, nil, handshakeMaxControlSize)
 	if err != nil {
@@ -140,9 +141,9 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 
 		MaxMessageSize: options.MaxMessageSize,
 
-		AtomCache: reg.GetAtomCache(),
-		RegCache:  reg.GetRegCache(),
-		ErrCache:  reg.GetErrCache(),
+		AtomCache: dict.Atoms,
+		RegCache:  dict.Types,
+		ErrCache:  dict.Errors,
 	}
 
 	result.ConnectionID = connID
@@ -161,12 +162,10 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 		PoolSize:        h.poolsize,
 		TLS:             isTLS,
 		Registry:        reg,
-		EncodeAtomCache: h.makeEncodeAtomCache(intro2.AtomCache),
-		EncodeRegCache:  h.makeEncodeRegCache(reg, intro2.RegCache),
-		EncodeErrCache:  h.makeEncodeErrCache(intro2.ErrCache),
+		Revision:        dict.Revision,
 		DecodeAtomCache: h.makeDecodeAtomCache(intro.AtomCache),
 		DecodeRegCache:  h.makeDecodeRegCache(intro.RegCache),
-		DecodeErrCache:  h.makeDecodeErrCache(intro2.ErrCache, intro.ErrCache),
+		DecodeErrCache:  h.makeDecodeErrCache(reg, intro.ErrCache),
 
 		pendingAccept:    accept,
 		pendingIntroduce: intro2,

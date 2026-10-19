@@ -66,6 +66,12 @@ type connection struct {
 	encodeOptions edf.Options
 	decodeOptions edf.Options
 
+	registry    *edf.Registry
+	snapshot    uint64
+	defined     atomic.Uint64
+	dictMutex   sync.Mutex
+	cacheUpdate bool
+
 	requestsMutex sync.RWMutex
 	requests      map[gen.Ref]chan MessageResult
 
@@ -499,44 +505,6 @@ func (c *connection) ConnectionUptime() int64 {
 	return time.Now().Unix() - c.creation
 }
 
-func (c *connection) updateCache() error {
-
-	// TODO
-	//implement cache updating and add API methods for that
-
-	// create new entries for:
-	//  - AtomCache
-	//  - AtomMapping
-	//  - RegCache
-	//  - ErrCache
-
-	ref := c.makeRequestRef()
-	message := MessageUpdateCache{
-		Ref: ref,
-		// put them here
-	}
-	ch := make(chan MessageResult, 1)
-	c.requestsMutex.Lock()
-	c.requests[ref] = ch
-	c.requestsMutex.Unlock()
-	if err := c.sendAny(message, 0, 0, gen.Compression{}); err != nil {
-		return err
-	}
-	result := c.waitResult(ref, ch)
-	if result.Error != nil {
-		return result.Error
-	}
-
-	// TODO
-	// add new entries to the local encoding cache
-	// - c.encodeOptions.AtomCache
-	// - c.encodeOptions.AtomMapping
-	// - c.encodeOptions.RegCache
-	// - c.encodeOptions.ErrCache
-
-	return nil
-}
-
 //
 // gen.Connection implementation
 //
@@ -561,7 +529,7 @@ func (c *connection) SendPID(from gen.PID, to gen.PID, options gen.MessageOption
 	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 8 (process id to)
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 8)
 
-	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+	if err := c.encode(message, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -633,7 +601,7 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 1 + len(bname))
 	}
 
-	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+	if err := c.encode(message, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -693,7 +661,7 @@ func (c *connection) SendAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (message id) + 24 (alias id [3]uint64)
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 24)
 
-	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+	if err := c.encode(message, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -768,7 +736,7 @@ func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message
 		buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 1 + len(bname))
 	}
 
-	if err := edf.Encode(message.Message, buf, c.encodeOptions); err != nil {
+	if err := c.encode(message.Message, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -813,7 +781,7 @@ func (c *connection) SendExit(from gen.PID, to gen.PID, reason error) error {
 	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (process id to)
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8)
 
-	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+	if err := c.encode(reason, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -849,7 +817,7 @@ func (c *connection) SendResponse(from gen.PID, to gen.PID, options gen.MessageO
 	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 8 (process id to) + 24 (ref [3]uint64)
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 8 + 24)
 
-	if err := edf.Encode(response, buf, c.encodeOptions); err != nil {
+	if err := c.encode(response, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -916,7 +884,7 @@ func (c *connection) SendResponseError(from gen.PID, to gen.PID, options gen.Mes
 		buf.B[h+49] = 3
 	default:
 		buf.B[h+49] = 255
-		if e := edf.Encode(err, buf, c.encodeOptions); e != nil {
+		if e := c.encode(err, buf); e != nil {
 			lib.ReleaseBuffer(buf)
 			return e
 		}
@@ -977,7 +945,7 @@ func (c *connection) SendAck(from gen.PID, to gen.PID, options gen.MessageOption
 		buf.B[h+49] = 3
 	default:
 		buf.B[h+49] = 255
-		if e := edf.Encode(result, buf, c.encodeOptions); e != nil {
+		if e := c.encode(result, buf); e != nil {
 			lib.ReleaseBuffer(buf)
 			return e
 		}
@@ -1003,7 +971,7 @@ func (c *connection) SendTerminatePID(target gen.PID, reason error) error {
 	// protoWrapReserve + 8 (header) + 1 priority + 8 (target process id)
 	buf.Allocate(protoWrapReserve + 8 + 1 + 8)
 
-	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+	if err := c.encode(reason, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -1050,7 +1018,7 @@ func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) 
 		buf.Allocate(h + 8 + 1 + 1 + len(bname))
 	}
 
-	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+	if err := c.encode(reason, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -1077,7 +1045,7 @@ func (c *connection) SendTerminateAlias(target gen.Alias, reason error) error {
 	h := protoWrapReserve
 	buf.Allocate(h + 8 + 1 + 24)
 
-	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+	if err := c.encode(reason, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -1124,7 +1092,7 @@ func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
 		buf.Allocate(h + 8 + 1 + 1 + len(bname))
 	}
 
-	if err := edf.Encode(reason, buf, c.encodeOptions); err != nil {
+	if err := c.encode(reason, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -1163,7 +1131,7 @@ func (c *connection) CallPID(from gen.PID, to gen.PID, options gen.MessageOption
 	// protoWrapReserve + 8 (header) + 8 (process id from) + 1 priority + 24 (request ref) + 8 (process id to)
 	buf.Allocate(protoWrapReserve + 8 + 8 + 1 + 24 + 8)
 
-	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+	if err := c.encode(message, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -1230,7 +1198,7 @@ func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.M
 		buf.Allocate(h + 8 + 8 + 1 + 24 + 1 + len(bname))
 	}
 
-	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+	if err := c.encode(message, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -1288,7 +1256,7 @@ func (c *connection) CallAlias(from gen.PID, to gen.Alias, options gen.MessageOp
 	h := protoWrapReserve
 	buf.Allocate(h + 8 + 8 + 1 + 24 + 24)
 
-	if err := edf.Encode(message, buf, c.encodeOptions); err != nil {
+	if err := c.encode(message, buf); err != nil {
 		lib.ReleaseBuffer(buf)
 		return err
 	}
@@ -1798,6 +1766,10 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 		return fmt.Errorf("join: connection with %s is terminated", c.peer)
 	}
 
+	if c.cacheUpdate {
+		c.dictMutex.Lock()
+		defer c.dictMutex.Unlock()
+	}
 	c.pool_mutex.Lock()
 	// the dialer that fills the pool is the single writer and caps it at pool_size; the
 	// accept end mirrors whatever the dialer dials and must not reject independently (a
@@ -1818,6 +1790,9 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 		pi.fl = lib.NewFlusherWithKeepAlive(conn, c.softwareKeepAliveMessage, c.softwareKeepAlivePeriod)
 	} else {
 		pi.fl = lib.NewFlusher(conn)
+	}
+	if c.cacheUpdate {
+		c.prime(pi)
 	}
 	c.pool = append(c.pool, pi)
 	c.pool_mutex.Unlock()
@@ -2041,6 +2016,19 @@ func (c *connection) serve(pi *pool_item, tail []byte) {
 			}
 			tsRecv := time.Now().UnixNano()
 			c.handleSkew(pi, buf, tsRecv)
+			lib.ReleaseBuffer(buf)
+			buf = buftail
+			continue
+		}
+
+		if buf.B[7] == protoMessageC {
+			if err := c.installCache(buf.B[8:]); err != nil {
+				c.log.Error("received malformed cache update from %s: %s", conn.RemoteAddr(), err)
+				lib.ReleaseBuffer(buf)
+				conn.Close()
+				c.Terminate(gen.ErrMalformed)
+				return
+			}
 			lib.ReleaseBuffer(buf)
 			buf = buftail
 			continue
@@ -3184,8 +3172,11 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 			}
 			goto re
 
-		// case protoMessageP:
-		// TODO proxy
+		case protoMessageP:
+			c.handleProxy(buf)
+
+		case protoMessageX:
+			c.handleTunnel(buf)
 
 		default:
 			c.log.Error("unknown/unsupported message type %d, ignored", buf.B[7])
@@ -3193,6 +3184,16 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 		}
 
 	}
+}
+
+func (c *connection) handleProxy(buf *lib.Buffer) {
+	c.log.Error("proxy messages are not supported yet, ignored")
+	lib.ReleaseBuffer(buf)
+}
+
+func (c *connection) handleTunnel(buf *lib.Buffer) {
+	c.log.Error("tunnel messages are not supported yet, ignored")
+	lib.ReleaseBuffer(buf)
 }
 
 func (c *connection) read(conn net.Conn, buf *lib.Buffer) (*lib.Buffer, error) {
@@ -3253,7 +3254,7 @@ func (c *connection) read(conn net.Conn, buf *lib.Buffer) (*lib.Buffer, error) {
 }
 
 // dispatchRoute is the entry point for protoMessageAny payloads from the
-// receive goroutine. Fast-lane messages (ACKs, cache updates) are handled
+// receive goroutine. Fast-lane messages (ACKs) are handled
 // inline so their latency is bounded by a single channel send. Everything
 // else (Link/Monitor/Spawn/etc) goes to a per-shard route queue and is
 // processed by routeWorker, freeing the receive goroutine to keep decoding.
@@ -3277,9 +3278,6 @@ func (c *connection) dispatchRoute(msg any) {
 			default:
 			}
 		}
-		return
-	case MessageUpdateCache:
-		c.applyCacheUpdate(m)
 		return
 
 	case MessageLinkPID:
@@ -3377,37 +3375,6 @@ func (c *connection) routeWorker(q lib.QueueMPSC) {
 	}
 }
 
-// applyCacheUpdate applies an inbound cache update and acks the sender.
-// Called inline from the receive goroutine via the fast lane.
-func (c *connection) applyCacheUpdate(m MessageUpdateCache) {
-	for k, v := range m.AtomCache {
-		entry, exist := c.decodeOptions.AtomCache.LoadOrStore(k, v)
-		if exist {
-			c.log.Warning("updating atom cache ignored entry (already exist): %d => %v", k, entry)
-		}
-	}
-	for k, v := range m.AtomMapping {
-		entry, exist := c.decodeOptions.AtomMapping.LoadOrStore(k, v)
-		if exist {
-			c.log.Warning("updating atom mapping ignored entry (already exist): %s => %v", k, entry)
-		}
-	}
-	for k, v := range m.RegCache {
-		entry, exist := c.decodeOptions.RegCache.LoadOrStore(k, v)
-		if exist {
-			c.log.Warning("updating reg cache ignored entry (already exist): %d => %v", k, entry)
-		}
-	}
-	for k, v := range m.ErrCache {
-		entry, exist := c.decodeOptions.ErrCache.LoadOrStore(k, v)
-		if exist {
-			c.log.Warning("updating err cache ignored entry (already exist): %d => %v", k, entry)
-		}
-	}
-	result := MessageResult{Ref: m.Ref}
-	c.sendAny(result, 0, 0, gen.Compression{})
-}
-
 func (c *connection) routeMessage(msg any) {
 	switch m := msg.(type) {
 	case MessageResult:
@@ -3429,43 +3396,6 @@ func (c *connection) routeMessage(msg any) {
 		case ch <- m:
 		default:
 		}
-
-	case MessageUpdateCache:
-		for k, v := range m.AtomCache {
-			entry, exist := c.decodeOptions.AtomCache.LoadOrStore(k, v)
-			if exist {
-				c.log.Warning("updating atom cache ignored entry (already exist): %d => %v", k, entry)
-			}
-		}
-		for k, v := range m.AtomMapping {
-			entry, exist := c.decodeOptions.AtomMapping.LoadOrStore(k, v)
-			if exist {
-				c.log.Warning("updating atom mapping ignored entry (already exist): %s => %v", k, entry)
-			}
-		}
-		for k, v := range m.RegCache {
-			entry, exist := c.decodeOptions.RegCache.LoadOrStore(k, v)
-			if exist {
-				c.log.Warning("updating reg cache ignored entry (already exist): %d => %v", k, entry)
-			}
-		}
-		for k, v := range m.ErrCache {
-
-			// TODO
-			// check if error v is registered as a error on this node
-			// and replase it by the local one
-
-			entry, exist := c.decodeOptions.ErrCache.LoadOrStore(k, v)
-			if exist {
-				c.log.Warning("updating err cache ignored entry (already exist): %d => %v", k, entry)
-			}
-		}
-		result := MessageResult{
-			Ref: m.Ref,
-		}
-		order := uint8(0)
-		orderPeer := uint8(0)
-		c.sendAny(result, order, orderPeer, gen.Compression{})
 
 	case MessageLinkPID:
 		// TODO check the source/target node name
@@ -3765,7 +3695,7 @@ func (c *connection) sendAny(msg any, order uint8, orderPeer uint8, compression 
 	h := protoWrapReserve
 	buf.Allocate(h + 8) // reserve + header
 
-	if err := edf.Encode(msg, buf, c.encodeOptions); err != nil {
+	if err := c.encode(msg, buf); err != nil {
 		return err
 	}
 	if buf.Len()-h > math.MaxUint32 {

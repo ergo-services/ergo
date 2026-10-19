@@ -109,10 +109,7 @@ func TestEncodeAtomCache(t *testing.T) {
 		0x01, 0x2c, // cached "hello world" => 300
 	}
 
-	atomCache := new(sync.Map)
-	atomCache.Store(value, uint16(300))
-
-	if err := Encode(value, b, Options{AtomCache: atomCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{value: 300})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -160,10 +157,8 @@ func TestEncodeAtomMappingCache(t *testing.T) {
 
 	atomMapping := new(sync.Map)
 	atomMapping.Store(value, mapped)
-	atomCache := new(sync.Map)
-	atomCache.Store(mapped, uint16(300))
 
-	if err := Encode(value, b, Options{AtomCache: atomCache, AtomMapping: atomMapping}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{AtomMapping: atomMapping}, map[any]uint16{mapped: 300})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -224,10 +219,7 @@ func TestEncodeSliceAtomCache(t *testing.T) {
 		0x01, 0x2c, // cached "hello world" => 300
 	}
 
-	atomCache := new(sync.Map)
-	atomCache.Store(v, uint16(300))
-
-	if err := Encode(value, b, Options{AtomCache: atomCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{v: 300})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -287,10 +279,7 @@ func TestEncodeSliceAnyAtomCache(t *testing.T) {
 		edtAtom, 0x01, 0x2c, // cached "hello world" => 300
 	}
 
-	atomCache := new(sync.Map)
-	atomCache.Store(v, uint16(300))
-
-	if err := Encode(value, b, Options{AtomCache: atomCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{v: 300})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1297,10 +1286,7 @@ func TestEncodeSliceRegCache(t *testing.T) {
 	}
 	defaultRegistry.RegisterType(x)
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
-
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(x): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.B, expect) {
@@ -1328,10 +1314,7 @@ func TestEncodeRegSlice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
-
-	if err := Encode(x, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(x, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(x): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1376,10 +1359,7 @@ func TestEncodeRegSliceRegSlice(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
-
-	if err := Encode(x, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(x, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(x): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1979,14 +1959,12 @@ func TestEncodeRegError(t *testing.T) {
 	defer lib.ReleaseBuffer(b)
 
 	value := errors.New("abc")
-	errCache := new(sync.Map)
-	errCache.Store(value, uint16(35000))
 
 	expect := []byte{edtError,
 		0x88, 0xb8, // 35000 => error "abc"
 	}
 
-	if err := Encode(value, b, Options{ErrCache: errCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{value: 35000})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2105,10 +2083,7 @@ func TestEncodeSliceTypeRegCache(t *testing.T) {
 
 	defaultRegistry.RegisterType(x)
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
-
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(x): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.B, expect) {
@@ -2142,13 +2117,7 @@ func TestEncodeSliceRegTypeReg(t *testing.T) {
 	if err := defaultRegistry.RegisterType(value); err != nil {
 		t.Fatal(err)
 	}
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(value), []byte{edtReg, 0x13, 0x88})
-	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x89})
-
-	opts := Options{
-		RegCache: regCache,
-	}
+	opts := cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(value): 0x1388, reflect.TypeOf(x): 0x1389})
 	if err := Encode(value, b, opts); err != nil {
 		t.Fatal(err)
 	}
@@ -2410,9 +2379,6 @@ func TestEncodeSliceSliceReg(t *testing.T) {
 		}
 	}
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(MySlice1555{}), []byte{edtReg, 0x13, 0x88})
-
 	value := []MySlice1555{
 		MySlice1555{3.14, 3.16, 3.15},
 		MySlice1555{3.15},
@@ -2442,7 +2408,7 @@ func TestEncodeSliceSliceReg(t *testing.T) {
 		0, 0, 0, 0, // third one
 	}
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(MySlice1555{}): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.B, expect) {
@@ -2664,10 +2630,8 @@ func TestEncodeBinaryMarshal(t *testing.T) {
 	if err := defaultRegistry.RegisterType(value); err != nil {
 		t.Fatal(err)
 	}
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(value), []byte{edtReg, 0x13, 0x88})
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(value): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	expect := []byte{edtReg, 0x13, 0x88,
@@ -2705,10 +2669,8 @@ func TestEncodeMarshal(t *testing.T) {
 	if err := defaultRegistry.RegisterType(value); err != nil {
 		t.Fatal(err)
 	}
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(value), []byte{edtReg, 0x13, 0x88})
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(value): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	expect := []byte{edtReg, 0x13, 0x88,
@@ -2730,10 +2692,7 @@ func TestEncodeSliceMarshal(t *testing.T) {
 
 	defaultRegistry.RegisterType(x)
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
-
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(x): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	expect := []byte{edtType, 0, 4,
@@ -2771,10 +2730,7 @@ func TestEncodeStruct(t *testing.T) {
 
 	value := testStruct{3.16, 3.15}
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(value), []byte{edtReg, 0x13, 0x88})
-
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(value): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	expect := []byte{edtReg, 0x13, 0x88,
@@ -2811,10 +2767,7 @@ func TestEncodeSliceStruct(t *testing.T) {
 		0x40, 0x9, 0x1e, 0xb8, 0x51, 0xeb, 0x85, 0x1f, // 3.14
 	}
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(testStruct{}), []byte{edtReg, 0x13, 0x88})
-
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(testStruct{}): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.B, expect) {
@@ -2847,10 +2800,7 @@ func TestEncodeStructWithAny(t *testing.T) {
 		edtNil,
 	}
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(testStructWithAny{}), []byte{edtReg, 0x13, 0x88})
-
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(testStructWithAny{}): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2869,7 +2819,7 @@ func TestEncodeStructWithAny(t *testing.T) {
 		edtFloat64, 0x40, 0x9, 0x1e, 0xb8, 0x51, 0xeb, 0x85, 0x1f, // 3.14
 	}
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(testStructWithAny{}): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2928,10 +2878,7 @@ func TestEncodeStructWithSlice(t *testing.T) {
 		edtNil, // nil value of []int
 	}
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(testStructWithSlice{}), []byte{edtReg, 0x13, 0x88})
-
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(testStructWithSlice{}): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2953,16 +2900,13 @@ func TestEncodeSliceStructWithAny(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(testStructWithAny{}), []byte{edtReg, 0x13, 0x88})
-
 	value := []testStructWithAny{
 		{3.16, 3.15, nil},
 		{3.16, 3.15, float32(3.16)},
 		{3.15, 3.14, float64(3.14)},
 	}
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(testStructWithAny{}): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	expect := []byte{edtType, 0, 4,
@@ -2999,9 +2943,6 @@ func TestEncodeSliceAnyWithStruct(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(testStruct{}), []byte{edtReg, 0x13, 0x88})
-
 	value := []any{
 		nil,
 		testStruct{3.16, 3.15},
@@ -3024,7 +2965,7 @@ func TestEncodeSliceAnyWithStruct(t *testing.T) {
 		0x40, 0x9, 0x1e, 0xb8, 0x51, 0xeb, 0x85, 0x1f, // 3.14
 	}
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(testStruct{}): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3486,9 +3427,6 @@ func TestEncodeMapValueMapRegKey(t *testing.T) {
 		}
 	}
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
-
 	value := map[int16]map[testMapKey]int{
 		int16(8): nil,
 		int16(9): {
@@ -3538,7 +3476,7 @@ func TestEncodeMapValueMapRegKey(t *testing.T) {
 		edtNil,
 	}
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(x): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.B, expect) {
@@ -3562,9 +3500,6 @@ func TestEncodeMapValueMapAnyWithRegKey(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
 
 	value := map[int16]map[any]int{
 		int16(8): nil,
@@ -3615,7 +3550,7 @@ func TestEncodeMapValueMapAnyWithRegKey(t *testing.T) {
 		edtNil,
 	}
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(x): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.B, expect) {
@@ -3639,9 +3574,6 @@ func TestEncodeRegMap(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
 
 	value := MyMap{
 		"hello": true,
@@ -3670,7 +3602,7 @@ func TestEncodeRegMap(t *testing.T) {
 		0, // false
 	}
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(x): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.B, expect) {
@@ -3692,9 +3624,6 @@ func TestEncodeRegMapRegSlice(t *testing.T) {
 
 	defaultRegistry.RegisterType(mySlice90{})
 	defaultRegistry.RegisterType(myMap90{})
-
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(myMap90{}), []byte{edtReg, 0x13, 0x88})
 
 	value := myMap90{
 		"world": nil,
@@ -3727,7 +3656,7 @@ func TestEncodeRegMapRegSlice(t *testing.T) {
 		1, 0, 1, // true, false, true
 	}
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(myMap90{}): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.B, expect) {
@@ -3945,13 +3874,10 @@ func TestEncodeRegArrayRegArray(t *testing.T) {
 		0x68, 0x65, 0x6c, 0x6c, 0x6f, // "hello"
 	}
 
-	regCache := new(sync.Map)
-	regCache.Store(reflect.TypeOf(myArrayArray1{}), []byte{edtReg, 0x13, 0x88})
-
 	defaultRegistry.RegisterType(myArrayMyStr1{})
 	defaultRegistry.RegisterType(myArrayArray1{})
 
-	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
+	if err := Encode(value, b, cachedIDs(t, Options{}, map[any]uint16{reflect.TypeOf(myArrayArray1{}): 0x1388})); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(b.B, expect) {
@@ -4019,12 +3945,10 @@ func TestEncodeGenErrorWrappedEnabled(t *testing.T) {
 	defer lib.ReleaseBuffer(b)
 
 	marker := errors.New("payment declined")
-	errCache := new(sync.Map)
-	errCache.Store(marker, uint16(0x8005))
 
 	ge := &gen.Error{Msg: "user 42: payment declined", Wrapped: []error{marker}}
 
-	if err := Encode(ge, b, Options{ErrCache: errCache, WrappedErrorsSupported: true}); err != nil {
+	if err := Encode(ge, b, cachedIDs(t, Options{WrappedErrorsSupported: true}, map[any]uint16{marker: 0x8005})); err != nil {
 		t.Fatal(err)
 	}
 

@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"reflect"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"ergo.services/ergo/gen"
@@ -118,21 +119,18 @@ func TestSchemaEvolutionRegCache(t *testing.T) {
 	registerEvo(t, evoV1{}, evoV2{})
 
 	rcDec := new(sync.Map)
-	var names []string
 	id := map[string]uint16{}
-	for k, name := range defaultRegistry.GetRegCache() {
-		names = append(names, name)
+	d := defaultRegistry.Since(0)
+	for k, name := range d.Types {
 		rcDec.Store(k, name)
 		id[name] = k
 	}
-	rcEnc := defaultRegistry.MakeEncodeRegTypeCache(names)
-	if rcEnc == nil {
-		t.Fatal("empty reg cache")
-	}
+	known := new(atomic.Uint64)
+	known.Store(d.Revision)
 	v1id := id[regTypeName(reflect.TypeOf(evoV1{}))]
 	v2id := id[regTypeName(reflect.TypeOf(evoV2{}))]
 
-	encOpts := Options{SchemaEvolution: true, RegCache: rcEnc, Cache: new(sync.Map)}
+	encOpts := Options{SchemaEvolution: true, Revision: known, Cache: new(sync.Map)}
 	decOpts := Options{SchemaEvolution: true, RegCache: rcDec, Cache: new(sync.Map)}
 
 	// forward: encode V2 (cache id), retarget the id to V1, decode as V1: C skipped.

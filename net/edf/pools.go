@@ -27,6 +27,7 @@ func getPooledStateEncode(options Options) *stateEncode {
 	state.child = nil
 	state.depth = 0
 	state.encodeType = false
+	state.pending = false
 	state.options = options
 	return state
 }

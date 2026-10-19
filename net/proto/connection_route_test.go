@@ -194,30 +194,6 @@ func TestRouteApplicationInfo(t *testing.T) {
 	check.True(t, called)
 }
 
-// A cache update from the peer lands in the connection's decode caches.
-func TestRouteUpdateCache(t *testing.T) {
-	core := mock.NewCoreT(t)
-	rc := &connection{
-		peer:          "peer@localhost",
-		peer_creation: testPeerCreation,
-		core:          core,
-		log:           mock.NewLog(),
-		encodeOptions: edf.Options{Registry: testRegistry, Cache: new(sync.Map)},
-		decodeOptions: edf.Options{
-			Registry:    testRegistry,
-			AtomCache:   new(sync.Map),
-			AtomMapping: new(sync.Map),
-			RegCache:    new(sync.Map),
-			ErrCache:    new(sync.Map),
-		},
-	}
-	rc.routeMessage(MessageUpdateCache{AtomCache: map[uint16]gen.Atom{7: "hello"}, Ref: aliveRef})
-
-	v, ok := rc.decodeOptions.AtomCache.Load(uint16(7))
-	check.True(t, ok)
-	check.Equal(t, gen.Atom("hello"), v.(gen.Atom))
-}
-
 // An unsupported message type is logged and dropped, not routed.
 func TestRouteUnsupportedTypeIgnored(t *testing.T) {
 	rc, core := newRouteConn(t)

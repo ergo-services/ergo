@@ -3617,8 +3617,6 @@ func TestDecodeRegArrayRegArray(t *testing.T) {
 
 func TestRoundTripGenErrorSingleWrap(t *testing.T) {
 	marker := errors.New("payment declined")
-	encCache := new(sync.Map)
-	encCache.Store(marker, uint16(0x8005))
 	decCache := new(sync.Map)
 	decCache.Store(uint16(0x8005), marker)
 
@@ -3626,7 +3624,7 @@ func TestRoundTripGenErrorSingleWrap(t *testing.T) {
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
-	if err := Encode(src, b, Options{ErrCache: encCache, WrappedErrorsSupported: true}); err != nil {
+	if err := Encode(src, b, cachedIDs(t, Options{WrappedErrorsSupported: true}, map[any]uint16{marker: 0x8005})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3652,9 +3650,6 @@ func TestRoundTripGenErrorSingleWrap(t *testing.T) {
 func TestRoundTripGenErrorNested(t *testing.T) {
 	mA := errors.New("restart intensity exceeded")
 	mB := errors.New("payment declined")
-	encCache := new(sync.Map)
-	encCache.Store(mA, uint16(0x8005))
-	encCache.Store(mB, uint16(0x8006))
 	decCache := new(sync.Map)
 	decCache.Store(uint16(0x8005), mA)
 	decCache.Store(uint16(0x8006), mB)
@@ -3664,7 +3659,7 @@ func TestRoundTripGenErrorNested(t *testing.T) {
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
-	if err := Encode(outer, b, Options{ErrCache: encCache, WrappedErrorsSupported: true}); err != nil {
+	if err := Encode(outer, b, cachedIDs(t, Options{WrappedErrorsSupported: true}, map[any]uint16{mA: 0x8005, mB: 0x8006})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3689,8 +3684,6 @@ func TestRoundTripGenErrorNested(t *testing.T) {
 
 func TestRoundTripGenErrorNilWrappedEntry(t *testing.T) {
 	marker := errors.New("m")
-	encCache := new(sync.Map)
-	encCache.Store(marker, uint16(0x8007))
 	decCache := new(sync.Map)
 	decCache.Store(uint16(0x8007), marker)
 
@@ -3698,7 +3691,7 @@ func TestRoundTripGenErrorNilWrappedEntry(t *testing.T) {
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
-	if err := Encode(src, b, Options{ErrCache: encCache, WrappedErrorsSupported: true}); err != nil {
+	if err := Encode(src, b, cachedIDs(t, Options{WrappedErrorsSupported: true}, map[any]uint16{marker: 0x8007})); err != nil {
 		t.Fatal(err)
 	}
 
@@ -3772,8 +3765,6 @@ func TestRoundTripUserStructWithGenErrorValue(t *testing.T) {
 	}
 
 	marker := errors.New("oops")
-	encCache := new(sync.Map)
-	encCache.Store(marker, uint16(0x8009))
 	decCache := new(sync.Map)
 	decCache.Store(uint16(0x8009), marker)
 
@@ -3784,7 +3775,7 @@ func TestRoundTripUserStructWithGenErrorValue(t *testing.T) {
 
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
-	if err := Encode(src, b, Options{ErrCache: encCache, WrappedErrorsSupported: true}); err != nil {
+	if err := Encode(src, b, cachedIDs(t, Options{WrappedErrorsSupported: true}, map[any]uint16{marker: 0x8009})); err != nil {
 		t.Fatal(err)
 	}
 

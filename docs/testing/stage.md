@@ -62,6 +62,27 @@ Two smaller things in that test are worth naming. The nodes were never explicitl
 
 This egress/ingress split is the half that [unit](unit.md) cannot show. A mock node has no real delivery to observe, so unit records only egress, and you assert an actor's reaction to an input you fed it. On a live node the delivery is real, so stage records the ingress directly - which is why the ingress assertions `ShouldDeliver`, `ShouldReceiveDown`, and `ShouldReceiveEvent` live here and not there.
 
+### Log Lines, and What an Actor Does Through Its Node
+
+Two more kinds of record land in a stage journal, and both come from the real thing rather than a stand-in.
+
+Every stage node runs a recording logger, so `ShouldLog` works against the real logging pipeline, structured fields included. Being the real pipeline has two consequences. A line below the node's log level never reaches the recorder, so raise the level when a test asserts on debug output:
+
+```go
+n := s.StartNode("worker", stage.NodeOptions{LogLevel: gen.LogLevelDebug})
+```
+
+And a process that pins its output to one named logger with `Log().SetLogger` leaves the fan-out, exactly as it would in production, so its lines stop being recorded.
+
+What an actor does through `Node()` is recorded as well: starting and stopping an application, loading and unloading one, killing a process, registering a name, adding or toggling a cron job. The actor's `Node()` is a recording wrapper around the live node, so the call itself is real and only the observation is added:
+
+```go
+n.ShouldApplicationStart().From(pid).Name("orders").Once().Within(time.Second).Must()
+n.ShouldKill().From(pid).Target(worker).Once().Within(time.Second).Must()
+```
+
+`n.Native()` stays the bare node, for the test's own driving.
+
 ## Waiting for Live Results
 
 You have seen `Within` on every cross-node assertion, and the reason is the trade we started with: the runtime is concurrent, so a happening you expect may not be recorded yet when you assert. `Within` turns the assertion into a bounded wait. A positive assertion - `Once`, `Times`, `AtLeast` - succeeds the instant its condition is met, so the wait usually costs only the real latency of the action.
@@ -104,7 +125,7 @@ n.ShouldReceiveDown().To(w).About(target).Reason(gen.TerminateReasonKill).
     Once().Within(time.Second).Must()                                      // ingress: the watcher's Down
 ```
 
-The same principle draws the line between stage and unit for two more things. A `SendAfter` timer is not recorded as a scheduled action - it fires for real, and you observe the resulting send or delivery once it does. And the node logger is turned off in a stage, so there are no log records to assert on. A termination reason on its own, a scheduled-send record, a log line: those are facts a harness has to synthesize, and synthesizing is unit's job. Stage shows you only what genuinely happened.
+The same principle draws the line for a `SendAfter` timer. It is not recorded as a scheduled action: it fires for real, and you observe the resulting send or delivery once it does. A termination reason on its own and a scheduled-send record are facts a harness has to synthesize, and synthesizing is unit's job. Stage shows you only what genuinely happened.
 
 ## Connecting on Purpose
 
@@ -159,7 +180,7 @@ To test against a real backend, set `StageOptions.Registrar` to a factory - etcd
 
 ## Configuring Nodes and Clusters
 
-`stage.NodeOptions` carries what a real node needs: `Applications` to load, `Env`, a `Cookie`, the network knobs (`MaxMessageSize`, `FragmentSize`, `NetworkFlags`, `PoolSize`, `Mode`), and `Security`.
+`stage.NodeOptions` carries what a real node needs: `Applications` to load, `Env`, a `Cookie`, `LogLevel`, `ShutdownDrain`, the network knobs (`MaxMessageSize`, `FragmentSize`, `NetworkFlags`, `PoolSize`, `Mode`), and `Security`.
 
 Two of those model shapes you cannot reach otherwise. `Mode: gen.NetworkModeHidden` gives a node that dials out but runs no acceptor - a node behind NAT, which peers cannot dial back, and the only way to test that asymmetry. `PoolSize` sets the number of TCP connections per peer, which is what a test about per-sender ordering or a degraded pool needs. There is also `DisableSystemManage`, which keeps the system application's mutating plane down, modelling a node whose state nothing may change from outside.
 
@@ -176,6 +197,6 @@ For more than two nodes, `s.ConnectMesh(nodes...)` connects every pair at once -
 
 ## Choosing Between Unit and Stage
 
-[Unit](unit.md) freezes one actor against a mock node and reads a snapshot: it is fast, fully deterministic, and it models the things stage leaves to the real runtime - termination reasons, scheduled sends, log lines. Stage runs the real system and observes it live: it is the only way to test supervision and restarts, links and monitors across nodes, cross-node messaging, remote spawn, service discovery, and disconnects, and it pays for that with concurrency you wait on rather than control.
+[Unit](unit.md) freezes one actor against a mock node and reads a snapshot: it is fast, fully deterministic, and it models the things stage leaves to the real runtime - termination reasons and scheduled sends. Stage runs the real system and observes it live: it is the only way to test supervision and restarts, links and monitors across nodes, cross-node messaging, remote spawn, service discovery, and disconnects, and it pays for that with concurrency you wait on rather than control.
 
 A healthy suite uses both, and the division is clean. Test an actor's decision logic - what it does with a message, how it reacts to a failure, what it spawns - in `unit`, where most of your tests should live. Reserve `stage` for behavior that only emerges when the runtime, the network, and more than one node are all real. Both speak the same assertion grammar, [check](check.md), so a test reads the same whichever layer it runs on.

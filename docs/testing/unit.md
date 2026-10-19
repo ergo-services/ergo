@@ -40,6 +40,7 @@ sub.ShouldSend().To(client).Message("pong").Once().Assert()
 | `DeliverEvent` / `DeliverRegistrarEvent` | `HandleEvent` |
 | `DeliverLog` | `HandleLog` (actor registered as a logger) |
 | `DeliverSpan` | `HandleSpan` (actor registered as a tracing exporter) |
+| `DeliverResponse` / `ExpireRequest` | `HandleResponse`: the answer to a request the actor made with `SendRequest`, or that request's deadline |
 | `Inspect` | `HandleInspect`, returning the reported map |
 | `Drain` / `Step` | messages the actor sent to itself: the whole chain, or one hop |
 | `FireTimers` | scheduled `SendAfter` and `SendEvery` messages whose target is the actor |
@@ -211,4 +212,4 @@ The meta's outbound calls are stubbed on its own scope, not the parent's: `m.OnS
 
 ## Choosing Between Unit and Stage
 
-Use `unit` when the thing under test is one actor's decision logic - what it does with a message, how it handles a failure, what it spawns. It is fast, fully deterministic, and it models what stage leaves to the real runtime: termination reasons, scheduled timers, log lines. Most of a suite's tests belong here. When the behavior under test only emerges from the real runtime - supervision and restarts, links and monitors across nodes, cross-node messaging, remote spawn, disconnects - move up to [stage](stage.md). Both speak the same grammar, [check](check.md), so a test reads the same on either.
+Use `unit` when the thing under test is one actor's decision logic - what it does with a message, how it handles a failure, what it spawns. It is fast, fully deterministic, and it models what stage leaves to the real runtime: termination reasons and scheduled timers. Most of a suite's tests belong here. When the behavior under test only emerges from the real runtime - supervision and restarts, links and monitors across nodes, cross-node messaging, remote spawn, disconnects - move up to [stage](stage.md). Both speak the same grammar, [check](check.md), so a test reads the same on either.

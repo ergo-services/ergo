@@ -3,17 +3,21 @@ package edf
 import (
 	"io"
 	"sync"
+	"sync/atomic"
 )
 
 // Options for encoding/decoding
 type Options struct {
 	// Registry resolves types, errors and atoms. Nil means the framework types only.
 	Registry *Registry
+	// Revision is the registry revision the peer knows: cache ids up to it are
+	// encoded by id, newer ones in full. Nil encodes everything in full.
+	Revision *atomic.Uint64
 
-	AtomCache   *sync.Map // atom => id (encoding), id => atom (decoding)
+	AtomCache   *sync.Map // id => atom (decoding)
 	AtomMapping *sync.Map // atomX => atomY (encoding/decoding)
-	RegCache    *sync.Map // type/name => id (encoding), id => type (for decoding)
-	ErrCache    *sync.Map // error => id (for encoder), id => error (for decoder)
+	RegCache    *sync.Map // id => type name (decoding)
+	ErrCache    *sync.Map // id => error (decoding)
 	Cache       *sync.Map // common cache (caching reflect.Type => encoder, string([]byte) => decoder)
 	MaxDepth    int       // max encoding depth for pointers (default 100)
 	// WrappedErrorsSupported: peer supports *gen.Error wrapped wire format.

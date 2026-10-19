@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sync"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -27,9 +28,41 @@ type stateEncode struct {
 	depth int
 
 	encodeType bool
+	pending    bool
 
 	options Options
 	encoder encoder
+}
+
+func (s *stateEncode) regPrefix(t reflect.Type) ([]byte, bool) {
+	if s.options.Revision == nil {
+		return nil, false
+	}
+	v, found := s.options.Registry.regCache.Load(t)
+	if found == false {
+		return nil, false
+	}
+	e := v.(regEntry)
+	if e.rev > s.options.Revision.Load() {
+		s.pending = true
+		return nil, false
+	}
+	return e.prefix, true
+}
+
+func (s *stateEncode) cacheID(cache *sync.Map, key any) (uint16, bool) {
+	if s.options.Revision == nil {
+		return 0, false
+	}
+	v, found := cache.Load(key)
+	if found == false {
+		return 0, false
+	}
+	e := v.(cacheEntry)
+	if e.rev > s.options.Revision.Load() {
+		return 0, false
+	}
+	return e.id, true
 }
 
 // Encode
@@ -70,41 +103,24 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			return v.(*encoder), nil
 		}
 	}
+	pending := state.pending
+	state.pending = false
+	enc, err := makeEncoder(t, state)
+	if err == nil && state.pending == false && state.options.Cache != nil {
+		state.options.Cache.Store(t, enc)
+	}
+	state.pending = state.pending || pending
+	return enc, err
+}
 
+func makeEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 	// try to find by the type
 	if v, found := state.options.Registry.encoders.Load(t); found {
 		enc := v.(*encoder)
-
-		if state.options.RegCache == nil {
-			if state.options.Cache == nil {
-				return enc, nil
-			}
-			// store it in the cache
-			state.options.Cache.Store(t, v)
-			return enc, nil
+		if prefix, ok := state.regPrefix(t); ok {
+			// use cache ID (3 bytes only) instead of the full name
+			return cachedEncoder(enc, prefix), nil
 		}
-
-		// check if this type is a registered one.
-		if v, found := state.options.RegCache.Load(t); found {
-			cachedenc := &encoder{
-				Prefix: v.([]byte), // use cache ID (3 bytes only) instead of the full name
-				Encode: enc.Encode,
-				Info:   enc.Info,
-			}
-			if state.options.Cache == nil {
-				return cachedenc, nil
-			}
-			// store encoder with cached prefix in the cache
-			state.options.Cache.Store(t, cachedenc)
-			return cachedenc, nil
-		}
-
-		if state.options.Cache == nil {
-			return enc, nil
-		}
-
-		// store it in the cache
-		state.options.Cache.Store(t, v)
 		return enc, nil
 	}
 
@@ -121,17 +137,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 		}
 
 		keyPrefix := encKey.Prefix
-		if state.options.RegCache != nil {
-			if v, found := state.options.RegCache.Load(t.Key()); found {
-				keyPrefix = v.([]byte)
-			}
-		}
 		itemPrefix := encItem.Prefix
-		if state.options.RegCache != nil {
-			if v, found := state.options.RegCache.Load(t.Elem()); found {
-				itemPrefix = v.([]byte)
-			}
-		}
 
 		prefix := append([]byte{edtMap}, keyPrefix...)
 		prefix = append(prefix, itemPrefix...)
@@ -179,10 +185,6 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			Encode: fenc,
 		}
 
-		if state.options.Cache != nil {
-			state.options.Cache.Store(t, enc)
-		}
-
 		return enc, nil
 
 	case reflect.Slice:
@@ -192,11 +194,6 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 		}
 
 		itemPrefix := encItem.Prefix
-		if state.options.RegCache != nil {
-			if v, found := state.options.RegCache.Load(t.Elem()); found {
-				itemPrefix = v.([]byte)
-			}
-		}
 		prefix := append([]byte{edtSlice}, itemPrefix...)
 		fenc := func(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 			if state.encodeType {
@@ -236,9 +233,6 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			Prefix: prefix,
 			Encode: fenc,
 		}
-		if state.options.Cache != nil {
-			state.options.Cache.Store(t, enc)
-		}
 		return enc, nil
 
 	case reflect.Array:
@@ -248,11 +242,6 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 		}
 
 		itemPrefix := encItem.Prefix
-		if state.options.RegCache != nil {
-			if v, found := state.options.RegCache.Load(t.Elem()); found {
-				itemPrefix = v.([]byte)
-			}
-		}
 
 		l := t.Len()
 		if l > math.MaxUint32 {
@@ -289,9 +278,6 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 			Prefix: prefix,
 			Encode: fenc,
 		}
-		if state.options.Cache != nil {
-			state.options.Cache.Store(t, enc)
-		}
 		return enc, nil
 
 	case reflect.Pointer:
@@ -307,11 +293,6 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 		}
 
 		elemPrefix := encElem.Prefix
-		if state.options.RegCache != nil {
-			if v, found := state.options.RegCache.Load(elemType); found {
-				elemPrefix = v.([]byte)
-			}
-		}
 		prefix := append([]byte{edtPtr}, elemPrefix...)
 
 		fenc := func(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
@@ -347,9 +328,6 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 		enc := &encoder{
 			Prefix: prefix,
 			Encode: fenc,
-		}
-		if state.options.Cache != nil {
-			state.options.Cache.Store(t, enc)
 		}
 		return enc, nil
 	}
@@ -719,15 +697,10 @@ func encodeError(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 		return nil
 	}
 
-	if state.options.ErrCache != nil {
-		if x, found := state.options.ErrCache.Load(err); found {
-			id := x.(uint16)
-			if id > math.MaxInt16 {
-				buf := b.Extend(2)
-				binary.BigEndian.PutUint16(buf, id)
-				return nil
-			}
-		}
+	if id, ok := state.cacheID(&state.options.Registry.errCache, err); ok && id > math.MaxInt16 {
+		buf := b.Extend(2)
+		binary.BigEndian.PutUint16(buf, id)
+		return nil
 	}
 
 	estr := err.Error()
@@ -752,16 +725,11 @@ func writeAtom(atom gen.Atom, b *lib.Buffer, state *stateEncode) {
 		}
 	}
 
-	if state.options.AtomCache != nil {
-		if x, found := state.options.AtomCache.Load(atom); found {
-			id := x.(uint16)
-			// atom cache id MUST be > 255, otherwise encode as a regular atom
-			if id > 255 {
-				buf := b.Extend(2)
-				binary.BigEndian.PutUint16(buf, id)
-				return
-			}
-		}
+	// atom cache id MUST be > 255, otherwise encode as a regular atom
+	if id, ok := state.cacheID(&state.options.Registry.atomCache, atom); ok && id > 255 {
+		buf := b.Extend(2)
+		binary.BigEndian.PutUint16(buf, id)
+		return
 	}
 
 	lenAtom := len(atom)

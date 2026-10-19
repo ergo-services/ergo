@@ -62,6 +62,27 @@ sub.ShouldSpawn().Factory(factoryWorker).Times(3).Assert()
 sub.ShouldLog().Level(gen.LogLevelError).Containing("timeout").Once().Assert()
 ```
 
+A request carries the options it was sent with, so a call narrows on them too:
+
+```go
+sub.ShouldCall().To(gen.Atom("db")).Important(true).Timeout(5).Once().Assert()
+```
+
+A log line is more than its text. Structured fields are part of the record and are matched like any other field: `WithField` takes a name and a value, `WithFieldName` only asks whether the field is there at all, and `WithFields` requires every pair listed.
+
+```go
+sub.ShouldLog().Containing("order placed").WithField("order_id", 42).Once().Assert()
+sub.ShouldLog().Containing("payment complete").WithFieldName("operation").None().Assert()
+```
+
+The second line is how you check that a field scope was closed: after `PopFields` the field is gone from every later line, and a negative assertion is the way to say so. `Format` matches the format string as written, before the arguments are substituted, which pins the logging call itself rather than one of its renderings:
+
+```go
+sub.ShouldLog().Format("handled %d messages").Times(3).Assert()
+```
+
+A line need not come from the actor. `FromMeta` selects the ones a given meta process wrote, `FromNode` the ones the node itself wrote.
+
 Where an action can fail, `Error` matches an exact error and `ErrorIs` matches a wrapped one:
 
 ```go
@@ -86,6 +107,20 @@ Because the chain is uniform, the assertions you have not met yet read exactly l
 ```go
 sub.ShouldTerminate().Abnormally().Once().Assert() // crashed, panicked, killed, or errored
 sub.ShouldTerminate().None().Assert()              // still running
+```
+
+An actor also acts through its node, and those actions are records of their own: starting, stopping, loading and unloading an application, killing a process, registering and unregistering a name, enabling and disabling a cron job. Each has its builder, filtered by its own fields:
+
+```go
+sub.ShouldApplicationStart().Name("orders").Mode(gen.ApplicationModeTemporary).Once().Assert()
+sub.ShouldRegisterName().Name("primary").Once().Assert()
+sub.ShouldKill().Target(worker).None().Assert()
+```
+
+A request made without blocking is recorded when it is sent, not when it is answered, and `ShouldSendRequest` selects it. Among its filters are `Label` and `Ref`, the two values that tie an answer back to the request that asked, so a fan-out of requests is assertable before any answer has come back:
+
+```go
+sub.ShouldSendRequest().To(gen.Atom("pricing")).Label("eur").Once().Assert()
 ```
 
 On a live node the ingress records become assertions too - `ShouldDeliver` for a message that arrived, `ShouldReceiveDown` and `ShouldReceiveExit` for the notifications a monitor or link delivers, `ShouldReceiveEvent` for a subscribed event. They read with the same chain, with filters for their own fields (`About` and `Reason` on a down, for instance), and they belong to [stage](stage.md), where delivery is real:

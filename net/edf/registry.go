@@ -15,6 +15,7 @@ import (
 // Registry holds the types, errors and atoms EDF can encode and decode, with
 // their cache ids. A new registry has the built-in and framework ones.
 // Registries are independent: a type registered in one is unknown to another.
+// Each published cache id takes the next revision of the registry.
 type Registry struct {
 	encoders sync.Map
 	decoders sync.Map
@@ -23,12 +24,68 @@ type Registry struct {
 	typesByName     sync.Map // registered name -> reflect.Type, for LookupType.
 	registerOrder   atomic.Uint64
 
+	regCache  sync.Map // reflect.Type -> regEntry, uint16 -> type name
+	errCache  sync.Map // error -> cacheEntry
+	slots     sync.Map // error text -> *errorSlot
+	atomCache sync.Map // gen.Atom -> cacheEntry
+
+	mu          sync.Mutex
 	regCacheID  uint32
-	regCache    sync.Map
 	errCacheID  uint32
-	errCache    sync.Map
 	atomCacheID uint32
-	atomCache   sync.Map
+	log         []published
+	revision    atomic.Uint64
+}
+
+type regEntry struct {
+	prefix []byte
+	rev    uint64
+}
+
+type cacheEntry struct {
+	id  uint16
+	rev uint64
+}
+
+type errorSlot struct {
+	local atomic.Pointer[error]
+}
+
+// RemoteError is an error received from a peer. It resolves to the local
+// sentinel with the same text, registered now or later.
+type RemoteError struct {
+	remote error
+	slot   *errorSlot
+}
+
+// Value returns the local sentinel if it is registered, the received error otherwise.
+func (e RemoteError) Value() error {
+	if p := e.slot.local.Load(); p != nil {
+		return *p
+	}
+	return e.remote
+}
+
+const (
+	publishedType = iota
+	publishedAtom
+	publishedError
+)
+
+type published struct {
+	kind int
+	id   uint16
+	name string
+	err  error
+}
+
+// Dictionary is what a peer learns from a registry: cache ids with their
+// type names, atoms and errors, up to Revision.
+type Dictionary struct {
+	Revision uint64
+	Types    map[uint16]string
+	Atoms    map[uint16]gen.Atom
+	Errors   map[uint16]error
 }
 
 var defaultRegistry *Registry
@@ -135,10 +192,11 @@ func (r *Registry) RegisteredTypes() []gen.RegisteredTypeInfo {
 func (r *Registry) RegisteredErrors() []gen.RegisteredErrorInfo {
 	var list []gen.RegisteredErrorInfo
 	r.errCache.Range(func(k, v any) bool {
-		id, ok := v.(uint16)
+		entry, ok := v.(cacheEntry)
 		if ok == false {
 			return true
 		}
+		id := entry.id
 		e, ok := k.(error)
 		if ok == false {
 			return true
@@ -156,10 +214,11 @@ func (r *Registry) RegisteredErrors() []gen.RegisteredErrorInfo {
 func (r *Registry) RegisteredAtoms() []gen.RegisteredAtomInfo {
 	var list []gen.RegisteredAtomInfo
 	r.atomCache.Range(func(k, v any) bool {
-		id, ok := v.(uint16)
+		entry, ok := v.(cacheEntry)
 		if ok == false {
 			return true
 		}
+		id := entry.id
 		a, ok := k.(gen.Atom)
 		if ok == false {
 			return true
@@ -189,98 +248,118 @@ func (r *Registry) LookupType(name string) (reflect.Type, bool) {
 	return nil, false
 }
 
-// GetRegCache returns the type cache: cache id -> type name.
-func (r *Registry) GetRegCache() map[uint16]string {
-	cache := make(map[uint16]string)
-	r.regCache.Range(func(k, v any) bool {
-		id, ok := k.(uint16)
-		if ok == false {
-			return true
-		}
-		cache[id] = v.(string)
-		return true
-	})
-	if len(cache) == 0 {
-		return nil
+// Since returns the entries published after revision rev. Since(0) is the
+// whole dictionary.
+func (r *Registry) Since(rev uint64) Dictionary {
+	r.mu.Lock()
+	log := r.log
+	r.mu.Unlock()
+
+	d := Dictionary{Revision: uint64(len(log))}
+	if rev >= d.Revision {
+		return d
 	}
-	return cache
+	for _, p := range log[rev:] {
+		switch p.kind {
+		case publishedType:
+			if d.Types == nil {
+				d.Types = make(map[uint16]string)
+			}
+			d.Types[p.id] = p.name
+		case publishedAtom:
+			if d.Atoms == nil {
+				d.Atoms = make(map[uint16]gen.Atom)
+			}
+			d.Atoms[p.id] = gen.Atom(p.name)
+		case publishedError:
+			if d.Errors == nil {
+				d.Errors = make(map[uint16]error)
+			}
+			d.Errors[p.id] = p.err
+		}
+	}
+	return d
 }
 
-// MakeEncodeRegTypeCache returns the encoding cache for the named types.
-func (r *Registry) MakeEncodeRegTypeCache(names []string) *sync.Map {
-	mapnames := make(map[string]bool)
-	for _, name := range names {
-		mapnames[name] = true
-	}
-	if len(mapnames) == 0 {
-		return nil
-	}
-	cache := new(sync.Map)
-	r.regCache.Range(func(k, v any) bool {
-		t, ok := k.(reflect.Type)
-		if ok == false {
-			return true
-		}
-		if _, found := mapnames[regTypeName(t)]; found == false {
-			return true
-		}
-		cache.Store(t, v)
-		return true
-	})
-	return cache
+// Revision returns the revision of the last published cache id.
+func (r *Registry) Revision() uint64 {
+	return r.revision.Load()
 }
 
-// GetErrCache returns the error cache: cache id -> error.
-func (r *Registry) GetErrCache() map[uint16]error {
-	cache := make(map[uint16]error)
-	r.errCache.Range(func(k, v any) bool {
-		if id, ok := v.(uint16); ok {
-			cache[id] = k.(error)
-		}
-		return true
-	})
-	if len(cache) == 0 {
-		return nil
+// Sentinel returns the registered error with the given text.
+func (r *Registry) Sentinel(text string) (error, bool) {
+	v, found := r.slots.Load(text)
+	if found == false {
+		return nil, false
 	}
-	return cache
+	if p := v.(*errorSlot).local.Load(); p != nil {
+		return *p, true
+	}
+	return nil, false
 }
 
-// GetAtomCache returns the atom cache: cache id -> atom.
-func (r *Registry) GetAtomCache() map[uint16]gen.Atom {
-	cache := make(map[uint16]gen.Atom)
-	r.atomCache.Range(func(k, v any) bool {
-		id, ok := v.(uint16)
-		if ok == false {
-			return true
-		}
-		cache[id] = k.(gen.Atom)
-		return true
-	})
-	if len(cache) == 0 {
-		return nil
+// RemoteError binds an error received from a peer to the local sentinel with its text.
+func (r *Registry) RemoteError(err error) RemoteError {
+	return RemoteError{remote: err, slot: r.slot(err.Error())}
+}
+
+func (r *Registry) slot(text string) *errorSlot {
+	if v, found := r.slots.Load(text); found {
+		return v.(*errorSlot)
 	}
-	return cache
+	v, _ := r.slots.LoadOrStore(text, &errorSlot{})
+	return v.(*errorSlot)
+}
+
+func (r *Registry) commit(p published, rev uint64) {
+	r.log = append(r.log, p)
+	r.revision.Store(rev)
 }
 
 func (r *Registry) addErrCache(e error) error {
 	if _, ok := e.(*gen.Error); ok {
 		return fmt.Errorf("cannot register *gen.Error: register markers (errors.New) and construct wrap chains via gen.Errorf")
 	}
-	id := atomic.AddUint32(&r.errCacheID, 1)
+	if len(e.Error()) > math.MaxInt16 {
+		return ErrErrorTooLong
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exist := r.errCache.Load(e); exist {
+		return nil
+	}
+	id := r.errCacheID + 1
 	// 0xFFFF reserved for nil error, 0xFFFE reserved for wrapped *gen.Error marker.
 	if id > math.MaxUint16-2 {
 		return fmt.Errorf("too many registered errors")
 	}
-	r.errCache.LoadOrStore(e, uint16(id))
+	r.errCacheID = id
+	rev := uint64(len(r.log)) + 1
+	r.errCache.Store(e, cacheEntry{uint16(id), rev})
+	if slot := r.slot(e.Error()); slot.local.Load() == nil {
+		slot.local.Store(&e)
+	}
+	r.commit(published{kind: publishedError, id: uint16(id), name: e.Error(), err: e}, rev)
 	return nil
 }
 
 func (r *Registry) addAtomCache(atom gen.Atom) error {
-	id := atomic.AddUint32(&r.atomCacheID, 1)
+	if len(atom) > 255 {
+		return ErrAtomTooLong
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exist := r.atomCache.Load(atom); exist {
+		return nil
+	}
+	id := r.atomCacheID + 1
 	// the last 1000 ids for the custom atoms
 	if id > math.MaxUint16-1000 {
 		return fmt.Errorf("too many registered atoms")
 	}
-	r.atomCache.LoadOrStore(atom, uint16(id))
+	r.atomCacheID = id
+	rev := uint64(len(r.log)) + 1
+	r.atomCache.Store(atom, cacheEntry{uint16(id), rev})
+	r.commit(published{kind: publishedAtom, id: uint16(id), name: string(atom)}, rev)
 	return nil
 }

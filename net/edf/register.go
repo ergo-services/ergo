@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"sync/atomic"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -30,6 +29,7 @@ type encoder struct {
 	// and built-in types; nil for ad-hoc composite encoders constructed
 	// in getEncoder for unregistered slice/map/array types.
 	Info *gen.RegisteredTypeInfo
+	raw  encodeFunc
 }
 
 func regTypeName(t reflect.Type) string {
@@ -1011,47 +1011,63 @@ func regEncoder(name string, enc encodeFunc) *encoder {
 
 	return &encoder{
 		Prefix: prefix,
+		raw:    enc,
 		Encode: func(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
-			var prev bool
 			if state.encodeType {
-				if state.options.RegCache != nil {
-					if v, found := state.options.RegCache.Load(value.Type()); found {
-						b.Append(v.([]byte))
-					} else {
-						b.Append(prefix)
-					}
-				} else {
-					b.Append(prefix)
+				if cached, ok := state.regPrefix(value.Type()); ok {
+					return withPrefix(cached, enc, value, b, state)
 				}
-
-				state.encodeType = false
-				prev = true
+				return withPrefix(prefix, enc, value, b, state)
 			}
-			err := enc(value, b, state)
-			state.encodeType = prev
-			if err != nil {
-				return err
-			}
-
-			return nil
+			return enc(value, b, state)
 		},
 	}
+}
+
+func cachedEncoder(enc *encoder, prefix []byte) *encoder {
+	raw := enc.raw
+	return &encoder{
+		Prefix: prefix,
+		Info:   enc.Info,
+		raw:    raw,
+		Encode: func(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
+			if state.encodeType {
+				return withPrefix(prefix, raw, value, b, state)
+			}
+			return raw(value, b, state)
+		},
+	}
+}
+
+func withPrefix(prefix []byte, enc encodeFunc, value reflect.Value, b *lib.Buffer, state *stateEncode) error {
+	b.Append(prefix)
+	state.encodeType = false
+	err := enc(value, b, state)
+	state.encodeType = true
+	return err
 }
 
 // addRegCache assigns a 16-bit cache id to a registered type. Returns an error
 // if the id space is exhausted (more than MaxUint16 registered types) or the
 // type is already cached.
 func (r *Registry) addRegCache(t reflect.Type) error {
-	id := atomic.AddUint32(&r.regCacheID, 1)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exist := r.regCache.Load(t); exist {
+		return gen.ErrTaken
+	}
+	id := r.regCacheID + 1
 	if id > math.MaxUint16 {
 		return fmt.Errorf("too many registered types")
 	}
+	r.regCacheID = id
 	reg := []byte{edtReg, 0, 0}
 	binary.BigEndian.PutUint16(reg[1:3], uint16(id))
 
-	if _, exist := r.regCache.LoadOrStore(t, reg); exist {
-		return gen.ErrTaken
-	}
-	r.regCache.Store(uint16(id), regTypeName(t))
+	name := regTypeName(t)
+	rev := uint64(len(r.log)) + 1
+	r.regCache.Store(t, regEntry{reg, rev})
+	r.regCache.Store(uint16(id), name)
+	r.commit(published{kind: publishedType, id: uint16(id), name: name}, rev)
 	return nil
 }

@@ -48,9 +48,11 @@ const (
 	protoMessageF byte = 202 // fragmented
 	protoMessageP byte = 203 // proxy
 	protoMessageT byte = 204 // tracing wrapper
+	protoMessageX byte = 205 // tunnel
 
 	protoMessageK byte = 208 // keepalive
 	protoMessageS byte = 209 // skew measurement
+	protoMessageC byte = 210 // cache update
 
 	// reserved space at the beginning of every message buffer
 	// for wrapping headers (tracing, proxy, etc.) without copying
@@ -186,18 +188,6 @@ type MessageApplicationInfo struct {
 	Ref  gen.Ref
 }
 
-// TODO
-// for updating cache
-//
-
-type MessageUpdateCache struct {
-	AtomCache   map[uint16]gen.Atom
-	AtomMapping map[gen.Atom]gen.Atom
-	RegCache    map[uint16]string
-	ErrCache    map[uint16]error
-	Ref         gen.Ref
-}
-
 //
 // result message for "any" requests (link/monitor/spawn etc...),
 //
@@ -232,6 +222,5 @@ var protoTypes = []any{
 	MessageSpawn{},
 	MessageApplicationStart{},
 	MessageApplicationInfo{},
-	MessageUpdateCache{},
 	MessageResult{},
 }

@@ -66,12 +66,10 @@ type ConnectionOptions struct {
 	PoolDSN  []string
 	TLS      bool
 
-	// Registry is the node registry the caches below are made of.
+	// Registry is the node registry; Revision is the part of it the peer
+	// learned in the handshake.
 	Registry *edf.Registry
-
-	EncodeAtomCache *sync.Map
-	EncodeRegCache  *sync.Map
-	EncodeErrCache  *sync.Map
+	Revision uint64
 
 	DecodeAtomCache *sync.Map
 	DecodeRegCache  *sync.Map

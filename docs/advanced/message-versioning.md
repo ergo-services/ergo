@@ -60,7 +60,7 @@ func (a *MyApp) Load(args ...any) (gen.ApplicationSpec, error) {
 }
 ```
 
-For dynamic registration (types resolved at runtime) the imperative `a.Node().Network().RegisterTypes(...)` from `Load` is also supported. For details on the type registry and the package-level `edf.RegisterTypeOf` API, see [Network Transparency](../networking/network-transparency.md).
+For dynamic registration (types resolved at runtime) the imperative `a.Node().Network().RegisterTypes(...)` from `Load` is also supported. For details on the type registry and registration after connections are established, see [Network Transparency](../networking/network-transparency.md#type-registration-timing).
 
 ## Versioning Strategies
 
