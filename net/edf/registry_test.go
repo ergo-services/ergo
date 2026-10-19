@@ -211,6 +211,31 @@ func TestRegistrySince(t *testing.T) {
 	}
 }
 
+type registryMinSize struct {
+	A int64
+	B registryRevA
+}
+
+// the minimal size counts every registered name as a cache id.
+func TestRegistryMinSize(t *testing.T) {
+	r := NewRegistry()
+	if err := r.RegisterType(registryRevA{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.RegisterType(registryMinSize{}); err != nil {
+		t.Fatal(err)
+	}
+	sizes := map[string]uint32{}
+	for _, info := range r.RegisteredTypes() {
+		sizes[info.Name] = info.MinSize
+	}
+	inner := sizes[regTypeName(reflect.TypeOf(registryRevA{}))]
+	outer := sizes[regTypeName(reflect.TypeOf(registryMinSize{}))]
+	if inner == 0 || outer != 3+8+(inner-3) {
+		t.Fatalf("unexpected minimal sizes %d, %d", inner, outer)
+	}
+}
+
 func TestRegistryEncodeByRevision(t *testing.T) {
 	r := NewRegistry()
 	if err := r.RegisterType(registryRevA{}); err != nil {

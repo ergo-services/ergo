@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"sync/atomic"
 	"time"
 
 	"ergo.services/ergo/gen"
@@ -974,7 +975,9 @@ func (r *Registry) measureZeroSize(t reflect.Type, kind string) (size uint32) {
 	}
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
-	if err := Encode(v, buf, Options{Registry: r, RegCache: &r.regCache}); err != nil {
+	var known atomic.Uint64
+	known.Store(math.MaxUint64)
+	if err := Encode(v, buf, Options{Registry: r, Revision: &known}); err != nil {
 		return fallback
 	}
 	return uint32(buf.Len())
