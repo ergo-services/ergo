@@ -126,16 +126,13 @@ func TestRegisterSelfReferenceIsRefused(t *testing.T) {
 	}
 }
 
-func TestRegisterPartsRegistersNamedScalars(t *testing.T) {
+func TestRegisterPartsRegistersNamedTypes(t *testing.T) {
 	if err := defaultRegistry.RegisterType(testPartsNamed{}); err != nil {
 		t.Fatalf("register: %s", err)
 	}
-	if _, found := defaultRegistry.LookupType(regTypeName(reflect.TypeOf(testPartsCode(0)))); found == false {
-		t.Error("a named scalar is not registered with the type that has it in a field")
-	}
-	for _, v := range []any{testPartsCodes{}, testPartsCounts{}} {
-		if _, found := defaultRegistry.LookupType(regTypeName(reflect.TypeOf(v))); found {
-			t.Errorf("%T is registered: a named slice or map goes as its underlying type", v)
+	for _, v := range []any{testPartsCode(0), testPartsCodes{}, testPartsCounts{}} {
+		if _, found := defaultRegistry.LookupType(regTypeName(reflect.TypeOf(v))); found == false {
+			t.Errorf("%T is not registered with the type that has it in a field", v)
 		}
 	}
 }

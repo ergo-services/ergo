@@ -49,40 +49,43 @@ func (r *Registry) checkRegistered(tov reflect.Type) (bool, error) {
 	return false, gen.ErrTaken
 }
 
-// registerParts registers the structs and the named scalars a field type is
-// made of, so registering a type registers the types of its fields. A named
-// slice, map or array is not registered: it goes as its underlying type.
+// registerParts registers the types a field type is made of, so registering a
+// type registers the types of its fields: the structs, the named scalars and
+// the named slices, maps and arrays. A pointer is not a type of its own here,
+// its element is.
 func (r *Registry) registerParts(t reflect.Type, visiting map[reflect.Type]bool) error {
 	switch t.Kind() {
 	case reflect.Interface, reflect.Chan, reflect.Func, reflect.UnsafePointer:
 		return nil
-	}
-	switch t.Kind() {
-	case reflect.Map, reflect.Slice, reflect.Array, reflect.Pointer:
-	default:
-		if t.PkgPath() == "" {
-			return nil
-		}
-		if _, found := r.encoders.Load(t); found {
-			return nil
-		}
-		if visiting[t] {
-			return nil
-		}
-		if err := r.registerTypeOf(t, visiting); err != nil {
-			return fmt.Errorf("%s: %s", regTypeName(t), err)
-		}
-		return nil
-	}
-	switch t.Kind() {
+
+	case reflect.Pointer:
+		return r.registerParts(t.Elem(), visiting)
+
 	case reflect.Map:
 		if err := r.registerParts(t.Key(), visiting); err != nil {
 			return err
 		}
-		return r.registerParts(t.Elem(), visiting)
+		if err := r.registerParts(t.Elem(), visiting); err != nil {
+			return err
+		}
 
-	case reflect.Slice, reflect.Array, reflect.Pointer:
-		return r.registerParts(t.Elem(), visiting)
+	case reflect.Slice, reflect.Array:
+		if err := r.registerParts(t.Elem(), visiting); err != nil {
+			return err
+		}
+	}
+
+	if t.PkgPath() == "" {
+		return nil
+	}
+	if _, found := r.encoders.Load(t); found {
+		return nil
+	}
+	if visiting[t] {
+		return nil
+	}
+	if err := r.registerTypeOf(t, visiting); err != nil {
+		return fmt.Errorf("%s: %s", regTypeName(t), err)
 	}
 	return nil
 }
