@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"encoding/binary"
 	"sync"
 	"testing"
 
@@ -102,5 +103,35 @@ func TestRecvUnknownTypeIgnored(t *testing.T) {
 	frame := make([]byte, 20)
 	frame[7] = 255 // no such message type
 	feedFrame(rc, frame)
+	core.ShouldDeliver().None().Assert()
+}
+
+// wrapT puts a frame into a tracing wrapper.
+func wrapT(frame []byte) []byte {
+	out := make([]byte, 32, 32+len(frame))
+	out[0], out[1] = protoMagic, protoVersion
+	binary.BigEndian.PutUint32(out[2:6], uint32(32+len(frame)))
+	out[7] = protoMessageT
+	return append(out, frame...)
+}
+
+// a message is delivered through nested wrappers up to the limit and dropped
+// beyond it.
+func TestRecvWrapperNesting(t *testing.T) {
+	tc := newTestConn(t, gen.NetworkFlags{})
+	check.NoError(t, tc.c.SendPID(localPID(5), peerPID(9), gen.MessageOptions{}, "nested"))
+	frame := tc.readRawFrame(t)
+
+	within := frame
+	for i := 0; i < maxMessageWrappers-1; i++ {
+		within = wrapT(within)
+	}
+	rc, core := newRecvConn(t)
+	feedFrame(rc, within)
+	core.ShouldDeliver().From(senderPID(5)).Message("nested").Once().Assert()
+
+	beyond := wrapT(within)
+	rc, core = newRecvConn(t)
+	feedFrame(rc, beyond)
 	core.ShouldDeliver().None().Assert()
 }

@@ -211,3 +211,43 @@ func TestSendFragmentedRefusesTooManyFragments(t *testing.T) {
 	buf.Allocate(16*maxFragmentCount + 1)
 	check.Equal(t, gen.ErrTooLarge, c.sendFragmented(buf, 0, 0))
 }
+
+// a late fragment cannot complete an expired assembly, on either path.
+func TestHandleFragmentLateExpired(t *testing.T) {
+	c := newFragConn(16)
+	asm := map[uint32]*fragmentAssembly{}
+	check.Nil(t, c.handleFragmentOrdered(fragBuf(1, 0, 2, "a"), asm))
+	asm[1].deadline = time.Now().Add(-time.Second)
+	check.Nil(t, c.handleFragmentOrdered(fragBuf(1, 1, 2, "b"), asm))
+	check.Equal(t, 0, len(asm))
+
+	check.Nil(t, c.handleFragmentUnordered(fragBuf(2, 0, 2, "a")))
+	c.sharedFragments[2].deadline = time.Now().Add(-time.Second)
+	check.Nil(t, c.handleFragmentUnordered(fragBuf(2, 1, 2, "b")))
+	check.Equal(t, 0, len(c.sharedFragments))
+	check.Equal(t, uint64(2), c.fragmentTimeouts.Load())
+}
+
+// an expired ordered assembly goes even while its queue does not drain.
+func TestRecvExpiresFragmentsOnBusyQueue(t *testing.T) {
+	rc, _ := newRecvConn(t)
+	rc.fragmentation = true
+	rc.fragmentTimeout = time.Minute
+	stale := map[uint32]*fragmentAssembly{7: {totalFragments: 2, deadline: time.Now().Add(-time.Second)}}
+	rc.orderedFragments = []map[uint32]*fragmentAssembly{stale}
+
+	q := lib.NewQueueMPSC()
+	for i := 0; i < 64; i++ {
+		buf := lib.TakeBuffer()
+		buf.B = append(buf.B, protoMagic, protoVersion, 0, 0, 0, 8, 0, 0)
+		q.Push(buf)
+	}
+	// the next fragment of seq 7 opens a new assembly: the stale one is gone already
+	next := fragBuf(7, 0, 2, "a")
+	next.B[6] = 1
+	q.Push(next)
+	rc.handleRecvQueue(q, 0)
+	check.Equal(t, 1, len(stale))
+	check.Equal(t, uint16(1), stale[7].received)
+	check.Equal(t, uint64(1), rc.fragmentTimeouts.Load())
+}

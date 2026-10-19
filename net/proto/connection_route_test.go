@@ -24,6 +24,7 @@ func newRouteConn(t *testing.T) (*connection, *mock.Core) {
 		peer_creation: testPeerCreation,
 		core:          core,
 		log:           mock.NewLog(),
+		registry:      testRegistry,
 		encodeOptions: edf.Options{Registry: testRegistry, Cache: new(sync.Map)},
 		requests:      make(map[gen.Ref]chan MessageResult),
 	}

@@ -1,6 +1,7 @@
 package handshake
 
 import (
+	"reflect"
 	"sync"
 
 	"ergo.services/ergo/gen"
@@ -87,7 +88,10 @@ type ConnectionOptions struct {
 	awaitingAccept   bool
 }
 
-var registry *edf.Registry
+var (
+	registry     *edf.Registry
+	controlTypes = make(map[string]bool)
+)
 
 func init() {
 	types := []any{
@@ -100,6 +104,8 @@ func init() {
 
 	registry = edf.NewRegistry()
 	for _, t := range types {
+		rt := reflect.TypeOf(t)
+		controlTypes["#"+rt.PkgPath()+"/"+rt.Name()] = true
 		err := registry.RegisterType(t)
 		if err == nil || err == gen.ErrTaken {
 			continue

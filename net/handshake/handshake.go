@@ -145,7 +145,18 @@ func (h *handshake) readMessage(conn net.Conn, chunk []byte, maxlen int) (any, [
 			continue
 		}
 
-		return edf.Decode(chunk[6:], edf.Options{Registry: registry})
+		message := chunk[6 : 6+l]
+		if name, ok := edf.TypeName(message, edf.Options{}); ok == false || controlTypes[name] == false {
+			return nil, nil, fmt.Errorf("unexpected handshake message type")
+		}
+		v, rest, err := edf.Decode(message, edf.Options{Registry: registry})
+		if err != nil {
+			return nil, nil, err
+		}
+		if len(rest) > 0 {
+			return nil, nil, fmt.Errorf("trailing handshake message data")
+		}
+		return v, chunk[6+l:], nil
 	}
 }
 

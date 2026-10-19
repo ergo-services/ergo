@@ -581,11 +581,7 @@ func (c *connection) SendProcessID(from gen.PID, to gen.ProcessID, options gen.M
 		return fmt.Errorf("process name too long: %d bytes (max 255)", len(bname))
 	}
 
-	if c.encodeOptions.AtomCache != nil {
-		if v, found := c.encodeOptions.AtomCache.Load(toName); found {
-			toNameCached = v.(uint16)
-		}
-	}
+	toNameCached = c.atomID(toName)
 
 	order := uint8(from.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
@@ -716,11 +712,7 @@ func (c *connection) SendEvent(from gen.PID, options gen.MessageOptions, message
 		return fmt.Errorf("event name too long: %d bytes (max 255)", len(bname))
 	}
 
-	if c.encodeOptions.AtomCache != nil {
-		if v, found := c.encodeOptions.AtomCache.Load(eventName); found {
-			eventNameCached = v.(uint16)
-		}
-	}
+	eventNameCached = c.atomID(eventName)
 
 	order := uint8(from.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
@@ -1002,11 +994,7 @@ func (c *connection) SendTerminateProcessID(target gen.ProcessID, reason error) 
 		return fmt.Errorf("target process name too long: %d bytes (max 255)", len(bname))
 	}
 
-	if c.encodeOptions.AtomCache != nil {
-		if v, found := c.encodeOptions.AtomCache.Load(targetName); found {
-			targetNameCached = v.(uint16)
-		}
-	}
+	targetNameCached = c.atomID(targetName)
 
 	buf := lib.TakeBuffer()
 	h := protoWrapReserve
@@ -1078,11 +1066,7 @@ func (c *connection) SendTerminateEvent(target gen.Event, reason error) error {
 		return fmt.Errorf("terminated event name too long: %d bytes (max 255)", len(bname))
 	}
 
-	if c.encodeOptions.AtomCache != nil {
-		if v, found := c.encodeOptions.AtomCache.Load(eventName); found {
-			eventNameCached = v.(uint16)
-		}
-	}
+	eventNameCached = c.atomID(eventName)
 
 	buf := lib.TakeBuffer()
 	h := protoWrapReserve
@@ -1179,11 +1163,7 @@ func (c *connection) CallProcessID(from gen.PID, to gen.ProcessID, options gen.M
 		return fmt.Errorf("process name too long: %d bytes (max 255)", len(bname))
 	}
 
-	if c.encodeOptions.AtomCache != nil {
-		if v, found := c.encodeOptions.AtomCache.Load(toName); found {
-			toNameCached = v.(uint16)
-		}
-	}
+	toNameCached = c.atomID(toName)
 
 	order := uint8(from.ID%255 + 1)
 	if options.KeepNetworkOrder == false {
@@ -2098,18 +2078,13 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 	if c.fragmentation && qIdx < len(c.orderedFragments) {
 		localFragments = c.orderedFragments[qIdx]
 	}
+	popped := 0
 	for {
 		v, ok := q.Pop()
 		if ok == false {
 			// queue drained, clean stale ordered assemblies (safe: we hold queue lock)
-			if localFragments != nil && len(localFragments) > 0 {
-				now := time.Now()
-				for seqID, asm := range localFragments {
-					if now.After(asm.deadline) {
-						delete(localFragments, seqID)
-						c.fragmentTimeouts.Add(1)
-					}
-				}
+			if len(localFragments) > 0 {
+				c.expireFragments(localFragments)
 			}
 
 			q.Unlock()
@@ -2132,9 +2107,23 @@ func (c *connection) handleRecvQueue(q lib.QueueMPSC, qIdx int) {
 
 		atomic.AddInt64(&c.allocatedInQueues, int64(-buf.Cap()))
 
+		if len(localFragments) > 0 {
+			popped++
+			if popped%64 == 0 {
+				c.expireFragments(localFragments)
+			}
+		}
+
 		var tracing gen.Tracing
+		passes := 0
 
 	re:
+		if passes == maxMessageWrappers {
+			c.log.Error("message wrapper nesting exceeds %d, ignored", maxMessageWrappers)
+			lib.ReleaseBuffer(buf)
+			continue
+		}
+		passes++
 		switch buf.B[7] {
 		case protoMessagePID: // process id
 			if buf.Len() < 30 {
@@ -3957,6 +3946,12 @@ func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint3
 	}
 
 	asm, exists := assemblies[sequenceID]
+	if exists && time.Now().After(asm.deadline) {
+		delete(assemblies, sequenceID)
+		c.fragmentTimeouts.Add(1)
+		c.log.Warning("fragment of an expired assembly, dropped (seq=%d)", sequenceID)
+		return nil
+	}
 	if exists == false {
 		if totalFragments > maxFragmentCount {
 			c.log.Warning("too many fragments: %d (seq=%d)", totalFragments, sequenceID)
@@ -3966,13 +3961,7 @@ func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint3
 			// evict stale (dead-sender) assemblies before enforcing the cap; the ordered
 			// path has no cleanup timer, so a peer streaming first-fragments only would
 			// otherwise wedge the queue permanently
-			now := time.Now()
-			for seqID, a := range assemblies {
-				if now.After(a.deadline) {
-					delete(assemblies, seqID)
-					c.fragmentTimeouts.Add(1)
-				}
-			}
+			c.expireFragments(assemblies)
 			if len(assemblies) >= c.maxFragmentAssemblies {
 				c.log.Warning("too many concurrent ordered assemblies, dropping fragment (seq=%d)", sequenceID)
 				return nil
@@ -4021,13 +4010,7 @@ func (c *connection) handleFragmentOrdered(buf *lib.Buffer, assemblies map[uint3
 
 	// cleanup stale assemblies from dead senders
 	if len(assemblies) > 0 {
-		now := time.Now()
-		for seqID, asm := range assemblies {
-			if now.After(asm.deadline) {
-				delete(assemblies, seqID)
-				c.fragmentTimeouts.Add(1)
-			}
-		}
+		c.expireFragments(assemblies)
 	}
 
 	reassembled := lib.TakeBuffer()
@@ -4069,6 +4052,13 @@ func (c *connection) handleFragmentUnordered(buf *lib.Buffer) *lib.Buffer {
 	c.sharedFragMu.Lock()
 
 	asm, exists := c.sharedFragments[sequenceID]
+	if exists && time.Now().After(asm.deadline) {
+		delete(c.sharedFragments, sequenceID)
+		c.sharedFragMu.Unlock()
+		c.fragmentTimeouts.Add(1)
+		c.log.Warning("fragment of an expired assembly, dropped (seq=%d)", sequenceID)
+		return nil
+	}
 	if exists == false {
 		if totalFragments > maxFragmentCount {
 			c.sharedFragMu.Unlock()
@@ -4151,6 +4141,16 @@ func (c *connection) handleFragmentUnordered(buf *lib.Buffer) *lib.Buffer {
 	}
 
 	return reassembled
+}
+
+func (c *connection) expireFragments(assemblies map[uint32]*fragmentAssembly) {
+	now := time.Now()
+	for seqID, a := range assemblies {
+		if now.After(a.deadline) {
+			delete(assemblies, seqID)
+			c.fragmentTimeouts.Add(1)
+		}
+	}
 }
 
 func (c *connection) cleanupSharedFragments() {

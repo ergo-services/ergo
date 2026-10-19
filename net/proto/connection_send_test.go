@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/net/edf"
 	"ergo.services/ergo/testing/check"
 )
 
@@ -127,6 +128,24 @@ func TestSendProcessID(t *testing.T) {
 		check.Equal(t, len("worker"), nameLen)
 		check.Equal(t, "worker", string(body[18:18+nameLen]))
 		check.Equal(t, "hello", tc.decode(t, body[18+nameLen:]))
+	})
+
+	t.Run("encodes a name the peer knows by its cache id", func(t *testing.T) {
+		tc := newTestConn(t, gen.NetworkFlags{})
+		r := edf.NewRegistry()
+		check.NoError(t, r.RegisterAtom("cached.worker"))
+		tc.c.registry = r
+		tc.c.encodeOptions.Registry = r
+		to := gen.ProcessID{Name: "cached.worker", Node: "peer@localhost"}
+
+		check.NoError(t, tc.c.SendProcessID(localPID(5), to, gen.MessageOptions{}, "hello"))
+		_, mtype, _ := tc.readFrame(t)
+		check.Equal(t, protoMessageName, mtype)
+
+		tc.c.defined.Store(r.Revision())
+		check.NoError(t, tc.c.SendProcessID(localPID(5), to, gen.MessageOptions{}, "hello"))
+		_, mtype, _ = tc.readFrame(t)
+		check.Equal(t, protoMessageNameCache, mtype)
 	})
 
 	t.Run("rejects a name longer than 255 bytes", func(t *testing.T) {

@@ -286,6 +286,20 @@ func (r *Registry) Revision() uint64 {
 	return r.revision.Load()
 }
 
+// AtomID returns the cache id of the atom if it was published at or before
+// revision rev.
+func (r *Registry) AtomID(a gen.Atom, rev uint64) (uint16, bool) {
+	v, found := r.atomCache.Load(a)
+	if found == false {
+		return 0, false
+	}
+	e := v.(cacheEntry)
+	if e.rev > rev {
+		return 0, false
+	}
+	return e.id, true
+}
+
 // Sentinel returns the registered error with the given text.
 func (r *Registry) Sentinel(text string) (error, bool) {
 	v, found := r.slots.Load(text)

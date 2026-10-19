@@ -23,11 +23,21 @@ const (
 	cacheFrameBody = 32 * 1024
 )
 
-func (c *connection) encode(v any, buf *lib.Buffer) error {
+func (c *connection) sync() {
 	if c.cacheUpdate && c.registry.Revision() > c.defined.Load() {
 		c.define()
 	}
+}
+
+func (c *connection) encode(v any, buf *lib.Buffer) error {
+	c.sync()
 	return edf.Encode(v, buf, c.encodeOptions)
+}
+
+func (c *connection) atomID(a gen.Atom) uint16 {
+	c.sync()
+	id, _ := c.registry.AtomID(a, c.defined.Load())
+	return id
 }
 
 func (c *connection) define() {

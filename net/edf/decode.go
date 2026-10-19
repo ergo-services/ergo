@@ -69,6 +69,29 @@ func Decode(packet []byte, options Options) (_ any, _ []byte, ret error) {
 	return decodeWithStats(packet, state)
 }
 
+// TypeName returns the name of the registered type the packet starts with,
+// without decoding the value.
+func TypeName(packet []byte, options Options) (string, bool) {
+	if len(packet) < 3 || packet[0] != edtReg {
+		return "", false
+	}
+	n := binary.BigEndian.Uint16(packet[1:3])
+	if n > 4095 {
+		if options.RegCache == nil {
+			return "", false
+		}
+		v, found := options.RegCache.Load(n)
+		if found == false {
+			return "", false
+		}
+		return v.(string), true
+	}
+	if len(packet) < 3+int(n) {
+		return "", false
+	}
+	return string(packet[3 : 3+n]), true
+}
+
 func getDecoder(packet []byte, state *stateDecode) (*decoder, []byte, error) {
 	if len(packet) == 0 {
 		return nil, nil, errDecodeEOD

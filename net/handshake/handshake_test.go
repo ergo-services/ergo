@@ -1,11 +1,13 @@
 package handshake
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"testing"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 	"ergo.services/ergo/net/edf"
 	"ergo.services/ergo/testing/check"
 )
@@ -227,4 +229,36 @@ func TestHandshakeNodeRegistry(t *testing.T) {
 	check.True(t, announced)
 	_, known := acceptor.registry.LookupType(name)
 	check.False(t, known)
+}
+
+// only the handshake messages are decoded before authentication, each frame
+// holding exactly one of them; what follows the frame is returned as the tail.
+func TestReadMessageControlTypesOnly(t *testing.T) {
+	h := Create(Options{}).(*handshake)
+	frame := func(v any, extra ...byte) []byte {
+		buf := lib.TakeBuffer()
+		defer lib.ReleaseBuffer(buf)
+		check.NoError(t, edf.Encode(v, buf, edf.Options{Registry: registry}))
+		body := append(append([]byte(nil), buf.B...), extra...)
+		head := []byte{handshakeMagic, handshakeVersion, 0, 0, 0, 0}
+		binary.BigEndian.PutUint32(head[2:], uint32(len(body)))
+		return append(head, body...)
+	}
+	read := func(data []byte) (any, []byte, error) {
+		a, b := net.Pipe()
+		go func() { a.Write(data); a.Close() }()
+		defer b.Close()
+		return h.readMessage(b, nil, handshakeMaxControlSize)
+	}
+
+	v, tail, err := read(append(frame(MessageHello{Salt: "s"}), 'x', 'y'))
+	check.NoError(t, err)
+	check.Equal(t, "s", v.(MessageHello).Salt)
+	check.Equal(t, "xy", string(tail))
+
+	_, _, err = read(frame(gen.Version{Name: "not a handshake message"}))
+	check.ErrorContains(t, err, "unexpected handshake message type")
+
+	_, _, err = read(frame(MessageHello{Salt: "s"}, 0))
+	check.ErrorContains(t, err, "trailing handshake message data")
 }

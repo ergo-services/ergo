@@ -54,6 +54,8 @@ const (
 	protoMessageS byte = 209 // skew measurement
 	protoMessageC byte = 210 // cache update
 
+	maxMessageWrappers = 64
+
 	// reserved space at the beginning of every message buffer
 	// for wrapping headers (tracing, proxy, etc.) without copying
 	protoWrapReserve int = 128
