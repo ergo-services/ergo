@@ -10,13 +10,17 @@ import (
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
-	"ergo.services/ergo/net/edf"
 )
 
 func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen.HandshakeOptions) (gen.HandshakeResult, error) {
 	var result gen.HandshakeResult
 	var salt string
 	result.HandshakeVersion = h.Version()
+
+	reg, err := nodeRegistry(node)
+	if err != nil {
+		return result, err
+	}
 
 	v, tail, err := h.readMessage(conn, nil, handshakeMaxControlSize)
 	if err != nil {
@@ -136,9 +140,9 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 
 		MaxMessageSize: options.MaxMessageSize,
 
-		AtomCache: edf.GetAtomCache(),
-		RegCache:  edf.GetRegCache(),
-		ErrCache:  edf.GetErrCache(),
+		AtomCache: reg.GetAtomCache(),
+		RegCache:  reg.GetRegCache(),
+		ErrCache:  reg.GetErrCache(),
 	}
 
 	result.ConnectionID = connID
@@ -156,8 +160,9 @@ func (h *handshake) Negotiate(node gen.NodeHandshake, conn net.Conn, options gen
 	result.Custom = ConnectionOptions{
 		PoolSize:        h.poolsize,
 		TLS:             isTLS,
+		Registry:        reg,
 		EncodeAtomCache: h.makeEncodeAtomCache(intro2.AtomCache),
-		EncodeRegCache:  h.makeEncodeRegCache(intro2.RegCache),
+		EncodeRegCache:  h.makeEncodeRegCache(reg, intro2.RegCache),
 		EncodeErrCache:  h.makeEncodeErrCache(intro2.ErrCache),
 		DecodeAtomCache: h.makeDecodeAtomCache(intro.AtomCache),
 		DecodeRegCache:  h.makeDecodeRegCache(intro.RegCache),

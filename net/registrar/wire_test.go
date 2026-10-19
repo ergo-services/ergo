@@ -23,7 +23,7 @@ func frame(t *testing.T, version, ptype byte, body any) []byte {
 	buf.Allocate(4)
 	buf.B[0] = version
 	buf.B[1] = ptype
-	if err := edf.Encode(body, buf, edf.Options{}); err != nil {
+	if err := edf.Encode(body, buf, edf.Options{Registry: registry}); err != nil {
 		t.Fatalf("encode %#v: %s", body, err)
 	}
 	binary.BigEndian.PutUint16(buf.B[2:4], uint16(buf.Len()-4))

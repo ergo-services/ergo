@@ -220,7 +220,7 @@ func (mn *mockNetwork) RegisteredAtoms() []gen.RegisteredAtomInfo {
 	return out
 }
 
-// LookupType matches the canonical key exactly, as edf.LookupType does.
+// LookupType matches the canonical key exactly, as edf.Registry.LookupType does.
 func (mn *mockNetwork) LookupType(name string) (reflect.Type, bool) {
 	t, ok := mn.types[name]
 	return t, ok

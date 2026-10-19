@@ -42,8 +42,9 @@ func TestEDFMetaTypesRegistered(t *testing.T) {
 		"#ergo.services/ergo/meta/MessageUDP",
 		"#net/netip/AddrPort",
 	}
+	r := edf.NewRegistry()
 	for _, name := range names {
-		if _, found := edf.LookupType(name); found == false {
+		if _, found := r.LookupType(name); found == false {
 			t.Errorf("type %s is not registered", name)
 		}
 	}

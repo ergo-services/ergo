@@ -30,7 +30,6 @@ package proto
 
 import (
 	"fmt"
-	"reflect"
 	"sync"
 	"time"
 
@@ -69,6 +68,10 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		return nil, gen.ErrNotAllowed
 	}
 
+	if opts.Registry == nil {
+		return nil, fmt.Errorf("connection with %s: no EDF type registry", result.Peer)
+	}
+
 	log.Trace("create new connection with %s (pool size: %d)", result.Peer, opts.PoolSize)
 	conn := &connection{
 		id:                  result.ConnectionID,
@@ -92,6 +95,7 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		tls:       opts.TLS,
 
 		encodeOptions: edf.Options{
+			Registry:  opts.Registry,
 			AtomCache: opts.EncodeAtomCache,
 			RegCache:  opts.EncodeRegCache,
 			ErrCache:  opts.EncodeErrCache,
@@ -103,6 +107,7 @@ func (e *enp) NewConnection(core gen.Core, result gen.HandshakeResult, log gen.L
 		},
 
 		decodeOptions: edf.Options{
+			Registry:  opts.Registry,
 			AtomCache: opts.DecodeAtomCache,
 			RegCache:  opts.DecodeRegCache,
 			ErrCache:  opts.DecodeErrCache,
@@ -245,58 +250,7 @@ func (e *enp) Version() gen.Version {
 	}
 }
 
-// gen.TypeRegistry implementation (wire-format type registry on top of edf).
-
-func (e *enp) RegisterType(v any) error        { return edf.RegisterTypeOf(v) }
-func (e *enp) RegisterTypes(types []any) error { return edf.RegisterTypesOf(types) }
-func (e *enp) RegisterError(err error) error   { return edf.RegisterError(err) }
-func (e *enp) RegisterAtom(a gen.Atom) error   { return edf.RegisterAtom(a) }
-
-func (e *enp) RegisterErrors(errs []error) error {
-	for _, err := range errs {
-		if e := edf.RegisterError(err); e != nil {
-			return e
-		}
-	}
-	return nil
-}
-
-func (e *enp) RegisterAtoms(atoms []gen.Atom) error {
-	for _, a := range atoms {
-		if err := edf.RegisterAtom(a); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (e *enp) RegisteredTypes() []gen.RegisteredTypeInfo {
-	list := edf.RegisteredTypes()
-	ver := e.Version().Str()
-	for i := range list {
-		list[i].Proto = ver
-	}
-	return list
-}
-
-func (e *enp) RegisteredErrors() []gen.RegisteredErrorInfo {
-	list := edf.RegisteredErrors()
-	ver := e.Version().Str()
-	for i := range list {
-		list[i].Proto = ver
-	}
-	return list
-}
-
-func (e *enp) RegisteredAtoms() []gen.RegisteredAtomInfo {
-	list := edf.RegisteredAtoms()
-	ver := e.Version().Str()
-	for i := range list {
-		list[i].Proto = ver
-	}
-	return list
-}
-
-func (e *enp) LookupType(name string) (reflect.Type, bool) {
-	return edf.LookupType(name)
+// ProtoTypes returns the ENP message types for the node registry.
+func (e *enp) ProtoTypes() []any {
+	return protoTypes
 }

@@ -632,6 +632,8 @@ type NodeHandshake interface {
 	Name() Atom
 	Creation() int64
 	Version() Version
+	// TypeRegistry returns the registry of the wire types of the node.
+	TypeRegistry() TypeRegistry
 }
 
 // NodeOptions defines configuration options for node initialization.

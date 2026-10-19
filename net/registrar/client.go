@@ -31,17 +31,25 @@ func Create(options Options) gen.Registrar {
 	}
 	client.terminated.Store(true)
 
-	edf.RegisterTypeOf(gen.Version{})
-	edf.RegisterTypeOf(gen.Route{})
-	edf.RegisterTypeOf(MessageRegisterRoutes{})
-	edf.RegisterTypeOf(MessageRegisterReply{})
-	edf.RegisterTypeOf(MessageResolveRoutes{})
-	edf.RegisterTypeOf(MessageResolveReply{})
-	edf.RegisterTypeOf(MessageNodes{})
-	edf.RegisterTypeOf(MessageNodesReply{})
-	edf.RegisterTypeOf(MessageNodeEvent{})
-
 	return client
+}
+
+var registry *edf.Registry
+
+func init() {
+	registry = edf.NewRegistry()
+	err := registry.RegisterTypes([]any{
+		MessageRegisterRoutes{},
+		MessageRegisterReply{},
+		MessageResolveRoutes{},
+		MessageResolveReply{},
+		MessageNodes{},
+		MessageNodesReply{},
+		MessageNodeEvent{},
+	})
+	if err != nil {
+		panic(err)
+	}
 }
 
 type client struct {
@@ -107,7 +115,7 @@ func (c *client) Resolve(name gen.Atom) ([]gen.Route, error) {
 	resolve := MessageResolveRoutes{
 		Node: name,
 	}
-	if err := edf.Encode(resolve, rbuf, edf.Options{}); err != nil {
+	if err := edf.Encode(resolve, rbuf, edf.Options{Registry: registry}); err != nil {
 		return nil, err
 	}
 	binary.BigEndian.PutUint16(rbuf.B[2:4], uint16(rbuf.Len()-4))
@@ -142,7 +150,7 @@ func (c *client) Resolve(name gen.Atom) ([]gen.Route, error) {
 		c.node.Log().Error("malformed data in the registrar resolve reply (too long)")
 		return nil, gen.ErrMalformed
 	}
-	v, _, err := edf.Decode(dbuf[4:4+l], edf.Options{})
+	v, _, err := edf.Decode(dbuf[4:4+l], edf.Options{Registry: registry})
 	if err != nil {
 		c.node.Log().Error("unable to decode resolve reply message from the registrar:", err)
 		return nil, err
@@ -262,7 +270,7 @@ func (c *client) nodesOnHost(host string) []gen.Atom {
 	rbuf.Allocate(4)
 	rbuf.B[0] = protoVersion
 	rbuf.B[1] = protoNodes
-	if err := edf.Encode(MessageNodes{}, rbuf, edf.Options{}); err != nil {
+	if err := edf.Encode(MessageNodes{}, rbuf, edf.Options{Registry: registry}); err != nil {
 		return nil
 	}
 	binary.BigEndian.PutUint16(rbuf.B[2:4], uint16(rbuf.Len()-4))
@@ -284,7 +292,7 @@ func (c *client) nodesOnHost(host string) []gen.Atom {
 	if 4+l > n {
 		return nil
 	}
-	v, _, err := edf.Decode(buf[4:4+l], edf.Options{})
+	v, _, err := edf.Decode(buf[4:4+l], edf.Options{Registry: registry})
 	if err != nil {
 		return nil
 	}
@@ -470,7 +478,7 @@ func (c *client) readPush(conn net.Conn) error {
 		return nil
 	}
 
-	v, _, err := edf.Decode(body, edf.Options{})
+	v, _, err := edf.Decode(body, edf.Options{Registry: registry})
 	if err != nil {
 		c.node.Log().Trace("(registrar) unable to decode node event: %s", err)
 		return nil
@@ -531,7 +539,7 @@ func (c *client) tryRegister() (net.Conn, error) {
 		Node:   c.node.Name(),
 		Routes: c.routes,
 	}
-	if err := edf.Encode(reg, buf, edf.Options{}); err != nil {
+	if err := edf.Encode(reg, buf, edf.Options{Registry: registry}); err != nil {
 		conn.Close()
 		return nil, err
 	}
@@ -573,7 +581,7 @@ func (c *client) tryRegister() (net.Conn, error) {
 		conn.Close()
 		return nil, gen.ErrMalformed
 	}
-	v, _, err := edf.Decode(dbuf[4:4+l], edf.Options{})
+	v, _, err := edf.Decode(dbuf[4:4+l], edf.Options{Registry: registry})
 	if err != nil {
 		c.node.Log().Error("unable to decode reply message from the registrar:", err)
 		conn.Close()

@@ -15,19 +15,12 @@ type senderOnlyValue struct{ X int }
 // TestDistSendAsymmetricType: a value whose type is registered in EDF on the
 // sender node but NOT on the receiver: the sender encodes and sends it fine, but
 // the receiver cannot decode it, so it is not delivered.
-//
-// SKIPPED: not reproducible today. EDF type registration is process-global
-// (node/network.go RegisterType feeds the shared edf registry), so two in-process
-// stage nodes share one registry and asymmetry cannot be set up. Enable once EDF
-// registration is per-node / per-connection.
 func TestDistSendAsymmetricType(t *testing.T) {
-	t.Skip("TODO: enable when EDF type registration is per-node/per-connection (currently global)")
-
 	s := stage.New(t)
 	n1 := s.StartNode("n1")
 	n2 := s.StartNode("n2")
 
-	// register the type on the sender only (requires per-node registration)
+	// register the type on the sender only
 	check.NoError(t, n1.Native().Network().RegisterType(senderOnlyValue{}))
 	s.Connect(n1, n2)
 
@@ -51,4 +44,28 @@ func TestDistSendAsymmetricType(t *testing.T) {
 		_, ok := d.Message.(senderOnlyValue)
 		return ok
 	}).Since(mk).None().Assert()
+}
+
+// lateValue is registered on both nodes after they are connected.
+type lateValue struct{ X int }
+
+// TestDistSendTypeRegisteredAfterConnect: types registered on both nodes of an
+// established connection are delivered without reconnecting.
+func TestDistSendTypeRegisteredAfterConnect(t *testing.T) {
+	s := stage.New(t)
+	n1 := s.StartNode("n1")
+	n2 := s.StartNode("n2")
+	s.Connect(n1, n2)
+
+	check.NoError(t, n1.Native().Network().RegisterType(lateValue{}))
+	check.NoError(t, n2.Native().Network().RegisterType(lateValue{}))
+
+	snd := n1.Spawn(factorySender, gen.ProcessOptions{})
+	p := n2.Spawn(factoryPong, gen.ProcessOptions{})
+
+	mk := n2.Mark()
+	res, err := n1.Call(snd, sendCmd{Kind: "send", To: p, Msg: lateValue{X: 7}})
+	check.NoError(t, err)
+	check.Equal(t, "", res)
+	n2.ShouldDeliver().To(p).Message(lateValue{X: 7}).Since(mk).Once().Within(time.Second).Must()
 }

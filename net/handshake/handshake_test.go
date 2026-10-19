@@ -3,22 +3,31 @@ package handshake
 import (
 	"fmt"
 	"net"
+	"reflect"
 	"testing"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/net/edf"
 	"ergo.services/ergo/testing/check"
 )
 
-// hsNode is a minimal gen.NodeHandshake: the handshake only reads Name, Creation
-// and Version from it.
+// hsNode is a minimal gen.NodeHandshake: the handshake only reads Name, Creation,
+// Version and TypeRegistry from it.
 type hsNode struct {
 	name     gen.Atom
 	creation int64
+	registry *edf.Registry
 }
 
 func (n *hsNode) Name() gen.Atom       { return n.name }
 func (n *hsNode) Creation() int64      { return n.creation }
 func (n *hsNode) Version() gen.Version { return gen.Version{Name: "test", Release: "1"} }
+func (n *hsNode) TypeRegistry() gen.TypeRegistry {
+	if n.registry == nil {
+		n.registry = edf.NewRegistry()
+	}
+	return n.registry
+}
 
 // acceptFull drives the two-step acceptor handshake (Negotiate then Accept) as
 // the node does, so tests can match it against a single Start on the dialer.
@@ -168,4 +177,53 @@ func TestHandshakeIntroduceOverUint16(t *testing.T) {
 	_, _, err = h.readMessage(d, nil, handshakeMaxControlSize)
 	check.Error(t, err)
 	check.ErrorContains(t, err, "too long")
+}
+
+type hsOnlyDialer struct{ A int }
+
+// each side announces and encodes with its own node registry: a type registered
+// on the dialer goes to its encode cache and to the acceptor decode cache only.
+func TestHandshakeNodeRegistry(t *testing.T) {
+	hs := Create(Options{})
+	dc, ac := net.Pipe()
+	t.Cleanup(func() { dc.Close(); ac.Close() })
+
+	dialer := &hsNode{name: "dialer@localhost", creation: 1, registry: edf.NewRegistry()}
+	acceptor := &hsNode{name: "acceptor@localhost", creation: 2, registry: edf.NewRegistry()}
+	check.NoError(t, dialer.registry.RegisterType(hsOnlyDialer{}))
+	name := "#ergo.services/ergo/net/handshake/hsOnlyDialer"
+
+	type res struct {
+		r   gen.HandshakeResult
+		err error
+	}
+	ch := make(chan res, 1)
+	opts := gen.HandshakeOptions{Cookie: "secret"}
+	go func() {
+		r, err := acceptFull(hs, acceptor, ac, opts)
+		ch <- res{r, err}
+	}()
+	startRes, err := hs.Start(dialer, dc, opts)
+	check.NoError(t, err)
+	acceptRes := <-ch
+	check.NoError(t, acceptRes.err)
+
+	d := startRes.Custom.(ConnectionOptions)
+	a := acceptRes.r.Custom.(ConnectionOptions)
+	check.True(t, d.Registry == dialer.registry)
+	check.True(t, a.Registry == acceptor.registry)
+
+	_, found := d.EncodeRegCache.Load(reflect.TypeOf(hsOnlyDialer{}))
+	check.True(t, found)
+	_, found = a.EncodeRegCache.Load(reflect.TypeOf(hsOnlyDialer{}))
+	check.False(t, found)
+
+	announced := false
+	a.DecodeRegCache.Range(func(_, v any) bool {
+		announced = announced || v.(string) == name
+		return true
+	})
+	check.True(t, announced)
+	_, known := acceptor.registry.LookupType(name)
+	check.False(t, known)
 }

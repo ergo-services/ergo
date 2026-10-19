@@ -30,7 +30,7 @@ func (lp *largePayload) UnmarshalEDF(data []byte) error {
 }
 
 func TestMarshalerBufferReallocation(t *testing.T) {
-	if err := RegisterTypeOf(largePayload{}); err != nil && err != gen.ErrTaken {
+	if err := defaultRegistry.RegisterType(largePayload{}); err != nil && err != gen.ErrTaken {
 		t.Fatal(err)
 	}
 

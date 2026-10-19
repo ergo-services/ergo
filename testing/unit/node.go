@@ -491,6 +491,11 @@ func (n *mockNode) MakeRefWithDeadline(deadline int64) (gen.Ref, error) {
 func (n *mockNode) Network() gen.Network {
 	return n.netmock
 }
+
+// TypeRegistry returns the mock network: it records the registrations.
+func (n *mockNode) TypeRegistry() gen.TypeRegistry {
+	return n.netmock
+}
 func (n *mockNode) Cron() gen.Cron {
 	return n.cronmock
 }

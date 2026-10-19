@@ -2,7 +2,6 @@ package proto
 
 import (
 	"ergo.services/ergo/gen"
-	"ergo.services/ergo/net/edf"
 )
 
 const (
@@ -213,36 +212,26 @@ type MessageResult struct {
 // message types must be registered
 //
 
-func init() {
-	types := []any{
-		MessageLinkPID{},
-		MessageUnlinkPID{},
-		MessageLinkProcessID{},
-		MessageUnlinkProcessID{},
-		MessageLinkAlias{},
-		MessageUnlinkAlias{},
-		MessageLinkEvent{},
-		MessageUnlinkEvent{},
-		MessageMonitorPID{},
-		MessageDemonitorPID{},
-		MessageMonitorProcessID{},
-		MessageDemonitorProcessID{},
-		MessageMonitorAlias{},
-		MessageDemonitorAlias{},
-		MessageMonitorEvent{},
-		MessageDemonitorEvent{},
-		MessageSpawn{},
-		MessageApplicationStart{},
-		MessageApplicationInfo{},
-		MessageUpdateCache{},
-		MessageResult{},
-	}
-
-	for _, t := range types {
-		err := edf.RegisterTypeOf(t)
-		if err == nil || err == gen.ErrTaken {
-			continue
-		}
-		panic(err)
-	}
+var protoTypes = []any{
+	MessageLinkPID{},
+	MessageUnlinkPID{},
+	MessageLinkProcessID{},
+	MessageUnlinkProcessID{},
+	MessageLinkAlias{},
+	MessageUnlinkAlias{},
+	MessageLinkEvent{},
+	MessageUnlinkEvent{},
+	MessageMonitorPID{},
+	MessageDemonitorPID{},
+	MessageMonitorProcessID{},
+	MessageDemonitorProcessID{},
+	MessageMonitorAlias{},
+	MessageDemonitorAlias{},
+	MessageMonitorEvent{},
+	MessageDemonitorEvent{},
+	MessageSpawn{},
+	MessageApplicationStart{},
+	MessageApplicationInfo{},
+	MessageUpdateCache{},
+	MessageResult{},
 }

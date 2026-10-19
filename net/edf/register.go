@@ -6,30 +6,12 @@ import (
 	"fmt"
 	"math"
 	"reflect"
-	"runtime"
-	"sort"
-	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 )
-
-const deprecationDocsURL = "https://docs.ergo.services/networking/network-transparency"
-
-// deprecation emits the legacy-API warning unless the call comes from
-// framework-internal code (proxy in net/proto, edf init, registrar/handshake
-// pre-registration, node-level atom caching).
-func deprecation(name, replacement string) {
-	pc, _, _, _ := runtime.Caller(2)
-	if fn := runtime.FuncForPC(pc); fn != nil &&
-		strings.HasPrefix(fn.Name(), "ergo.services/ergo/") {
-		return
-	}
-	lib.EmitDeprecation(nil, name, replacement, deprecationDocsURL)
-}
 
 type decoder struct {
 	Type   reflect.Type
@@ -54,15 +36,10 @@ func regTypeName(t reflect.Type) string {
 	return fmt.Sprintf("#%s/%s", t.PkgPath(), t.Name())
 }
 
-func RegisterTypeOf(v any) error {
-	deprecation("edf.RegisterTypeOf", "node.Network().RegisterType")
-	return registerTypeOf(reflect.TypeOf(v), make(map[reflect.Type]bool))
-}
-
 // checkRegistered reports whether the type is registered already. Another
 // type registered with its name is ErrTaken.
-func checkRegistered(tov reflect.Type) (bool, error) {
-	known, found := typesByName.Load(regTypeName(tov))
+func (r *Registry) checkRegistered(tov reflect.Type) (bool, error) {
+	known, found := r.typesByName.Load(regTypeName(tov))
 	if found == false {
 		return false, nil
 	}
@@ -75,7 +52,7 @@ func checkRegistered(tov reflect.Type) (bool, error) {
 // registerParts registers the structs and the named scalars a field type is
 // made of, so registering a type registers the types of its fields. A named
 // slice, map or array is not registered: it goes as its underlying type.
-func registerParts(t reflect.Type, visiting map[reflect.Type]bool) error {
+func (r *Registry) registerParts(t reflect.Type, visiting map[reflect.Type]bool) error {
 	switch t.Kind() {
 	case reflect.Interface, reflect.Chan, reflect.Func, reflect.UnsafePointer:
 		return nil
@@ -86,31 +63,31 @@ func registerParts(t reflect.Type, visiting map[reflect.Type]bool) error {
 		if t.PkgPath() == "" {
 			return nil
 		}
-		if _, found := encoders.Load(t); found {
+		if _, found := r.encoders.Load(t); found {
 			return nil
 		}
 		if visiting[t] {
 			return nil
 		}
-		if err := registerTypeOf(t, visiting); err != nil {
+		if err := r.registerTypeOf(t, visiting); err != nil {
 			return fmt.Errorf("%s: %s", regTypeName(t), err)
 		}
 		return nil
 	}
 	switch t.Kind() {
 	case reflect.Map:
-		if err := registerParts(t.Key(), visiting); err != nil {
+		if err := r.registerParts(t.Key(), visiting); err != nil {
 			return err
 		}
-		return registerParts(t.Elem(), visiting)
+		return r.registerParts(t.Elem(), visiting)
 
 	case reflect.Slice, reflect.Array, reflect.Pointer:
-		return registerParts(t.Elem(), visiting)
+		return r.registerParts(t.Elem(), visiting)
 	}
 	return nil
 }
 
-func registerTypeOf(tov reflect.Type, visiting map[reflect.Type]bool) error {
+func (r *Registry) registerTypeOf(tov reflect.Type, visiting map[reflect.Type]bool) error {
 	if tov.Kind() == reflect.Pointer {
 		return fmt.Errorf("pointer type is not supported")
 	}
@@ -142,7 +119,7 @@ func registerTypeOf(tov reflect.Type, visiting map[reflect.Type]bool) error {
 		if reflect.PointerTo(tov).Implements(reflect.TypeOf((*Unmarshaler)(nil)).Elem()) == false {
 			return fmt.Errorf("UnmarshalEDF method of %v must be a method of *%v", tov, tov)
 		}
-		if done, err := checkRegistered(tov); done || err != nil {
+		if done, err := r.checkRegistered(tov); done || err != nil {
 			return err
 		}
 		name := regTypeName(tov)
@@ -190,15 +167,15 @@ func registerTypeOf(tov reflect.Type, visiting map[reflect.Type]bool) error {
 			packet = packet[4+int(l):]
 			return value, packet, nil
 		}
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, fenc)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: fdec}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "marshaler", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "marshaler", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
@@ -210,7 +187,7 @@ func registerTypeOf(tov reflect.Type, visiting map[reflect.Type]bool) error {
 		if reflect.PointerTo(tov).Implements(reflect.TypeOf((*encoding.BinaryUnmarshaler)(nil)).Elem()) == false {
 			return fmt.Errorf("UnmarshalBinary method of %v must be a method of *%v", tov, tov)
 		}
-		if done, err := checkRegistered(tov); done || err != nil {
+		if done, err := r.checkRegistered(tov); done || err != nil {
 			return err
 		}
 		name := regTypeName(tov)
@@ -256,29 +233,29 @@ func registerTypeOf(tov reflect.Type, visiting map[reflect.Type]bool) error {
 			packet = packet[4+int(l):]
 			return value, packet, nil
 		}
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, fenc)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: fdec}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "binarymarshaler", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "binarymarshaler", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	}
 
-	return registerType(tov, visiting)
+	return r.registerType(tov, visiting)
 }
 
-func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
+func (r *Registry) registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 
 	name := regTypeName(tov)
 
-	if done, err := checkRegistered(tov); done || err != nil {
+	if done, err := r.checkRegistered(tov); done || err != nil {
 		return err
 	}
 
@@ -287,197 +264,197 @@ func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 
 	switch tov.Kind() {
 	case reflect.Bool:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeBool)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeBool}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "bool", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "bool", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Int:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeInt)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "int", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "int", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Int8:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeInt8)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt8}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "int8", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "int8", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Int16:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeInt16)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt16}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "int16", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "int16", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Int32:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeInt32)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt32}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "int32", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "int32", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Int64:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeInt64)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeInt64}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "int64", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "int64", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Uint:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeUint)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "uint", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "uint", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Uint8:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeUint8)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint8}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "uint8", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "uint8", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Uint16:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeUint16)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint16}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "uint16", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "uint16", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Uint32:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeUint32)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint32}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "uint32", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "uint32", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Uint64:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeUint64)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeUint64}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "uint64", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "uint64", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Float32:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeFloat32)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeFloat32}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "float32", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "float32", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.Float64:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeFloat64)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeFloat64}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "float64", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "float64", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
 
 	case reflect.String:
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, encodeString)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: decodeString}
-		decoders.Store(name, dec)
-		decoders.Store(tov, dec)
-		info := registerInfo(tov, "string", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		r.decoders.Store(tov, dec)
+		info := r.registerInfo(tov, "string", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 		return nil
@@ -503,16 +480,16 @@ func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 			}
 
 			ft := field.Type
-			if err := registerParts(ft, visiting); err != nil {
+			if err := r.registerParts(ft, visiting); err != nil {
 				return fmt.Errorf("%s: %s: %s", name, field.Name, err)
 			}
-			enc, err := getEncoder(ft, &stateEncode{})
+			enc, err := getEncoder(ft, &stateEncode{options: Options{Registry: r}})
 			if err != nil {
 				return fmt.Errorf("(struct field encode) type %v must be registered first: %s", ft, err)
 			}
 			encs = append(encs, enc)
 
-			dec, _, err := decodeType(enc.Prefix, &stateDecode{})
+			dec, _, err := decodeType(enc.Prefix, &stateDecode{options: Options{Registry: r}})
 			if err != nil {
 				return fmt.Errorf("(struct field decode) type %v must be registered first: %s", ft, err)
 			}
@@ -601,14 +578,14 @@ func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 			}
 			return value, body, nil
 		}
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, fenc)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: fdec}
-		decoders.Store(name, dec)
-		info := registerInfo(tov, "struct", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		info := r.registerInfo(tov, "struct", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 
@@ -616,18 +593,18 @@ func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 
 	case reflect.Slice:
 		itemType := tov.Elem()
-		if err := registerParts(itemType, visiting); err != nil {
+		if err := r.registerParts(itemType, visiting); err != nil {
 			return fmt.Errorf("%s: %s", name, err)
 		}
 
 		// encoder
-		enc, err := getEncoder(itemType, &stateEncode{})
+		enc, err := getEncoder(itemType, &stateEncode{options: Options{Registry: r}})
 		if err != nil {
 			return fmt.Errorf("(slice item encoder) type %v must be registered first: %s", itemType, err)
 		}
 
 		// decoder
-		dec, _, err := decodeType(enc.Prefix, &stateDecode{})
+		dec, _, err := decodeType(enc.Prefix, &stateDecode{options: Options{Registry: r}})
 		if err != nil {
 			return fmt.Errorf("(slice item decoder) type %v must be registered first: %s", itemType, err)
 		}
@@ -723,31 +700,31 @@ func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 			}
 			return value, packet, nil
 		}
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		regEnc := regEncoder(name, fenc)
-		encoders.Store(tov, regEnc)
+		r.encoders.Store(tov, regEnc)
 		regDec := &decoder{Type: tov, Decode: fdec}
-		decoders.Store(name, regDec)
-		info := registerInfo(tov, "slice", schemaFor(tov))
+		r.decoders.Store(name, regDec)
+		info := r.registerInfo(tov, "slice", schemaFor(tov))
 		regEnc.Info = info
 		regDec.Info = info
 
 	case reflect.Array:
 		itemType := tov.Elem()
-		if err := registerParts(itemType, visiting); err != nil {
+		if err := r.registerParts(itemType, visiting); err != nil {
 			return fmt.Errorf("%s: %s", name, err)
 		}
 
 		// encoder
-		enc, err := getEncoder(itemType, &stateEncode{})
+		enc, err := getEncoder(itemType, &stateEncode{options: Options{Registry: r}})
 		if err != nil {
 			return fmt.Errorf("(array item encoder) type %v must be registered first: %s", itemType, err)
 		}
 
 		// decoder
-		dec, _, err := decodeType(enc.Prefix, &stateDecode{})
+		dec, _, err := decodeType(enc.Prefix, &stateDecode{options: Options{Registry: r}})
 		if err != nil {
 			return fmt.Errorf("(array item decoder) type %v must be registered first: %s", itemType, err)
 		}
@@ -795,43 +772,43 @@ func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 
 			return value, packet, nil
 		}
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		regEnc := regEncoder(name, fenc)
-		encoders.Store(tov, regEnc)
+		r.encoders.Store(tov, regEnc)
 		regDec := &decoder{Type: tov, Decode: fdec}
-		decoders.Store(name, regDec)
-		info := registerInfo(tov, "array", schemaFor(tov))
+		r.decoders.Store(name, regDec)
+		info := r.registerInfo(tov, "array", schemaFor(tov))
 		regEnc.Info = info
 		regDec.Info = info
 
 	case reflect.Map:
 		typeKey := tov.Key()
 		typeValue := tov.Elem()
-		if err := registerParts(typeKey, visiting); err != nil {
+		if err := r.registerParts(typeKey, visiting); err != nil {
 			return fmt.Errorf("%s: %s", name, err)
 		}
-		if err := registerParts(typeValue, visiting); err != nil {
+		if err := r.registerParts(typeValue, visiting); err != nil {
 			return fmt.Errorf("%s: %s", name, err)
 		}
 
 		// encoders for key/value
-		encKey, err := getEncoder(typeKey, &stateEncode{})
+		encKey, err := getEncoder(typeKey, &stateEncode{options: Options{Registry: r}})
 		if err != nil {
 			return fmt.Errorf("(map key encoder) type %v must be registered first: %s", typeKey, err)
 		}
-		encValue, err := getEncoder(typeValue, &stateEncode{})
+		encValue, err := getEncoder(typeValue, &stateEncode{options: Options{Registry: r}})
 		if err != nil {
 			return fmt.Errorf("(map value encoder) type %v must be registered first: %s", typeValue, err)
 		}
 
 		// decoders for key/value
-		decKey, _, err := decodeType(encKey.Prefix, &stateDecode{})
+		decKey, _, err := decodeType(encKey.Prefix, &stateDecode{options: Options{Registry: r}})
 		if err != nil {
 			return fmt.Errorf("(map key decoder) type %v must be registered first: %s", typeKey, err)
 		}
-		decValue, _, err := decodeType(encValue.Prefix, &stateDecode{})
+		decValue, _, err := decodeType(encValue.Prefix, &stateDecode{options: Options{Registry: r}})
 		if err != nil {
 			return fmt.Errorf("(map value decoder) type %v must be registered first: %s", typeValue, err)
 		}
@@ -932,14 +909,14 @@ func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 
 			return value, packet, nil
 		}
-		if err := addRegCache(tov); err != nil {
+		if err := r.addRegCache(tov); err != nil {
 			return err
 		}
 		enc := regEncoder(name, fenc)
-		encoders.Store(tov, enc)
+		r.encoders.Store(tov, enc)
 		dec := &decoder{Type: tov, Decode: fdec}
-		decoders.Store(name, dec)
-		info := registerInfo(tov, "map", schemaFor(tov))
+		r.decoders.Store(name, dec)
+		info := r.registerInfo(tov, "map", schemaFor(tov))
 		enc.Info = info
 		dec.Info = info
 
@@ -950,46 +927,27 @@ func registerType(tov reflect.Type, visiting map[reflect.Type]bool) error {
 	return nil
 }
 
-func RegisterError(e error) error {
-	deprecation("edf.RegisterError", "node.Network().RegisterError")
-	return addErrCache(e)
-}
-
-func RegisterAtom(a gen.Atom) error {
-	deprecation("edf.RegisterAtom", "node.Network().RegisterAtom")
-	return addAtomCache(a)
-}
-
-var (
-	encoders sync.Map
-	decoders sync.Map
-
-	registeredTypes sync.Map // reflect.Type -> *gen.RegisteredTypeInfo.
-	typesByName     sync.Map // registered name -> reflect.Type, for LookupType.
-	registerOrder   atomic.Uint64
-)
-
-func registerInfo(t reflect.Type, kind, schema string) *gen.RegisteredTypeInfo {
+func (r *Registry) registerInfo(t reflect.Type, kind, schema string) *gen.RegisteredTypeInfo {
 	custom := kind == "marshaler" || kind == "binarymarshaler"
 
 	info := &gen.RegisteredTypeInfo{
-		ID:           registerOrder.Add(1),
+		ID:           r.registerOrder.Add(1),
 		Name:         regTypeName(t),
 		Kind:         kind,
 		Schema:       schema,
-		MinSize:      measureZeroSize(t, kind),
+		MinSize:      r.measureZeroSize(t, kind),
 		SizeVariable: custom || hasVariableSize(t, make(map[reflect.Type]bool)),
 		Stats:        gen.RegisteredTypeStats{Enabled: statsEnabled},
 	}
 
-	if actual, loaded := registeredTypes.LoadOrStore(t, info); loaded {
+	if actual, loaded := r.registeredTypes.LoadOrStore(t, info); loaded {
 		return actual.(*gen.RegisteredTypeInfo)
 	}
-	typesByName.Store(info.Name, t)
+	r.typesByName.Store(info.Name, t)
 	return info
 }
 
-func measureZeroSize(t reflect.Type, kind string) (size uint32) {
+func (r *Registry) measureZeroSize(t reflect.Type, kind string) (size uint32) {
 	var fallback uint32
 	switch {
 	case kind == "marshaler" || kind == "binarymarshaler":
@@ -1013,7 +971,7 @@ func measureZeroSize(t reflect.Type, kind string) (size uint32) {
 	}
 	buf := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(buf)
-	if err := Encode(v, buf, Options{RegCache: &regCache}); err != nil {
+	if err := Encode(v, buf, Options{Registry: r, RegCache: &r.regCache}); err != nil {
 		return fallback
 	}
 	return uint32(buf.Len())
@@ -1080,246 +1038,20 @@ func regEncoder(name string, enc encodeFunc) *encoder {
 	}
 }
 
-// for outgoing (encoding) messages.
-var regCacheID uint32 = 4095 // 0..4095 - reserved (used as a length)
-var regCache sync.Map
-
 // addRegCache assigns a 16-bit cache id to a registered type. Returns an error
 // if the id space is exhausted (more than MaxUint16 registered types) or the
 // type is already cached.
-func addRegCache(t reflect.Type) error {
-	id := atomic.AddUint32(&regCacheID, 1)
+func (r *Registry) addRegCache(t reflect.Type) error {
+	id := atomic.AddUint32(&r.regCacheID, 1)
 	if id > math.MaxUint16 {
 		return fmt.Errorf("too many registered types")
 	}
 	reg := []byte{edtReg, 0, 0}
 	binary.BigEndian.PutUint16(reg[1:3], uint16(id))
 
-	if _, exist := regCache.LoadOrStore(t, reg); exist {
+	if _, exist := r.regCache.LoadOrStore(t, reg); exist {
 		return gen.ErrTaken
 	}
-	regCache.Store(uint16(id), regTypeName(t))
-	return nil
-}
-
-// RegisteredTypes returns all registered EDF type metadata in registration order.
-// Each entry is a value snapshot of the underlying *gen.RegisteredTypeInfo;
-// counter fields reflect their values at snapshot time.
-func RegisteredTypes() []gen.RegisteredTypeInfo {
-	var list []gen.RegisteredTypeInfo
-	registeredTypes.Range(func(_, v any) bool {
-		list = append(list, *v.(*gen.RegisteredTypeInfo))
-		return true
-	})
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].ID < list[j].ID
-	})
-	return list
-}
-
-// RegisterTypesOf registers a batch with iterative resolve. Order-agnostic:
-// types with unresolved dependencies are retried while progress is made.
-// Returns error listing types that cannot be resolved after exhausting passes.
-func RegisterTypesOf(types []any) error {
-	deprecation("edf.RegisterTypesOf", "node.Network().RegisterTypes")
-	pending := types
-	for len(pending) > 0 {
-		var next []any
-		progress := false
-		for _, t := range pending {
-			err := RegisterTypeOf(t)
-			if err == nil {
-				progress = true
-				continue
-			}
-			next = append(next, t)
-		}
-		if progress == false && len(next) > 0 {
-			names := make([]string, 0, len(next))
-			for _, t := range next {
-				names = append(names, fmt.Sprintf("%T", t))
-			}
-			return fmt.Errorf("unresolvable types: %s", strings.Join(names, ", "))
-		}
-		pending = next
-	}
-	return nil
-}
-
-// LookupType returns the reflect.Type registered under the canonical EDF name
-// ("#pkgpath/TypeName"), matched exactly. The old short-name fallback took the first
-// suffix hit over a sync.Map, so the same name could resolve to a different package's
-// type on every call. Search by short name over RegisteredTypes instead.
-func LookupType(name string) (reflect.Type, bool) {
-	if v, ok := decoders.Load(name); ok {
-		return v.(*decoder).Type, true
-	}
-	// The types the framework seeds - the primitives, time.Time, time.Duration - are
-	// keyed by their wire tag and by their Go type, never by name: they are not framed
-	// with one. They are registered all the same, and a caller asking whether this node
-	// speaks a type is asking about that, not about the framing.
-	if v, ok := typesByName.Load(name); ok {
-		return v.(reflect.Type), true
-	}
-	return nil, false
-}
-
-func GetRegCache() map[uint16]string {
-	cache := make(map[uint16]string)
-	regCache.Range(func(k, v any) bool {
-		id, ok := k.(uint16)
-		if ok == false {
-			return true
-		}
-		name := v.(string)
-		cache[id] = name
-		return true
-	})
-	if len(cache) == 0 {
-		return nil
-	}
-	return cache
-}
-
-func MakeEncodeRegTypeCache(names []string) *sync.Map {
-	mapnames := make(map[string]bool)
-	for _, name := range names {
-		mapnames[name] = true
-	}
-	if len(mapnames) == 0 {
-		return nil
-	}
-	cache := new(sync.Map)
-	regCache.Range(func(k, v any) bool {
-		t, ok := k.(reflect.Type)
-		if ok == false {
-			return true
-		}
-		tn := regTypeName(t)
-		if _, found := mapnames[tn]; found == false {
-			return true
-		}
-		cache.Store(t, v)
-		return true
-	})
-	return cache
-}
-
-var errCacheID uint32 = math.MaxInt16 // 0..32767 - reserved (used as a length)
-var errCache sync.Map
-
-func GetErrCache() map[uint16]error {
-	cache := make(map[uint16]error)
-	errCache.Range(func(k, v any) bool {
-		if id, ok := v.(uint16); ok {
-			err := k.(error)
-			cache[id] = err
-		}
-		return true
-	})
-	if len(cache) == 0 {
-		return nil
-	}
-	return cache
-}
-
-// RegisteredErrors lists the sentinel errors in the wire-format error cache,
-// ordered by cache id. Framework sentinels pre-registered at init are
-// included, so the result is the whole dictionary this process would offer at
-// handshake - not only what the caller registered.
-//
-// The cache is process-global, not per-node: two nodes in one process report
-// the same list.
-func RegisteredErrors() []gen.RegisteredErrorInfo {
-	var list []gen.RegisteredErrorInfo
-	errCache.Range(func(k, v any) bool {
-		id, ok := v.(uint16)
-		if ok == false {
-			return true
-		}
-		e, ok := k.(error)
-		if ok == false {
-			return true
-		}
-		list = append(list, gen.RegisteredErrorInfo{ID: id, Text: e.Error()})
-		return true
-	})
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].ID < list[j].ID
-	})
-	return list
-}
-
-func addErrCache(e error) error {
-	if _, ok := e.(*gen.Error); ok {
-		return fmt.Errorf("cannot register *gen.Error: register markers (errors.New) and construct wrap chains via gen.Errorf")
-	}
-	id := atomic.AddUint32(&errCacheID, 1)
-	// 0xFFFF reserved for nil error, 0xFFFE reserved for wrapped *gen.Error marker.
-	if id > math.MaxUint16-2 {
-		return fmt.Errorf("too many registered errors")
-	}
-	if _, exist := errCache.LoadOrStore(e, uint16(id)); exist {
-		return nil
-	}
-	return nil
-}
-
-var atomCacheID uint32 = 255 // 0..255 - reserved (used as a length)
-var atomCache sync.Map
-
-// RegisteredAtoms lists the atom cache entries, ordered by cache id. An
-// unregistered atom is absent here and encoded in full on every hop, so an
-// atom missing from this list is a wire-size cost, never a correctness
-// problem.
-//
-// The cache is process-global, not per-node: two nodes in one process report
-// the same list.
-func RegisteredAtoms() []gen.RegisteredAtomInfo {
-	var list []gen.RegisteredAtomInfo
-	atomCache.Range(func(k, v any) bool {
-		id, ok := v.(uint16)
-		if ok == false {
-			return true
-		}
-		a, ok := k.(gen.Atom)
-		if ok == false {
-			return true
-		}
-		list = append(list, gen.RegisteredAtomInfo{ID: id, Name: a})
-		return true
-	})
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].ID < list[j].ID
-	})
-	return list
-}
-
-func GetAtomCache() map[uint16]gen.Atom {
-	cache := make(map[uint16]gen.Atom)
-	atomCache.Range(func(k, v any) bool {
-		id, ok := v.(uint16)
-		if ok == false {
-			return true
-		}
-		atom := k.(gen.Atom)
-		cache[id] = atom
-		return true
-	})
-	if len(cache) == 0 {
-		return nil
-	}
-	return cache
-}
-
-func addAtomCache(atom gen.Atom) error {
-	id := atomic.AddUint32(&atomCacheID, 1)
-	// the last 1000 ids for the custom atoms
-	if id > math.MaxUint16-1000 {
-		return fmt.Errorf("too many registered atoms")
-	}
-	if _, exist := atomCache.LoadOrStore(atom, uint16(id)); exist {
-		return nil
-	}
+	r.regCache.Store(uint16(id), regTypeName(t))
 	return nil
 }

@@ -15,8 +15,9 @@ import (
 func TestApplyCacheUpdate(t *testing.T) {
 	c := &connection{
 		log:           mock.NewLog(),
-		encodeOptions: edf.Options{Cache: new(sync.Map)},
+		encodeOptions: edf.Options{Registry: testRegistry, Cache: new(sync.Map)},
 		decodeOptions: edf.Options{
+			Registry:    testRegistry,
 			AtomCache:   new(sync.Map),
 			AtomMapping: new(sync.Map),
 			RegCache:    new(sync.Map),
@@ -56,7 +57,7 @@ func TestNewConnectionDecodeCachesNonNil(t *testing.T) {
 		Peer:         "peer@localhost",
 		PeerCreation: 1,
 		PoolSize:     1,
-		Custom:       handshake.ConnectionOptions{PoolSize: 1}, // nil Decode* caches
+		Custom:       handshake.ConnectionOptions{PoolSize: 1, Registry: testRegistry}, // nil Decode* caches
 	}
 	conn, err := (&enp{}).NewConnection(mock.NewCore(), result, mock.NewLog())
 	if err != nil {

@@ -92,7 +92,7 @@ func (h *handshake) writeMessage(conn net.Conn, message any) error {
 	buf.B[0] = handshakeMagic
 	buf.B[1] = handshakeVersion
 
-	if err := edf.Encode(message, buf, edf.Options{}); err != nil {
+	if err := edf.Encode(message, buf, edf.Options{Registry: registry}); err != nil {
 		return err
 	}
 
@@ -145,7 +145,7 @@ func (h *handshake) readMessage(conn net.Conn, chunk []byte, maxlen int) (any, [
 			continue
 		}
 
-		return edf.Decode(chunk[6:], edf.Options{})
+		return edf.Decode(chunk[6:], edf.Options{Registry: registry})
 	}
 }
 
@@ -160,7 +160,7 @@ func (h *handshake) makeEncodeAtomCache(local map[uint16]gen.Atom) *sync.Map {
 	return cache
 }
 
-func (h *handshake) makeEncodeRegCache(local map[uint16]string) *sync.Map {
+func (h *handshake) makeEncodeRegCache(r *edf.Registry, local map[uint16]string) *sync.Map {
 	var names []string
 	for _, name := range local {
 		names = append(names, name)
@@ -168,7 +168,15 @@ func (h *handshake) makeEncodeRegCache(local map[uint16]string) *sync.Map {
 	if len(names) == 0 {
 		return nil
 	}
-	return edf.MakeEncodeRegTypeCache(names)
+	return r.MakeEncodeRegTypeCache(names)
+}
+
+func nodeRegistry(node gen.NodeHandshake) (*edf.Registry, error) {
+	r, ok := node.TypeRegistry().(*edf.Registry)
+	if ok == false || r == nil {
+		return nil, fmt.Errorf("node %s has no EDF type registry", node.Name())
+	}
+	return r, nil
 }
 
 func (h *handshake) makeEncodeErrCache(local map[uint16]error) *sync.Map {

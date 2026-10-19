@@ -16,12 +16,12 @@ type testRegDurationHolder struct {
 type testRegElapsed int64
 
 func TestRegisterNamedScalarIsFoundByName(t *testing.T) {
-	if err := RegisterTypeOf(testRegElapsed(0)); err != nil {
+	if err := defaultRegistry.RegisterType(testRegElapsed(0)); err != nil {
 		t.Fatalf("register: %s", err)
 	}
 
 	want := reflect.TypeOf(testRegElapsed(0))
-	got, found := LookupType(regTypeName(want))
+	got, found := defaultRegistry.LookupType(regTypeName(want))
 	if found == false {
 		t.Fatalf("%s is registered and still not found by name", want)
 	}
@@ -31,7 +31,7 @@ func TestRegisterNamedScalarIsFoundByName(t *testing.T) {
 }
 
 func TestRegisterDurationIsAlreadyRegistered(t *testing.T) {
-	err := RegisterTypeOf(time.Duration(0))
+	err := defaultRegistry.RegisterType(time.Duration(0))
 	if err != nil {
 		t.Fatalf("registering time.Duration answered %v, which fails an application load", err)
 	}
@@ -41,7 +41,7 @@ func TestRegisterSeededTypesAreFoundByName(t *testing.T) {
 	for _, v := range []any{uint(0), int64(0), "", true, float64(0), time.Time{}, time.Duration(0)} {
 		want := reflect.TypeOf(v)
 		name := regTypeName(want)
-		got, found := LookupType(name)
+		got, found := defaultRegistry.LookupType(name)
 		if found == false {
 			t.Errorf("%s is seeded by the framework and not found under %q", want, name)
 			continue
@@ -53,7 +53,7 @@ func TestRegisterSeededTypesAreFoundByName(t *testing.T) {
 }
 
 func TestRegisterDurationRoundTrip(t *testing.T) {
-	if err := RegisterTypeOf(testRegDurationHolder{}); err != nil {
+	if err := defaultRegistry.RegisterType(testRegDurationHolder{}); err != nil {
 		t.Fatalf("register holder: %s", err)
 	}
 

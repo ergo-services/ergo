@@ -20,7 +20,7 @@ func newRecvConn(t *testing.T) (*connection, *mock.Core) {
 		peer_creation: testPeerCreation,
 		core:          core,
 		log:           mock.NewLog(),
-		decodeOptions: edf.Options{Cache: new(sync.Map)},
+		decodeOptions: edf.Options{Registry: testRegistry, Cache: new(sync.Map)},
 	}
 	return rc, core
 }

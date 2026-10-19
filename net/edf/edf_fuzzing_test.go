@@ -69,9 +69,9 @@ type fuzzComplexStruct struct {
 }
 
 func init() {
-	RegisterTypeOf(fuzzInnerStruct{})
-	RegisterTypeOf(fuzzMiddleStruct{})
-	RegisterTypeOf(fuzzComplexStruct{})
+	defaultRegistry.RegisterType(fuzzInnerStruct{})
+	defaultRegistry.RegisterType(fuzzMiddleStruct{})
+	defaultRegistry.RegisterType(fuzzComplexStruct{})
 }
 
 // compare by re-encoding decoded value and comparing bytes

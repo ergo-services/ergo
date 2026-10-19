@@ -7,6 +7,9 @@ import (
 
 // Options for encoding/decoding
 type Options struct {
+	// Registry resolves types, errors and atoms. Nil means the framework types only.
+	Registry *Registry
+
 	AtomCache   *sync.Map // atom => id (encoding), id => atom (decoding)
 	AtomMapping *sync.Map // atomX => atomY (encoding/decoding)
 	RegCache    *sync.Map // type/name => id (encoding), id => type (for decoding)

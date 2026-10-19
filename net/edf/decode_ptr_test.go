@@ -465,7 +465,7 @@ type testPtrStructWithAny struct {
 }
 
 func init() {
-	RegisterTypeOf(testPtrStructWithAny{})
+	defaultRegistry.RegisterType(testPtrStructWithAny{})
 }
 
 func TestDecodePtrInAny(t *testing.T) {
@@ -1064,7 +1064,7 @@ type testStructWithPtrField struct {
 }
 
 func init() {
-	RegisterTypeOf(testStructWithPtrField{})
+	defaultRegistry.RegisterType(testStructWithPtrField{})
 }
 
 func TestDecodeStructWithPtrField(t *testing.T) {
@@ -1672,7 +1672,7 @@ type testRegisteredStruct struct {
 }
 
 func init() {
-	RegisterTypeOf(testRegisteredStruct{})
+	defaultRegistry.RegisterType(testRegisteredStruct{})
 }
 
 func TestDecodePtrToRegisteredStruct(t *testing.T) {

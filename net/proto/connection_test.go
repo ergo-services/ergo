@@ -34,8 +34,8 @@ func newTestConn(t *testing.T, peerFlags gen.NetworkFlags) *testConn {
 		peer:          "peer@localhost",
 		peer_creation: testPeerCreation,
 		peer_flags:    peerFlags,
-		encodeOptions: edf.Options{Cache: new(sync.Map)},
-		decodeOptions: edf.Options{Cache: new(sync.Map)},
+		encodeOptions: edf.Options{Registry: testRegistry, Cache: new(sync.Map)},
+		decodeOptions: edf.Options{Registry: testRegistry, Cache: new(sync.Map)},
 		requests:      make(map[gen.Ref]chan MessageResult),
 	}
 	pi := &pool_item{fl: lib.NewFlusher(srv)}

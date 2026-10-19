@@ -39,6 +39,9 @@ func Encode(x any, b *lib.Buffer, options Options) (ret error) {
 	}
 
 	// Use pooled state instead of allocation
+	if options.Registry == nil {
+		options.Registry = defaultRegistry
+	}
 	state := getPooledStateEncode(options)
 	defer putPooledStateEncode(state)
 
@@ -69,7 +72,7 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 	}
 
 	// try to find by the type
-	if v, found := encoders.Load(t); found {
+	if v, found := state.options.Registry.encoders.Load(t); found {
 		enc := v.(*encoder)
 
 		if state.options.RegCache == nil {
@@ -352,14 +355,15 @@ func getEncoder(t reflect.Type, state *stateEncode) (*encoder, error) {
 	}
 
 	// look among the standard types
-	v, found := encoders.Load(kind)
+	registry := state.options.Registry
+	v, found := registry.encoders.Load(kind)
 	if found == false {
 		return nil, fmt.Errorf("no encoder for type %v", t)
 	}
 
 	enc := v.(*encoder)
 	// store encoder t => v
-	encoders.Store(t, v)
+	registry.encoders.Store(t, v)
 
 	return enc, nil
 }

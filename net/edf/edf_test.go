@@ -47,7 +47,7 @@ func integerCases() []integerCase {
 }
 
 func TestRoundtripTagSkipExportedField(t *testing.T) {
-	if err := RegisterTypeOf(testRegTagSkipExported{}); err != nil && err != gen.ErrTaken {
+	if err := defaultRegistry.RegisterType(testRegTagSkipExported{}); err != nil && err != gen.ErrTaken {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestRoundtripTagSkipExportedField(t *testing.T) {
 }
 
 func TestRoundtripTagSkipUnexportedField(t *testing.T) {
-	if err := RegisterTypeOf(testRegTagSkipUnexported{}); err != nil && err != gen.ErrTaken {
+	if err := defaultRegistry.RegisterType(testRegTagSkipUnexported{}); err != nil && err != gen.ErrTaken {
 		t.Fatalf("register: %v", err)
 	}
 

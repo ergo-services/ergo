@@ -59,6 +59,9 @@ func Decode(packet []byte, options Options) (_ any, _ []byte, ret error) {
 		}()
 	}
 
+	if options.Registry == nil {
+		options.Registry = defaultRegistry
+	}
 	state := getPooledStateDecode(options)
 	defer putPooledStateDecode(state)
 	state.decodeType = true
@@ -105,7 +108,7 @@ func getDecoder(packet []byte, state *stateDecode) (*decoder, []byte, error) {
 
 	state.decodeType = false
 
-	if v, found := decoders.Load(id); found {
+	if v, found := state.options.Registry.decoders.Load(id); found {
 		return v.(*decoder), packet, nil
 	}
 
@@ -141,7 +144,7 @@ func getRegDecoder(packet []byte, state *stateDecode) (*decoder, []byte, error) 
 		packet = packet[n:]
 	}
 
-	if v, found := decoders.Load(id); found {
+	if v, found := state.options.Registry.decoders.Load(id); found {
 		state.decodeType = false
 		return v.(*decoder), packet, nil
 	}
@@ -471,7 +474,7 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 		return &dec, f, nil
 	}
 
-	if v, found := decoders.Load(fold[0]); found {
+	if v, found := state.options.Registry.decoders.Load(fold[0]); found {
 		return v.(*decoder), fold[1:], nil
 	}
 	return nil, nil, fmt.Errorf("no decoder for type %d", fold[0])

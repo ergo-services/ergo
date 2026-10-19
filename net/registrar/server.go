@@ -119,7 +119,7 @@ func (s *server) serveResolve() {
 			continue
 		}
 
-		v, _, err := edf.Decode(buf[4:4+int(l)], edf.Options{})
+		v, _, err := edf.Decode(buf[4:4+int(l)], edf.Options{Registry: registry})
 		if err != nil {
 			s.log.Error("(registrar) unable to decode message from %s: %s", addr, err)
 			continue
@@ -149,7 +149,7 @@ func (s *server) serveResolve() {
 		rbuf.Allocate(4)
 		rbuf.B[0] = protoVersion
 		rbuf.B[1] = replyType
-		if err := edf.Encode(reply, rbuf, edf.Options{}); err != nil {
+		if err := edf.Encode(reply, rbuf, edf.Options{Registry: registry}); err != nil {
 			s.log.Error("(registrar) unable to encode reply message: %s", err)
 			continue
 		}
@@ -213,7 +213,7 @@ func (s *server) serveConn(conn net.Conn) {
 		return
 	}
 
-	v, _, err := edf.Decode(buf[4:4+int(l)], edf.Options{})
+	v, _, err := edf.Decode(buf[4:4+int(l)], edf.Options{Registry: registry})
 	if err != nil {
 		s.log.Error("(registrar) unable to decode message from %s: %s", conn.RemoteAddr(), err)
 		conn.Close()
@@ -236,7 +236,7 @@ func (s *server) serveConn(conn net.Conn) {
 	rbuf.Allocate(4)
 	rbuf.B[0] = protoVersion
 	rbuf.B[1] = protoRegisterReply
-	if err := edf.Encode(reply, rbuf, edf.Options{}); err != nil {
+	if err := edf.Encode(reply, rbuf, edf.Options{Registry: registry}); err != nil {
 		conn.Close()
 		return
 	}
@@ -356,7 +356,7 @@ func (s *server) notify(name gen.Atom, joined bool) {
 	buf.B[0] = protoVersion
 	buf.B[1] = protoNodeEvent
 	event := MessageNodeEvent{Node: name, Joined: joined}
-	if err := edf.Encode(event, buf, edf.Options{}); err != nil {
+	if err := edf.Encode(event, buf, edf.Options{Registry: registry}); err != nil {
 		s.log.Error("(registrar) unable to encode node event: %s", err)
 		return
 	}

@@ -377,6 +377,11 @@ func (n *node) Uptime() int64 {
 	return time.Now().Unix() - atomic.LoadInt64(&n.creation)
 }
 
+// TypeRegistry returns the registry of the wire types of the node.
+func (n *node) TypeRegistry() gen.TypeRegistry {
+	return n.network.registry
+}
+
 func (n *node) Version() gen.Version {
 	return n.version
 }

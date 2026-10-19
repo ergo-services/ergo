@@ -40,11 +40,11 @@ type testPartsNamed struct {
 }
 
 func TestRegisterPartsRegistersFieldTypes(t *testing.T) {
-	if err := RegisterTypeOf(testPartsOuter{}); err != nil {
+	if err := defaultRegistry.RegisterType(testPartsOuter{}); err != nil {
 		t.Fatalf("register: %s", err)
 	}
 	for _, v := range []any{testPartsInner{}, testPartsItem{}} {
-		if _, found := LookupType(regTypeName(reflect.TypeOf(v))); found == false {
+		if _, found := defaultRegistry.LookupType(regTypeName(reflect.TypeOf(v))); found == false {
 			t.Errorf("%T is not registered with the type that has it in a field", v)
 		}
 	}
@@ -65,19 +65,19 @@ func TestRegisterPartsRegistersFieldTypes(t *testing.T) {
 
 func TestRegisterIsIdempotent(t *testing.T) {
 	for i := 0; i < 2; i++ {
-		if err := RegisterTypeOf(testPartsOuter{}); err != nil {
+		if err := defaultRegistry.RegisterType(testPartsOuter{}); err != nil {
 			t.Fatalf("register a type again: %s", err)
 		}
-		if err := RegisterTypeOf(testPartsItem{}); err != nil {
+		if err := defaultRegistry.RegisterType(testPartsItem{}); err != nil {
 			t.Fatalf("register a field type again: %s", err)
 		}
 	}
 	marker := errors.New("parts marker")
 	for i := 0; i < 2; i++ {
-		if err := RegisterError(marker); err != nil {
+		if err := defaultRegistry.RegisterError(marker); err != nil {
 			t.Fatalf("register an error again: %s", err)
 		}
-		if err := RegisterAtom("parts.atom"); err != nil {
+		if err := defaultRegistry.RegisterAtom("parts.atom"); err != nil {
 			t.Fatalf("register an atom again: %s", err)
 		}
 	}
@@ -101,11 +101,11 @@ func testPartsHolder() any {
 }
 
 func TestRegisterConflictNamesThePath(t *testing.T) {
-	if err := RegisterTypeOf(testPartsFirst()); err != nil {
+	if err := defaultRegistry.RegisterType(testPartsFirst()); err != nil {
 		t.Fatalf("register: %s", err)
 	}
 	holder := testPartsHolder()
-	err := RegisterTypeOf(holder)
+	err := defaultRegistry.RegisterType(holder)
 	if err == nil {
 		t.Fatal("another type with the name of a registered one must be refused")
 	}
@@ -114,27 +114,27 @@ func TestRegisterConflictNamesThePath(t *testing.T) {
 	if err.Error() != want {
 		t.Errorf("got %q, want %q", err, want)
 	}
-	if _, found := LookupType(regTypeName(reflect.TypeOf(holder))); found {
+	if _, found := defaultRegistry.LookupType(regTypeName(reflect.TypeOf(holder))); found {
 		t.Error("the type with the conflict in a field is registered")
 	}
 }
 
 func TestRegisterSelfReferenceIsRefused(t *testing.T) {
-	err := RegisterTypeOf(testPartsTree{})
+	err := defaultRegistry.RegisterType(testPartsTree{})
 	if err == nil || strings.Contains(err.Error(), "must be registered first") == false {
 		t.Fatalf("got %v", err)
 	}
 }
 
 func TestRegisterPartsRegistersNamedScalars(t *testing.T) {
-	if err := RegisterTypeOf(testPartsNamed{}); err != nil {
+	if err := defaultRegistry.RegisterType(testPartsNamed{}); err != nil {
 		t.Fatalf("register: %s", err)
 	}
-	if _, found := LookupType(regTypeName(reflect.TypeOf(testPartsCode(0)))); found == false {
+	if _, found := defaultRegistry.LookupType(regTypeName(reflect.TypeOf(testPartsCode(0)))); found == false {
 		t.Error("a named scalar is not registered with the type that has it in a field")
 	}
 	for _, v := range []any{testPartsCodes{}, testPartsCounts{}} {
-		if _, found := LookupType(regTypeName(reflect.TypeOf(v))); found {
+		if _, found := defaultRegistry.LookupType(regTypeName(reflect.TypeOf(v))); found {
 			t.Errorf("%T is registered: a named slice or map goes as its underlying type", v)
 		}
 	}

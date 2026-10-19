@@ -137,56 +137,55 @@ type Network interface {
 	// Protos returns all registered network protocols.
 	Protos() []NetworkProto
 
-	// RegisterType registers a Go type with every proto that implements TypeRegistry.
-	// Strict: returns error if any TypeRegistry-capable proto fails.
-	// Returns ErrUnsupported if no proto implements TypeRegistry.
-	// The EDF proto supports up to 65535 registered types (each gets a compact
+	// RegisterType registers a Go type with the node registry and with every proto
+	// that has a TypeRegistry of its own. Strict: returns error if any of them fails.
+	// The EDF registry supports up to 65535 registered types (each gets a compact
 	// wire id); registering more returns an error.
 	RegisterType(v any) error
 
-	// RegisterTypes registers multiple types as a batch. Each proto resolves
+	// RegisterTypes registers multiple types as a batch. Each registry resolves
 	// inter-type dependencies internally; order of input is irrelevant.
-	// Strict aggregation: any per-proto failure fails the call.
+	// Strict aggregation: any registry failure fails the call.
 	RegisterTypes(types []any) error
 
 	// RegisterError registers a sentinel error for wire transport.
-	// Strict aggregation across TypeRegistry-capable protos.
+	// Strict aggregation across the registries.
 	RegisterError(e error) error
 
 	// RegisterErrors registers multiple sentinel errors as a batch.
-	// Strict aggregation across TypeRegistry-capable protos.
+	// Strict aggregation across the registries.
 	RegisterErrors(errs []error) error
 
 	// RegisterAtom registers an atom for the wire-format atom cache.
-	// Strict aggregation across TypeRegistry-capable protos.
+	// Strict aggregation across the registries.
 	RegisterAtom(a Atom) error
 
 	// RegisterAtoms registers multiple atoms as a batch.
-	// Strict aggregation across TypeRegistry-capable protos.
+	// Strict aggregation across the registries.
 	RegisterAtoms(atoms []Atom) error
 
-	// RegisteredTypes aggregates entries from every TypeRegistry-capable proto.
-	// One Go type may appear once per proto; entries carry Proto field set.
+	// RegisteredTypes aggregates entries from the registries.
+	// One Go type may appear once per registry; entries carry Proto field set.
 	RegisteredTypes() []RegisteredTypeInfo
 
 	// RegisteredErrors aggregates the sentinel errors registered for wire
-	// transport by every TypeRegistry-capable proto. Entries carry Proto set.
+	// transport in the registries. Entries carry Proto set.
 	RegisteredErrors() []RegisteredErrorInfo
 
-	// RegisteredAtoms aggregates the atom cache entries of every
-	// TypeRegistry-capable proto. Entries carry Proto set.
+	// RegisteredAtoms aggregates the atom cache entries of the registries.
+	// Entries carry Proto set.
 	RegisteredAtoms() []RegisteredAtomInfo
 
 	// LookupType resolves a registered type name to its reflect.Type via the
-	// active wire-format protos. Returns the first match across protos.
+	// registries. Returns the first match.
 	// Accepts either the canonical name ("#pkgpath/Type") or a short name ("Type").
 	LookupType(name string) (reflect.Type, bool)
 }
 
-// TypeRegistry is implemented by NetworkProto implementations that have
-// a wire-format type registry (e.g., EDF). Implementations using a
-// schemaless / fixed wire format (e.g., Erlang external term) need not
-// implement this interface.
+// TypeRegistry is a wire-format type registry (e.g., EDF). The node owns one
+// (NodeHandshake.TypeRegistry); a NetworkProto with a registry of its own may
+// implement it too. Schemaless / fixed wire formats (e.g., Erlang external
+// term) need not implement it.
 type TypeRegistry interface {
 	RegisterType(v any) error
 	RegisterTypes(types []any) error
@@ -991,13 +990,16 @@ type HandshakeResult struct {
 type NetworkDial func(dsn, id string) (net.Conn, []byte, error)
 
 type NetworkProto interface {
-	// NewConnection
+	// NewConnection creates a connection from the result of the handshake.
 	NewConnection(core Core, result HandshakeResult, log Log) (Connection, error)
-	// Serve connection. Argument dial is the closure to create TCP connection with invoking
-	// NetworkHandshake.Join inside to shortcut the handshake process
+	// Serve runs the connection until it terminates. dial opens a pool TCP link
+	// through NetworkHandshake.Join.
 	Serve(conn Connection, dial NetworkDial) error
-	// Version
+	// Version returns the name and release of the proto.
 	Version() Version
+	// ProtoTypes returns the message types the node registers in its TypeRegistry
+	// for this proto. Nil if the proto has a wire format of its own.
+	ProtoTypes() []any
 }
 
 // NetworkInfo contains comprehensive network status and configuration information.

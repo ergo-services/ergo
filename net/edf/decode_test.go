@@ -1179,7 +1179,7 @@ func TestDecodeSliceReg(t *testing.T) {
 		0x40, 0x49, 0x99, 0x9a, // 3.15
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
-	RegisterTypeOf(x)
+	defaultRegistry.RegisterType(x)
 
 	value, _, err := Decode(packet, Options{})
 	if err != nil {
@@ -1208,7 +1208,7 @@ func TestDecodeSliceRegCache(t *testing.T) {
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
 
-	RegisterTypeOf(x)
+	defaultRegistry.RegisterType(x)
 
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/MyFloat123")
@@ -1236,7 +1236,7 @@ func TestDecodeRegSlice(t *testing.T) {
 		0x40, 0x49, 0x99, 0x9a, // 3.15
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
-	if err := RegisterTypeOf(expect); err != nil {
+	if err := defaultRegistry.RegisterType(expect); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1281,10 +1281,10 @@ func TestDecodeRegSliceRegSlice(t *testing.T) {
 		0x40, 0x48, 0xf5, 0xc3,
 	}
 
-	if err := RegisterTypeOf(MyDecSliceOfSlice{}); err != nil {
+	if err := defaultRegistry.RegisterType(MyDecSliceOfSlice{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterTypeOf(MyDecSliceFloat{}); err != nil {
+	if err := defaultRegistry.RegisterType(MyDecSliceFloat{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1324,7 +1324,7 @@ func TestDecodeSliceAnyReg(t *testing.T) {
 		0x40, 0x4a, 0x3d, 0x71, // MyFloat20(3.16)
 	}
 
-	RegisterTypeOf(x)
+	defaultRegistry.RegisterType(x)
 
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/MyFloat20")
@@ -1358,10 +1358,10 @@ func TestDecodeRegSliceReg(t *testing.T) {
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
 
-	if err := RegisterTypeOf(x); err != nil {
+	if err := defaultRegistry.RegisterType(x); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterTypeOf(expect); err != nil {
+	if err := defaultRegistry.RegisterType(expect); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1999,7 +1999,7 @@ func TestDecodeSliceTypeReg(t *testing.T) {
 		0x40, 0x49, 0x99, 0x9a, // 3.15
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
-	RegisterTypeOf(x)
+	defaultRegistry.RegisterType(x)
 
 	value, _, err := Decode(packet, Options{})
 	if err != nil {
@@ -2027,8 +2027,8 @@ func TestDecodeSliceRegTypeReg(t *testing.T) {
 		0x40, 0x49, 0x99, 0x9a, // 3.15
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
-	RegisterTypeOf(x)
-	if err := RegisterTypeOf(expect); err != nil {
+	defaultRegistry.RegisterType(x)
+	if err := defaultRegistry.RegisterType(expect); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2299,7 +2299,7 @@ func TestDecodeSliceSliceNil(t *testing.T) {
 func TestDecodeSliceSliceReg(t *testing.T) {
 	type MySlice555 []float32
 
-	if err := RegisterTypeOf(MySlice555{}); err != nil {
+	if err := defaultRegistry.RegisterType(MySlice555{}); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -2550,7 +2550,7 @@ func TestDecodeUnmarshal(t *testing.T) {
 	}
 	expect := testUnmarshal{X: 3.14}
 
-	if err := RegisterTypeOf(testUnmarshal{}); err != nil {
+	if err := defaultRegistry.RegisterType(testUnmarshal{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2584,7 +2584,7 @@ func TestDecodeSliceUnmarshal(t *testing.T) {
 	}
 	expect := []testUnmarshal{{3.14}, {3.15}, {3.16}}
 
-	RegisterTypeOf(testUnmarshal{})
+	defaultRegistry.RegisterType(testUnmarshal{})
 
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/testUnmarshal")
@@ -2613,7 +2613,7 @@ func TestDecodeStruct(t *testing.T) {
 	}
 	expect := testDecStruct{3.16, 3.15}
 
-	RegisterTypeOf(testDecStruct{})
+	defaultRegistry.RegisterType(testDecStruct{})
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/testDecStruct")
 
@@ -2642,7 +2642,7 @@ func TestDecodeSliceStruct(t *testing.T) {
 	}
 	expect := []testDecStruct{{3.16, 3.15}, {3.15, 3.14}}
 
-	RegisterTypeOf(testDecStruct{})
+	defaultRegistry.RegisterType(testDecStruct{})
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/testDecStruct")
 
@@ -2672,7 +2672,7 @@ func TestDecodeStructWithAny(t *testing.T) {
 	}
 	expect := testDecStructWithAny{3.16, 3.15, nil}
 
-	RegisterTypeOf(testDecStructWithAny{})
+	defaultRegistry.RegisterType(testDecStructWithAny{})
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/testDecStructWithAny")
 
@@ -2738,8 +2738,8 @@ func TestDecodeStructWithSlice(t *testing.T) {
 		nil,
 	}
 
-	RegisterTypeOf(testDecSliceString{})
-	RegisterTypeOf(testDecStructWithSlice{})
+	defaultRegistry.RegisterType(testDecSliceString{})
+	defaultRegistry.RegisterType(testDecStructWithSlice{})
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/testDecStructWithSlice")
 
@@ -2776,7 +2776,7 @@ func TestDecodeSliceStructWithAny(t *testing.T) {
 		{3.16, 3.15, float32(3.16)},
 		{3.15, 3.14, float64(3.14)},
 	}
-	RegisterTypeOf(testDecStructWithAny{})
+	defaultRegistry.RegisterType(testDecStructWithAny{})
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/testDecStructWithAny")
 
@@ -2813,7 +2813,7 @@ func TestDecodeSliceAnyWithStruct(t *testing.T) {
 		nil,
 		testDecStruct{3.15, 3.14},
 	}
-	RegisterTypeOf(testDecStruct{})
+	defaultRegistry.RegisterType(testDecStruct{})
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/testDecStruct")
 
@@ -3215,7 +3215,7 @@ type testMapKey string
 func TestDecodeMapValueMapRegKey(t *testing.T) {
 	var x testMapKey
 
-	if err := RegisterTypeOf(x); err != nil {
+	if err := defaultRegistry.RegisterType(x); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -3267,7 +3267,7 @@ func TestDecodeMapValueMapRegKey(t *testing.T) {
 func TestDecodeMapValueMapAnyWithRegKey(t *testing.T) {
 	var x testMapKey = "world"
 
-	if err := RegisterTypeOf(x); err != nil {
+	if err := defaultRegistry.RegisterType(x); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -3321,7 +3321,7 @@ type MyMap map[string]bool
 func TestDecodeRegMap(t *testing.T) {
 	var x MyMap
 
-	if err := RegisterTypeOf(x); err != nil {
+	if err := defaultRegistry.RegisterType(x); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -3361,8 +3361,8 @@ func TestDecodeRegMapRegSlice(t *testing.T) {
 	type myDecSlice90 []bool
 	type myDecMap90 map[string]myDecSlice90
 
-	RegisterTypeOf(myDecSlice90{})
-	RegisterTypeOf(myDecMap90{})
+	defaultRegistry.RegisterType(myDecSlice90{})
+	defaultRegistry.RegisterType(myDecMap90{})
 
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/myDecMap90")
@@ -3526,7 +3526,7 @@ func TestDecodeRegArray(t *testing.T) {
 		0x77, 0x6f, 0x72, 0x6c, 0x64, // "world"
 	}
 
-	RegisterTypeOf(expect)
+	defaultRegistry.RegisterType(expect)
 
 	value, _, err := Decode(packet, Options{})
 	if err != nil {
@@ -3560,7 +3560,7 @@ func TestDecodeArrayReg(t *testing.T) {
 		0x77, 0x6f, 0x72, 0x6c, 0x64, // "world"
 	}
 
-	RegisterTypeOf(expect[0])
+	defaultRegistry.RegisterType(expect[0])
 
 	value, _, err := Decode(packet, Options{})
 	if err != nil {
@@ -3597,8 +3597,8 @@ func TestDecodeRegArrayRegArray(t *testing.T) {
 		0x68, 0x65, 0x6c, 0x6c, 0x6f, // "hello"
 	}
 
-	RegisterTypeOf(myDecArrayMyStr1{})
-	RegisterTypeOf(myDecArrayArray1{})
+	defaultRegistry.RegisterType(myDecArrayMyStr1{})
+	defaultRegistry.RegisterType(myDecArrayArray1{})
 
 	regCache := new(sync.Map)
 	regCache.Store(uint16(5000), "#ergo.services/ergo/net/edf/myDecArrayArray1")
@@ -3767,7 +3767,7 @@ type myStructWithGenErrorValue struct {
 }
 
 func TestRoundTripUserStructWithGenErrorValue(t *testing.T) {
-	if err := RegisterTypeOf(myStructWithGenErrorValue{}); err != nil && err != gen.ErrTaken {
+	if err := defaultRegistry.RegisterType(myStructWithGenErrorValue{}); err != nil && err != gen.ErrTaken {
 		t.Fatal(err)
 	}
 

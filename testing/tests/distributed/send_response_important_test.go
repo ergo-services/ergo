@@ -6,7 +6,6 @@ import (
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
-	"ergo.services/ergo/net/edf"
 	"ergo.services/ergo/testing/check"
 	"ergo.services/ergo/testing/stage"
 )
@@ -18,12 +17,6 @@ type respWrapped struct {
 	From gen.PID
 	Ref  gen.Ref
 	Msg  int
-}
-
-func init() {
-	if err := edf.RegisterTypeOf(respWrapped{}); err != nil && err != gen.ErrTaken {
-		panic(err)
-	}
 }
 
 // respImportant replies via SendResponseImportant from inside HandleCall and reports
@@ -123,6 +116,8 @@ func TestDistSendResponseImportant(t *testing.T) {
 	n1 := s.StartNode("n1")
 	n2 := s.StartNode("n2")
 	n3 := s.StartNode("n3")
+	check.NoError(t, n2.Native().Network().RegisterType(respWrapped{}))
+	check.NoError(t, n3.Native().Network().RegisterType(respWrapped{}))
 	s.Connect(n1, n2)
 	s.Connect(n1, n3)
 	s.Connect(n2, n3)

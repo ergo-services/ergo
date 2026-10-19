@@ -14,7 +14,7 @@ type testArrayKeys struct {
 }
 
 func TestDecodeCompositeMapKeys(t *testing.T) {
-	if err := RegisterTypeOf(testArrayKeys{}); err != nil {
+	if err := defaultRegistry.RegisterType(testArrayKeys{}); err != nil {
 		t.Fatalf("register: %s", err)
 	}
 	key := 7

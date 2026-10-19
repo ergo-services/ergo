@@ -16,6 +16,7 @@ import (
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
+	"ergo.services/ergo/net/edf"
 	"ergo.services/ergo/net/handshake"
 	"ergo.services/ergo/net/proto"
 	"ergo.services/ergo/net/registrar"
@@ -28,6 +29,7 @@ func createNetwork(node *node) *network {
 		staticProxies:    &staticProxies{},
 		defaultHandshake: handshake.Create(handshake.Options{}),
 		defaultProto:     proto.Create(),
+		registry:         edf.NewRegistry(),
 	}
 	n.cookie.Store(new(string))
 	n.flags.Store(&gen.NetworkFlags{})
@@ -52,6 +54,7 @@ type network struct {
 
 	defaultHandshake gen.NetworkHandshake
 	defaultProto     gen.NetworkProto
+	registry         *edf.Registry
 
 	handshakes sync.Map // .Version().String() -> handshake
 	protos     sync.Map // .Version().String() -> proto
@@ -511,6 +514,7 @@ func (n *network) RegisterProto(proto gen.NetworkProto) {
 		n.node.Log().Error("unable to register nil value as a proto ")
 		return
 	}
+	n.registerProtoTypes(proto)
 	_, exist := n.protos.LoadOrStore(proto.Version().Str(), proto)
 	if exist == false {
 		if lib.Verbose() {
@@ -583,36 +587,57 @@ func (n *network) Protos() []gen.NetworkProto {
 	return list
 }
 
-// typeRegistryEntry pairs a proto with its TypeRegistry capability.
 type typeRegistryEntry struct {
-	proto    gen.NetworkProto
+	name     string
+	tag      string
 	registry gen.TypeRegistry
 }
 
 func (n *network) typeRegistries() []typeRegistryEntry {
-	var list []typeRegistryEntry
+	list := []typeRegistryEntry{n.registryEntry()}
 	n.protos.Range(func(_, v any) bool {
 		p := v.(gen.NetworkProto)
 		if r, ok := p.(gen.TypeRegistry); ok {
-			list = append(list, typeRegistryEntry{p, r})
+			list = append(list, typeRegistryEntry{protoName(p), p.Version().Str(), r})
 		}
 		return true
 	})
 	return list
 }
 
-func (n *network) RegisterType(v any) error {
-	regs := n.typeRegistries()
-	if len(regs) == 0 {
-		return gen.ErrUnsupported
+func (n *network) registryEntry() typeRegistryEntry {
+	e := typeRegistryEntry{name: "EDF", registry: n.registry}
+	n.protos.Range(func(_, v any) bool {
+		p := v.(gen.NetworkProto)
+		if len(p.ProtoTypes()) == 0 {
+			return true
+		}
+		if name := protoName(p); e.tag == "" || name < e.name {
+			e.name, e.tag = name, p.Version().Str()
+		}
+		return true
+	})
+	return e
+}
+
+func (n *network) registerProtoTypes(proto gen.NetworkProto) {
+	types := proto.ProtoTypes()
+	if len(types) == 0 {
+		return
 	}
+	if err := n.registry.RegisterTypes(types); err != nil {
+		n.node.Log().Error("unable to register the types of proto %s: %s", proto.Version(), err)
+	}
+}
+
+func (n *network) RegisterType(v any) error {
 	var errs []string
-	for _, r := range regs {
+	for _, r := range n.typeRegistries() {
 		err := r.registry.RegisterType(v)
 		if err == nil {
 			continue
 		}
-		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+		errs = append(errs, fmt.Sprintf("%s: %s", r.name, err))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("RegisterType: %s", strings.Join(errs, "; "))
@@ -621,17 +646,13 @@ func (n *network) RegisterType(v any) error {
 }
 
 func (n *network) RegisterTypes(types []any) error {
-	regs := n.typeRegistries()
-	if len(regs) == 0 {
-		return gen.ErrUnsupported
-	}
 	var errs []string
-	for _, r := range regs {
+	for _, r := range n.typeRegistries() {
 		err := r.registry.RegisterTypes(types)
 		if err == nil {
 			continue
 		}
-		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+		errs = append(errs, fmt.Sprintf("%s: %s", r.name, err))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("RegisterTypes: %s", strings.Join(errs, "; "))
@@ -640,17 +661,13 @@ func (n *network) RegisterTypes(types []any) error {
 }
 
 func (n *network) RegisterError(e error) error {
-	regs := n.typeRegistries()
-	if len(regs) == 0 {
-		return gen.ErrUnsupported
-	}
 	var errs []string
-	for _, r := range regs {
+	for _, r := range n.typeRegistries() {
 		err := r.registry.RegisterError(e)
 		if err == nil {
 			continue
 		}
-		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+		errs = append(errs, fmt.Sprintf("%s: %s", r.name, err))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("RegisterError: %s", strings.Join(errs, "; "))
@@ -659,17 +676,13 @@ func (n *network) RegisterError(e error) error {
 }
 
 func (n *network) RegisterErrors(list []error) error {
-	regs := n.typeRegistries()
-	if len(regs) == 0 {
-		return gen.ErrUnsupported
-	}
 	var errs []string
-	for _, r := range regs {
+	for _, r := range n.typeRegistries() {
 		err := r.registry.RegisterErrors(list)
 		if err == nil {
 			continue
 		}
-		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+		errs = append(errs, fmt.Sprintf("%s: %s", r.name, err))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("RegisterErrors: %s", strings.Join(errs, "; "))
@@ -678,17 +691,13 @@ func (n *network) RegisterErrors(list []error) error {
 }
 
 func (n *network) RegisterAtom(a gen.Atom) error {
-	regs := n.typeRegistries()
-	if len(regs) == 0 {
-		return gen.ErrUnsupported
-	}
 	var errs []string
-	for _, r := range regs {
+	for _, r := range n.typeRegistries() {
 		err := r.registry.RegisterAtom(a)
 		if err == nil {
 			continue
 		}
-		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+		errs = append(errs, fmt.Sprintf("%s: %s", r.name, err))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("RegisterAtom: %s", strings.Join(errs, "; "))
@@ -697,17 +706,13 @@ func (n *network) RegisterAtom(a gen.Atom) error {
 }
 
 func (n *network) RegisterAtoms(atoms []gen.Atom) error {
-	regs := n.typeRegistries()
-	if len(regs) == 0 {
-		return gen.ErrUnsupported
-	}
 	var errs []string
-	for _, r := range regs {
+	for _, r := range n.typeRegistries() {
 		err := r.registry.RegisterAtoms(atoms)
 		if err == nil {
 			continue
 		}
-		errs = append(errs, fmt.Sprintf("%s: %s", r.proto.Version(), err))
+		errs = append(errs, fmt.Sprintf("%s: %s", r.name, err))
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("RegisterAtoms: %s", strings.Join(errs, "; "))
@@ -718,7 +723,13 @@ func (n *network) RegisterAtoms(atoms []gen.Atom) error {
 func (n *network) RegisteredTypes() []gen.RegisteredTypeInfo {
 	var all []gen.RegisteredTypeInfo
 	for _, r := range n.typeRegistries() {
-		all = append(all, r.registry.RegisteredTypes()...)
+		list := r.registry.RegisteredTypes()
+		for i := range list {
+			if list[i].Proto == "" {
+				list[i].Proto = r.tag
+			}
+		}
+		all = append(all, list...)
 	}
 	return all
 }
@@ -726,7 +737,13 @@ func (n *network) RegisteredTypes() []gen.RegisteredTypeInfo {
 func (n *network) RegisteredErrors() []gen.RegisteredErrorInfo {
 	var all []gen.RegisteredErrorInfo
 	for _, r := range n.typeRegistries() {
-		all = append(all, r.registry.RegisteredErrors()...)
+		list := r.registry.RegisteredErrors()
+		for i := range list {
+			if list[i].Proto == "" {
+				list[i].Proto = r.tag
+			}
+		}
+		all = append(all, list...)
 	}
 	return all
 }
@@ -734,7 +751,13 @@ func (n *network) RegisteredErrors() []gen.RegisteredErrorInfo {
 func (n *network) RegisteredAtoms() []gen.RegisteredAtomInfo {
 	var all []gen.RegisteredAtomInfo
 	for _, r := range n.typeRegistries() {
-		all = append(all, r.registry.RegisteredAtoms()...)
+		list := r.registry.RegisteredAtoms()
+		for i := range list {
+			if list[i].Proto == "" {
+				list[i].Proto = r.tag
+			}
+		}
+		all = append(all, list...)
 	}
 	return all
 }
@@ -753,12 +776,12 @@ func (n *network) LookupType(name string) (reflect.Type, bool) {
 			continue
 		}
 		if found == nil {
-			found, winner = t, protoName(r.proto)
+			found, winner = t, r.name
 			continue
 		}
 		if t != found {
 			n.node.Log().Error("type %q resolves to %s in proto %s and to %s in proto %s; using %s",
-				name, found, winner, t, protoName(r.proto), winner)
+				name, found, winner, t, r.name, winner)
 		}
 	}
 	return found, found != nil
@@ -769,7 +792,7 @@ func (n *network) LookupType(name string) (reflect.Type, bool) {
 func (n *network) sortedTypeRegistries() []typeRegistryEntry {
 	list := n.typeRegistries()
 	sort.SliceStable(list, func(i, j int) bool {
-		return protoName(list[i].proto) < protoName(list[j].proto)
+		return list[i].name < list[j].name
 	})
 	return list
 }
@@ -1405,6 +1428,7 @@ func (n *network) start(options gen.NetworkOptions) error {
 	}
 	if options.Proto != nil {
 		n.defaultProto = options.Proto
+		n.registerProtoTypes(options.Proto)
 	}
 
 	appRoutes := []gen.ApplicationRoute{}

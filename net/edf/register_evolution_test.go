@@ -49,7 +49,7 @@ type wrapV2 struct {
 func registerEvo(t *testing.T, values ...any) {
 	t.Helper()
 	for _, v := range values {
-		if err := RegisterTypeOf(v); err != nil && err != gen.ErrTaken {
+		if err := defaultRegistry.RegisterType(v); err != nil && err != gen.ErrTaken {
 			t.Fatal(err)
 		}
 	}
@@ -120,12 +120,12 @@ func TestSchemaEvolutionRegCache(t *testing.T) {
 	rcDec := new(sync.Map)
 	var names []string
 	id := map[string]uint16{}
-	for k, name := range GetRegCache() {
+	for k, name := range defaultRegistry.GetRegCache() {
 		names = append(names, name)
 		rcDec.Store(k, name)
 		id[name] = k
 	}
-	rcEnc := MakeEncodeRegTypeCache(names)
+	rcEnc := defaultRegistry.MakeEncodeRegTypeCache(names)
 	if rcEnc == nil {
 		t.Fatal("empty reg cache")
 	}

@@ -66,6 +66,9 @@ type ConnectionOptions struct {
 	PoolDSN  []string
 	TLS      bool
 
+	// Registry is the node registry the caches below are made of.
+	Registry *edf.Registry
+
 	EncodeAtomCache *sync.Map
 	EncodeRegCache  *sync.Map
 	EncodeErrCache  *sync.Map
@@ -86,6 +89,8 @@ type ConnectionOptions struct {
 	awaitingAccept   bool
 }
 
+var registry *edf.Registry
+
 func init() {
 	types := []any{
 		MessageHello{},
@@ -95,8 +100,9 @@ func init() {
 		MessageReject{},
 	}
 
+	registry = edf.NewRegistry()
 	for _, t := range types {
-		err := edf.RegisterTypeOf(t)
+		err := registry.RegisterType(t)
 		if err == nil || err == gen.ErrTaken {
 			continue
 		}

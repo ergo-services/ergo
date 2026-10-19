@@ -9,12 +9,16 @@ import (
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
-	"ergo.services/ergo/net/edf"
 )
 
 func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.HandshakeOptions) (gen.HandshakeResult, error) {
 	var result gen.HandshakeResult
 	result.HandshakeVersion = h.Version()
+
+	reg, err := nodeRegistry(node)
+	if err != nil {
+		return result, err
+	}
 
 	salt := lib.RandomString(64)
 	hash := sha256.New()
@@ -69,9 +73,9 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 
 		MaxMessageSize: options.MaxMessageSize,
 
-		AtomCache: edf.GetAtomCache(),
-		RegCache:  edf.GetRegCache(),
-		ErrCache:  edf.GetErrCache(),
+		AtomCache: reg.GetAtomCache(),
+		RegCache:  reg.GetRegCache(),
+		ErrCache:  reg.GetErrCache(),
 	}
 
 	hash = sha256.New()
@@ -140,8 +144,9 @@ func (h *handshake) Start(node gen.NodeHandshake, conn net.Conn, options gen.Han
 		PoolSize:        accept.PoolSize,
 		PoolDSN:         accept.PoolDSN,
 		TLS:             isTLS,
+		Registry:        reg,
 		EncodeAtomCache: h.makeEncodeAtomCache(intro.AtomCache),
-		EncodeRegCache:  h.makeEncodeRegCache(intro.RegCache),
+		EncodeRegCache:  h.makeEncodeRegCache(reg, intro.RegCache),
 		EncodeErrCache:  h.makeEncodeErrCache(intro.ErrCache),
 		DecodeAtomCache: h.makeDecodeAtomCache(intro2.AtomCache),
 		DecodeRegCache:  h.makeDecodeRegCache(intro2.RegCache),

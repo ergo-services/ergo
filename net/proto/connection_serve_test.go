@@ -32,7 +32,7 @@ func runServe(t *testing.T, frames ...[]byte) *mock.Core {
 		peer_creation: testPeerCreation,
 		core:          core,
 		log:           mock.NewLog(),
-		decodeOptions: edf.Options{Cache: new(sync.Map)},
+		decodeOptions: edf.Options{Registry: testRegistry, Cache: new(sync.Map)},
 		recvQueues:    []lib.QueueMPSC{lib.NewQueueMPSC()},
 	}
 	pi := &pool_item{fl: lib.NewFlusher(srv)}

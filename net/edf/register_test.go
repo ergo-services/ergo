@@ -84,7 +84,7 @@ func TestRegTypes(t *testing.T) {
 	for _, c := range registerCases() {
 		t.Run(c.name, func(t *testing.T) {
 			b.Reset()
-			if err := RegisterTypeOf(c.value); err != nil {
+			if err := defaultRegistry.RegisterType(c.value); err != nil {
 				if err != gen.ErrTaken {
 					t.Fatal(err)
 				}
@@ -115,14 +115,14 @@ func TestRegCacheTypes(t *testing.T) {
 	for _, c := range registerCases() {
 		t.Run(c.name, func(t *testing.T) {
 			b.Reset()
-			if err := RegisterTypeOf(c.value); err != nil {
+			if err := defaultRegistry.RegisterType(c.value); err != nil {
 				if err != gen.ErrTaken {
 					t.Fatal(err)
 				}
 			}
 			rcDec := new(sync.Map)
 			names := []string{}
-			for k, v := range GetRegCache() {
+			for k, v := range defaultRegistry.GetRegCache() {
 				names = append(names, v)
 				rcDec.Store(k, v)
 			}
@@ -130,7 +130,7 @@ func TestRegCacheTypes(t *testing.T) {
 			if len(names) == 0 {
 				t.Fatal("decoding reg cache is empty")
 			}
-			rcEnc := MakeEncodeRegTypeCache(names)
+			rcEnc := defaultRegistry.MakeEncodeRegTypeCache(names)
 			if rcEnc == nil {
 				t.Fatal("encoding reg cache is nil")
 			}
@@ -153,13 +153,13 @@ func TestRegCacheTypes(t *testing.T) {
 }
 
 func TestRegTagSkipExportedField(t *testing.T) {
-	if err := RegisterTypeOf(testRegTagSkipExported{}); err != nil && err != gen.ErrTaken {
+	if err := defaultRegistry.RegisterType(testRegTagSkipExported{}); err != nil && err != gen.ErrTaken {
 		t.Fatalf("register failed for struct with edf:\"-\" on exported field: %v", err)
 	}
 }
 
 func TestRegTagSkipUnexportedField(t *testing.T) {
-	if err := RegisterTypeOf(testRegTagSkipUnexported{}); err != nil && err != gen.ErrTaken {
+	if err := defaultRegistry.RegisterType(testRegTagSkipUnexported{}); err != nil && err != gen.ErrTaken {
 		t.Fatalf("register failed for struct with edf:\"-\" on unexported field: %v", err)
 	}
 }
@@ -170,11 +170,10 @@ type edfOverflowType int
 // surface an error, not silently register with a full-name fallback. Regression
 // for the discarded addRegCache error: the overflow now propagates.
 func TestRegisterTypeCacheOverflow(t *testing.T) {
-	old := atomic.LoadUint32(&regCacheID)
-	atomic.StoreUint32(&regCacheID, math.MaxUint16)
-	defer atomic.StoreUint32(&regCacheID, old)
+	r := NewRegistry()
+	atomic.StoreUint32(&r.regCacheID, math.MaxUint16)
 
-	if err := registerType(reflect.TypeOf(edfOverflowType(0)), make(map[reflect.Type]bool)); err == nil {
+	if err := r.registerType(reflect.TypeOf(edfOverflowType(0)), make(map[reflect.Type]bool)); err == nil {
 		t.Fatal("registering past the 65535-type cache limit must return an error")
 	}
 }

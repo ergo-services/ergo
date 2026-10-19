@@ -24,7 +24,7 @@ func newRouteConn(t *testing.T) (*connection, *mock.Core) {
 		peer_creation: testPeerCreation,
 		core:          core,
 		log:           mock.NewLog(),
-		encodeOptions: edf.Options{Cache: new(sync.Map)},
+		encodeOptions: edf.Options{Registry: testRegistry, Cache: new(sync.Map)},
 		requests:      make(map[gen.Ref]chan MessageResult),
 	}
 	return rc, core
@@ -202,8 +202,9 @@ func TestRouteUpdateCache(t *testing.T) {
 		peer_creation: testPeerCreation,
 		core:          core,
 		log:           mock.NewLog(),
-		encodeOptions: edf.Options{Cache: new(sync.Map)},
+		encodeOptions: edf.Options{Registry: testRegistry, Cache: new(sync.Map)},
 		decodeOptions: edf.Options{
+			Registry:    testRegistry,
 			AtomCache:   new(sync.Map),
 			AtomMapping: new(sync.Map),
 			RegCache:    new(sync.Map),

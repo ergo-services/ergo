@@ -64,6 +64,7 @@ type nodeOverrides struct {
 	networkStart                    func(options gen.NetworkOptions) error
 	networkStop                     func() error
 	networkFn                       func() gen.Network
+	typeRegistry                    func() gen.TypeRegistry
 	cronFn                          func() gen.Cron
 	certManager                     func() gen.CertManager
 	security                        func() gen.SecurityOptions
@@ -270,7 +271,10 @@ func (n *Node) OnNetworkStart(fn func(options gen.NetworkOptions) error) {
 
 func (n *Node) OnNetworkStop(fn func() error)   { n.ov.networkStop = fn }
 func (n *Node) OnNetwork(fn func() gen.Network) { n.ov.networkFn = fn }
-func (n *Node) OnCron(fn func() gen.Cron)       { n.ov.cronFn = fn }
+func (n *Node) OnTypeRegistry(fn func() gen.TypeRegistry) {
+	n.ov.typeRegistry = fn
+}
+func (n *Node) OnCron(fn func() gen.Cron) { n.ov.cronFn = fn }
 func (n *Node) OnCertManager(fn func() gen.CertManager) {
 	n.ov.certManager = fn
 }
@@ -754,6 +758,14 @@ func (n *Node) Network() gen.Network {
 		return n.ov.networkFn()
 	}
 	return n.network
+}
+
+// TypeRegistry returns the mock network: it records the registrations.
+func (n *Node) TypeRegistry() gen.TypeRegistry {
+	if n.ov.typeRegistry != nil {
+		return n.ov.typeRegistry()
+	}
+	return n.Network()
 }
 
 func (n *Node) Cron() gen.Cron {

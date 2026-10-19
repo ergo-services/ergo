@@ -1230,7 +1230,7 @@ func TestEncodeReg(t *testing.T) {
 		0x40, 0x48, 0xf5, 0xc3, // 3.14
 	}
 
-	RegisterTypeOf(value)
+	defaultRegistry.RegisterType(value)
 
 	if err := Encode(value, b, Options{}); err != nil {
 		t.Fatal(err)
@@ -1266,7 +1266,7 @@ func TestEncodeSliceReg(t *testing.T) {
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
 
-	RegisterTypeOf(x)
+	defaultRegistry.RegisterType(x)
 
 	if err := Encode(value, b, Options{}); err != nil {
 		t.Fatal(err)
@@ -1295,7 +1295,7 @@ func TestEncodeSliceRegCache(t *testing.T) {
 		0x40, 0x49, 0x99, 0x9a, // 3.15
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
-	RegisterTypeOf(x)
+	defaultRegistry.RegisterType(x)
 
 	regCache := new(sync.Map)
 	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
@@ -1324,7 +1324,7 @@ func TestEncodeRegSlice(t *testing.T) {
 		0x40, 0x49, 0x99, 0x9a, // 3.15
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
-	if err := RegisterTypeOf(x); err != nil {
+	if err := defaultRegistry.RegisterType(x); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1369,10 +1369,10 @@ func TestEncodeRegSliceRegSlice(t *testing.T) {
 		0x40, 0x48, 0xf5, 0xc3,
 	}
 
-	if err := RegisterTypeOf(MySliceOfSlice{}); err != nil {
+	if err := defaultRegistry.RegisterType(MySliceOfSlice{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RegisterTypeOf(MySliceFloat{}); err != nil {
+	if err := defaultRegistry.RegisterType(MySliceFloat{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2073,7 +2073,7 @@ func TestEncodeSliceTypeReg(t *testing.T) {
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
 
-	RegisterTypeOf(x)
+	defaultRegistry.RegisterType(x)
 
 	if err := Encode(value, b, Options{}); err != nil {
 		t.Fatal(err)
@@ -2103,7 +2103,7 @@ func TestEncodeSliceTypeRegCache(t *testing.T) {
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
 
-	RegisterTypeOf(x)
+	defaultRegistry.RegisterType(x)
 
 	regCache := new(sync.Map)
 	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
@@ -2135,11 +2135,11 @@ func TestEncodeSliceRegTypeReg(t *testing.T) {
 		0x40, 0x4a, 0x3d, 0x71, // 3.16
 	}
 
-	if err := RegisterTypeOf(x); err != nil {
+	if err := defaultRegistry.RegisterType(x); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := RegisterTypeOf(value); err != nil {
+	if err := defaultRegistry.RegisterType(value); err != nil {
 		t.Fatal(err)
 	}
 	regCache := new(sync.Map)
@@ -2404,7 +2404,7 @@ func TestEncodeSliceSliceReg(t *testing.T) {
 
 	type MySlice1555 []float32
 
-	if err := RegisterTypeOf(MySlice1555{}); err != nil {
+	if err := defaultRegistry.RegisterType(MySlice1555{}); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -2661,7 +2661,7 @@ func TestEncodeBinaryMarshal(t *testing.T) {
 	}
 	b.Reset()
 
-	if err := RegisterTypeOf(value); err != nil {
+	if err := defaultRegistry.RegisterType(value); err != nil {
 		t.Fatal(err)
 	}
 	regCache := new(sync.Map)
@@ -2702,7 +2702,7 @@ func TestEncodeMarshal(t *testing.T) {
 	}
 	b.Reset()
 
-	if err := RegisterTypeOf(value); err != nil {
+	if err := defaultRegistry.RegisterType(value); err != nil {
 		t.Fatal(err)
 	}
 	regCache := new(sync.Map)
@@ -2728,7 +2728,7 @@ func TestEncodeSliceMarshal(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	RegisterTypeOf(x)
+	defaultRegistry.RegisterType(x)
 
 	regCache := new(sync.Map)
 	regCache.Store(reflect.TypeOf(x), []byte{edtReg, 0x13, 0x88})
@@ -2760,7 +2760,7 @@ type testStruct struct {
 
 func TestEncodeStruct(t *testing.T) {
 
-	if err := RegisterTypeOf(testStruct{}); err != nil {
+	if err := defaultRegistry.RegisterType(testStruct{}); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -2790,7 +2790,7 @@ func TestEncodeStruct(t *testing.T) {
 
 func TestEncodeSliceStruct(t *testing.T) {
 
-	if err := RegisterTypeOf(testStruct{}); err != nil {
+	if err := defaultRegistry.RegisterType(testStruct{}); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -2831,7 +2831,7 @@ type testStructWithAny struct {
 }
 
 func TestEncodeStructWithAny(t *testing.T) {
-	if err := RegisterTypeOf(testStructWithAny{}); err != nil {
+	if err := defaultRegistry.RegisterType(testStructWithAny{}); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -2890,13 +2890,13 @@ type testStructWithSlice struct {
 }
 
 func TestEncodeStructWithSlice(t *testing.T) {
-	if err := RegisterTypeOf(regSliceString{}); err != nil {
+	if err := defaultRegistry.RegisterType(regSliceString{}); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
 	}
 
-	if err := RegisterTypeOf(testStructWithSlice{}); err != nil {
+	if err := defaultRegistry.RegisterType(testStructWithSlice{}); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -2944,7 +2944,7 @@ func TestEncodeStructWithSlice(t *testing.T) {
 
 func TestEncodeSliceStructWithAny(t *testing.T) {
 
-	if err := RegisterTypeOf(testStructWithAny{}); err != nil {
+	if err := defaultRegistry.RegisterType(testStructWithAny{}); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -2990,7 +2990,7 @@ func TestEncodeSliceStructWithAny(t *testing.T) {
 
 func TestEncodeSliceAnyWithStruct(t *testing.T) {
 
-	if err := RegisterTypeOf(testStruct{}); err != nil {
+	if err := defaultRegistry.RegisterType(testStruct{}); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -3480,7 +3480,7 @@ func TestEncodeMapValueMapRegKey(t *testing.T) {
 
 	var x testMapKey
 
-	if err := RegisterTypeOf(x); err != nil {
+	if err := defaultRegistry.RegisterType(x); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -3557,7 +3557,7 @@ func TestEncodeMapValueMapAnyWithRegKey(t *testing.T) {
 
 	var x testMapKey = "world"
 
-	if err := RegisterTypeOf(x); err != nil {
+	if err := defaultRegistry.RegisterType(x); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -3634,7 +3634,7 @@ func TestEncodeRegMap(t *testing.T) {
 
 	var x MyMap
 
-	if err := RegisterTypeOf(x); err != nil {
+	if err := defaultRegistry.RegisterType(x); err != nil {
 		if err != gen.ErrTaken {
 			t.Fatal(err)
 		}
@@ -3690,8 +3690,8 @@ func TestEncodeRegMapRegSlice(t *testing.T) {
 	type mySlice90 []bool
 	type myMap90 map[string]mySlice90
 
-	RegisterTypeOf(mySlice90{})
-	RegisterTypeOf(myMap90{})
+	defaultRegistry.RegisterType(mySlice90{})
+	defaultRegistry.RegisterType(myMap90{})
 
 	regCache := new(sync.Map)
 	regCache.Store(reflect.TypeOf(myMap90{}), []byte{edtReg, 0x13, 0x88})
@@ -3872,7 +3872,7 @@ func TestEncodeRegArray(t *testing.T) {
 		0x77, 0x6f, 0x72, 0x6c, 0x64, // "world"
 	}
 
-	RegisterTypeOf(value)
+	defaultRegistry.RegisterType(value)
 
 	if err := Encode(value, b, Options{}); err != nil {
 		t.Fatal(err)
@@ -3908,7 +3908,7 @@ func TestEncodeArrayReg(t *testing.T) {
 		0x77, 0x6f, 0x72, 0x6c, 0x64, // "world"
 	}
 
-	RegisterTypeOf(value[0])
+	defaultRegistry.RegisterType(value[0])
 
 	if err := Encode(value, b, Options{}); err != nil {
 		t.Fatal(err)
@@ -3948,8 +3948,8 @@ func TestEncodeRegArrayRegArray(t *testing.T) {
 	regCache := new(sync.Map)
 	regCache.Store(reflect.TypeOf(myArrayArray1{}), []byte{edtReg, 0x13, 0x88})
 
-	RegisterTypeOf(myArrayMyStr1{})
-	RegisterTypeOf(myArrayArray1{})
+	defaultRegistry.RegisterType(myArrayMyStr1{})
+	defaultRegistry.RegisterType(myArrayArray1{})
 
 	if err := Encode(value, b, Options{RegCache: regCache}); err != nil {
 		t.Fatal(err)
@@ -3975,7 +3975,7 @@ func TestEncodeStructWithMap(t *testing.T) {
 			gen.LoggerInfo{},
 		},
 	}
-	if err := RegisterTypeOf(in); err != nil {
+	if err := defaultRegistry.RegisterType(in); err != nil {
 		panic(err)
 	}
 
