@@ -262,3 +262,10 @@ func TestReadMessageControlTypesOnly(t *testing.T) {
 	_, _, err = read(frame(MessageHello{Salt: "s"}, 0))
 	check.ErrorContains(t, err, "trailing handshake message data")
 }
+
+// TestConnectionIDOfPlainNames: the ID over the plain names, the same value in Rust.
+func TestConnectionIDOfPlainNames(t *testing.T) {
+	want := "6cf200582ab0e3060754adedbc8adab47c26ada1e70ad54978ff106d0aa23fdf"
+	check.Equal(t, want, generateConnectionID("b@localhost", 2, "a@localhost", 1, "secret"))
+	check.Equal(t, want, generateConnectionID("a@localhost", 1, "b@localhost", 2, "secret"))
+}

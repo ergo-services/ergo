@@ -90,6 +90,10 @@ type network struct {
 
 type pendingEntry struct {
 	ready chan struct{} // closed when connect finishes (success or failure)
+
+	mu   sync.Mutex
+	done bool
+	owed bool // the go-ahead the end of the connect gives
 }
 
 func (n *network) Registrar() (gen.Registrar, error) {
@@ -1067,8 +1071,15 @@ func (n *network) connect(name gen.Atom, route gen.NetworkRoute) (gen.Connection
 		return v.(gen.Connection), nil
 	}
 	defer func() {
+		entry.mu.Lock()
+		entry.done = true
+		owed := entry.owed
+		entry.mu.Unlock()
 		n.pending.Delete(name)
 		close(entry.ready) // wake ALL waiting goroutines
+		if owed {
+			n.extend(name)
+		}
 	}()
 
 	if lib.Verbose() {
@@ -1908,16 +1919,37 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 	}
 	go n.serve(a.proto, conn, nil, result.ConnectionID)
 
-	// the dialer reached our listener and is the pool filler. When we are canonical the
-	// dialer is non-canonical and waits for our go-ahead before filling. Send it only when
-	// we are not ourselves dialing the peer: a concurrent canonical-direction connect would
-	// supersede this one, and the dialer must not fill a connection that is about to die.
-	if localIsCanonical {
-		if _, dialing := n.pending.Load(result.Peer); dialing == false {
-			if ext, ok := conn.(interface{ Extend() }); ok {
-				ext.Extend()
-			}
+	// the non-canonical dialer fills the pool after our go-ahead; while we dial the peer
+	// ourselves, that connect owes it
+	if localIsCanonical && n.oweExtend(result.Peer) == false {
+		if ext, ok := conn.(interface{ Extend() }); ok {
+			ext.Extend()
 		}
+	}
+}
+
+func (n *network) oweExtend(peer gen.Atom) bool {
+	v, found := n.pending.Load(peer)
+	if found == false {
+		return false
+	}
+	pe := v.(*pendingEntry)
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	if pe.done {
+		return false
+	}
+	pe.owed = true
+	return true
+}
+
+func (n *network) extend(peer gen.Atom) {
+	v, found := n.connections.Load(peer)
+	if found == false {
+		return
+	}
+	if ext, ok := v.(interface{ Extend() }); ok {
+		ext.Extend()
 	}
 }
 

@@ -188,8 +188,8 @@ func (h *handshake) getLocalTLSFingerprint(conn net.Conn, cm gen.CertManager) []
 func generateConnectionID(nameA gen.Atom, creationA int64,
 	nameB gen.Atom, creationB int64, cookie string) string {
 	// canonical ordering: smaller name first
-	first := fmt.Sprintf("%s:%d", nameA, creationA)
-	second := fmt.Sprintf("%s:%d", nameB, creationB)
+	first := fmt.Sprintf("%s:%d", string(nameA), creationA)
+	second := fmt.Sprintf("%s:%d", string(nameB), creationB)
 	if string(nameA) > string(nameB) {
 		first, second = second, first
 	}
