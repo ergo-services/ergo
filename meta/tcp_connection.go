@@ -89,6 +89,13 @@ func (t *tcpconnection) Start() error {
 		to = t.options.Process
 	}
 
+	// reported after the TLS handshake
+	if tc, ok := t.conn.(*tls.Conn); ok {
+		if err := tc.Handshake(); err != nil {
+			return err
+		}
+	}
+
 	defer func() {
 		t.conn.Close()
 		message := MessageTCPDisconnect{

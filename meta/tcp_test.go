@@ -161,6 +161,59 @@ func TestTCPConnectionTLSRoundTrip(t *testing.T) {
 	c.Terminate(nil)
 }
 
+// TestTCPServerTLSHandshakeBeforeConnect: a failed TLS handshake reports nothing.
+func TestTCPServerTLSHandshakeBeforeConnect(t *testing.T) {
+	cert, err := lib.GenerateSelfSignedCert("ergo-test", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, err := CreateTCPServer(TCPServerOptions{Host: "127.0.0.1", Port: 0, CertManager: gen.CreateCertManager(cert)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln := mb.(*tcpserver).listener
+	t.Cleanup(func() { ln.Close() })
+	addr := ln.Addr().String()
+
+	accept := func() (*tcpconnection, chan any) {
+		conn, err := ln.Accept()
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { conn.Close() })
+		c := &tcpconnection{conn: conn}
+		mp, ch := metaSink()
+		c.Init(mp)
+		return c, ch
+	}
+
+	plain, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { plain.Close() })
+	if _, err := plain.Write([]byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	c, ch := accept()
+	if err := c.Start(); err == nil {
+		t.Fatal("Start of a connection that failed its TLS handshake: got nil, want the error")
+	}
+	recvNone(t, ch)
+
+	clients := make(chan net.Conn, 1)
+	go func() {
+		client, _ := tls.Dial("tcp", addr, &tls.Config{InsecureSkipVerify: true})
+		clients <- client
+	}()
+	c, ch = accept()
+	go c.Start()
+	recvMsg[MessageTCPConnect](t, ch)
+	if client := <-clients; client != nil {
+		client.Close()
+	}
+}
+
 func TestTCPConnectionChunkMode(t *testing.T) {
 	c, server, ch := dialConn(t, TCPConnectionOptions{
 		ReadChunk: ChunkOptions{Enable: true, FixedLength: 4},
