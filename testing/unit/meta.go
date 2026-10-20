@@ -117,6 +117,9 @@ func (m *MetaSubject) ID() gen.Alias { return m.meta.id }
 // Parent returns the PID of the parent actor that spawned this meta.
 func (m *MetaSubject) Parent() gen.PID { return m.meta.parent }
 
+// Name returns the registered name of the parent actor, empty when it has none.
+func (m *MetaSubject) Name() gen.Atom { return m.meta.proc.name }
+
 // State returns the current meta state (Sleep, Running, or Terminated).
 func (m *MetaSubject) State() gen.MetaState { return m.meta.state }
 
@@ -303,6 +306,8 @@ type mockMeta struct {
 }
 
 var _ gen.MetaProcess = (*mockMeta)(nil)
+
+func (m *mockMeta) Name() gen.Atom { return m.proc.name }
 
 func (m *mockMeta) options() gen.MessageOptions {
 	compression := m.proc.compression

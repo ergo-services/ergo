@@ -65,6 +65,12 @@ type MetaProcess interface {
 	// Available in all states.
 	Parent() PID
 
+	// Name returns the registered name of the process that spawned this meta,
+	// empty when it was spawned without one. A meta process speaks with the
+	// voice of that process, so this is the name it speaks under.
+	// Available in all states.
+	Name() Atom
+
 	// Send sends an asynchronous message to the target.
 	// Target can be: PID, ProcessID, Alias, Atom (local registered name).
 	// Any other type returns ErrUnsupported.

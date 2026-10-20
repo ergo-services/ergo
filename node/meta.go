@@ -41,6 +41,10 @@ func (m *meta) Parent() gen.PID {
 	return m.p.pid
 }
 
+func (m *meta) Name() gen.Atom {
+	return m.p.Name()
+}
+
 func (m *meta) SendPriority() gen.MessagePriority {
 	return gen.MessagePriority(m.priority.Load())
 }

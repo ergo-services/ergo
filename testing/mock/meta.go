@@ -15,6 +15,7 @@ import (
 type Meta struct {
 	recorder
 	parent      gen.PID
+	name        gen.Atom
 	id          gen.Alias
 	priority    gen.MessagePriority
 	compression bool
@@ -26,6 +27,7 @@ type Meta struct {
 type metaOverrides struct {
 	id                    func() gen.Alias
 	parent                func() gen.PID
+	name                  func() gen.Atom
 	send                  func(to any, message any) error
 	sendWithPriority      func(to any, message any, priority gen.MessagePriority) error
 	sendAfter             func(to any, message any, after time.Duration) (gen.CancelFunc, error)
@@ -73,6 +75,7 @@ func newMeta(r recorder) *Meta {
 
 func (m *Meta) OnID(fn func() gen.Alias)                  { m.ov.id = fn }
 func (m *Meta) OnParent(fn func() gen.PID)                { m.ov.parent = fn }
+func (m *Meta) OnName(fn func() gen.Atom)                 { m.ov.name = fn }
 func (m *Meta) OnSend(fn func(to any, message any) error) { m.ov.send = fn }
 func (m *Meta) OnSendWithPriority(fn func(to any, message any, priority gen.MessagePriority) error) {
 	m.ov.sendWithPriority = fn
@@ -137,6 +140,13 @@ func (m *Meta) Parent() gen.PID {
 		return m.ov.parent()
 	}
 	return m.parent
+}
+
+func (m *Meta) Name() gen.Atom {
+	if m.ov.name != nil {
+		return m.ov.name()
+	}
+	return m.name
 }
 
 func (m *Meta) Send(to any, message any) error {
