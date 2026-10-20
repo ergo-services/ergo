@@ -238,8 +238,8 @@ func (r *Registry) LookupType(name string) (reflect.Type, bool) {
 	if v, ok := r.decoders.Load(name); ok {
 		return v.(*decoder).Type, true
 	}
-	// The types the framework seeds - the primitives, time.Time, time.Duration - are
-	// keyed by their wire tag and by their Go type, never by name: they are not framed
+	// The types the framework seeds - the primitives, time.Time - are keyed by
+	// their wire tag and by their Go type, never by name: they are not framed
 	// with one. They are registered all the same, and a caller asking whether this node
 	// speaks a type is asking about that, not about the framing.
 	if v, ok := r.typesByName.Load(name); ok {

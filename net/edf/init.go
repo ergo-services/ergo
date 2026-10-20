@@ -12,6 +12,7 @@ import (
 var (
 	// register generic Ergo Framework types for the networking
 	genTypes = []any{
+		time.Duration(0),
 
 		gen.Env(""),
 		gen.LogLevel(0),
@@ -329,15 +330,6 @@ func (r *Registry) registerBuiltins() {
 	int64Info := r.registerInfo(int64Type, "int64", "int64")
 	int64Enc.Info = int64Info
 	int64Dec.Info = int64Info
-
-	durationType := reflect.TypeOf(time.Duration(0))
-	durationEnc := &encoder{Prefix: []byte{edtInt64}, Encode: encodeInt64}
-	r.encoders.Store(durationType, durationEnc)
-	durationDec := &decoder{Type: durationType, Decode: decodeInt64}
-	r.decoders.Store(durationType, durationDec)
-	durationInfo := r.registerInfo(durationType, "int64", "int64")
-	durationEnc.Info = durationInfo
-	durationDec.Info = durationInfo
 
 	uintType := reflect.TypeOf(uint(0))
 	uintEnc := &encoder{Prefix: []byte{edtUint}, Encode: encodeUint}

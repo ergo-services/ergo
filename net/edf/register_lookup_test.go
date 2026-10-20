@@ -77,7 +77,66 @@ func TestRegisterDurationRoundTrip(t *testing.T) {
 	if err := Encode(5*time.Second, bare, Options{}); err != nil {
 		t.Fatalf("encode bare: %s", err)
 	}
-	if bare.B[0] != edtInt64 {
-		t.Errorf("a Duration is framed as %d, not as the int64 every node expects", bare.B[0])
+	if bare.B[0] != edtReg {
+		t.Errorf("a Duration is framed as %d, not by its name", bare.B[0])
+	}
+	back, _, err := Decode(bare.B, Options{})
+	if err != nil {
+		t.Fatalf("decode bare: %s", err)
+	}
+	if back != 5*time.Second {
+		t.Errorf("a bare Duration came back as %T %v", back, back)
+	}
+}
+
+type testRegDurationParts struct {
+	Slice  []time.Duration
+	Array  [2]time.Duration
+	Map    map[string]time.Duration
+	Keys   map[time.Duration]string
+	Ptr    *time.Duration
+	Nested [][]time.Duration
+}
+
+func TestRegisterDurationInComposites(t *testing.T) {
+	if err := defaultRegistry.RegisterType(testRegDurationParts{}); err != nil {
+		t.Fatalf("register: %s", err)
+	}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	d := -time.Second
+	in := testRegDurationParts{
+		Slice:  []time.Duration{d, time.Minute},
+		Array:  [2]time.Duration{d, time.Hour},
+		Map:    map[string]time.Duration{"a": d},
+		Keys:   map[time.Duration]string{d: "a"},
+		Ptr:    &d,
+		Nested: [][]time.Duration{{d}},
+	}
+	if err := Encode(in, b, Options{}); err != nil {
+		t.Fatalf("encode: %s", err)
+	}
+	out, _, err := Decode(b.B, Options{})
+	if err != nil {
+		t.Fatalf("decode: %s", err)
+	}
+	if reflect.DeepEqual(in, out) == false {
+		t.Fatalf("round trip: %#v came back as %#v", in, out)
+	}
+
+	for _, v := range []any{[]time.Duration{d}, map[string]time.Duration{"a": d}} {
+		b.Reset()
+		if err := Encode(v, b, Options{}); err != nil {
+			t.Fatalf("encode %T: %s", v, err)
+		}
+		back, _, err := Decode(b.B, Options{})
+		if err != nil {
+			t.Fatalf("decode %T: %s", v, err)
+		}
+		if reflect.DeepEqual(v, back) == false {
+			t.Errorf("%T came back as %T %v", v, back, back)
+		}
 	}
 }
