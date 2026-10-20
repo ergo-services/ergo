@@ -1,6 +1,7 @@
 package edf
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -106,7 +107,7 @@ func TestRegisterDurationInComposites(t *testing.T) {
 	b := lib.TakeBuffer()
 	defer lib.ReleaseBuffer(b)
 
-	d := -time.Second
+	d := time.Second
 	in := testRegDurationParts{
 		Slice:  []time.Duration{d, time.Minute},
 		Array:  [2]time.Duration{d, time.Hour},
@@ -138,5 +139,40 @@ func TestRegisterDurationInComposites(t *testing.T) {
 		if reflect.DeepEqual(v, back) == false {
 			t.Errorf("%T came back as %T %v", v, back, back)
 		}
+	}
+}
+
+func TestRegisterDurationIsNeverNegative(t *testing.T) {
+	for _, v := range []any{testRegDurationParts{}, testRegDurationHolder{}} {
+		if err := defaultRegistry.RegisterType(v); err != nil {
+			t.Fatalf("register %T: %s", v, err)
+		}
+	}
+
+	b := lib.TakeBuffer()
+	defer lib.ReleaseBuffer(b)
+
+	d := -time.Second
+	for _, v := range []any{
+		d,
+		[]time.Duration{time.Second, d},
+		&d,
+		map[string]time.Duration{"a": d},
+		testRegDurationParts{Keys: map[time.Duration]string{d: "a"}},
+		testRegDurationHolder{TTL: d},
+	} {
+		b.Reset()
+		if err := Encode(v, b, Options{}); err != ErrNegativeDuration {
+			t.Errorf("%T with a negative duration encoded with %v", v, err)
+		}
+	}
+
+	b.Reset()
+	if err := Encode(time.Second, b, Options{}); err != nil {
+		t.Fatalf("encode: %s", err)
+	}
+	b.B[len(b.B)-8] = 0xff
+	if _, _, err := Decode(b.B, Options{}); errors.Is(err, ErrNegativeDuration) == false {
+		t.Errorf("a negative duration from the wire decoded with %v", err)
 	}
 }

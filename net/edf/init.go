@@ -12,7 +12,6 @@ import (
 var (
 	// register generic Ergo Framework types for the networking
 	genTypes = []any{
-		time.Duration(0),
 
 		gen.Env(""),
 		gen.LogLevel(0),
@@ -434,4 +433,21 @@ func (r *Registry) registerBuiltins() {
 	errInfo := r.registerInfo(errType, "error", "error")
 	errEnc.Info = errInfo
 	errDec.Info = errInfo
+
+	// time.Duration is a registered type of its own, framed by its name: a
+	// type sharing the form of another one would get the decoders of that
+	// one in composite fields. A duration on the wire is never negative.
+	durationType := reflect.TypeOf(time.Duration(0))
+	if err := r.addRegCache(durationType); err != nil {
+		panic(err)
+	}
+	durationName := regTypeName(durationType)
+	durationEnc := regEncoder(durationName, encodeDuration)
+	r.encoders.Store(durationType, durationEnc)
+	durationDec := &decoder{Type: durationType, Decode: decodeDuration}
+	r.decoders.Store(durationName, durationDec)
+	r.decoders.Store(durationType, durationDec)
+	durationInfo := r.registerInfo(durationType, "int64", schemaFor(durationType))
+	durationEnc.Info = durationInfo
+	durationDec.Info = durationInfo
 }

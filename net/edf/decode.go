@@ -963,6 +963,17 @@ func decodeInt64(value *reflect.Value, packet []byte, state *stateDecode) (*refl
 	return value, packet, nil
 }
 
+func decodeDuration(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
+	v, rest, err := decodeInt64(value, packet, state)
+	if err != nil {
+		return nil, nil, err
+	}
+	if v.Int() < 0 {
+		return nil, nil, ErrNegativeDuration
+	}
+	return v, rest, nil
+}
+
 func decodeUint(value *reflect.Value, packet []byte, state *stateDecode) (*reflect.Value, []byte, error) {
 	if state.decodeType {
 		if len(packet) < 1 {

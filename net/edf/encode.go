@@ -21,6 +21,7 @@ var (
 	ErrAtomTooLong      = fmt.Errorf("atom too long - max allowed length is 255 bytes")
 	ErrErrorTooLong     = fmt.Errorf("error too long - max allowed length is 32767 bytes")
 	ErrMaxDepthExceeded = fmt.Errorf("max encoding depth exceeded (cyclic reference?)")
+	ErrNegativeDuration = fmt.Errorf("negative duration - a duration on the wire is never negative")
 )
 
 type stateEncode struct {
@@ -578,6 +579,13 @@ func encodeInt64(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
 	buf := b.Extend(8)
 	binary.BigEndian.PutUint64(buf, uint64(value.Int()))
 	return nil
+}
+
+func encodeDuration(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
+	if value.Int() < 0 {
+		return ErrNegativeDuration
+	}
+	return encodeInt64(value, b, state)
 }
 
 func encodeUint(value reflect.Value, b *lib.Buffer, state *stateEncode) error {
