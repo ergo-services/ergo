@@ -44,13 +44,19 @@ type StageOptions struct {
 	// gets its own instance.
 	Registrar func() (gen.Registrar, error)
 
-	// RegistrarFull selects the in-memory registrar's feature set (ignored when a
+	// RegistrarFull selects the feature set of the stage registrar (ignored when a
 	// custom Registrar factory is set). False (default) is embedded-equivalent: node
 	// routes only; ResolveApplication and Event report ErrUnsupported. True adds
-	// application-route discovery (ResolveApplication) and the canonical
-	// gen.MessageRegistrar* event stream (Registrar().Event()), matching the contract
-	// etcd/saturn implement, so applications that use service discovery can run.
+	// application-route discovery (ResolveApplication), the cluster membership
+	// (Nodes) and the canonical gen.MessageRegistrar* event stream
+	// (Registrar().Event()), matching the contract etcd/saturn implement, so
+	// applications that use service discovery can run.
 	RegistrarFull bool
+
+	// RegistrarAddress is the registrar of another stage (its address) to use
+	// instead of an own one: the nodes of both stages, of any implementation,
+	// register in it.
+	RegistrarAddress string
 }
 
 // Stage owns a set of live nodes and tears them down on test cleanup.
@@ -60,6 +66,8 @@ type Stage struct {
 	mu           sync.Mutex
 	nodes        []*Node
 	newRegistrar func() (gen.Registrar, error)
+	registrar    *registrarServer
+	address      string
 }
 
 // New creates a stage and registers teardown via t.Cleanup. With no options the
@@ -70,14 +78,33 @@ func New(t testing.TB, opts ...StageOptions) *Stage {
 	if len(opts) > 0 {
 		o = opts[0]
 	}
-	if o.Registrar != nil {
+	switch {
+	case o.Registrar != nil:
 		s.newRegistrar = o.Registrar
-	} else {
-		store := newMemStore(o.RegistrarFull)
-		s.newRegistrar = func() (gen.Registrar, error) { return &memRegistrar{store: store}, nil }
+	case o.RegistrarAddress != "":
+		s.address = o.RegistrarAddress
+		s.newRegistrar = s.registrarClient
+	default:
+		server, err := startRegistrarServer(o.RegistrarFull)
+		if err != nil {
+			t.Fatalf("stage: start the registrar: %s", err)
+		}
+		s.registrar = server
+		s.address = server.addr()
+		s.newRegistrar = s.registrarClient
 	}
 	t.Cleanup(s.stop)
 	return s
+}
+
+func (s *Stage) registrarClient() (gen.Registrar, error) {
+	return newRegistrarClient(s.address), nil
+}
+
+// RegistrarAddress is the address of the registrar the nodes of the stage register
+// in; empty with a custom Registrar factory.
+func (s *Stage) RegistrarAddress() string {
+	return s.address
 }
 
 func (s *Stage) stop() {
@@ -87,6 +114,9 @@ func (s *Stage) stop() {
 		if n := s.nodes[i]; n.node != nil && n.node.IsAlive() {
 			n.node.StopForce()
 		}
+	}
+	if s.registrar != nil {
+		s.registrar.stop()
 	}
 }
 

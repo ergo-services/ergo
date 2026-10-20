@@ -340,6 +340,9 @@ type Connection interface {
 	RemoteSpawn(name Atom, options ProcessOptionsExtra) (PID, error)
 
 	Join(c net.Conn, id string, dial NetworkDial, tail []byte) error
+	// Extend lets the peer that dialed this connection fill its pool (the canonical
+	// acceptor gives it). A protocol with no pool does nothing.
+	Extend()
 	Terminate(reason error)
 }
 

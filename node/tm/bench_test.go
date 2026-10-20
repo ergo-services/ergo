@@ -119,6 +119,7 @@ func (c *benchConn) RemoteSpawn(gen.Atom, gen.ProcessOptionsExtra) (gen.PID, err
 	return gen.PID{}, nil
 }
 func (c *benchConn) Join(net.Conn, string, gen.NetworkDial, []byte) error { return nil }
+func (c *benchConn) Extend()                                              {}
 func (c *benchConn) Terminate(error)                                      {}
 
 // Piggyback subscription benchmarks. After the first wire-LinkPID fires

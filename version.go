@@ -4,7 +4,7 @@ import "ergo.services/ergo/gen"
 
 var (
 	FrameworkVersion = gen.Version{
-		Name:    "Ergo Framework",
+		Name:    "Ergo Framework (Go)",
 		Release: "3.3.1",
 		License: gen.LicenseMIT,
 	}

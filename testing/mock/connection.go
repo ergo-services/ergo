@@ -50,6 +50,7 @@ type connectionOverrides struct {
 	demonitorEvent         func(pid gen.PID, target gen.Event) error
 	remoteSpawn            func(name gen.Atom, options gen.ProcessOptionsExtra) (gen.PID, error)
 	join                   func(c net.Conn, id string, dial gen.NetworkDial, tail []byte) error
+	extend                 func()
 	terminate              func(reason error)
 }
 
@@ -163,6 +164,7 @@ func (c *Connection) OnRemoteSpawn(fn func(name gen.Atom, options gen.ProcessOpt
 func (c *Connection) OnJoin(fn func(c net.Conn, id string, dial gen.NetworkDial, tail []byte) error) {
 	c.ov.join = fn
 }
+func (c *Connection) OnExtend(fn func())                { c.ov.extend = fn }
 func (c *Connection) OnTerminate(fn func(reason error)) { c.ov.terminate = fn }
 
 // gen.Connection
@@ -463,6 +465,12 @@ func (c *Connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 		return c.ov.join(conn, id, dial, tail)
 	}
 	return nil
+}
+
+func (c *Connection) Extend() {
+	if c.ov.extend != nil {
+		c.ov.extend()
+	}
 }
 
 func (c *Connection) Terminate(reason error) {

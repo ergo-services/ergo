@@ -246,6 +246,7 @@ func (c *testConn) RemoteSpawn(name gen.Atom, options gen.ProcessOptionsExtra) (
 func (c *testConn) Join(conn net.Conn, id string, dial gen.NetworkDial, tail []byte) error {
 	return nil
 }
+func (c *testConn) Extend()                {}
 func (c *testConn) Terminate(reason error) {}
 
 // helpers

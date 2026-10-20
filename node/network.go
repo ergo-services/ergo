@@ -1922,9 +1922,7 @@ func (n *network) handleAccepted(a *acceptor, c net.Conn, hopts gen.HandshakeOpt
 	// the non-canonical dialer fills the pool after our go-ahead; while we dial the peer
 	// ourselves, that connect owes it
 	if localIsCanonical && n.oweExtend(result.Peer) == false {
-		if ext, ok := conn.(interface{ Extend() }); ok {
-			ext.Extend()
-		}
+		conn.Extend()
 	}
 }
 
@@ -1948,9 +1946,7 @@ func (n *network) extend(peer gen.Atom) {
 	if found == false {
 		return
 	}
-	if ext, ok := v.(interface{ Extend() }); ok {
-		ext.Extend()
-	}
+	v.(gen.Connection).Extend()
 }
 
 func (n *network) registerConnection(name gen.Atom, conn gen.Connection) {
