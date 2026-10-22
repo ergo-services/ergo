@@ -29,22 +29,56 @@ fmt.Println(total.Sub(fee).StringFixed(2))                    // 59.07
 - `1.5` and `1.50` are equal numbers with different scales: compare with `Equal`
   and `Cmp`, not `==`. `Canonical` gives one representation per number.
 
+## NaN
+
+`decimal.NaN` holds no number. It marks "none" in a plain `Decimal`, without a
+pointer or a `NullDecimal`:
+
+```go
+limit := decimal.NaN // not set yet
+if limit.IsNaN() {
+	// ...
+}
+```
+
+- It comes only from the `NaN` variable and from the decoders reading one back
+  (text, JSON, `Scan`, binary, EDF). `NewFromString`, `RequireFromString` and
+  `NewFromFloat` reject it: they are what input validation calls. Arithmetic
+  never makes one, so division by zero and overflow stay errors.
+- Every operation carries it through: `NaN.Add(x)`, `x.Div(NaN)`, `NaN.Round(2)`,
+  `Sum` and `Avg` are NaN.
+- `Cmp` sorts it below every number and equal to itself, as `cmp.Compare` orders
+  a float64 NaN; `Equal(NaN, NaN)` is true. `Min` and `Max` return NaN if any
+  argument is NaN.
+- It is not zero, positive, negative or an integer. `Sign`, `Scale`, `Exponent`
+  and `NumDigits` are 0, so check `IsNaN` first.
+- `Float64` gives `math.NaN()`. `BigInt`, `Coefficient`, `Rat`, `IntPart` and
+  `CoefficientInt64` have no NaN and panic with `ErrNaN`.
+- It has one representation, so `==` and map keys work on it. The zero value is
+  0, never NaN.
+
 ## Encodings
 
 - Text and JSON use the decimal string. JSON is written as a string (`"59.97"`)
-  and read from a string or a number.
+  and read from a string or a number. NaN is `NaN` (`"NaN"` in JSON), read back
+  in any case and without a sign.
 - database/sql: `Value` returns the string. `Scan` accepts a string, bytes,
   integers, floats and other decimal types that implement
-  `encoding.TextMarshaler`. `NullDecimal` handles NULL.
+  `encoding.TextMarshaler`; a NaN string or float scans as NaN. `NullDecimal`
+  handles NULL. PostgreSQL `numeric` stores `NaN`; a column type without NaN
+  rejects it, so use `NullDecimal` and NULL there.
 - EDF (`MarshalEDF`/`UnmarshalEDF`) and `MarshalBinary` use the binary form:
 
 | bytes | content |
 |---|---|
-| 0 | scale (bits 0..5), sign (bit 7, 1 = negative), bit 6 is 0 |
+| 0 | scale (bits 0..5, 63 is NaN), sign (bit 7, 1 = negative), bit 6 is 0 |
 | 1 | n, the number of magnitude bytes, 0..16 |
 | 2 .. 2+n | the coefficient magnitude, big-endian, without leading zero bytes |
 
-Zero takes 2 bytes, 0.90 takes 3 (`02 01 5a`), any value at most 18.
+Zero takes 2 bytes, 0.90 takes 3 (`02 01 5a`), any value at most 18. NaN is `3f 00`,
+its scale code as in memory. A decoder from before NaN rejects it with `ErrWire`
+instead of reading a number, so nodes exchanging NaN have to be upgraded together;
+every other value is encoded as before.
 
 ## Migrating from shopspring/decimal
 
@@ -57,7 +91,9 @@ Other differences:
 - no `Pow`, `Ln`, trigonometric functions, `RoundCash`, `NewFromFormattedString`;
 - the binary and EDF forms are different. Nodes that exchange decimals have to
   switch together, and binary data already stored has to be converted. The text,
-  JSON and SQL forms are the same.
+  JSON and SQL forms are the same;
+- shopspring has no NaN, and cannot read the `NaN` text this package writes for
+  one.
 
 ## Performance
 

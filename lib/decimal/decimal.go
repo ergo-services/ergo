@@ -19,6 +19,9 @@
 // representations, not values. Canonical gives one representation per
 // number.
 //
+// NaN holds no number. Arithmetic carries it through and never produces it;
+// Cmp sorts it below every number and equal to itself.
+//
 // The method set follows github.com/shopspring/decimal, so most code moves
 // over by changing the import path. Text, JSON, database/sql and EDF
 // encodings are built in; the binary form takes 2 to 18 bytes.
@@ -40,12 +43,15 @@ const (
 	scaleBits = 6
 	scaleMask = 1<<scaleBits - 1
 	limitHi   = 1 << 57
+
+	nanScale = scaleMask
 )
 
 var (
 	ErrOverflow       = errors.New("decimal: overflow")
 	ErrDivisionByZero = errors.New("decimal: division by zero")
 	ErrSyntax         = errors.New("decimal: invalid syntax")
+	ErrNaN            = errors.New("decimal: NaN has no numeric value")
 )
 
 // Decimal is a fixed-size decimal number. See the package documentation.
@@ -70,7 +76,13 @@ const (
 var (
 	Zero = Decimal{}
 	One  = Decimal{lo: 1}
+	NaN  = Decimal{hi: nanScale}
 )
+
+// IsNaN reports whether d is NaN.
+func (d Decimal) IsNaN() bool {
+	return d.hi&scaleMask == nanScale
+}
 
 func (d Decimal) scale() int {
 	return int(d.hi & scaleMask)
@@ -240,17 +252,20 @@ func NewFromParts(coef int64, scale int) Decimal {
 	return New(coef, int32(-scale))
 }
 
-// Scale returns the number of digits after the decimal point.
+// Scale returns the number of digits after the decimal point; 0 for NaN.
 func (d Decimal) Scale() int {
+	if d.IsNaN() {
+		return 0
+	}
 	return d.scale()
 }
 
-// Exponent returns the exponent: d = coefficient * 10^Exponent.
+// Exponent returns the exponent: d = coefficient * 10^Exponent; 0 for NaN.
 func (d Decimal) Exponent() int32 {
-	return -int32(d.scale())
+	return -int32(d.Scale())
 }
 
-// Sign returns -1, 0 or 1.
+// Sign returns -1, 0 or 1; 0 for NaN.
 func (d Decimal) Sign() int {
 	h := int64(d.hi) >> scaleBits
 	if h < 0 {
@@ -264,7 +279,7 @@ func (d Decimal) Sign() int {
 
 // IsZero reports whether d == 0.
 func (d Decimal) IsZero() bool {
-	return d.hi>>scaleBits == 0 && d.lo == 0
+	return d.hi>>scaleBits == 0 && d.lo == 0 && d.hi&scaleMask != nanScale
 }
 
 // IsNegative reports whether d < 0.
@@ -283,6 +298,9 @@ func (d Decimal) IsInteger() bool {
 	if s == 0 {
 		return true
 	}
+	if s == nanScale {
+		return false
+	}
 	_, m, _ := d.parts()
 	_, _, nz := shrink(to256(m), s, false)
 	return nz == false
@@ -290,11 +308,17 @@ func (d Decimal) IsInteger() bool {
 
 // CoefficientInt64 returns the low 64 bits of the coefficient.
 func (d Decimal) CoefficientInt64() int64 {
+	if d.IsNaN() {
+		panic(ErrNaN)
+	}
 	return int64(d.lo)
 }
 
-// NumDigits returns the number of digits of the coefficient.
+// NumDigits returns the number of digits of the coefficient; 0 for NaN.
 func (d Decimal) NumDigits() int {
+	if d.IsNaN() {
+		return 0
+	}
 	_, m, _ := d.parts()
 	if n := digits128(m); n > 0 {
 		return n
@@ -406,6 +430,9 @@ func (d Decimal) CheckedSub(e Decimal) (Decimal, error) {
 }
 
 func (d Decimal) addSlow(e Decimal, sub bool) (Decimal, error) {
+	if d.IsNaN() || e.IsNaN() {
+		return NaN, nil
+	}
 	nd, md, sd := d.parts()
 	ne, me, se := e.parts()
 	if sub {
@@ -478,6 +505,9 @@ func (d Decimal) mulSlow(e Decimal) (Decimal, error) {
 			return pack(neg, m, s-k), nil
 		}
 	}
+	if sd == nanScale || se == nanScale {
+		return NaN, nil
+	}
 	return finish(neg, p, s, -1, false, RoundHalfUp)
 }
 
@@ -507,14 +537,14 @@ func (d Decimal) CheckedDiv(e Decimal) (Decimal, error) {
 func (d Decimal) quo(e Decimal, places int, mode RoundingMode) (Decimal, error) {
 	ne, b, sb := e.parts()
 	if b.isZero() {
-		return Decimal{}, ErrDivisionByZero
+		return zeroDivisor(d, sb)
 	}
 	na, a, sa := d.parts()
 	if places > MaxScale {
 		places = MaxScale
 	}
 	if a.isZero() {
-		return Decimal{hi: uint64(max(places, 0))}, nil
+		return zeroDividend(sa, places)
 	}
 	neg := na != ne
 
@@ -577,6 +607,24 @@ func (d Decimal) quo(e Decimal, places int, mode RoundingMode) (Decimal, error) 
 	return finish(neg, q, p, half, nz, mode)
 }
 
+// Out of line: inlined into quo, it slows Div down.
+//
+//go:noinline
+func zeroDivisor(d Decimal, sb int) (Decimal, error) {
+	if sb == nanScale || d.IsNaN() {
+		return NaN, nil
+	}
+	return Decimal{}, ErrDivisionByZero
+}
+
+//go:noinline
+func zeroDividend(sa, places int) (Decimal, error) {
+	if sa == nanScale {
+		return NaN, nil
+	}
+	return Decimal{hi: uint64(max(places, 0))}, nil
+}
+
 // QuoRem returns the quotient q, truncated to places digits, and the
 // remainder r = d - e*q.
 func (d Decimal) QuoRem(e Decimal, places int32) (Decimal, Decimal) {
@@ -596,6 +644,9 @@ func (d Decimal) Shift(n int32) Decimal {
 }
 
 func (d Decimal) shift(n int) (Decimal, error) {
+	if d.IsNaN() {
+		return NaN, nil
+	}
 	neg, m, s := d.parts()
 	if n <= s {
 		return finish(neg, to256(m), s-n, -1, false, RoundHalfUp)
@@ -622,7 +673,7 @@ func (d Decimal) RoundMode(places int32, mode RoundingMode) Decimal {
 	if k <= 0 {
 		return d
 	}
-	if k < len(pow10tab64) && places >= 0 {
+	if k < len(pow10tab64) && uint32(places) <= MaxScale {
 		neg, m, _ := d.parts()
 		p := pow10tab64[k]
 		var q u128
@@ -643,6 +694,9 @@ func (d Decimal) RoundMode(places int32, mode RoundingMode) Decimal {
 }
 
 func (d Decimal) roundSlow(places, k int, mode RoundingMode) Decimal {
+	if d.IsNaN() {
+		return NaN
+	}
 	neg, m, _ := d.parts()
 	q, half, nz := shrink(to256(m), k, false)
 	return must(finish(neg, q, places, half, nz, mode))
@@ -718,6 +772,9 @@ func (d Decimal) Canonical() Decimal {
 	if s == 0 {
 		return d
 	}
+	if s == nanScale {
+		return NaN
+	}
 	neg, m, _ := d.parts()
 	if m.isZero() {
 		return Decimal{}
@@ -733,7 +790,7 @@ func (d Decimal) Canonical() Decimal {
 	return pack(neg, m, s)
 }
 
-// Cmp returns -1, 0 or 1 for d < e, d == e, d > e.
+// Cmp returns -1, 0 or 1 for d < e, d == e, d > e. NaN is below every number.
 func (d Decimal) Cmp(e Decimal) int {
 	if (d.hi^e.hi)&scaleMask == 0 {
 		if d.hi != e.hi {
@@ -754,6 +811,15 @@ func (d Decimal) Cmp(e Decimal) int {
 }
 
 func (d Decimal) cmpSlow(e Decimal) int {
+	if dn, en := d.IsNaN(), e.IsNaN(); dn || en {
+		switch {
+		case en == false:
+			return -1
+		case dn == false:
+			return 1
+		}
+		return 0
+	}
 	if xh, xl, yh, yl, _, ok := aligned(d, e); ok {
 		switch {
 		case xh < yh:
@@ -843,10 +909,16 @@ func Min(first Decimal, rest ...Decimal) Decimal {
 	return m
 }
 
-// Max returns the largest of the arguments.
+// Max returns the largest of the arguments; NaN if any is NaN.
 func Max(first Decimal, rest ...Decimal) Decimal {
+	if first.IsNaN() {
+		return NaN
+	}
 	m := first
 	for _, d := range rest {
+		if d.IsNaN() {
+			return NaN
+		}
 		if d.Cmp(m) > 0 {
 			m = d
 		}

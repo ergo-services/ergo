@@ -94,6 +94,9 @@ func newFromFloatExp(f float64, exp int32) (Decimal, error) {
 
 // Float64 returns the nearest float64 and whether it is exactly d.
 func (d Decimal) Float64() (f float64, exact bool) {
+	if d.IsNaN() {
+		return math.NaN(), true
+	}
 	neg, m, s := d.parts()
 	if m.hi == 0 && m.lo < 1<<53 && s < len(pow10f) {
 		f = float64(m.lo) / pow10f[s]
@@ -108,6 +111,9 @@ func (d Decimal) Float64() (f float64, exact bool) {
 
 // InexactFloat64 returns the nearest float64.
 func (d Decimal) InexactFloat64() float64 {
+	if d.IsNaN() {
+		return math.NaN()
+	}
 	neg, m, s := d.parts()
 	if m.hi == 0 && m.lo < 1<<53 && s < len(pow10f) {
 		f := float64(m.lo) / pow10f[s]
@@ -125,6 +131,9 @@ func (d Decimal) InexactFloat64() float64 {
 // IntPart returns the integer part (truncated toward zero) as an int64; the
 // low 64 bits if it does not fit.
 func (d Decimal) IntPart() int64 {
+	if d.IsNaN() {
+		panic(ErrNaN)
+	}
 	t := d.RoundMode(0, RoundDown)
 	return int64(t.lo)
 }
@@ -136,6 +145,9 @@ func (d Decimal) BigInt() *big.Int {
 
 // Coefficient returns the coefficient: d = Coefficient * 10^Exponent.
 func (d Decimal) Coefficient() *big.Int {
+	if d.IsNaN() {
+		panic(ErrNaN)
+	}
 	neg, m, _ := d.parts()
 	b := new(big.Int).SetUint64(m.hi)
 	b.Lsh(b, 64)
@@ -148,6 +160,9 @@ func (d Decimal) Coefficient() *big.Int {
 
 // Rat returns d as a rational number.
 func (d Decimal) Rat() *big.Rat {
+	if d.IsNaN() {
+		panic(ErrNaN)
+	}
 	den := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(d.scale())), nil)
 	return new(big.Rat).SetFrac(d.Coefficient(), den)
 }

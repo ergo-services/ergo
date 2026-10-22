@@ -27,6 +27,14 @@ func RequireFromString(s string) Decimal {
 	return must(parse(s))
 }
 
+// decode is parse that also reads NaN, for the decoders.
+func decode[T text](s T) (Decimal, error) {
+	if len(s) == len(nanText) && (s[0]|0x20) == 'n' && (s[1]|0x20) == 'a' && (s[2]|0x20) == 'n' {
+		return NaN, nil
+	}
+	return parse(s)
+}
+
 func load8[T text](s T, i int) uint64 {
 	_ = s[i+7]
 	return uint64(s[i]) | uint64(s[i+1])<<8 | uint64(s[i+2])<<16 | uint64(s[i+3])<<24 |

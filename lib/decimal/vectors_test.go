@@ -29,6 +29,9 @@ func TestWriteVectors(t *testing.T) {
 	defer w.Flush()
 
 	enc := func(d Decimal) string {
+		if d.IsNaN() {
+			return "NaN"
+		}
 		return fmt.Sprintf("%s/%d", coef(d), d.scale())
 	}
 	res := func(d Decimal, err error) string {
@@ -80,4 +83,24 @@ func TestWriteVectors(t *testing.T) {
 		d, err := NewFromString(s)
 		fmt.Fprintf(w, "parse %s %s\n", s, res(d, err))
 	}
+
+	nums := []Decimal{NaN, Zero, RequireFromString("-12.345"), RequireFromString("2658455991569831745807614120560689151")}
+	for _, a := range nums {
+		for _, b := range nums {
+			if a.IsNaN() == false && b.IsNaN() == false {
+				continue
+			}
+			fmt.Fprintf(w, "add %s %s %s\n", enc(a), enc(b), res(a.CheckedAdd(b)))
+			fmt.Fprintf(w, "sub %s %s %s\n", enc(a), enc(b), res(a.CheckedSub(b)))
+			fmt.Fprintf(w, "mul %s %s %s\n", enc(a), enc(b), res(a.CheckedMul(b)))
+			fmt.Fprintf(w, "div %s %s 2 %d %s\n", enc(a), enc(b), RoundHalfUp, res(a.QuoRound(b, 2, RoundHalfUp)))
+			fmt.Fprintf(w, "cmp %s %s %d\n", enc(a), enc(b), a.Cmp(b))
+		}
+	}
+	fmt.Fprintf(w, "round NaN 2 %d %s\n", RoundHalfUp, enc(NaN.Round(2)))
+	fmt.Fprintf(w, "str NaN %s %s\n", NaN.String(), NaN.StringScaled())
+	fmt.Fprintf(w, "fixed NaN 3 %s\n", NaN.StringFixed(3))
+	nb, _ := NaN.MarshalBinary()
+	fmt.Fprintf(w, "wire NaN %s\n", hex.EncodeToString(nb))
+	fmt.Fprintf(w, "parse NaN %s\n", res(NewFromString("NaN")))
 }

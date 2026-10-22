@@ -64,6 +64,8 @@ func ndigits(v uint64) int {
 	return max(n, 1)
 }
 
+const nanText = "NaN"
+
 func (b *fmtBuf) format(d Decimal, trim bool) (start, end int) {
 	neg, m, s := d.parts()
 	end = fmtEnd
@@ -79,6 +81,10 @@ func (b *fmtBuf) format(d Decimal, trim bool) (start, end int) {
 		} else {
 			b.putFixed(end, f, s)
 		}
+	case s == nanScale:
+		start = fmtEnd - len(nanText)
+		copy(b[start:fmtEnd], nanText)
+		return start, fmtEnd
 	default:
 		q, f1 := divPow10x128(m, 19)
 		var f2 uint64
@@ -148,6 +154,9 @@ func (d Decimal) StringFixedBank(places int32) string {
 // AppendFixed appends d rounded with the mode to places digits after the
 // point, formatting exactly that many of them.
 func (d Decimal) AppendFixed(dst []byte, places int32, mode RoundingMode) []byte {
+	if d.IsNaN() {
+		return append(dst, nanText...)
+	}
 	r := d.RoundMode(places, mode)
 	var b fmtBuf
 	i, j := b.format(r, false)

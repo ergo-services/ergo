@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 )
 
@@ -56,6 +57,9 @@ func DecodeWire(b []byte) (Decimal, int, error) {
 	}
 	h, n := b[0], int(b[1])
 	s := int(h & scaleMask)
+	if h == nanScale && n == 0 {
+		return NaN, 2, nil
+	}
 	if h&0x40 != 0 || s > MaxScale || n > 16 || len(b) < 2+n {
 		return Decimal{}, 0, ErrWire
 	}
@@ -125,7 +129,7 @@ func (d Decimal) AppendText(b []byte) ([]byte, error) {
 
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (d *Decimal) UnmarshalText(b []byte) error {
-	v, err := parse(b)
+	v, err := decode(b)
 	if err != nil {
 		return err
 	}
@@ -153,7 +157,7 @@ func (d *Decimal) UnmarshalJSON(b []byte) error {
 	if len(b) >= 2 && b[0] == '"' && b[len(b)-1] == '"' {
 		b = b[1 : len(b)-1]
 	}
-	v, err := parse(b)
+	v, err := decode(b)
 	if err != nil {
 		return err
 	}
@@ -171,15 +175,21 @@ func (d *Decimal) Scan(value any) error {
 	var err error
 	switch v := value.(type) {
 	case string:
-		*d, err = parse(v)
+		*d, err = decode(v)
 	case []byte:
-		*d, err = parse(v)
+		*d, err = decode(v)
 	case int64:
 		*d = NewFromInt(v)
 	case float64:
-		*d = NewFromFloat(v)
+		*d = NaN
+		if math.IsNaN(v) == false {
+			*d = NewFromFloat(v)
+		}
 	case float32:
-		*d = NewFromFloat32(v)
+		*d = NaN
+		if math.IsNaN(float64(v)) == false {
+			*d = NewFromFloat32(v)
+		}
 	case uint64:
 		*d = NewFromUint64(v)
 	case int:
@@ -189,7 +199,7 @@ func (d *Decimal) Scan(value any) error {
 	case encoding.TextMarshaler:
 		var b []byte
 		if b, err = v.MarshalText(); err == nil {
-			*d, err = parse(b)
+			*d, err = decode(b)
 		}
 	default:
 		err = fmt.Errorf("decimal: cannot scan %T", value)
@@ -246,5 +256,8 @@ func (n *NullDecimal) UnmarshalJSON(b []byte) error {
 
 // GoString implements fmt.GoStringer.
 func (d Decimal) GoString() string {
+	if d.IsNaN() {
+		return "decimal.NaN"
+	}
 	return "decimal.RequireFromString(" + strconv.Quote(d.StringScaled()) + ")"
 }

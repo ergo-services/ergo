@@ -7,7 +7,7 @@ import (
 )
 
 func FuzzParse(f *testing.F) {
-	for _, s := range []string{"0", "-1.5", "1e-8", "123456789012345678901234567890.123456", ".5", "1.", "+0.000", "99999999999999999999.99999999999999999", "1E+30", "--1", "1.2.3"} {
+	for _, s := range []string{"0", "-1.5", "1e-8", "123456789012345678901234567890.123456", ".5", "1.", "+0.000", "99999999999999999999.99999999999999999", "1E+30", "--1", "1.2.3", "NaN", "nan", "-NaN"} {
 		f.Add(s)
 	}
 	f.Fuzz(func(t *testing.T, s string) {
@@ -85,9 +85,9 @@ func FuzzArith(f *testing.F) {
 	f.Fuzz(func(t *testing.T, x, y []byte, op uint8, places int8) {
 		a, b := decimalFromBytes(x), decimalFromBytes(y)
 		ra, rb := ratOf(a), ratOf(b)
-		switch op % 5 {
+		switch op % 6 {
 		case 0, 1:
-			sub := op%5 == 1
+			sub := op%6 == 1
 			s := max(a.scale(), b.scale())
 			r := new(big.Rat)
 			if sub {
@@ -129,6 +129,17 @@ func FuzzArith(f *testing.F) {
 		case 4:
 			if got, want := a.Cmp(b), ra.Cmp(rb); got != want {
 				t.Fatalf("cmp %d %d", got, want)
+			}
+		case 5:
+			if places%2 == 0 {
+				a = NaN
+			} else {
+				b = NaN
+			}
+			for _, got := range []Decimal{a.Add(b), a.Sub(b), a.Mul(b), a.Div(b)} {
+				if got != NaN {
+					t.Fatalf("NaN operand gave %#v", got)
+				}
 			}
 		}
 	})
