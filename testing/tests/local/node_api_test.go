@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"ergo.services/ergo/act"
+	"ergo.services/ergo/app/system"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
 	"ergo.services/ergo/testing/stage"
@@ -160,10 +161,14 @@ func TestNodeLoggerPlane(t *testing.T) {
 
 func TestNodeApplicationStopWithTimeout(t *testing.T) {
 	s := stage.New(t)
-	n := s.StartNode("n", stage.NodeOptions{Applications: []gen.ApplicationBehavior{createAppAccessors()}})
+	n := s.StartNode("n", stage.NodeOptions{
+		Applications:    []gen.ApplicationBehavior{createAppAccessors()},
+		EnableSystemApp: true,
+	})
 	nd := n.Native()
 
 	check.ErrorIs(t, nd.ApplicationStopWithTimeout("nosuchapp", time.Second), gen.ErrApplicationUnknown)
+	check.ErrorIs(t, nd.ApplicationStopWithTimeout(system.Name, time.Second), gen.ErrNotAllowed)
 	check.NoError(t, nd.ApplicationStopWithTimeout("accessor_app", 5*time.Second))
 
 	info, err := nd.ApplicationInfo("accessor_app")

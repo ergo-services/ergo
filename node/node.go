@@ -2460,6 +2460,11 @@ func (n *node) ApplicationStopWithTimeout(name gen.Atom, timeout time.Duration) 
 	if exist == false {
 		return gen.ErrApplicationUnknown
 	}
+
+	if name == system.Name {
+		return gen.ErrNotAllowed
+	}
+
 	app := v.(*application)
 	return app.stop(false, timeout)
 }
