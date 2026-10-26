@@ -1,6 +1,7 @@
 package tm
 
 import (
+	"runtime"
 	"sync/atomic"
 
 	"ergo.services/ergo/gen"
@@ -82,7 +83,16 @@ func (tr *TargetRelations) compact() {
 // link is in flight. A plain "stop at next==nil" would miss it. When prev has a nil
 // next but is not the head, that link is pending: spin until it lands so the in-flight
 // Push is never dropped. prev==head is the only genuine end of the list.
+//
+// Drain holds walkClaim so a concurrent compaction Walk stays read-only: an exclusive
+// Walk may detach the dead head Drain stands on, after which next==nil with head!=prev
+// never resolves and Drain spins forever.
 func (tr *TargetRelations) Drain(fn func(pid gen.PID, kind Kind)) {
+	for tr.walkClaim.CompareAndSwap(0, 1) == false {
+		runtime.Gosched()
+	}
+	defer tr.walkClaim.Store(0)
+
 	prev := tr.tail.Load()
 	for {
 		curr := prev.next.Load()
