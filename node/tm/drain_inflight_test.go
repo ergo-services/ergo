@@ -76,3 +76,37 @@ func TestDrainConcurrentPushExactlyOnce(t *testing.T) {
 		}
 	}
 }
+
+// Drain racing a compaction Walk on the same target must return.
+func TestDrainReturnsWhileCompactionWalkDetachesHead(t *testing.T) {
+	const (
+		iterations = 3000
+		N          = 224
+	)
+	tgt := target(1)
+	for iter := 0; iter < iterations; iter++ {
+		s := NewStorage()
+		for i := 0; i < N; i++ {
+			s.Register(tgt, pid(uint64(i+1)), KindLink)
+		}
+		v, _ := s.targets.Load(tgt)
+		entry := v.(*targetEntry)
+		for i := 0; i < N-1; i++ {
+			iv, _ := entry.index.LoadAndDelete(indexKey{consumer: pid(uint64(i + 1)), kind: KindLink})
+			entry.relations.MarkDead(iv.(*relationItem))
+		}
+
+		var start sync.WaitGroup
+		start.Add(1)
+		drained := make(chan struct{})
+		go func() { start.Wait(); s.RemoveTarget(tgt); close(drained) }()
+		go func() { start.Wait(); s.Unregister(tgt, pid(N), KindLink) }()
+		start.Done()
+
+		select {
+		case <-drained:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("iter %d: Drain did not return while racing a compaction Walk", iter)
+		}
+	}
+}
