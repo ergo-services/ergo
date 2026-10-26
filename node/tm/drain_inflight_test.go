@@ -77,9 +77,7 @@ func TestDrainConcurrentPushExactlyOnce(t *testing.T) {
 	}
 }
 
-// RemoveTarget (Drain) racing the compaction Walk run by the last Unregister on the same
-// target must return. Verify-to-fail: without walkClaim in Drain, Walk detaches the dead
-// head Drain stands on and Drain spins on next==nil forever (~0.3% of iterations).
+// Drain racing a compaction Walk on the same target must return.
 func TestDrainReturnsWhileCompactionWalkDetachesHead(t *testing.T) {
 	const (
 		iterations = 3000
@@ -91,7 +89,6 @@ func TestDrainReturnsWhileCompactionWalkDetachesHead(t *testing.T) {
 		for i := 0; i < N; i++ {
 			s.Register(tgt, pid(uint64(i+1)), KindLink)
 		}
-		// all but the last consumer already gone, compaction armed but not yet run
 		v, _ := s.targets.Load(tgt)
 		entry := v.(*targetEntry)
 		for i := 0; i < N-1; i++ {
