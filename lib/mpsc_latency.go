@@ -37,6 +37,8 @@ type itemMPSCLatency struct {
 	pushed int64
 }
 
+const QueueLatencyEmpty int64 = 0
+
 func NewQueueMPSC() QueueMPSC {
 	emptyItem := &itemMPSCLatency{}
 	return &queueMPSCLatency{

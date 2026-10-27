@@ -59,7 +59,7 @@ func TestSystemCapabilities(t *testing.T) {
 
 	// the report must claim only tags the framework actually defines, whether or
 	// not this suite was built with them
-	known := []string{"pprof", "latency", "verbose", "norecover"}
+	known := []string{"pprof", "latency", "verbose", "norecover", "typestats"}
 	for _, tag := range caps.Build {
 		if slices.Contains(known, tag) == false {
 			t.Errorf("unknown build tag %q reported", tag)

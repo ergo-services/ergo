@@ -588,11 +588,6 @@ type Node interface {
 	// Returns ErrNodeTerminated in other states, ErrIncorrect if deadline invalid.
 	MakeRefWithDeadline(deadline int64) (Ref, error)
 
-	// Commercial returns a list of components with commercial licenses (LicenseBSL1).
-	// Used for license compliance reporting.
-	// Available in all states.
-	Commercial() []Version
-
 	// PID returns the node's core virtual PID.
 	// Used as sender for node-level operations (Send, SendExit, SendEvent).
 	// Used as parent PID for node-spawned processes.
@@ -859,9 +854,6 @@ type NodeInfo struct {
 
 	// Framework is the Ergo framework version.
 	Framework Version
-
-	// Commercial lists components with commercial licenses (LicenseBSL1).
-	Commercial []Version
 
 	// Env contains node environment variables.
 	// Only populated if SecurityOptions.ExposeEnvInfo is enabled.

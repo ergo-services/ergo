@@ -10,6 +10,7 @@ import (
 
 	"ergo.services/ergo/act"
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 )
 
 // readBuildInfo extracts the running binary's module/build details for the
@@ -129,18 +130,10 @@ func (in *node) HandleMessage(from gen.PID, message any) error {
 			OS:        runtime.GOOS,
 			Cores:     runtime.NumCPU(),
 			GoVersion: runtime.Version(),
-			Timezone: func() string {
-				now := time.Now()
-				name, _ := now.Zone()
-				loc := now.Location().String()
-				if loc == "Local" {
-					return name // e.g. "MSK", "CET"
-				}
-				return loc // e.g. "Europe/Moscow"
-			}(),
-			Version:  in.Node().Version(),
-			Creation: in.Node().Creation(),
-			CRC32:    in.Node().Name().CRC32(),
+			Timezone:  lib.LocationName(time.Local),
+			Version:   in.Node().Version(),
+			Creation:  in.Node().Creation(),
+			CRC32:     in.Node().Name().CRC32(),
 		}
 		response.BuildMain, response.BuildRevision,
 			response.BuildModified, response.BuildSettings, response.BuildDeps,

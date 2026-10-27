@@ -123,7 +123,6 @@ type nodeOverrides struct {
 	setProcessTracingSampler        func(pid gen.PID, sampler gen.TracingSampler) error
 	makeRef                         func() gen.Ref
 	makeRefWithDeadline             func(deadline int64) (gen.Ref, error)
-	commercial                      func() []gen.Version
 	pidFn                           func() gen.PID
 	creation                        func() int64
 	peers                           func() []gen.Atom
@@ -469,11 +468,10 @@ func (n *Node) OnMakeRefWithDeadline(fn func(deadline int64) (gen.Ref, error)) {
 	n.ov.makeRefWithDeadline = fn
 }
 
-func (n *Node) OnCommercial(fn func() []gen.Version) { n.ov.commercial = fn }
-func (n *Node) OnPID(fn func() gen.PID)              { n.ov.pidFn = fn }
-func (n *Node) OnCreation(fn func() int64)           { n.ov.creation = fn }
-func (n *Node) OnPeers(fn func() []gen.Atom)         { n.ov.peers = fn }
-func (n *Node) OnSetCTRLC(fn func(enable bool))      { n.ov.setCTRLC = fn }
+func (n *Node) OnPID(fn func() gen.PID)         { n.ov.pidFn = fn }
+func (n *Node) OnCreation(fn func() int64)      { n.ov.creation = fn }
+func (n *Node) OnPeers(fn func() []gen.Atom)    { n.ov.peers = fn }
+func (n *Node) OnSetCTRLC(fn func(enable bool)) { n.ov.setCTRLC = fn }
 
 // gen.Node
 
@@ -1195,13 +1193,6 @@ func (n *Node) MakeRefWithDeadline(deadline int64) (gen.Ref, error) {
 		return n.ov.makeRefWithDeadline(deadline)
 	}
 	return synthRef(n.next.Add(1)), nil
-}
-
-func (n *Node) Commercial() []gen.Version {
-	if n.ov.commercial != nil {
-		return n.ov.commercial()
-	}
-	return nil
 }
 
 func (n *Node) PID() gen.PID {

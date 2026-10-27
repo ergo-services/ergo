@@ -430,12 +430,6 @@ func (n *mockNode) Log() gen.Log {
 	}
 	return n.log
 }
-func (n *mockNode) Commercial() []gen.Version {
-	if n.ov.commercial != nil {
-		return n.ov.commercial()
-	}
-	return nil
-}
 
 func (n *mockNode) EnvList() map[gen.Env]any {
 	if n.ov.envList != nil {

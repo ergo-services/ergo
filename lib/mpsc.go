@@ -9,6 +9,8 @@ import (
 	"unsafe"
 )
 
+const QueueLatencyEmpty int64 = -1
+
 type queueMPSC struct {
 	head   *itemMPSC
 	tail   *itemMPSC

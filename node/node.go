@@ -117,8 +117,6 @@ type node struct {
 	stopForced      chan struct{}
 	forceOnce       sync.Once
 
-	licenses sync.Map
-
 	coreEventsToken gen.Ref
 
 	ctrlc chan os.Signal
@@ -390,15 +388,6 @@ func (n *node) FrameworkVersion() gen.Version {
 	return n.framework
 }
 
-func (n *node) Commercial() []gen.Version {
-	var commercial []gen.Version
-	n.licenses.Range(func(k, _ any) bool {
-		commercial = append(commercial, k.(gen.Version))
-		return true
-	})
-	return commercial
-}
-
 func (n *node) EnvList() map[gen.Env]any {
 	env := make(map[gen.Env]any)
 	n.env.Range(func(k, v any) bool {
@@ -585,6 +574,10 @@ func (n *node) MetaInfo(m gen.Alias) (gen.MetaInfo, error) {
 	info.MailboxSize = mp.main.Size()
 	info.MailboxQueues.Main = mp.main.Len()
 	info.MailboxQueues.System = mp.system.Len()
+	info.MailboxQueues.LatencyMain = mp.main.Latency()
+	info.MailboxQueues.LatencySystem = mp.system.Latency()
+	info.MailboxQueues.LatencyUrgent = lib.QueueLatencyEmpty
+	info.MailboxQueues.LatencyLog = lib.QueueLatencyEmpty
 	info.MessagesIn = atomic.LoadUint64(&mp.messagesIn)
 	info.MessagesOut = atomic.LoadUint64(&mp.messagesOut)
 	info.MessagePriority = gen.MessagePriority(mp.priority.Load())
@@ -894,7 +887,6 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.Uptime = n.Uptime()
 	info.Version = n.version
 	info.Framework = n.framework
-	info.Commercial = n.Commercial()
 	info.LogLevel = n.log.Level()
 	info.Cron = n.cron.Info()
 

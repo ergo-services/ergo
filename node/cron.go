@@ -248,7 +248,7 @@ func (c *cron) JobInfo(name gen.Atom) (gen.CronJobInfo, error) {
 	}
 	jobInfo.Name = v.job.Name
 	jobInfo.Spec = v.job.Spec
-	jobInfo.Location = v.job.Location.String()
+	jobInfo.Location = lib.LocationName(v.job.Location)
 	jobInfo.ActionInfo = v.job.Action.Info()
 	jobInfo.Disabled = v.disable.Load()
 	if l := v.last.Load(); l != nil {
@@ -285,7 +285,7 @@ func (c *cron) Info() gen.CronInfo {
 		var jobInfo gen.CronJobInfo
 		jobInfo.Name = v.job.Name
 		jobInfo.Spec = v.job.Spec
-		jobInfo.Location = v.job.Location.String()
+		jobInfo.Location = lib.LocationName(v.job.Location)
 		jobInfo.ActionInfo = v.job.Action.Info()
 		jobInfo.Disabled = v.disable.Load()
 		if l := v.last.Load(); l != nil {

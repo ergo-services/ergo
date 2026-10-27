@@ -24,7 +24,6 @@ type nodeOverrides struct {
 	creation         func() int64
 	peers            func() []gen.Atom
 	log              func() gen.Log
-	commercial       func() []gen.Version
 
 	envList    func() map[gen.Env]any
 	setEnv     func(name gen.Env, value any)
@@ -129,7 +128,6 @@ func (n *mockNode) OnPID(fn func() gen.PID)                  { n.ov.pid = fn }
 func (n *mockNode) OnCreation(fn func() int64)               { n.ov.creation = fn }
 func (n *mockNode) OnPeers(fn func() []gen.Atom)             { n.ov.peers = fn }
 func (n *mockNode) OnLog(fn func() gen.Log)                  { n.ov.log = fn }
-func (n *mockNode) OnCommercial(fn func() []gen.Version)     { n.ov.commercial = fn }
 
 func (n *mockNode) OnEnvList(fn func() map[gen.Env]any)             { n.ov.envList = fn }
 func (n *mockNode) OnSetEnv(fn func(name gen.Env, value any))       { n.ov.setEnv = fn }

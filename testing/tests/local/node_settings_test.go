@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 	"ergo.services/ergo/testing/check"
 	"ergo.services/ergo/testing/stage"
 )
@@ -112,6 +113,12 @@ func TestNodeMetaSettings(t *testing.T) {
 	check.NoError(t, err)
 	check.Equal(t, alias, info.ID)
 	check.Equal(t, host, info.Parent)
+
+	empty := lib.NewQueueMPSC().Latency()
+	check.Equal(t, empty, info.MailboxQueues.LatencyMain)
+	check.Equal(t, empty, info.MailboxQueues.LatencySystem)
+	check.Equal(t, empty, info.MailboxQueues.LatencyUrgent)
+	check.Equal(t, empty, info.MailboxQueues.LatencyLog)
 
 	check.NoError(t, nd.SetMetaLogLevel(alias, gen.LogLevelWarning))
 	info, err = nd.MetaInfo(alias)
