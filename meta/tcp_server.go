@@ -88,6 +88,7 @@ func (t *tcpserver) Init(process gen.MetaProcess) error {
 
 func (t *tcpserver) Start() error {
 	options := TCPConnectionOptions{
+		HandshakeTimeout:           t.options.HandshakeTimeout,
 		ReadChunk:                  t.options.ReadChunk,
 		ReadBufferSize:             t.options.ReadBufferSize,
 		ReadBufferPool:             t.options.ReadBufferPool,

@@ -523,3 +523,40 @@ func TestSOFOInspectIncludesLocalRestarts(t *testing.T) {
 		t.Errorf("child:'worker':restarts = %q, want 1", v)
 	}
 }
+
+// TestSOFOShutdownAfterADisableEnds: the instances a disable stopped are no
+// children the shutdown waits for; the supervisor stopping after it ends once
+// its other children did.
+func TestSOFOShutdownAfterADisableEnds(t *testing.T) {
+	sup := setupSOFO(t, SupervisorSpec{
+		Children: []SupervisorChildSpec{
+			{Name: "worker", Factory: dummyFactory},
+			{Name: "other", Factory: dummyFactory},
+		},
+	})
+	first := startSOFO(t, sup, "worker", 1)
+	second := startSOFO(t, sup, "worker", 2)
+	other := startSOFO(t, sup, "other", 3)
+
+	action, err := sup.childDisable("worker")
+	if err != nil {
+		t.Fatalf("childDisable: %v", err)
+	}
+	if action.do != supActionTerminateChildren {
+		t.Fatalf("childDisable: do=%v", action.do)
+	}
+	for _, pid := range []gen.PID{first, second} {
+		if action := sup.childTerminated("worker", pid, gen.TerminateReasonShutdown); action.do != supActionDoNothing {
+			t.Fatalf("a disabled instance exits: do=%v", action.do)
+		}
+	}
+
+	action = sup.childTerminated("", makePID(100), gen.TerminateReasonShutdown)
+	if action.do != supActionTerminateChildren || len(action.terminate) != 1 || action.terminate[0] != other {
+		t.Fatalf("the shutdown terminates the other child: do=%v terminate=%v", action.do, action.terminate)
+	}
+	action = sup.childTerminated("other", other, gen.TerminateReasonShutdown)
+	if action.do != supActionTerminate {
+		t.Fatalf("the supervisor ends with its last child: do=%v", action.do)
+	}
+}

@@ -330,3 +330,44 @@ func TestTCPServerAcceptAndLifecycle(t *testing.T) {
 
 	s.Terminate(nil) // closes the listener, Accept fails, Start returns
 }
+
+// TestTCPServerTLSHandshakeTimeout: a client that says nothing holds an accepted
+// TLS connection no longer than its handshake may take.
+func TestTCPServerTLSHandshakeTimeout(t *testing.T) {
+	cert, err := lib.GenerateSelfSignedCert("ergo-test", "127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mb, err := CreateTCPServer(TCPServerOptions{Host: "127.0.0.1", Port: 0, CertManager: gen.CreateCertManager(cert)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln := mb.(*tcpserver).listener
+	t.Cleanup(func() { ln.Close() })
+
+	silent, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { silent.Close() })
+	conn, err := ln.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	c := &tcpconnection{conn: conn, options: TCPConnectionOptions{HandshakeTimeout: 200 * time.Millisecond}}
+	mp, ch := metaSink()
+	c.Init(mp)
+
+	started := make(chan error, 1)
+	go func() { started <- c.Start() }()
+	select {
+	case err := <-started:
+		if err == nil {
+			t.Fatal("Start of a connection whose client said nothing: got nil, want the timeout")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the TLS handshake of a silent client did not time out")
+	}
+	recvNone(t, ch)
+}

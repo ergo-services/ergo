@@ -7,10 +7,15 @@ import (
 	"net/netip"
 	"strconv"
 	"sync/atomic"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 )
+
+// defaultTCPHandshakeTimeout bounds the TLS handshake of a connection whose
+// options do not say how long.
+const defaultTCPHandshakeTimeout = 10 * time.Second
 
 func CreateTCPConnection(options TCPConnectionOptions) (gen.MetaBehavior, error) {
 
@@ -91,9 +96,15 @@ func (t *tcpconnection) Start() error {
 
 	// reported after the TLS handshake
 	if tc, ok := t.conn.(*tls.Conn); ok {
+		timeout := t.options.HandshakeTimeout
+		if timeout <= 0 {
+			timeout = defaultTCPHandshakeTimeout
+		}
+		tc.SetDeadline(time.Now().Add(timeout))
 		if err := tc.Handshake(); err != nil {
 			return err
 		}
+		tc.SetDeadline(time.Time{})
 	}
 
 	defer func() {

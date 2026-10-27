@@ -278,7 +278,6 @@ func (s *supSOFO) childDisable(name gen.Atom) (supAction, error) {
 			continue
 		}
 		terminate = append(terminate, pid)
-		s.wait[pid] = true
 	}
 
 	if len(terminate) > 0 {
