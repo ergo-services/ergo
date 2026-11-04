@@ -3174,6 +3174,7 @@ func (n *node) cleanupProcess(p *process, reason error) {
 			Behavior: p.sbehavior, Error: errString,
 		})
 	}
+	// unregister before RouteTerminate*, targets rely on it
 	n.processes.Delete(p.pid)
 
 	if name := p.tracingExporterName.Load(); name != nil {

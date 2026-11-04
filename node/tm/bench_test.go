@@ -46,6 +46,9 @@ func (c *benchCore) RouteSendEventMessages(gen.PID, []gen.PID, gen.MessageOption
 func (c *benchCore) GetConnection(node gen.Atom) (gen.Connection, error) {
 	return &benchConn{latency: time.Duration(c.latency.Load())}, nil
 }
+func (c *benchCore) IsAlivePID(gen.PID) bool             { return true }
+func (c *benchCore) IsAliveProcessID(gen.ProcessID) bool { return true }
+func (c *benchCore) IsAliveAlias(gen.Alias) bool         { return true }
 
 type benchConn struct {
 	latency time.Duration

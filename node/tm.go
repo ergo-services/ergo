@@ -59,3 +59,30 @@ func (b *tmBridge) RouteSendEventMessages(from gen.PID, to []gen.PID, options ge
 func (b *tmBridge) GetConnection(node gen.Atom) (gen.Connection, error) {
 	return b.node.network.GetConnection(node)
 }
+
+// IsAlivePID reports whether the process exists and is not terminated; the core is alive while the node runs
+func (b *tmBridge) IsAlivePID(pid gen.PID) bool {
+	if pid == b.node.corePID {
+		return true
+	}
+	v, exist := b.node.processes.Load(pid)
+	if exist == false {
+		return false
+	}
+	return v.(*process).State() != gen.ProcessStateTerminated
+}
+
+// IsAliveProcessID reports whether the name belongs to a process that is not terminated
+func (b *tmBridge) IsAliveProcessID(target gen.ProcessID) bool {
+	v, exist := b.node.names.Load(target.Name)
+	if exist == false {
+		return false
+	}
+	return v.(*process).State() != gen.ProcessStateTerminated
+}
+
+// IsAliveAlias reports whether the alias is registered
+func (b *tmBridge) IsAliveAlias(alias gen.Alias) bool {
+	_, exist := b.node.aliases.Load(alias)
+	return exist
+}

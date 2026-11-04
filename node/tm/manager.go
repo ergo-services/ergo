@@ -46,14 +46,22 @@ func (m *Manager) HasMonitor(consumer gen.PID, target any) bool {
 }
 
 func (m *Manager) LinkPID(consumer gen.PID, target gen.PID) error {
-	if m.storage.Register(target, consumer, KindLink) == false {
+	entry := m.storage.Register(target, consumer, KindLink)
+	if entry == nil {
 		if consumer.Node != m.core.Name() {
 			return nil
 		}
 		return gen.ErrTargetExist
 	}
 	if target.Node == m.core.Name() {
-		return nil
+		if m.core.IsAlivePID(target) {
+			return nil
+		}
+		if m.storage.Retract(target, entry, consumer, KindLink) == false {
+			return nil
+		}
+		m.storage.DropEmpty(target, entry)
+		return gen.ErrProcessTerminated
 	}
 	wp := m.wireFor(target, KindLink)
 	if consumer.Node == m.core.Name() {
@@ -90,14 +98,22 @@ func (m *Manager) UnlinkPID(consumer gen.PID, target gen.PID) error {
 }
 
 func (m *Manager) MonitorPID(consumer gen.PID, target gen.PID) error {
-	if m.storage.Register(target, consumer, KindMonitor) == false {
+	entry := m.storage.Register(target, consumer, KindMonitor)
+	if entry == nil {
 		if consumer.Node != m.core.Name() {
 			return nil
 		}
 		return gen.ErrTargetExist
 	}
 	if target.Node == m.core.Name() {
-		return nil
+		if m.core.IsAlivePID(target) {
+			return nil
+		}
+		if m.storage.Retract(target, entry, consumer, KindMonitor) == false {
+			return nil
+		}
+		m.storage.DropEmpty(target, entry)
+		return gen.ErrProcessTerminated
 	}
 	wp := m.wireFor(target, KindMonitor)
 	if consumer.Node == m.core.Name() {
@@ -134,7 +150,8 @@ func (m *Manager) DemonitorPID(consumer gen.PID, target gen.PID) error {
 }
 
 func (m *Manager) LinkProcessID(consumer gen.PID, target gen.ProcessID) error {
-	if m.storage.Register(target, consumer, KindLink) == false {
+	entry := m.storage.Register(target, consumer, KindLink)
+	if entry == nil {
 		if consumer.Node != m.core.Name() {
 			return nil
 		}
@@ -142,7 +159,14 @@ func (m *Manager) LinkProcessID(consumer gen.PID, target gen.ProcessID) error {
 	}
 	node := processIDNode(target, m.core.Name())
 	if node == m.core.Name() {
-		return nil
+		// a name registered again maps a new entry
+		if m.core.IsAliveProcessID(target) && m.storage.Mapped(target, entry) {
+			return nil
+		}
+		if m.storage.Retract(target, entry, consumer, KindLink) == false {
+			return nil
+		}
+		return gen.ErrProcessUnknown
 	}
 	wp := m.wireFor(target, KindLink)
 	if consumer.Node == m.core.Name() {
@@ -180,7 +204,8 @@ func (m *Manager) UnlinkProcessID(consumer gen.PID, target gen.ProcessID) error 
 }
 
 func (m *Manager) MonitorProcessID(consumer gen.PID, target gen.ProcessID) error {
-	if m.storage.Register(target, consumer, KindMonitor) == false {
+	entry := m.storage.Register(target, consumer, KindMonitor)
+	if entry == nil {
 		if consumer.Node != m.core.Name() {
 			return nil
 		}
@@ -188,7 +213,14 @@ func (m *Manager) MonitorProcessID(consumer gen.PID, target gen.ProcessID) error
 	}
 	node := processIDNode(target, m.core.Name())
 	if node == m.core.Name() {
-		return nil
+		// a name registered again maps a new entry
+		if m.core.IsAliveProcessID(target) && m.storage.Mapped(target, entry) {
+			return nil
+		}
+		if m.storage.Retract(target, entry, consumer, KindMonitor) == false {
+			return nil
+		}
+		return gen.ErrProcessUnknown
 	}
 	wp := m.wireFor(target, KindMonitor)
 	if consumer.Node == m.core.Name() {
@@ -233,14 +265,22 @@ func processIDNode(t gen.ProcessID, self gen.Atom) gen.Atom {
 }
 
 func (m *Manager) LinkAlias(consumer gen.PID, target gen.Alias) error {
-	if m.storage.Register(target, consumer, KindLink) == false {
+	entry := m.storage.Register(target, consumer, KindLink)
+	if entry == nil {
 		if consumer.Node != m.core.Name() {
 			return nil
 		}
 		return gen.ErrTargetExist
 	}
 	if target.Node == m.core.Name() {
-		return nil
+		if m.core.IsAliveAlias(target) {
+			return nil
+		}
+		if m.storage.Retract(target, entry, consumer, KindLink) == false {
+			return nil
+		}
+		m.storage.DropEmpty(target, entry)
+		return gen.ErrAliasUnknown
 	}
 	wp := m.wireFor(target, KindLink)
 	if consumer.Node == m.core.Name() {
@@ -277,14 +317,22 @@ func (m *Manager) UnlinkAlias(consumer gen.PID, target gen.Alias) error {
 }
 
 func (m *Manager) MonitorAlias(consumer gen.PID, target gen.Alias) error {
-	if m.storage.Register(target, consumer, KindMonitor) == false {
+	entry := m.storage.Register(target, consumer, KindMonitor)
+	if entry == nil {
 		if consumer.Node != m.core.Name() {
 			return nil
 		}
 		return gen.ErrTargetExist
 	}
 	if target.Node == m.core.Name() {
-		return nil
+		if m.core.IsAliveAlias(target) {
+			return nil
+		}
+		if m.storage.Retract(target, entry, consumer, KindMonitor) == false {
+			return nil
+		}
+		m.storage.DropEmpty(target, entry)
+		return gen.ErrAliasUnknown
 	}
 	wp := m.wireFor(target, KindMonitor)
 	if consumer.Node == m.core.Name() {
@@ -322,7 +370,7 @@ func (m *Manager) DemonitorAlias(consumer gen.PID, target gen.Alias) error {
 
 // Node targets are always local; no wire propagation.
 func (m *Manager) LinkNode(consumer gen.PID, target gen.Atom) error {
-	if m.storage.Register(target, consumer, KindLink) {
+	if m.storage.Register(target, consumer, KindLink) != nil {
 		return nil
 	}
 	return gen.ErrTargetExist
@@ -334,7 +382,7 @@ func (m *Manager) UnlinkNode(consumer gen.PID, target gen.Atom) error {
 }
 
 func (m *Manager) MonitorNode(consumer gen.PID, target gen.Atom) error {
-	if m.storage.Register(target, consumer, KindMonitor) {
+	if m.storage.Register(target, consumer, KindMonitor) != nil {
 		return nil
 	}
 	return gen.ErrTargetExist

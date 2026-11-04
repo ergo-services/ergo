@@ -32,6 +32,7 @@ type mockCore struct {
 	eventBuffers    map[gen.Event][]gen.MessageEvent
 	connectionError error
 	linkError       error
+	alive           func(target any) bool // nil: every local target is alive
 	refSeq          atomic.Uint64
 }
 
@@ -139,6 +140,9 @@ func (m *mockCore) ctm() gen.CoreTargetManager {
 		}
 		return m.conn(), nil
 	})
+	c.OnIsAlivePID(func(pid gen.PID) bool { return m.alive == nil || m.alive(pid) })
+	c.OnIsAliveProcessID(func(process gen.ProcessID) bool { return m.alive == nil || m.alive(process) })
+	c.OnIsAliveAlias(func(alias gen.Alias) bool { return m.alive == nil || m.alive(alias) })
 	return c
 }
 

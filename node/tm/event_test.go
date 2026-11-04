@@ -103,6 +103,10 @@ func (c *testCore) GetConnection(node gen.Atom) (gen.Connection, error) {
 	return conn, nil
 }
 
+func (c *testCore) IsAlivePID(gen.PID) bool             { return true }
+func (c *testCore) IsAliveProcessID(gen.ProcessID) bool { return true }
+func (c *testCore) IsAliveAlias(gen.Alias) bool         { return true }
+
 // testConn implements gen.Connection well enough for tests. Only the
 // wire-link/unlink/monitor/demonitor and SendTerminate methods do real
 // recording; the rest panic so misuse is loud.
