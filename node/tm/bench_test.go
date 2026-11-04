@@ -49,6 +49,7 @@ func (c *benchCore) GetConnection(node gen.Atom) (gen.Connection, error) {
 func (c *benchCore) IsAlivePID(gen.PID) bool             { return true }
 func (c *benchCore) IsAliveProcessID(gen.ProcessID) bool { return true }
 func (c *benchCore) IsAliveAlias(gen.Alias) bool         { return true }
+func (c *benchCore) IsAliveNode(gen.Atom) bool           { return true }
 
 type benchConn struct {
 	latency time.Duration

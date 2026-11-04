@@ -27,6 +27,7 @@ type coreTargetManagerOverrides struct {
 	isAlivePID             func(pid gen.PID) bool
 	isAliveProcessID       func(process gen.ProcessID) bool
 	isAliveAlias           func(alias gen.Alias) bool
+	isAliveNode            func(node gen.Atom) bool
 }
 
 var _ gen.CoreTargetManager = (*CoreTargetManager)(nil)
@@ -68,6 +69,7 @@ func (c *CoreTargetManager) OnIsAliveProcessID(fn func(process gen.ProcessID) bo
 	c.ov.isAliveProcessID = fn
 }
 func (c *CoreTargetManager) OnIsAliveAlias(fn func(alias gen.Alias) bool) { c.ov.isAliveAlias = fn }
+func (c *CoreTargetManager) OnIsAliveNode(fn func(node gen.Atom) bool)    { c.ov.isAliveNode = fn }
 
 // gen.CoreTargetManager
 
@@ -161,6 +163,13 @@ func (c *CoreTargetManager) IsAliveProcessID(process gen.ProcessID) bool {
 func (c *CoreTargetManager) IsAliveAlias(alias gen.Alias) bool {
 	if c.ov.isAliveAlias != nil {
 		return c.ov.isAliveAlias(alias)
+	}
+	return true
+}
+
+func (c *CoreTargetManager) IsAliveNode(node gen.Atom) bool {
+	if c.ov.isAliveNode != nil {
+		return c.ov.isAliveNode(node)
 	}
 	return true
 }

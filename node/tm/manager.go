@@ -370,10 +370,18 @@ func (m *Manager) DemonitorAlias(consumer gen.PID, target gen.Alias) error {
 
 // Node targets are always local; no wire propagation.
 func (m *Manager) LinkNode(consumer gen.PID, target gen.Atom) error {
-	if m.storage.Register(target, consumer, KindLink) != nil {
+	entry := m.storage.Register(target, consumer, KindLink)
+	if entry == nil {
+		return gen.ErrTargetExist
+	}
+	// a node connected again maps a new entry
+	if m.core.IsAliveNode(target) && m.storage.Mapped(target, entry) {
 		return nil
 	}
-	return gen.ErrTargetExist
+	if m.storage.Retract(target, entry, consumer, KindLink) == false {
+		return nil
+	}
+	return gen.ErrNoConnection
 }
 
 func (m *Manager) UnlinkNode(consumer gen.PID, target gen.Atom) error {
@@ -382,10 +390,18 @@ func (m *Manager) UnlinkNode(consumer gen.PID, target gen.Atom) error {
 }
 
 func (m *Manager) MonitorNode(consumer gen.PID, target gen.Atom) error {
-	if m.storage.Register(target, consumer, KindMonitor) != nil {
+	entry := m.storage.Register(target, consumer, KindMonitor)
+	if entry == nil {
+		return gen.ErrTargetExist
+	}
+	// a node connected again maps a new entry
+	if m.core.IsAliveNode(target) && m.storage.Mapped(target, entry) {
 		return nil
 	}
-	return gen.ErrTargetExist
+	if m.storage.Retract(target, entry, consumer, KindMonitor) == false {
+		return nil
+	}
+	return gen.ErrNoConnection
 }
 
 func (m *Manager) DemonitorNode(consumer gen.PID, target gen.Atom) error {

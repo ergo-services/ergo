@@ -218,3 +218,79 @@ func TestLinkAlias_Local_TargetGone(t *testing.T) {
 		t.Errorf("links=%d exits=%d, want none", m.totalLinks(), core.countSentExits())
 	}
 }
+
+func TestMonitorNode_TargetGone(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	consumer := gen.PID{Node: "node1", ID: 100}
+	target := gen.Atom("node2")
+	core.alive = func(any) bool { return false }
+
+	if err := m.MonitorNode(consumer, target); err != gen.ErrNoConnection {
+		t.Fatalf("expected ErrNoConnection, got %v", err)
+	}
+	if m.hasMonitorRelation(consumer, target) || m.totalMonitors() != 0 {
+		t.Errorf("relation must be taken back, monitors=%d", m.totalMonitors())
+	}
+	if core.countSentDowns() != 0 {
+		t.Errorf("expected no down, got %d", core.countSentDowns())
+	}
+}
+
+func TestLinkNode_TargetGone(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	consumer := gen.PID{Node: "node1", ID: 100}
+	target := gen.Atom("node2")
+	core.alive = func(any) bool { return false }
+
+	if err := m.LinkNode(consumer, target); err != gen.ErrNoConnection {
+		t.Fatalf("expected ErrNoConnection, got %v", err)
+	}
+	if m.hasLinkRelation(consumer, target) || m.totalLinks() != 0 {
+		t.Errorf("relation must be taken back, links=%d", m.totalLinks())
+	}
+	if core.countSentExits() != 0 {
+		t.Errorf("expected no exit, got %d", core.countSentExits())
+	}
+}
+
+// The disconnect runs after Register: its fan-out claims the relation.
+func TestMonitorNode_DisconnectDuringRegister(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	consumer := gen.PID{Node: "node1", ID: 100}
+	target := gen.Atom("node2")
+	core.alive = func(any) bool {
+		m.TerminatedTargetNode(target, gen.ErrNoConnection)
+		return false
+	}
+
+	if err := m.MonitorNode(consumer, target); err != nil {
+		t.Fatalf("expected nil, the down is on its way: %v", err)
+	}
+	if core.countSentDowns() != 1 {
+		t.Fatalf("expected exactly one down, got %d", core.countSentDowns())
+	}
+	if m.totalMonitors() != 0 || m.getTargetEntry(target) != nil {
+		t.Errorf("monitors=%d entry=%v, want none", m.totalMonitors(), m.getTargetEntry(target))
+	}
+}
+
+// The node disconnected with the relation's entry detached and is connected again.
+func TestMonitorNode_ConnectedAgain(t *testing.T) {
+	m, core := newManagerWithMock("node1")
+	consumer := gen.PID{Node: "node1", ID: 100}
+	target := gen.Atom("node2")
+	core.alive = func(any) bool {
+		m.storage.targets.Delete(target)
+		return true
+	}
+
+	if err := m.MonitorNode(consumer, target); err != gen.ErrNoConnection {
+		t.Fatalf("expected ErrNoConnection, got %v", err)
+	}
+	if m.totalMonitors() != 0 || len(m.MonitorsFor(consumer)) != 0 {
+		t.Errorf("monitors=%d reverse=%v, want none", m.totalMonitors(), m.MonitorsFor(consumer))
+	}
+	if core.countSentDowns() != 0 {
+		t.Errorf("expected no down, got %d", core.countSentDowns())
+	}
+}

@@ -87,4 +87,6 @@ type CoreTargetManager interface {
 	IsAliveProcessID(process ProcessID) bool
 	// IsAliveAlias must turn false before TerminatedTargetAlias is called for alias.
 	IsAliveAlias(alias Alias) bool
+	// IsAliveNode must turn false before TerminatedTargetNode is called for node.
+	IsAliveNode(node Atom) bool
 }

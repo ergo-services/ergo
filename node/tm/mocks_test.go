@@ -143,6 +143,7 @@ func (m *mockCore) ctm() gen.CoreTargetManager {
 	c.OnIsAlivePID(func(pid gen.PID) bool { return m.alive == nil || m.alive(pid) })
 	c.OnIsAliveProcessID(func(process gen.ProcessID) bool { return m.alive == nil || m.alive(process) })
 	c.OnIsAliveAlias(func(alias gen.Alias) bool { return m.alive == nil || m.alive(alias) })
+	c.OnIsAliveNode(func(node gen.Atom) bool { return m.alive == nil || m.alive(node) })
 	return c
 }
 

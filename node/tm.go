@@ -86,3 +86,9 @@ func (b *tmBridge) IsAliveAlias(alias gen.Alias) bool {
 	_, exist := b.node.aliases.Load(alias)
 	return exist
 }
+
+// IsAliveNode reports whether the node is connected, without dialing it
+func (b *tmBridge) IsAliveNode(node gen.Atom) bool {
+	_, err := b.node.network.Connection(node)
+	return err == nil
+}
