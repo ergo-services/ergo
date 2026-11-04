@@ -322,3 +322,75 @@ func TestARFORestartWithDisabledTailResetsMode(t *testing.T) {
 		t.Errorf("childEnable after restart: %v", err)
 	}
 }
+
+// restartAfter fails the child and runs the restart it starts: the terminations
+// answered, the starts done. Returns the names started.
+func restartAfter(sup *supARFO, pids map[gen.Atom]gen.PID, failed gen.Atom) []gen.Atom {
+	var started []gen.Atom
+	var nextID uint64 = 1000
+	action := sup.childTerminated(failed, pids[failed], errors.New("boom"))
+	for {
+		switch {
+		case action.do == supActionTerminateChildren && len(action.terminate) > 0:
+			var next supAction
+			for _, pid := range action.terminate {
+				for name, p := range pids {
+					if p == pid {
+						next = sup.childTerminated(name, pid, gen.TerminateReasonShutdown)
+					}
+				}
+			}
+			action = next
+		case action.do == supActionStartChild:
+			pid := makePID(nextID)
+			nextID++
+			started = append(started, action.spec.Name)
+			pids[action.spec.Name] = pid
+			action = sup.childStarted(action.spec, pid)
+		default:
+			return started
+		}
+	}
+}
+
+func temporaryInTheMiddle(t *testing.T, supType SupervisorType) (*supARFO, map[gen.Atom]gen.PID) {
+	return setupARFO(t, supType, SupervisorSpec{
+		Restart:             SupervisorRestart{Strategy: SupervisorStrategyPermanent},
+		DisableAutoShutdown: true,
+		Children: []SupervisorChildSpec{
+			{Name: "a", Factory: dummyFactory},
+			{
+				Name:    "b",
+				Factory: dummyFactory,
+				Restart: SupervisorChildRestart{Strategy: SupervisorStrategyTemporary},
+			},
+			{Name: "c", Factory: dummyFactory},
+		},
+	})
+}
+
+func TestARFOTemporaryChildStoppedByRestartStaysStopped(t *testing.T) {
+	// a temporary child is never restarted, not even when the restart of a
+	// sibling stopped it (OTP removes it)
+	for _, supType := range []SupervisorType{SupervisorTypeRestForOne, SupervisorTypeAllForOne} {
+		sup, pids := temporaryInTheMiddle(t, supType)
+		started := restartAfter(sup, pids, "a")
+		if len(started) != 2 || started[0] != "a" || started[1] != "c" {
+			t.Errorf("type %d: started %v, want [a c]", supType, started)
+		}
+		if sup.mode != 0 {
+			t.Errorf("type %d: mode %d after the restart, want 0", supType, sup.mode)
+		}
+	}
+}
+
+func TestARFOTemporaryChildEndedIsNotStartedByRestart(t *testing.T) {
+	for _, supType := range []SupervisorType{SupervisorTypeRestForOne, SupervisorTypeAllForOne} {
+		sup, pids := temporaryInTheMiddle(t, supType)
+		sup.childTerminated("b", pids["b"], gen.TerminateReasonNormal)
+		started := restartAfter(sup, pids, "a")
+		if len(started) != 2 || started[0] != "a" || started[1] != "c" {
+			t.Errorf("type %d: started %v, want [a c]", supType, started)
+		}
+	}
+}

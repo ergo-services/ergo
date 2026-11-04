@@ -48,7 +48,7 @@ func TestTracingExporterDoesNotStallRouting(t *testing.T) {
 	}
 
 	v, _ := n.tracingExporters.Load("blk")
-	entry := v.(tracingExporterEntry)
+	entry := v.(*tracingExporterEntry)
 	if entry.dispatcher.Dropped() == 0 {
 		t.Fatal("overflow spans were not dropped/counted")
 	}

@@ -2,6 +2,7 @@ package distributed
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -165,4 +166,106 @@ func TestDistFragmentationLoad(t *testing.T) {
 			func(idx int) bool { return idx%2 == 1 },
 		)
 	})
+}
+
+// orderPong keeps the lengths of the strings it receives, in their order; a
+// call answers with them.
+type orderPong struct {
+	act.Actor
+	got []int
+}
+
+func factoryOrderPong() gen.ProcessBehavior { return &orderPong{} }
+
+func (p *orderPong) HandleMessage(from gen.PID, message any) error {
+	if s, ok := message.(string); ok {
+		p.got = append(p.got, len(s))
+	}
+	return nil
+}
+
+func (p *orderPong) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	return append([]int(nil), p.got...), nil
+}
+
+// orderSender sends a big message, then small ones, to each target.
+type orderSender struct{ act.Actor }
+
+func factoryOrderSender() gen.ProcessBehavior { return &orderSender{} }
+
+type orderBatch struct {
+	To    []gen.PID
+	Big   int
+	Small int
+}
+
+func (s *orderSender) HandleMessage(from gen.PID, message any) error {
+	b := message.(orderBatch)
+	for _, to := range b.To {
+		if err := s.Send(to, strings.Repeat("x", b.Big)); err != nil {
+			return err
+		}
+		for i := 0; i < b.Small; i++ {
+			if err := s.Send(to, strings.Repeat("y", 10+i)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// TestDistFragmentationOrder: a fragmented message to a PID is not overtaken
+// by the small messages sent after it to the same PID - its fragments go to
+// the decoder of the target, as the other frames of the pair do
+// (KeepNetworkOrder). The pools are full first: while one fills, the TCP of
+// an order key changes.
+func TestDistFragmentationOrder(t *testing.T) {
+	s := stage.New(t)
+	n1 := s.StartNode("n1", stage.NodeOptions{FragmentSize: 4096})
+	n2 := s.StartNode("n2", stage.NodeOptions{FragmentSize: 4096})
+	s.Connect(n1, n2)
+	full := func(from, to *stage.Node) bool {
+		r, err := from.Network().Node(to.Name())
+		if err != nil {
+			return false
+		}
+		info := r.Info()
+		return info.PoolLen == info.PoolSize
+	}
+	pools := time.Now().Add(10 * time.Second)
+	for full(n1, n2) == false || full(n2, n1) == false {
+		if time.Now().After(pools) {
+			t.Fatal("the pools did not fill")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	var targets []gen.PID
+	for i := 0; i < 4; i++ {
+		targets = append(targets, n2.Spawn(factoryOrderPong, gen.ProcessOptions{}))
+	}
+	sender := n1.Spawn(factoryOrderSender, gen.ProcessOptions{})
+	big, small := 60000, 20
+	n1.Send(sender, orderBatch{To: targets, Big: big, Small: small})
+
+	want := []int{big}
+	for i := 0; i < small; i++ {
+		want = append(want, 10+i)
+	}
+	for _, to := range targets {
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			res, err := n2.Call(to, "got")
+			check.NoError(t, err)
+			got := res.([]int)
+			if len(got) == len(want) {
+				check.Equal(t, want, got)
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%d of %d messages to %s", len(got), len(want), to)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 }

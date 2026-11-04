@@ -24,7 +24,7 @@ type supARFO struct {
 	restarts     []int64
 	autoshutdown bool
 
-	mode int // 0 - normal, (1 - starting, 2 - stopping) [re]starting, 3 - shutdown
+	mode int // 0 - normal, 1 - starting, 2 - stopping (restarting), 3 - shutdown, 4 - restarting
 
 	keeporder      bool
 	shutdownReason error
@@ -154,7 +154,7 @@ func (s *supARFO) childStarted(cs supChildSpec, pid gen.PID) supAction {
 	spec.Args = cs.Args
 	spec.pid = pid
 
-	if s.mode != 1 { // is not in starting mode?
+	if s.mode != 1 && s.mode != 4 { // is not in starting or restarting mode?
 		// do nothing
 		return action
 	}
@@ -174,6 +174,11 @@ func (s *supARFO) childStarted(cs supChildSpec, pid gen.PID) supAction {
 		}
 
 		if s.spec[i].disabled {
+			continue
+		}
+
+		if s.mode == 4 && s.spec[i].effStrategy == SupervisorStrategyTemporary {
+			// a temporary child is never restarted
 			continue
 		}
 
@@ -282,9 +287,7 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 			}
 		}
 
-		s.mode = 1 // starting (restarting)
-		action.do = supActionStartChild
-		action.spec = s.childForStart()
+		action = s.restartChildren()
 		s.restartI = 0
 		return action
 	}
@@ -403,11 +406,7 @@ func (s *supARFO) childTerminated(name gen.Atom, pid gen.PID, reason error) supA
 	terminate := s.childrenForTermination()
 	if len(terminate) == 0 {
 		// nothing to stop. start children
-		action.do = supActionStartChild
-		action.spec = s.childForStart()
-		s.mode = 1 // starting (restarting)
-		return action
-
+		return s.restartChildren()
 	}
 	action.do = supActionTerminateChildren
 	action.reason = reason
@@ -558,12 +557,31 @@ func (s *supARFO) childrenForTermination() []gen.PID {
 	return terminate
 }
 
-func (s *supARFO) childForStart() supChildSpec {
+// restartChildren starts the children of the restart range again, a temporary
+// one left stopped (it is never restarted). Nothing to start - back to normal.
+func (s *supARFO) restartChildren() supAction {
+	var action supAction
+	spec, found := s.childForStart()
+	if found == false {
+		s.mode = 0 // normal
+		return action
+	}
+	s.mode = 4 // restarting
+	action.do = supActionStartChild
+	action.spec = spec
+	return action
+}
+
+func (s *supARFO) childForStart() (supChildSpec, bool) {
 	var empty gen.PID
 
-	// get the first enabled spec
+	// get the first enabled spec, a temporary one is never restarted
 	for _, cs := range s.spec[s.restartI:] {
 		if cs.disabled {
+			continue
+		}
+
+		if cs.effStrategy == SupervisorStrategyTemporary {
 			continue
 		}
 
@@ -572,8 +590,8 @@ func (s *supARFO) childForStart() supChildSpec {
 			panic(gen.ErrInternal)
 		}
 
-		return *cs
+		return *cs, true
 	}
 
-	panic(gen.ErrInternal)
+	return supChildSpec{}, false
 }

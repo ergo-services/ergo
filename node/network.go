@@ -1643,7 +1643,8 @@ func (n *network) startAcceptor(a gen.AcceptorOptions) (*acceptor, error) {
 		handshake_max_message_size: a.HandshakeMaxMessageSize,
 		software_keepalive_misses:  n.keepAliveMisses(a.SoftwareKeepAliveMisses),
 	}
-	if a.Cookie == "" {
+	acceptor.cookie = a.Cookie
+	if acceptor.cookie == "" {
 		acceptor.cookie = *n.cookie.Load()
 	}
 	for k, v := range a.AtomMapping {
@@ -1736,16 +1737,23 @@ func (n *network) accept(a *acceptor) {
 		},
 	}
 	// period for keepalive is already in hopts.Flags (from a.flags)
+	var backoff lib.AcceptBackoff
 	for {
 		c, err := a.l.Accept()
 		if err != nil {
 			if err == io.EOF {
 				return
 			}
+			if lib.AcceptExhausted(err) {
+				n.node.Log().Warning("acceptor %s: %s (the listener waits, then goes on)", a.l.Addr(), err)
+				time.Sleep(backoff.Next())
+				continue
+			}
 			n.node.Log().Info("acceptor %s terminated (handshake: %s, proto: %s)",
 				a.l.Addr(), a.handshake.Version(), a.proto.Version())
 			return
 		}
+		backoff.Reset()
 		if lib.Verbose() {
 			n.node.Log().Trace("accepted new TCP-connection from %s", c.RemoteAddr().String())
 		}

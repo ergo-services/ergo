@@ -2,6 +2,7 @@ package lib
 
 import (
 	"encoding/binary"
+	"runtime"
 	"testing"
 )
 
@@ -193,5 +194,47 @@ func TestCompressLevel(t *testing.T) {
 			t.Fatalf("zlib level %d: FLEVEL = %d, want %d", level, f, flevel[level])
 		}
 		ReleaseBuffer(zl)
+	}
+}
+
+// A frame declaring an unpacked size far above what it carries is refused
+// once its data ends, nothing near the declared size allocated.
+func TestDecompressDeclaredSizeIsNotAllocated(t *testing.T) {
+	header := uint(12)
+	src := TakeBuffer()
+	src.AppendString("abc")
+	gz, err := CompressGZIP(src, header, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zl, err := CompressZLIB(src, header, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lz, err := CompressLZW(src, header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name       string
+		z          *Buffer
+		decompress func(*Buffer, uint, int) (*Buffer, error)
+	}{
+		{"gzip", gz, DecompressGZIP},
+		{"zlib", zl, DecompressZLIB},
+		{"lzw", lz, DecompressLZW},
+	}
+	for _, c := range cases {
+		binary.BigEndian.PutUint32(c.z.B[header:header+4], 1<<31)
+		var before, after runtime.MemStats
+		runtime.ReadMemStats(&before)
+		_, err := c.decompress(c.z, header, 0)
+		runtime.ReadMemStats(&after)
+		if err == nil {
+			t.Fatalf("%s: a declared size of 2 GiB with 3 bytes in it is accepted", c.name)
+		}
+		if allocated := after.TotalAlloc - before.TotalAlloc; allocated > 1<<20 {
+			t.Fatalf("%s: %d bytes allocated for 3 bytes of data", c.name, allocated)
+		}
 	}
 }

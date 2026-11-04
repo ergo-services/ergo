@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
@@ -97,11 +98,18 @@ func (t *tcpserver) Start() error {
 		Advanced:                   t.options.Advanced,
 	}
 
+	var backoff lib.AcceptBackoff
 	for i := 0; ; i++ {
 		conn, err := t.listener.Accept()
 		if err != nil {
+			if lib.AcceptExhausted(err) {
+				t.Log().Warning("accept on %s: %s (the listener waits, then goes on)", t.listener.Addr(), err)
+				time.Sleep(backoff.Next())
+				continue
+			}
 			return err
 		}
+		backoff.Reset()
 
 		c := &tcpconnection{
 			conn:    conn,

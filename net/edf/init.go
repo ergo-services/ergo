@@ -90,6 +90,7 @@ var (
 
 		gen.MessageCoreApplicationStarted{},
 		gen.MessageCoreApplicationStopped{},
+		gen.MessageCoreNodeStopping{},
 		gen.MessageCoreNodeConnected{},
 		gen.MessageCoreNodeDisconnected{},
 

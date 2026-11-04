@@ -3,6 +3,7 @@ package local
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
@@ -155,4 +156,32 @@ func TestNodeTracingAttributes(t *testing.T) {
 	check.NoError(t, err)
 	check.Equal(t, 1, len(info.Tracing.Attributes))
 	check.Equal(t, "region", info.Tracing.Attributes[0].Key)
+}
+
+// TestNodeTracingExporterDeletedByName: an exporter of a process deleted by its name
+// lets the process register again, and the end of the process leaves alone an exporter
+// added under the old name since.
+func TestNodeTracingExporterDeletedByName(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+	nd := n.Native()
+	pid := n.Spawn(factoryT0, gen.ProcessOptions{})
+
+	check.NoError(t, nd.TracingExporterAddPID(pid, "otel", gen.TracingFlagSend))
+	nd.TracingExporterDelete("otel")
+	exporter := &collectingExporter{}
+	check.NoError(t, nd.TracingExporterAdd("otel", exporter, gen.TracingFlagSend))
+	check.NoError(t, nd.TracingExporterAddPID(pid, "own", gen.TracingFlagSend))
+
+	check.NoError(t, nd.Kill(pid))
+	deadline := time.Now().Add(5 * time.Second)
+	for contains(nd.TracingExporters(), "own") {
+		if time.Now().After(deadline) {
+			t.Fatal("the exporter outlived its process")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	check.True(t, contains(nd.TracingExporters(), "otel"))
+	check.Equal(t, 0, exporter.terminated())
 }

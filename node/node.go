@@ -104,7 +104,7 @@ type node struct {
 	loggersMu sync.Mutex                 // serializes LoggerAdd/LoggerDelete registration
 	log       *log
 
-	tracingExporters sync.Map // name -> tracingExporterEntry
+	tracingExporters sync.Map // name -> *tracingExporterEntry
 	tracing          gen.Tracing
 	tracingSampler   atomic.Pointer[gen.TracingSampler]
 
@@ -917,7 +917,7 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	}
 
 	n.tracingExporters.Range(func(k, v any) bool {
-		entry := v.(tracingExporterEntry)
+		entry := v.(*tracingExporterEntry)
 		behavior := ""
 		if entry.exporter != nil {
 			behavior = strings.TrimPrefix(reflect.TypeOf(entry.exporter).String(), "*")
@@ -2624,7 +2624,7 @@ func (n *node) TracingExporterAddPID(pid gen.PID, name string, flags gen.Tracing
 	if p.tracingExporterName.Load() != nil {
 		return gen.ErrNotAllowed
 	}
-	entry := tracingExporterEntry{
+	entry := &tracingExporterEntry{
 		flags: flags,
 		pid:   pid,
 	}
@@ -2652,7 +2652,7 @@ func (n *node) TracingExporterAdd(name string, exporter gen.TracingBehavior, fla
 		}()
 		exporter.HandleSpan(span)
 	}
-	entry := tracingExporterEntry{
+	entry := &tracingExporterEntry{
 		exporter:   exporter,
 		flags:      flags,
 		dispatcher: lib.NewDispatcher[gen.TracingSpan](tracingExporterQueue, handle),
@@ -2669,11 +2669,26 @@ func (n *node) TracingExporterDeletePID(pid gen.PID) {
 	if loaded == false {
 		return
 	}
-	p := value.(*process)
-	if name := p.tracingExporterName.Load(); name != nil {
-		n.TracingExporterDelete(*name)
-		p.tracingExporterName.Store(nil)
+	n.tracingExporterForget(value.(*process))
+}
+
+// tracingExporterForget deletes the exporter the process registered as, if the name is
+// still its own: an exporter added under that name since (an object, another process)
+// is left alone.
+func (n *node) tracingExporterForget(p *process) {
+	name := p.tracingExporterName.Swap(nil)
+	if name == nil {
+		return
 	}
+	v, loaded := n.tracingExporters.Load(*name)
+	if loaded == false {
+		return
+	}
+	entry := v.(*tracingExporterEntry)
+	if entry.exporter != nil || entry.pid != p.pid {
+		return
+	}
+	n.tracingExporters.CompareAndDelete(*name, entry)
 }
 
 func (n *node) TracingExporterDelete(name string) {
@@ -2681,11 +2696,19 @@ func (n *node) TracingExporterDelete(name string) {
 	if loaded == false {
 		return
 	}
-	entry := v.(tracingExporterEntry)
-	if entry.exporter != nil {
-		entry.dispatcher.Stop() // no HandleSpan runs after this returns
-		entry.exporter.Terminate()
+	entry := v.(*tracingExporterEntry)
+	if entry.exporter == nil {
+		// the process registered as it is one no more: it may register again
+		if value, found := n.processes.Load(entry.pid); found {
+			p := value.(*process)
+			if current := p.tracingExporterName.Load(); current != nil && *current == name {
+				p.tracingExporterName.CompareAndSwap(current, nil)
+			}
+		}
+		return
 	}
+	entry.dispatcher.Stop() // no HandleSpan runs after this returns
+	entry.exporter.Terminate()
 }
 
 func (n *node) TracingExporters() []string {
@@ -2702,7 +2725,7 @@ func (n *node) TracingExporterFlags(name string) gen.TracingFlags {
 	if ok == false {
 		return 0
 	}
-	return v.(tracingExporterEntry).flags
+	return v.(*tracingExporterEntry).flags
 }
 
 func (n *node) sendTracingSpan(span gen.TracingSpan) {
@@ -2710,7 +2733,7 @@ func (n *node) sendTracingSpan(span gen.TracingSpan) {
 		atomic.AddUint64(&n.tracingSpans[span.Kind-1], 1)
 	}
 	n.tracingExporters.Range(func(k, v any) bool {
-		entry := v.(tracingExporterEntry)
+		entry := v.(*tracingExporterEntry)
 		if matchTracingFlags(entry.flags, span) == false {
 			return true
 		}
@@ -3245,10 +3268,7 @@ func (n *node) cleanupProcess(p *process, reason error) {
 	}
 	n.processes.Delete(p.pid)
 
-	if name := p.tracingExporterName.Load(); name != nil {
-		n.TracingExporterDelete(*name)
-		p.tracingExporterName.Store(nil)
-	}
+	n.tracingExporterForget(p)
 
 	n.log.Trace("...cleanupProcess %s", p.pid)
 

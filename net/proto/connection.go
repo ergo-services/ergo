@@ -1751,6 +1751,12 @@ func (c *connection) Join(conn net.Conn, id string, dial gen.NetworkDial, tail [
 		defer c.dictMutex.Unlock()
 	}
 	c.pool_mutex.Lock()
+	// Terminate closes the members it sees under pool_mutex: a join either sees the
+	// connection terminated here or is among the members it closes.
+	if c.terminated.Load() {
+		c.pool_mutex.Unlock()
+		return fmt.Errorf("join: connection with %s is terminated", c.peer)
+	}
 	// the dialer that fills the pool is the single writer and caps it at pool_size; the
 	// accept end mirrors whatever the dialer dials and must not reject independently (a
 	// transient size disagreement under churn would otherwise strand a slot, its TCP closed
@@ -3847,6 +3853,10 @@ func (c *connection) sendFragmented(buf *lib.Buffer, msgStart int, order uint8) 
 	totalFragments := uint16(total)
 
 	sequenceID := c.nextSequenceID.Add(1)
+	// the fragments carry the order byte of the frame they cut (the order
+	// key of the target on the peer): the receiver assembles and routes
+	// them on the decoder of the other frames to that target
+	orderPeer := buf.B[msgStart+6]
 
 	if lib.Verbose() {
 		c.log.Trace("fragmenting message: %d bytes, %d fragments (seq=%d)",
@@ -3883,7 +3893,7 @@ func (c *connection) sendFragmented(buf *lib.Buffer, msgStart int, order uint8) 
 		buf.B[hdr+0] = protoMagic
 		buf.B[hdr+1] = protoVersion
 		binary.BigEndian.PutUint32(buf.B[hdr+2:hdr+6], uint32(16+chunkSize))
-		buf.B[hdr+6] = order
+		buf.B[hdr+6] = orderPeer
 		buf.B[hdr+7] = protoMessageF
 		binary.BigEndian.PutUint32(buf.B[hdr+8:hdr+12], sequenceID)
 		binary.BigEndian.PutUint16(buf.B[hdr+12:hdr+14], idx)

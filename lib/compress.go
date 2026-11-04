@@ -176,8 +176,7 @@ func DecompressLZW(src *Buffer, skip uint, limit int) (dst *Buffer, err error) {
 	zr.r.Reset(&zr.src, lzw.LSB, 8)
 
 	dst = TakeBuffer()
-	dst.Allocate(lenUnpacked)
-	err = decompress(dst.B, &zr.r)
+	err = decompress(dst, &zr.r, lenUnpacked, len(source)-4)
 	zr.src.Reset(nil)
 	lzwReaders.Put(zr)
 	if err != nil {
@@ -214,8 +213,7 @@ func DecompressZLIB(src *Buffer, skip uint, limit int) (dst *Buffer, err error) 
 	}
 
 	dst = TakeBuffer()
-	dst.Allocate(lenUnpacked)
-	err = decompress(dst.B, zr.r)
+	err = decompress(dst, zr.r, lenUnpacked, len(source)-4)
 	zr.src.Reset(nil)
 	zlibReaders.Put(zr)
 	if err != nil {
@@ -247,8 +245,7 @@ func DecompressGZIP(src *Buffer, skip uint, limit int) (dst *Buffer, err error) 
 	}
 
 	dst = TakeBuffer()
-	dst.Allocate(lenUnpacked)
-	err = decompress(dst.B, &zr.r)
+	err = decompress(dst, &zr.r, lenUnpacked, len(source)-4)
 	zr.src.Reset(nil)
 	gzipReaders.Put(zr)
 	if err != nil {
@@ -258,10 +255,18 @@ func DecompressGZIP(src *Buffer, skip uint, limit int) (dst *Buffer, err error) 
 	return dst, nil
 }
 
-func decompress(dst []byte, reader io.Reader) error {
+// decompress reads the unpacked data into dst, which must come to exactly
+// lenUnpacked bytes. The buffer grows with what comes (from four times the
+// packed size, doubling, never past lenUnpacked): a size the peer declares
+// and does not send costs nothing.
+func decompress(dst *Buffer, reader io.Reader, lenUnpacked int, lenPacked int) error {
+	dst.Allocate(min(lenUnpacked, 4*lenPacked))
 	total := 0
 	for {
-		n, e := reader.Read(dst[total:])
+		if total == len(dst.B) && total < lenUnpacked {
+			dst.Allocate(min(lenUnpacked, max(2*total, 64)))
+		}
+		n, e := reader.Read(dst.B[total:])
 		total += n
 		if e == io.EOF {
 			break
@@ -273,10 +278,9 @@ func decompress(dst []byte, reader io.Reader) error {
 			return e
 		}
 	}
-	if total != len(dst) {
+	if total != lenUnpacked {
 		return fmt.Errorf("unpacked size mismatch")
 	}
-
 	return nil
 }
 
