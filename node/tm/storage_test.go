@@ -25,10 +25,10 @@ func TestStorageRegisterWalk(t *testing.T) {
 	s := NewStorage()
 	tgt := target(1)
 
-	if s.Register(tgt, pid(1), KindLink) == false {
+	if s.Register(tgt, pid(1), KindLink) == nil {
 		t.Fatal("first Register should succeed")
 	}
-	if s.Register(tgt, pid(2), KindMonitor) == false {
+	if s.Register(tgt, pid(2), KindMonitor) == nil {
 		t.Fatal("second Register (different kind/consumer) should succeed")
 	}
 
@@ -43,10 +43,10 @@ func TestStorageDuplicateReturnsFalse(t *testing.T) {
 	s := NewStorage()
 	tgt := target(1)
 
-	if s.Register(tgt, pid(1), KindLink) == false {
+	if s.Register(tgt, pid(1), KindLink) == nil {
 		t.Fatal("first Register should succeed")
 	}
-	if s.Register(tgt, pid(1), KindLink) == true {
+	if s.Register(tgt, pid(1), KindLink) != nil {
 		t.Fatal("duplicate Register should return false")
 	}
 
@@ -60,10 +60,10 @@ func TestStorageLinkAndMonitorSamePIDCoexist(t *testing.T) {
 	s := NewStorage()
 	tgt := target(1)
 
-	if s.Register(tgt, pid(1), KindLink) == false {
+	if s.Register(tgt, pid(1), KindLink) == nil {
 		t.Fatal("link Register should succeed")
 	}
-	if s.Register(tgt, pid(1), KindMonitor) == false {
+	if s.Register(tgt, pid(1), KindMonitor) == nil {
 		t.Fatal("monitor Register (same consumer, different kind) should succeed")
 	}
 
@@ -101,7 +101,7 @@ func TestStorageUnregisterTombstones(t *testing.T) {
 	}
 
 	// Re-register after unregister works (uses fresh item).
-	if s.Register(tgt, pid(2), KindLink) == false {
+	if s.Register(tgt, pid(2), KindLink) == nil {
 		t.Fatal("re-Register after Unregister should succeed")
 	}
 	got = storageWalkPIDs(s, tgt)
@@ -200,7 +200,7 @@ func TestStorageRemoveTargetReturnsAlive(t *testing.T) {
 	}
 
 	// Re-register on same target works (fresh entry).
-	if s.Register(tgt, pid(7), KindLink) == false {
+	if s.Register(tgt, pid(7), KindLink) == nil {
 		t.Fatal("re-Register after RemoveTarget should succeed")
 	}
 	got2 := storageWalkPIDs(s, tgt)
@@ -220,7 +220,7 @@ func TestStorageConcurrentRegisterDuplicates(t *testing.T) {
 	for w := 0; w < workers; w++ {
 		go func() {
 			defer wg.Done()
-			if s.Register(tgt, pid(1), KindLink) {
+			if s.Register(tgt, pid(1), KindLink) != nil {
 				trueCount.Add(1)
 			}
 		}()

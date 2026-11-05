@@ -24,6 +24,10 @@ type coreTargetManagerOverrides struct {
 	routeSendExitMessages  func(from gen.PID, to []gen.PID, message any) error
 	routeSendEventMessages func(from gen.PID, to []gen.PID, options gen.MessageOptions, message gen.MessageEvent) error
 	getConnection          func(node gen.Atom) (gen.Connection, error)
+	isAlivePID             func(pid gen.PID) bool
+	isAliveProcessID       func(process gen.ProcessID) bool
+	isAliveAlias           func(alias gen.Alias) bool
+	isAliveNode            func(node gen.Atom) bool
 }
 
 var _ gen.CoreTargetManager = (*CoreTargetManager)(nil)
@@ -60,6 +64,12 @@ func (c *CoreTargetManager) OnRouteSendEventMessages(fn func(from gen.PID, to []
 func (c *CoreTargetManager) OnGetConnection(fn func(node gen.Atom) (gen.Connection, error)) {
 	c.ov.getConnection = fn
 }
+func (c *CoreTargetManager) OnIsAlivePID(fn func(pid gen.PID) bool) { c.ov.isAlivePID = fn }
+func (c *CoreTargetManager) OnIsAliveProcessID(fn func(process gen.ProcessID) bool) {
+	c.ov.isAliveProcessID = fn
+}
+func (c *CoreTargetManager) OnIsAliveAlias(fn func(alias gen.Alias) bool) { c.ov.isAliveAlias = fn }
+func (c *CoreTargetManager) OnIsAliveNode(fn func(node gen.Atom) bool)    { c.ov.isAliveNode = fn }
 
 // gen.CoreTargetManager
 
@@ -134,4 +144,32 @@ func (c *CoreTargetManager) GetConnection(node gen.Atom) (gen.Connection, error)
 		return c.ov.getConnection(node)
 	}
 	return nil, nil
+}
+
+func (c *CoreTargetManager) IsAlivePID(pid gen.PID) bool {
+	if c.ov.isAlivePID != nil {
+		return c.ov.isAlivePID(pid)
+	}
+	return true
+}
+
+func (c *CoreTargetManager) IsAliveProcessID(process gen.ProcessID) bool {
+	if c.ov.isAliveProcessID != nil {
+		return c.ov.isAliveProcessID(process)
+	}
+	return true
+}
+
+func (c *CoreTargetManager) IsAliveAlias(alias gen.Alias) bool {
+	if c.ov.isAliveAlias != nil {
+		return c.ov.isAliveAlias(alias)
+	}
+	return true
+}
+
+func (c *CoreTargetManager) IsAliveNode(node gen.Atom) bool {
+	if c.ov.isAliveNode != nil {
+		return c.ov.isAliveNode(node)
+	}
+	return true
 }

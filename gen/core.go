@@ -84,4 +84,12 @@ type CoreTargetManager interface {
 	RouteSendExitMessages(from PID, to []PID, message any) error
 	RouteSendEventMessages(from PID, to []PID, options MessageOptions, message MessageEvent) error
 	GetConnection(node Atom) (Connection, error)
+	// IsAlivePID must turn false before TerminatedTargetPID is called for pid.
+	IsAlivePID(pid PID) bool
+	// IsAliveProcessID must turn false before TerminatedTargetProcessID is called for process.
+	IsAliveProcessID(process ProcessID) bool
+	// IsAliveAlias must turn false before TerminatedTargetAlias is called for alias.
+	IsAliveAlias(alias Alias) bool
+	// IsAliveNode must turn false before TerminatedTargetNode is called for node.
+	IsAliveNode(node Atom) bool
 }

@@ -43,18 +43,47 @@ func (s *Storage) Counts() (links int64, monitors int64) {
 	return s.linkCount.Load(), s.monitorCount.Load()
 }
 
-// Returns false if (consumer, kind) was already registered.
-func (s *Storage) Register(target any, consumer gen.PID, kind Kind) bool {
+// Returns the entry holding the relation, nil if (consumer, kind) was already registered.
+func (s *Storage) Register(target any, consumer gen.PID, kind Kind) *targetEntry {
 	entry := s.getOrCreateEntry(target)
 	item := entry.relations.Push(consumer, kind)
 	_, loaded := entry.index.LoadOrStore(indexKey{consumer: consumer, kind: kind}, item)
 	if loaded {
 		entry.relations.MarkDead(item)
-		return false
+		return nil
 	}
 	s.reverseAdd(consumer, target, kind)
 	s.bumpCount(kind, +1)
+	return entry
+}
+
+// Retract takes back a relation whose target was found gone after Register.
+// False means the target's death fan-out claimed it first and delivers the signal.
+func (s *Storage) Retract(target any, entry *targetEntry, consumer gen.PID, kind Kind) bool {
+	iv, ok := entry.index.LoadAndDelete(indexKey{consumer: consumer, kind: kind})
+	if ok == false {
+		return false
+	}
+	if entry.relations.MarkDead(iv.(*relationItem)) == false {
+		return false
+	}
+	s.reverseDelete(consumer, target, kind)
+	s.bumpCount(kind, -1)
 	return true
+}
+
+// Mapped reports whether entry is still the one stored for target.
+func (s *Storage) Mapped(target any, entry *targetEntry) bool {
+	v, ok := s.targets.Load(target)
+	return ok && v.(*targetEntry) == entry
+}
+
+// DropEmpty unmaps an empty entry of a target that can never come back.
+func (s *Storage) DropEmpty(target any, entry *targetEntry) {
+	if entry.relations.live.Load() > 0 {
+		return
+	}
+	s.targets.CompareAndDelete(target, entry)
 }
 
 // Decrements counters only when this caller wins the MarkDead CAS;

@@ -151,6 +151,7 @@ func (m *Manager) UnregisterEvent(producer gen.PID, name gen.Atom) error {
 	if entry.producer != producer {
 		return gen.ErrEventOwner
 	}
+	// unmap before RemoveTarget, linkEventLocal relies on it
 	if m.events.CompareAndDelete(event, entry) == false {
 		return gen.ErrEventUnknown
 	}
@@ -186,7 +187,8 @@ func (m *Manager) linkEventLocal(consumer gen.PID, event gen.Event, kind Kind) (
 	}
 	entry := v.(*eventEntry)
 
-	if m.storage.Register(event, consumer, kind) == false {
+	te := m.storage.Register(event, consumer, kind)
+	if te == nil {
 		if consumer.Node != m.core.Name() {
 			// Idempotent for retrying remote peers.
 			return entry.snapshotBuffer(), nil
@@ -194,16 +196,16 @@ func (m *Manager) linkEventLocal(consumer gen.PID, event gen.Event, kind Kind) (
 		return nil, gen.ErrTargetExist
 	}
 
-	// UnregisterEvent may have raced between events.Load and the Register
-	// above; the Register would then leak a fresh target entry. Roll back.
-	if _, stillThere := m.events.Load(event); stillThere == false {
-		m.storage.Unregister(event, consumer, kind)
-		m.storage.RemoveTarget(event)
-		return nil, gen.ErrEventUnknown
+	// the event may be gone or registered again
+	if cur, _ := m.events.Load(event); cur != v || m.storage.Mapped(event, te) == false {
+		if m.storage.Retract(event, te, consumer, kind) {
+			return nil, gen.ErrEventUnknown
+		}
+		return entry.snapshotBuffer(), nil
 	}
 
 	if entry.subscriberCount.Add(1) == 1 && entry.notify {
-		if _, stillThere := m.events.Load(event); stillThere {
+		if cur, _ := m.events.Load(event); cur == v {
 			m.core.RouteSendPID(
 				m.core.PID(),
 				entry.producer,
@@ -216,7 +218,7 @@ func (m *Manager) linkEventLocal(consumer gen.PID, event gen.Event, kind Kind) (
 }
 
 func (m *Manager) linkEventRemote(consumer gen.PID, event gen.Event, kind Kind) ([]gen.MessageEvent, error) {
-	if m.storage.Register(event, consumer, kind) == false {
+	if m.storage.Register(event, consumer, kind) == nil {
 		if consumer.Node != m.core.Name() {
 			// Idempotent for retrying remote peers.
 			return nil, nil
