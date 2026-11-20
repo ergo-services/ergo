@@ -9,6 +9,9 @@ import (
 	"ergo.services/ergo/lib"
 )
 
+// a message is forwarded to a fallback process at most once
+const maxFallbackHops = 1
+
 // gen.Core interface implementation
 
 func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions, message any) error {
@@ -111,7 +114,12 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 			Message: message,
 		}
 		fbto := gen.ProcessID{Name: p.fallback.Name, Node: n.name}
-		return n.RouteSendProcessID(from, fbto, options, fbm)
+		err := n.routeSendProcessID(from, fbto, options, fbm, 1)
+		if err == nil || err == gen.ErrNodeTerminated {
+			return err
+		}
+		// the fallback is unavailable, so the sender learns about the mailbox it missed
+		return gen.ErrProcessMailboxFull
 	}
 	atomic.AddUint64(&p.messagesIn, 1)
 
@@ -142,6 +150,12 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 }
 
 func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions, message any) error {
+	return n.routeSendProcessID(from, to, options, message, 0)
+}
+
+// hop counts the fallback forwards already made for this message
+func (n *node) routeSendProcessID(from gen.PID, to gen.ProcessID, options gen.MessageOptions,
+	message any, hop int) error {
 	var queue lib.QueueMPSC
 
 	if n.isRunning() == false {
@@ -238,13 +252,23 @@ func (n *node) RouteSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 			return gen.ErrProcessMailboxFull
 		}
 
+		if hop >= maxFallbackHops {
+			atomic.AddUint64(&n.sendErrorsLocal, 1)
+			return gen.ErrProcessMailboxFull
+		}
+
 		fbm := gen.MessageFallback{
 			PID:     p.pid,
 			Tag:     p.fallback.Tag,
 			Message: message,
 		}
 		fbto := gen.ProcessID{Name: p.fallback.Name, Node: n.name}
-		return n.RouteSendProcessID(from, fbto, options, fbm)
+		err := n.routeSendProcessID(from, fbto, options, fbm, hop+1)
+		if err == nil || err == gen.ErrNodeTerminated {
+			return err
+		}
+		// the fallback is unavailable, so the sender learns about the mailbox it missed
+		return gen.ErrProcessMailboxFull
 	}
 
 	atomic.AddUint64(&p.messagesIn, 1)
@@ -407,7 +431,12 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 			Message: message,
 		}
 		fbto := gen.ProcessID{Name: p.fallback.Name, Node: n.name}
-		return n.RouteSendProcessID(from, fbto, options, fbm)
+		err := n.routeSendProcessID(from, fbto, options, fbm, 1)
+		if err == nil || err == gen.ErrNodeTerminated {
+			return err
+		}
+		// the fallback is unavailable, so the sender learns about the mailbox it missed
+		return gen.ErrProcessMailboxFull
 	}
 
 	atomic.AddUint64(&p.messagesIn, 1)

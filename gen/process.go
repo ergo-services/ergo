@@ -1349,6 +1349,8 @@ type RequestOptions struct {
 
 // to the fallback process instead of rejecting them with ErrProcessMailboxFull.
 // Forwarded messages are wrapped in MessageFallback with the specified Tag.
+// A message is forwarded once: if it does not fit in the mailbox of the fallback
+// process, or that process is not available, the sender gets ErrProcessMailboxFull.
 type ProcessFallback struct {
 	// Enable activates fallback message forwarding.
 	Enable bool
