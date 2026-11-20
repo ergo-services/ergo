@@ -3196,6 +3196,8 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 				Behavior: p.sbehavior, Error: initErr.Error(),
 			})
 		}
+		atomic.StoreInt32(&p.state, int32(gen.ProcessStateTerminated))
+		atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 		n.cleanupProcess(p, initErr)
 		if app, ok := p.application.(*application); ok {
 			app.removeProcess(p.pid)
@@ -3234,14 +3236,26 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		n.targets.LinkPID(p.parent, p.pid)
 	}
 
-	// switch to sleep state (process already registered above)
-	atomic.StoreInt32(&p.state, int32(gen.ProcessStateSleep))
-	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
-
-	// do not count system app processes
+	// account before the process becomes killable: the terminate path calls Done
 	if appName(p.application) != system.Name {
 		n.waitprocesses.Add(1)
 	}
+
+	// leave Init only if nobody killed the process meanwhile
+	if atomic.CompareAndSwapInt32(&p.state, int32(gen.ProcessStateInit),
+		int32(gen.ProcessStateSleep)) == false {
+		// killed during Init
+		old := atomic.SwapInt32(&p.state, int32(gen.ProcessStateTerminated))
+		if old != int32(gen.ProcessStateTerminated) {
+			atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
+			reason := p.wrapPreserveMailbox(gen.TerminateReasonKill)
+			n.unregisterProcess(p, reason)
+			go n.finishProcess(p, reason, gen.TerminateReasonKill)
+		}
+		atomic.AddUint64(&n.processesSpawned, 1)
+		return p.pid, nil
+	}
+	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())
 
 	// process could send a message to itself during initialization
 	// so we should run this process to make sure this message is handled
