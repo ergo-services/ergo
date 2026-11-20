@@ -942,7 +942,8 @@ type NodeInfo struct {
 	// ApplicationsRunning is the number of currently running applications.
 	ApplicationsRunning int64
 
-	// MemoryUsed is the total memory obtained from the OS, in bytes.
+	// MemoryUsed is the memory the Go runtime holds now, in bytes: everything it
+	// has mapped minus the heap pages returned to the OS.
 	MemoryUsed uint64
 
 	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
@@ -988,6 +989,11 @@ type NodeInfo struct {
 	// HeapFreeObjects is the cumulative number of heap objects freed. The difference
 	// with HeapAllocObjects is the number of objects currently alive.
 	HeapFreeObjects uint64
+
+	// MemoryPeak is the most memory the Go runtime has mapped since the node started,
+	// in bytes. It never decreases, and fragmentation can put it above the peak that
+	// was resident at any one moment.
+	MemoryPeak uint64
 }
 
 // NodeShortInfo contains essential information about a node.
@@ -1058,7 +1064,8 @@ type NodeShortInfo struct {
 	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
 	LogMessages [6]uint64
 
-	// MemoryUsed is the total memory obtained from the OS, in bytes.
+	// MemoryUsed is the memory the Go runtime holds now, in bytes: everything it
+	// has mapped minus the heap pages returned to the OS.
 	MemoryUsed uint64
 
 	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
@@ -1103,6 +1110,11 @@ type NodeShortInfo struct {
 
 	// ServerTime is the current server time with timezone.
 	ServerTime time.Time
+
+	// MemoryPeak is the most memory the Go runtime has mapped since the node started,
+	// in bytes. It never decreases, and fragmentation can put it above the peak that
+	// was resident at any one moment.
+	MemoryPeak uint64
 }
 
 // LoggerInfo describes a registered logger.

@@ -6,24 +6,30 @@ import (
 )
 
 const (
-	metricMemoryTotal = "/memory/classes/total:bytes"
-	metricHeapObjects = "/memory/classes/heap/objects:bytes"
-	metricMemoryLimit = "/gc/gomemlimit:bytes"
-	metricHeapLive    = "/gc/heap/live:bytes"
-	metricHeapGoal    = "/gc/heap/goal:bytes"
-	metricGoroutines  = "/sched/goroutines:goroutines"
-	metricGCCycles    = "/gc/cycles/total:gc-cycles"
-	metricHeapAllocs  = "/gc/heap/allocs:objects"
-	metricHeapFrees   = "/gc/heap/frees:objects"
-	metricCPUGC       = "/cpu/classes/gc/total:cpu-seconds"
-	metricCPUTotal    = "/cpu/classes/total:cpu-seconds"
+	metricMemoryTotal    = "/memory/classes/total:bytes"
+	metricMemoryReleased = "/memory/classes/heap/released:bytes"
+	metricHeapObjects    = "/memory/classes/heap/objects:bytes"
+	metricMemoryLimit    = "/gc/gomemlimit:bytes"
+	metricHeapLive       = "/gc/heap/live:bytes"
+	metricHeapGoal       = "/gc/heap/goal:bytes"
+	metricGoroutines     = "/sched/goroutines:goroutines"
+	metricGCCycles       = "/gc/cycles/total:gc-cycles"
+	metricHeapAllocs     = "/gc/heap/allocs:objects"
+	metricHeapFrees      = "/gc/heap/frees:objects"
+	metricCPUGC          = "/cpu/classes/gc/total:cpu-seconds"
+	metricCPUTotal       = "/cpu/classes/total:cpu-seconds"
 )
 
 // RuntimeMetrics contains the runtime counters sampled through runtime/metrics.
 // A metric unknown to the running Go version leaves its field zero.
 type RuntimeMetrics struct {
-	// MemoryTotal is the total memory obtained from the OS, in bytes.
+	// MemoryTotal is all memory mapped by the Go runtime, released heap pages
+	// included, in bytes. The runtime never unmaps heap memory, so it never decreases.
 	MemoryTotal uint64
+
+	// MemoryReleased is the heap memory returned to the OS, in bytes: still mapped,
+	// no longer backed by physical memory. Part of MemoryTotal.
+	MemoryReleased uint64
 
 	// MemoryObjects is the memory occupied by live heap objects, in bytes.
 	MemoryObjects uint64
@@ -64,6 +70,7 @@ type RuntimeMetrics struct {
 
 var runtimeMetrics = []string{
 	metricMemoryTotal,
+	metricMemoryReleased,
 	metricHeapObjects,
 	metricMemoryLimit,
 	metricHeapLive,
@@ -114,6 +121,8 @@ func ReadRuntimeMetrics() RuntimeMetrics {
 			switch sample.Name {
 			case metricMemoryTotal:
 				rm.MemoryTotal = value
+			case metricMemoryReleased:
+				rm.MemoryReleased = value
 			case metricHeapObjects:
 				rm.MemoryObjects = value
 			case metricMemoryLimit:

@@ -991,7 +991,8 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.ApplicationsRunning = int64(len(n.ApplicationsRunning()))
 
 	rm := lib.ReadRuntimeMetrics()
-	info.MemoryUsed = rm.MemoryTotal
+	info.MemoryUsed = rm.MemoryTotal - rm.MemoryReleased
+	info.MemoryPeak = rm.MemoryTotal
 	info.MemoryAlloc = rm.MemoryObjects
 	info.MemoryLimit = rm.MemoryLimit
 	info.HeapLive = rm.HeapLive
@@ -1066,7 +1067,8 @@ func (n *node) ShortInfo() (gen.NodeShortInfo, error) {
 	}
 
 	rmShort := lib.ReadRuntimeMetrics()
-	info.MemoryUsed = rmShort.MemoryTotal
+	info.MemoryUsed = rmShort.MemoryTotal - rmShort.MemoryReleased
+	info.MemoryPeak = rmShort.MemoryTotal
 	info.MemoryAlloc = rmShort.MemoryObjects
 	info.MemoryLimit = rmShort.MemoryLimit
 	info.HeapLive = rmShort.HeapLive
