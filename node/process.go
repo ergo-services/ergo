@@ -2318,11 +2318,14 @@ func (p *process) waitResponse(ref gen.Ref, timeout int) (any, error) {
 
 	p.awaiting.Store(&ref) // published for CancelWaitResponse
 
-	// swap to wait response state
-	prevState := atomic.SwapInt32(&p.state, int32(gen.ProcessStateWaitResponse))
+	// enter the wait response state only from running or init, leaving a kill untouched
+	prevState := atomic.LoadInt32(&p.state)
 	if prevState != int32(gen.ProcessStateRunning) && prevState != int32(gen.ProcessStateInit) {
-		// not allowed, restore previous state
-		atomic.StoreInt32(&p.state, prevState)
+		p.awaiting.Store(nil)
+		return nil, gen.ErrNotAllowed
+	}
+	if atomic.CompareAndSwapInt32(&p.state, prevState, int32(gen.ProcessStateWaitResponse)) == false {
+		p.awaiting.Store(nil)
 		return nil, gen.ErrNotAllowed
 	}
 	atomic.StoreInt64(&p.stateEntered, time.Now().UnixNano())

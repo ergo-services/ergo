@@ -134,3 +134,55 @@ func TestProcessWaitResponseTimeout(t *testing.T) {
 		t.Fatalf("the wait gave up after %s, expected about a second", elapsed)
 	}
 }
+
+// A wait the process has no right to enter is refused without touching its state
+// and without publishing a wait nothing serves.
+func TestProcessWaitResponseNotAllowed(t *testing.T) {
+	states := []gen.ProcessState{gen.ProcessStateZombee, gen.ProcessStateTerminated}
+
+	for _, state := range states {
+		t.Run(state.String(), func(t *testing.T) {
+			p := newWaitProcess()
+			p.state = int32(state)
+			ref := gen.Ref{Node: "n@localhost", Creation: 1, ID: [3]uint64{1, 0, 0}}
+
+			value, err := p.waitResponse(ref, 60)
+			if err != gen.ErrNotAllowed {
+				t.Fatalf("wait returned %v, expected ErrNotAllowed", err)
+			}
+			if value != nil {
+				t.Fatalf("wait returned %v, expected nothing", value)
+			}
+			if p.State() != state {
+				t.Fatalf("process state is %s, expected %s", p.State(), state)
+			}
+			if awaiting := p.awaitingRef(); awaiting != (gen.Ref{}) {
+				t.Fatalf("the refused wait publishes %s", awaiting)
+			}
+		})
+	}
+}
+
+// A refused wait leaves the process able to wait once it is running again.
+func TestProcessWaitResponseAfterRefused(t *testing.T) {
+	p := newWaitProcess()
+	ref := gen.Ref{Node: "n@localhost", Creation: 1, ID: [3]uint64{1, 0, 0}}
+
+	p.state = int32(gen.ProcessStateZombee)
+	if _, err := p.waitResponse(ref, 60); err != gen.ErrNotAllowed {
+		t.Fatalf("wait returned %v, expected ErrNotAllowed", err)
+	}
+
+	p.state = int32(gen.ProcessStateRunning)
+	done := waitInBackground(p, ref, 60)
+	awaitWait(t, p)
+	p.response <- response{ref: ref, message: "pong"}
+
+	r := takeResult(t, done)
+	if r.err != nil {
+		t.Fatalf("wait returned %v, expected the response", r.err)
+	}
+	if r.value != "pong" {
+		t.Fatalf("wait returned %v, expected pong", r.value)
+	}
+}
