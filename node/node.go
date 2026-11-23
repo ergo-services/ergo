@@ -2930,15 +2930,6 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 
 	p.preserveMailbox = options.PreserveMailbox
 
-	if options.Register != "" {
-		if _, exist := n.names.LoadOrStore(options.Register, p); exist {
-			atomic.AddUint64(&n.processesSpawnFailed, 1)
-			return p.pid, gen.ErrTaken
-		}
-		p.name = options.Register
-		p.registered.Store(true)
-	}
-
 	// create pid
 	pid := gen.PID{
 		Node:     n.name,
@@ -2946,6 +2937,16 @@ func (n *node) spawn(factory gen.ProcessFactory, options gen.ProcessOptionsExtra
 		Creation: atomic.LoadInt64(&n.creation),
 	}
 	p.pid = pid
+
+	// publish the name last: whoever finds the process by it reads a complete pid
+	if options.Register != "" {
+		p.name = options.Register
+		p.registered.Store(true)
+		if _, exist := n.names.LoadOrStore(options.Register, p); exist {
+			atomic.AddUint64(&n.processesSpawnFailed, 1)
+			return empty, gen.ErrTaken
+		}
+	}
 
 	for k, v := range options.ParentEnv {
 		p.SetEnv(k, v)
