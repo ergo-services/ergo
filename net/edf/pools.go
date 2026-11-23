@@ -49,6 +49,7 @@ func getPooledStateDecode(options Options) *stateDecode {
 	state := stateDecodePool.Get().(*stateDecode)
 	// Reset state to clean condition
 	state.child = nil
+	state.depth = 0
 	state.decodeType = false
 	state.options = options
 	state.decoder = nil

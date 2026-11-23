@@ -12,8 +12,9 @@ import (
 )
 
 var (
-	errInternal  = fmt.Errorf("internal error")
-	errDecodeEOD = fmt.Errorf("end of data")
+	errInternal    = fmt.Errorf("internal error")
+	errDecodeEOD   = fmt.Errorf("end of data")
+	errDecodeDepth = fmt.Errorf("nesting depth exceeds decode limit")
 
 	anyType = reflect.TypeOf((*any)(nil)).Elem()
 	errType = reflect.TypeOf((*error)(nil)).Elem()
@@ -24,6 +25,11 @@ var (
 // before any element data is read, so this is a hard limit on the array type
 // the decoder is willing to construct.
 const maxDecodeArrayBytes = 1 << 24
+
+// maxDecodeDepth caps how deep the decoder follows a value nested by an
+// untrusted packet. Each level costs a stack frame, and a stack overflow is
+// fatal to the process, so this is a hard limit, not a budget.
+const maxDecodeDepth = 1000
 
 // preallocCount returns how many elements the decoder may eagerly allocate for
 // a slice or map holding n elements of the given size. An element occupies at
@@ -47,6 +53,19 @@ type stateDecode struct {
 	decodeType bool
 	decoder    *decoder
 	depth      int
+}
+
+// descend returns the state of the next nesting level, refusing a packet that
+// nests deeper than the decoder follows
+func (state *stateDecode) descend() (*stateDecode, error) {
+	if state.child == nil {
+		state.child = getPooledStateDecode(state.options)
+	}
+	state.child.depth = state.depth + 1
+	if state.child.depth > maxDecodeDepth {
+		return nil, errDecodeDepth
+	}
+	return state.child, nil
 }
 
 // Decode
@@ -247,10 +266,11 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 				value.Set(x)
 			}
 
-			if state.child == nil {
-				state.child = getPooledStateDecode(state.options)
+			child, derr := state.descend()
+			if derr != nil {
+				return nil, nil, derr
 			}
-			state = state.child
+			state = child
 
 			for i := 0; i < n; i++ {
 				k := reflect.Indirect(reflect.New(decKey.Type))
@@ -333,10 +353,11 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			alloc := preallocCount(n, len(packet), decItem.Type.Size())
 			x := reflect.MakeSlice(vtype, alloc, alloc)
 
-			if state.child == nil {
-				state.child = getPooledStateDecode(state.options)
+			child, derr := state.descend()
+			if derr != nil {
+				return nil, nil, derr
 			}
-			state = state.child
+			state = child
 
 			for i := 0; i < n; i++ {
 				if i == x.Len() {
@@ -405,10 +426,11 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 				value = &x
 			}
 
-			if state.child == nil {
-				state.child = getPooledStateDecode(state.options)
+			child, derr := state.descend()
+			if derr != nil {
+				return nil, nil, derr
 			}
-			state = state.child
+			state = child
 
 			for i := 0; i < n; i++ {
 				item := value.Index(i)
@@ -462,10 +484,11 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 			packet = packet[1:]
 
 			// use child state with decodeType = false (default)
-			if state.child == nil {
-				state.child = getPooledStateDecode(state.options)
+			child, derr := state.descend()
+			if derr != nil {
+				return nil, nil, derr
 			}
-			state = state.child
+			state = child
 
 			// decode element value
 			elem := reflect.Indirect(reflect.New(decElem.Type))
