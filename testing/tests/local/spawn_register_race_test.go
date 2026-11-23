@@ -18,8 +18,7 @@ const snrName = gen.Atom("snr_target")
 
 type snrStop struct{}
 
-// snrIdle asks for the only message it will ever get and dies on it, so the name
-// it holds is free again without anyone else ending it.
+// snrIdle dies on its first message, freeing the name it holds
 type snrIdle struct {
 	act.Actor
 }
@@ -34,9 +33,7 @@ func (p *snrIdle) HandleMessage(from gen.PID, message any) error {
 	return gen.TerminateReasonNormal
 }
 
-// A name resolves to the pid of the process holding it, never to an empty one.
-// Run under -race: a lookup that finds the process through the name has no
-// ordering against a pid written after the name was published.
+// A name resolves to the pid of the process holding it, never to an empty one
 func TestLocalSpawnRegisterNameResolvesToPID(t *testing.T) {
 	s := stage.New(t)
 	n := s.StartNode("n").Native()
@@ -93,8 +90,7 @@ type snrHolder struct {
 
 func factorySNRHolder() gen.ProcessBehavior { return &snrHolder{} }
 
-// A name already taken refuses the spawn without a pid, and leaves the process
-// holding that name registered under it.
+// A taken name refuses the spawn and leaves its holder registered
 func TestLocalSpawnRegisterNameTaken(t *testing.T) {
 	s := stage.New(t)
 	n := s.StartNode("n")

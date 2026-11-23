@@ -9,15 +9,13 @@ import (
 	"ergo.services/ergo/testing/stage"
 )
 
-// ncaAnswer carries the request it answers, so a call that got the answer meant
-// for another call is visible.
+// ncaAnswer carries the request it answers, so a crossed answer is visible
 type ncaAnswer struct {
 	request int
 	kind    string
 }
 
-// ncaResponder answers every request twice: once by hand, once by returning a
-// result from the callback.
+// ncaResponder answers twice: by hand, then by returning from the callback
 type ncaResponder struct {
 	act.Actor
 }
@@ -29,8 +27,7 @@ func (r *ncaResponder) HandleCall(from gen.PID, ref gen.Ref, request any) (any, 
 	return ncaAnswer{request: request.(int), kind: "second"}, nil
 }
 
-// A node level call keeps the answer that reached it first, and the answer that
-// lost cannot reach any of the calls that follow.
+// A node level call keeps the first answer, the loser reaches no other call
 func TestLocalNodeCallAnsweredTwice(t *testing.T) {
 	s := stage.New(t)
 	n := s.StartNode("n")

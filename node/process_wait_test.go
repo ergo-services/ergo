@@ -135,8 +135,7 @@ func TestProcessWaitResponseTimeout(t *testing.T) {
 	}
 }
 
-// A wait the process has no right to enter is refused without touching its state
-// and without publishing a wait nothing serves.
+// A wait the process may not enter is refused, state and awaited ref untouched
 func TestProcessWaitResponseNotAllowed(t *testing.T) {
 	states := []gen.ProcessState{gen.ProcessStateZombee, gen.ProcessStateTerminated}
 

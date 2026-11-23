@@ -2,6 +2,7 @@ package edf
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"reflect"
@@ -16,6 +17,8 @@ var (
 	errDecodeEOD   = fmt.Errorf("end of data")
 	errDecodeDepth = fmt.Errorf("nesting depth exceeds decode limit")
 
+	errDecodeTypeDepth = fmt.Errorf("type nesting depth exceeds decode limit")
+
 	anyType = reflect.TypeOf((*any)(nil)).Elem()
 	errType = reflect.TypeOf((*error)(nil)).Elem()
 )
@@ -26,10 +29,11 @@ var (
 // the decoder is willing to construct.
 const maxDecodeArrayBytes = 1 << 24
 
-// maxDecodeDepth caps how deep the decoder follows a value nested by an
-// untrusted packet. Each level costs a stack frame, and a stack overflow is
-// fatal to the process, so this is a hard limit, not a budget.
+// maxDecodeDepth caps how deep the decoder follows a value sent by a peer
 const maxDecodeDepth = 1000
+
+// maxDecodeTypeDepth caps how deep the decoder unfolds a type sent by a peer
+const maxDecodeTypeDepth = 128
 
 // preallocCount returns how many elements the decoder may eagerly allocate for
 // a slice or map holding n elements of the given size. An element occupies at
@@ -55,8 +59,7 @@ type stateDecode struct {
 	depth      int
 }
 
-// descend returns the state of the next nesting level, refusing a packet that
-// nests deeper than the decoder follows
+// descend returns the state of the next nesting level, refusing a deeper one
 func (state *stateDecode) descend() (*stateDecode, error) {
 	if state.child == nil {
 		state.child = getPooledStateDecode(state.options)
@@ -134,7 +137,7 @@ func getDecoder(packet []byte, state *stateDecode) (*decoder, []byte, error) {
 			return nil, nil, errDecodeEOD
 		}
 
-		dec, rest, err := decodeType(packet[:n], state)
+		dec, rest, err := decodeType(packet[:n], state, 0)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -193,7 +196,19 @@ func getRegDecoder(packet []byte, state *stateDecode) (*decoder, []byte, error) 
 	return nil, nil, fmt.Errorf("unknown reg type %v for decoding", id)
 }
 
-func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
+// unfoldError names the place in the type, unless the failure already says it
+func unfoldError(where string, err error) error {
+	if errors.Is(err, errDecodeTypeDepth) {
+		return err
+	}
+	return fmt.Errorf("unable to unfold type (%s): %w", where, err)
+}
+
+func decodeType(fold []byte, state *stateDecode, depth int) (*decoder, []byte, error) {
+	if depth > maxDecodeTypeDepth {
+		return nil, nil, errDecodeTypeDepth
+	}
+
 	// check in the decoder cache first
 	if state.options.Cache != nil {
 		if v, found := state.options.Cache.Load(string(fold)); found {
@@ -208,13 +223,13 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 	switch fold[0] {
 	case edtMap:
 		// unfold key type
-		decKey, f, err := decodeType(fold[1:], state)
+		decKey, f, err := decodeType(fold[1:], state, depth+1)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to unfold type (map key): %s", err)
+			return nil, nil, unfoldError("map key", err)
 		}
-		decValue, f, err := decodeType(f, state)
+		decValue, f, err := decodeType(f, state, depth+1)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to unfold type (map value): %s", err)
+			return nil, nil, unfoldError("map value", err)
 		}
 
 		if decKey.Type.Comparable() == false {
@@ -307,9 +322,9 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 
 	case edtSlice:
 		// unfold key type
-		decItem, f, err := decodeType(fold[1:], state)
+		decItem, f, err := decodeType(fold[1:], state, depth+1)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to unfold type (slice): %s", err)
+			return nil, nil, unfoldError("slice", err)
 		}
 
 		vtype := reflect.SliceOf(decItem.Type)
@@ -402,9 +417,9 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 		n := int(binary.BigEndian.Uint32(fold[1:5]))
 
 		// unfold key type
-		decItem, f, err := decodeType(fold[5:], state)
+		decItem, f, err := decodeType(fold[5:], state, depth+1)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to unfold type (array): %s", err)
+			return nil, nil, unfoldError("array", err)
 		}
 
 		if sz := int(decItem.Type.Size()); sz > 0 && n > maxDecodeArrayBytes/sz {
@@ -460,9 +475,9 @@ func decodeType(fold []byte, state *stateDecode) (*decoder, []byte, error) {
 
 	case edtPtr:
 		// unfold element type
-		decElem, f, err := decodeType(fold[1:], state)
+		decElem, f, err := decodeType(fold[1:], state, depth+1)
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to unfold type (pointer): %s", err)
+			return nil, nil, unfoldError("pointer", err)
 		}
 
 		ptrType := reflect.PointerTo(decElem.Type)

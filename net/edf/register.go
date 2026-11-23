@@ -493,7 +493,7 @@ func (r *Registry) registerType(tov reflect.Type, visiting map[reflect.Type]bool
 			}
 			encs = append(encs, enc)
 
-			dec, _, err := decodeType(enc.Prefix, &stateDecode{options: Options{Registry: r}})
+			dec, _, err := decodeType(enc.Prefix, &stateDecode{options: Options{Registry: r}}, 0)
 			if err != nil {
 				return fmt.Errorf("(struct field decode) type %v must be registered first: %s", ft, err)
 			}
@@ -608,7 +608,7 @@ func (r *Registry) registerType(tov reflect.Type, visiting map[reflect.Type]bool
 		}
 
 		// decoder
-		dec, _, err := decodeType(enc.Prefix, &stateDecode{options: Options{Registry: r}})
+		dec, _, err := decodeType(enc.Prefix, &stateDecode{options: Options{Registry: r}}, 0)
 		if err != nil {
 			return fmt.Errorf("(slice item decoder) type %v must be registered first: %s", itemType, err)
 		}
@@ -728,7 +728,7 @@ func (r *Registry) registerType(tov reflect.Type, visiting map[reflect.Type]bool
 		}
 
 		// decoder
-		dec, _, err := decodeType(enc.Prefix, &stateDecode{options: Options{Registry: r}})
+		dec, _, err := decodeType(enc.Prefix, &stateDecode{options: Options{Registry: r}}, 0)
 		if err != nil {
 			return fmt.Errorf("(array item decoder) type %v must be registered first: %s", itemType, err)
 		}
@@ -808,11 +808,11 @@ func (r *Registry) registerType(tov reflect.Type, visiting map[reflect.Type]bool
 		}
 
 		// decoders for key/value
-		decKey, _, err := decodeType(encKey.Prefix, &stateDecode{options: Options{Registry: r}})
+		decKey, _, err := decodeType(encKey.Prefix, &stateDecode{options: Options{Registry: r}}, 0)
 		if err != nil {
 			return fmt.Errorf("(map key decoder) type %v must be registered first: %s", typeKey, err)
 		}
-		decValue, _, err := decodeType(encValue.Prefix, &stateDecode{options: Options{Registry: r}})
+		decValue, _, err := decodeType(encValue.Prefix, &stateDecode{options: Options{Registry: r}}, 0)
 		if err != nil {
 			return fmt.Errorf("(map value decoder) type %v must be registered first: %s", typeValue, err)
 		}

@@ -17,9 +17,7 @@ func newCallNode() *node {
 	return n
 }
 
-// A node level call takes the first response for its ref. The registration is gone
-// by then, so a second response for the same ref has nothing to deliver to and the
-// call keeps the answer it already has.
+// A node level call takes the first response, a second one has nowhere to go
 func TestNodeCallAnsweredTwice(t *testing.T) {
 	n := newCallNode()
 	from := gen.PID{Node: n.name, ID: 2, Creation: 1}
