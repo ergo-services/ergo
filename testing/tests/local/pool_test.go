@@ -344,3 +344,78 @@ func TestLocalPoolForwardFailed(t *testing.T) {
 	check.NoError(t, err)
 	check.True(t, worker != pool)
 }
+
+var errPoolWorkerInit = errors.New("worker init refused")
+
+// poolBadWorker refuses to start, so the Spawn that builds it fails.
+type poolBadWorker struct{ act.Actor }
+
+func (w *poolBadWorker) Init(args ...any) error { return errPoolWorkerInit }
+
+// poolFailAfter builds a factory that yields limit workable workers and then refuses.
+func poolFailAfter(limit int) gen.ProcessFactory {
+	spawned := 0
+	return func() gen.ProcessBehavior {
+		spawned++
+		if spawned > limit {
+			return &poolBadWorker{}
+		}
+		return &poolWorker{}
+	}
+}
+
+type poolResizeRequest struct{ N int }
+
+type poolResizeResponse struct {
+	Count  int64
+	Reason error
+}
+
+// poolFlexPool takes its worker factory and size from the spawn arguments and answers
+// a resize request with what the pool reported.
+type poolFlexPool struct{ act.Pool }
+
+func factoryPoolFlexPool() gen.ProcessBehavior { return &poolFlexPool{} }
+
+func (p *poolFlexPool) Init(args ...any) (act.PoolOptions, error) {
+	var o act.PoolOptions
+	o.WorkerFactory = args[0].(gen.ProcessFactory)
+	o.PoolSize = args[1].(int64)
+	return o, nil
+}
+
+func (p *poolFlexPool) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error) {
+	m, ok := request.(poolResizeRequest)
+	if ok == false {
+		return p.PID(), nil
+	}
+	if m.N > 0 {
+		count, err := p.AddWorkers(m.N)
+		return poolResizeResponse{Count: count, Reason: err}, nil
+	}
+	count, err := p.RemoveWorkers(-m.N)
+	return poolResizeResponse{Count: count, Reason: err}, nil
+}
+
+// TestLocalPoolAddWorkersPartial: AddWorkers that cannot spawn every worker reports the
+// workers the pool actually has, and the ones it did spawn keep serving.
+func TestLocalPoolAddWorkersPartial(t *testing.T) {
+	s := stage.New(t)
+	n := s.StartNode("n")
+	nn := n.Native()
+
+	pool := n.Spawn(factoryPoolFlexPool, gen.ProcessOptions{}, poolFailAfter(5), int64(2))
+
+	v, err := nn.CallWithPriority(pool, poolResizeRequest{N: 5}, gen.MessagePriorityHigh)
+	check.NoError(t, err)
+	r := v.(poolResizeResponse)
+	check.True(t, errors.Is(r.Reason, errPoolWorkerInit))
+	check.Equal(t, int64(5), r.Count)
+
+	mk := n.Mark()
+	for i := 0; i < 10; i++ {
+		_, err := n.Call(pool, "ping")
+		check.NoError(t, err)
+	}
+	assertRoundRobin(t, forwardTargets(n, pool, mk, 10), 5)
+}

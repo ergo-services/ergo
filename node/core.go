@@ -111,6 +111,7 @@ func (n *node) RouteSendPID(from gen.PID, to gen.PID, options gen.MessageOptions
 		fbm := gen.MessageFallback{
 			PID:     p.pid,
 			Tag:     p.fallback.Tag,
+			Target:  to,
 			Message: message,
 		}
 		fbto := gen.ProcessID{Name: p.fallback.Name, Node: n.name}
@@ -260,6 +261,7 @@ func (n *node) routeSendProcessID(from gen.PID, to gen.ProcessID, options gen.Me
 		fbm := gen.MessageFallback{
 			PID:     p.pid,
 			Tag:     p.fallback.Tag,
+			Target:  to,
 			Message: message,
 		}
 		fbto := gen.ProcessID{Name: p.fallback.Name, Node: n.name}
@@ -428,6 +430,7 @@ func (n *node) RouteSendAlias(from gen.PID, to gen.Alias, options gen.MessageOpt
 		fbm := gen.MessageFallback{
 			PID:     p.pid,
 			Tag:     p.fallback.Tag,
+			Target:  to,
 			Message: message,
 		}
 		fbto := gen.ProcessID{Name: p.fallback.Name, Node: n.name}

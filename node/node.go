@@ -1267,7 +1267,7 @@ func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 
 	if force == false {
 		n.waitProcessesWithEscalation(shutdownTimeout)
-		n.waitApplications(5 * time.Second)
+		n.waitApplications(shutdownTimeout)
 	}
 
 	n.NetworkStop()

@@ -89,7 +89,7 @@ func (b *Buffer) WriteDataTo(w io.Writer) error {
 	}
 
 	for {
-		n, e := w.Write(b.B)
+		n, e := w.Write(b.B[len(b.B)-l:])
 		if e != nil {
 			return e
 		}

@@ -67,11 +67,16 @@ type MessageExitNode struct {
 	Name Atom
 }
 
-// MessageFallback
+// MessageFallback is delivered to the fallback process instead of the message that
+// did not fit the target mailbox.
 type MessageFallback struct {
-	PID     PID
-	Tag     string
-	Target  any
+	// PID of the process whose mailbox is full
+	PID PID
+	// Tag set in the fallback options of that process
+	Tag string
+	// Target the sender addressed: PID, ProcessID or Alias
+	Target any
+	// Message that has not been delivered
 	Message any
 }
 

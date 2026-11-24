@@ -128,8 +128,8 @@ func fbCollect(t *testing.T, n *stage.Node, collector gen.PID, want int) []gen.M
 	}
 }
 
-// A full mailbox forwards the message to the fallback process, wrapped once, whichever
-// way the target is addressed.
+// A full mailbox forwards the message to the fallback process, wrapped once and naming
+// the address the sender used, whichever way the target is addressed.
 func TestLocalFallbackForwards(t *testing.T) {
 	s := stage.New(t)
 	n := s.StartNode("n")
@@ -159,6 +159,9 @@ func TestLocalFallbackForwards(t *testing.T) {
 		}
 		if m.Tag != "spill" {
 			t.Fatalf("fallback %d carries tag %q, expected %q", i, m.Tag, "spill")
+		}
+		if m.Target != targets[i] {
+			t.Fatalf("fallback %d names target %#v, expected %#v", i, m.Target, targets[i])
 		}
 		if m.Message != i {
 			t.Fatalf("fallback %d carries %#v, expected %d", i, m.Message, i)

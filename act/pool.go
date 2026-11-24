@@ -97,7 +97,7 @@ func (p *Pool) AddWorkers(n int) (int64, error) {
 	for i := 0; i < n; i++ {
 		pid, err := p.Spawn(p.options.WorkerFactory, wopt, p.options.WorkerArgs...)
 		if err != nil {
-			return 0, err
+			return p.pool.Len(), err
 		}
 		p.pool.Push(pid)
 	}
@@ -112,7 +112,7 @@ func (p *Pool) RemoveWorkers(n int) (int64, error) {
 	for i := 0; i < n; i++ {
 		v, ok := p.pool.Pop()
 		if ok == false {
-			return 0, ErrPoolEmpty
+			return p.pool.Len(), ErrPoolEmpty
 		}
 		pid := v.(gen.PID)
 		p.SendExit(pid, gen.TerminateReasonNormal)

@@ -700,7 +700,7 @@ func (s *Supervisor) handleAction(action supAction) error {
 
 		case supActionTerminateChildren:
 			if len(action.terminate) == 0 {
-				// no children. terminate this process
+				// nothing to terminate: a nil reason keeps this process running
 				return action.reason
 			}
 			// on disabling child spec

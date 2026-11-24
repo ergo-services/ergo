@@ -105,7 +105,7 @@ func (f *flusher) Write(b []byte) (n int, err error) {
 	l := len(b)
 
 	for {
-		n, e := f.writer.Write(b)
+		n, e := f.writer.Write(b[len(b)-l:])
 		if e != nil {
 			return n, e
 		}

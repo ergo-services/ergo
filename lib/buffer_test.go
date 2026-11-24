@@ -98,3 +98,38 @@ func TestBufferWriteDataToReadDataFrom(t *testing.T) {
 		t.Fatalf("ReadDataFrom read %q", string(r.B[:n]))
 	}
 }
+
+// shortWriter takes at most chunk bytes per call and reports no error for the rest.
+type shortWriter struct {
+	chunk int
+	got   bytes.Buffer
+	calls int
+}
+
+func (w *shortWriter) Write(p []byte) (int, error) {
+	w.calls++
+	n := len(p)
+	if n > w.chunk {
+		n = w.chunk
+	}
+	w.got.Write(p[:n])
+	return n, nil
+}
+
+// A writer that takes the data in pieces gets every piece once, in order.
+func TestBufferWriteDataToShortWrites(t *testing.T) {
+	b := TakeBuffer()
+	defer ReleaseBuffer(b)
+	b.AppendString("abcdefghij")
+
+	w := &shortWriter{chunk: 3}
+	if err := b.WriteDataTo(w); err != nil {
+		t.Fatalf("WriteDataTo: %s", err)
+	}
+	if w.got.String() != "abcdefghij" {
+		t.Fatalf("the writer got %q, expected abcdefghij", w.got.String())
+	}
+	if w.calls != 4 {
+		t.Fatalf("WriteDataTo made %d call(s), expected 4", w.calls)
+	}
+}
