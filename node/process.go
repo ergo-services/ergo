@@ -301,6 +301,10 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 		Behavior: m.sbehavior,
 	}
 	m.log.setSource(logSource)
+	// written before this meta process can be reached: an inspection of it
+	// reads this field, and the first of them may come the moment it is
+	// registered below
+	m.creation = time.Now().Unix()
 
 	// register to be able routing messages to this meta process
 	if _, exist := p.metas.LoadOrStore(m.id, m); exist {
@@ -317,8 +321,6 @@ func (p *process) spawnMeta(behavior gen.MetaBehavior, options gen.MetaOptions) 
 		m.cancelRequests()
 		return alias, err
 	}
-
-	m.creation = time.Now().Unix()
 
 	go m.start()
 
