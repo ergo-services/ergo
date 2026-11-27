@@ -9,30 +9,31 @@ import (
 	"time"
 
 	"ergo.services/ergo/act"
+	"ergo.services/ergo/app/system/runtime/golang"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/lib"
 )
 
 // readBuildInfo extracts the running binary's module/build details for the
 // inspect node response. Returns zero values if build info is unavailable.
-func readBuildInfo() (main, revision string, modified bool, settings, deps, replaces []string) {
+func readBuildInfo() (info golang.BuildInfo) {
 	bi, ok := debug.ReadBuildInfo()
 	if ok == false {
 		return
 	}
-	main = bi.Main.Path
+	info.Main = bi.Main.Path
 	if bi.Main.Version != "" {
-		main = bi.Main.Path + "@" + bi.Main.Version
+		info.Main = bi.Main.Path + "@" + bi.Main.Version
 	}
-	settings = make([]string, 0, len(bi.Settings))
+	info.Settings = make([]string, 0, len(bi.Settings))
 	for _, s := range bi.Settings {
 		switch s.Key {
 		case "vcs.revision":
-			revision = s.Value
+			info.Revision = s.Value
 		case "vcs.modified":
-			modified = s.Value == "true"
+			info.Modified = s.Value == "true"
 		}
-		settings = append(settings, s.Key+"="+s.Value)
+		info.Settings = append(info.Settings, s.Key+"="+s.Value)
 	}
 	verOf := func(m *debug.Module) string {
 		if m.Version != "" {
@@ -40,16 +41,16 @@ func readBuildInfo() (main, revision string, modified bool, settings, deps, repl
 		}
 		return m.Path
 	}
-	deps = make([]string, 0, len(bi.Deps))
+	info.Deps = make([]string, 0, len(bi.Deps))
 	for _, d := range bi.Deps {
 		// list the required module itself; the replacement (if any) is reported separately
-		deps = append(deps, verOf(d))
+		info.Deps = append(info.Deps, verOf(d))
 		if d.Replace != nil {
-			replaces = append(replaces, d.Path+" => "+verOf(d.Replace))
+			info.Replaces = append(info.Replaces, d.Path+" => "+verOf(d.Replace))
 		}
 	}
-	slices.Sort(deps)
-	slices.Sort(replaces)
+	slices.Sort(info.Deps)
+	slices.Sort(info.Replaces)
 	return
 }
 
@@ -126,18 +127,16 @@ func (in *node) HandleMessage(from gen.PID, message any) error {
 				Node: in.Node().Name(),
 			},
 
-			Arch:      runtime.GOARCH,
-			OS:        runtime.GOOS,
-			Cores:     runtime.NumCPU(),
-			GoVersion: runtime.Version(),
-			Timezone:  lib.LocationName(time.Local),
-			Version:   in.Node().Version(),
-			Creation:  in.Node().Creation(),
-			CRC32:     in.Node().Name().CRC32(),
+			Arch:           runtime.GOARCH,
+			OS:             runtime.GOOS,
+			Cores:          runtime.NumCPU(),
+			RuntimeVersion: runtime.Version(),
+			Timezone:       lib.LocationName(time.Local),
+			Version:        in.Node().Version(),
+			Creation:       in.Node().Creation(),
+			CRC32:          in.Node().Name().CRC32(),
+			Build:          readBuildInfo(),
 		}
-		response.BuildMain, response.BuildRevision,
-			response.BuildModified, response.BuildSettings, response.BuildDeps,
-			response.BuildReplaces = readBuildInfo()
 		in.SendResponse(m.pid, m.ref, response)
 		in.Log().Debug("sent response for the inspect node request to: %s", m.pid)
 

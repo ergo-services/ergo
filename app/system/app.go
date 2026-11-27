@@ -4,6 +4,8 @@ import (
 	"ergo.services/ergo/app"
 	"ergo.services/ergo/app/system/inspect"
 	"ergo.services/ergo/app/system/manage"
+	"ergo.services/ergo/app/system/runtime/golang"
+	"ergo.services/ergo/app/system/runtime/rust"
 	"ergo.services/ergo/gen"
 )
 
@@ -57,7 +59,7 @@ func (sa *systemApp) Load(args ...any) (gen.ApplicationSpec, error) {
 		Network: gen.ApplicationNetwork{
 			// mutating types are registered either way: a caller reaching a node with
 			// the plane down gets a clean refusal instead of a decoding failure
-			RegisterTypes: append(inspect.Types(), manage.Types()...),
+			RegisterTypes: Types(),
 		},
 		Env: env,
 		Map: roles,
@@ -69,4 +71,14 @@ func (sa *systemApp) Load(args ...any) (gen.ApplicationSpec, error) {
 		},
 		Mode: gen.ApplicationModePermanent,
 	}, nil
+}
+
+// Types returns the wire-format types of the system application: those of the
+// read and the mutating planes and those of every runtime, so a node decodes the
+// answers of a node of any runtime.
+func Types() []any {
+	types := inspect.Types()
+	types = append(types, manage.Types()...)
+	types = append(types, golang.Types()...)
+	return append(types, rust.Types()...)
 }

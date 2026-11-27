@@ -3,6 +3,8 @@ package inspect
 import (
 	"strings"
 	"testing"
+
+	"ergo.services/ergo/app/system/runtime/golang"
 )
 
 func TestNormalizeFuncLine(t *testing.T) {
@@ -127,7 +129,7 @@ func TestParseWaitDuration(t *testing.T) {
 }
 
 func TestCaptureGoroutines(t *testing.T) {
-	all := captureGoroutines(RequestGetGoroutines{})
+	all := captureGoroutines(golang.RequestGetGoroutines{})
 	if all.Error != nil {
 		t.Fatalf("dump failed: %s", all.Error)
 	}
@@ -146,7 +148,7 @@ func TestCaptureGoroutines(t *testing.T) {
 
 	counted := 0
 	for _, g := range all.Groups {
-		if g.Count != len(g.IDs) {
+		if len(g.IDs) != min(g.Count, goroutineGroupIDs) {
 			t.Errorf("group of %d carries %d ids", g.Count, len(g.IDs))
 		}
 		if g.Stack == "" {
@@ -158,7 +160,7 @@ func TestCaptureGoroutines(t *testing.T) {
 		t.Errorf("groups hold %d goroutines, Filtered says %d", counted, all.Filtered)
 	}
 
-	waiting := captureGoroutines(RequestGetGoroutines{MinWait: 1})
+	waiting := captureGoroutines(golang.RequestGetGoroutines{MinWait: 1})
 	if waiting.Total != 0 && waiting.Filtered >= waiting.Total {
 		t.Errorf("a wait filter kept everything: %d of %d", waiting.Filtered, waiting.Total)
 	}
@@ -168,12 +170,33 @@ func TestCaptureGoroutines(t *testing.T) {
 		}
 	}
 
-	none := captureGoroutines(RequestGetGoroutines{Stack: "no.such.function.anywhere"})
+	none := captureGoroutines(golang.RequestGetGoroutines{Stack: "no.such.function.anywhere"})
 	if none.Filtered != 0 || len(none.Groups) != 0 {
 		t.Errorf("a filter matching nothing returned %d goroutines in %d groups",
 			none.Filtered, len(none.Groups))
 	}
 	if none.Total == 0 {
 		t.Error("Total must count the whole dump even when the filter keeps nothing")
+	}
+}
+
+func TestCaptureGoroutinesLimit(t *testing.T) {
+	all := captureGoroutines(golang.RequestGetGoroutines{})
+	if len(all.Groups) < 2 {
+		t.Skipf("this process holds only %d groups", len(all.Groups))
+	}
+	if all.Truncated != 0 {
+		t.Errorf("%d groups fit the default limit, yet %d reported omitted", len(all.Groups), all.Truncated)
+	}
+
+	one := captureGoroutines(golang.RequestGetGoroutines{Limit: 1})
+	if len(one.Groups) != 1 {
+		t.Fatalf("a limit of one returned %d groups", len(one.Groups))
+	}
+	if one.Truncated == 0 {
+		t.Error("a limit that cut groups reports nothing omitted")
+	}
+	if one.Filtered != one.Total {
+		t.Errorf("the limit cuts groups, not goroutines: Filtered %d, Total %d", one.Filtered, one.Total)
 	}
 }

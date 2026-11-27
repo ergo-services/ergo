@@ -3,6 +3,7 @@ package inspect
 import (
 	"sort"
 
+	"ergo.services/ergo/app/system/runtime/golang"
 	"ergo.services/ergo/gen"
 )
 
@@ -44,16 +45,9 @@ const (
 	CapGetMetaState        = "inspect.meta_state"
 	CapGetAppTree          = "inspect.app_tree"
 	CapGetSubtree          = "inspect.subtree"
-	CapGetGoroutines       = "inspect.goroutines"
-	CapGetHeapProfile      = "inspect.heap_profile"
 	CapGetTypes            = "inspect.types"
 	CapGetErrors           = "inspect.errors"
 	CapGetNetworkAtomCache = "inspect.network_atom_cache"
-	CapGetAtomSummary      = "inspect.atom_summary"
-	CapGetAtomTable        = "inspect.atom_table"
-
-	// Deprecated: use CapGetNetworkAtomCache.
-	CapGetAtoms = CapGetNetworkAtomCache
 
 	CapGetCronInfo     = "inspect.cron_info"
 	CapGetCronSchedule = "inspect.cron_schedule"
@@ -89,9 +83,10 @@ type ResponseGetCapabilities struct {
 	Build []string
 }
 
-// Capabilities returns every capability of the read plane.
+// Capabilities returns every capability of the read plane, those of the Go
+// runtime included.
 func Capabilities() []string {
-	return []string{
+	return append([]string{
 		CapCapabilities,
 		CapNode,
 		CapNodeShort,
@@ -113,8 +108,6 @@ func Capabilities() []string {
 		CapGetMetaState,
 		CapGetAppTree,
 		CapGetSubtree,
-		CapGetGoroutines,
-		CapGetHeapProfile,
 		CapGetTypes,
 		CapGetErrors,
 		CapGetNetworkAtomCache,
@@ -124,7 +117,7 @@ func Capabilities() []string {
 		CapGetRegistrarRoutes,
 		CapGetRegistrarProxyRoutes,
 		CapGetRegistrarApplicationRoutes,
-	}
+	}, golang.Capabilities()...)
 }
 
 // capabilities builds the static part of the answer. Called once per worker at

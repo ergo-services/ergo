@@ -6,7 +6,13 @@ import (
 	"strconv"
 	"strings"
 
+	"ergo.services/ergo/app/system/runtime/golang"
 	"ergo.services/ergo/lib"
+)
+
+const (
+	goroutineGroupsLimit = 1000
+	goroutineGroupIDs    = 100
 )
 
 // goroutineDumpSize estimates the dump size from the goroutine count. Every
@@ -29,7 +35,7 @@ func goroutineDumpSize() int {
 	return size
 }
 
-func captureGoroutines(req RequestGetGoroutines) ResponseGetGoroutines {
+func captureGoroutines(req golang.RequestGetGoroutines) golang.ResponseGetGoroutines {
 	buf := make([]byte, goroutineDumpSize())
 	for {
 		n := runtime.Stack(buf, true)
@@ -97,25 +103,27 @@ func captureGoroutines(req RequestGetGoroutines) ResponseGetGoroutines {
 	}
 
 	// group by identical stack
-	groupMap := make(map[string]*GoroutineGroup)
+	groupMap := make(map[string]*golang.GoroutineGroup)
 	var order []string
 
 	for _, p := range matched {
 		g, ok := groupMap[p.frames]
 		if ok == false {
-			g = &GoroutineGroup{State: p.state, WaitSec: p.waitSec, Current: p.top, Origin: p.bottom, Stack: p.full}
+			g = &golang.GoroutineGroup{State: p.state, WaitSec: p.waitSec, Current: p.top, Origin: p.bottom, Stack: p.full}
 			groupMap[p.frames] = g
 			order = append(order, p.frames)
 		}
 		g.Count++
-		g.IDs = append(g.IDs, p.id)
+		if len(g.IDs) < goroutineGroupIDs {
+			g.IDs = append(g.IDs, p.id)
+		}
 
 		if p.waitSec > g.WaitSec {
 			g.WaitSec = p.waitSec
 		}
 	}
 
-	groups := make([]GoroutineGroup, 0, len(order))
+	groups := make([]golang.GoroutineGroup, 0, len(order))
 	for _, key := range order {
 		groups = append(groups, *groupMap[key])
 	}
@@ -124,10 +132,21 @@ func captureGoroutines(req RequestGetGoroutines) ResponseGetGoroutines {
 		return groups[i].Count > groups[j].Count
 	})
 
-	return ResponseGetGoroutines{
-		Groups:   groups,
-		Total:    total,
-		Filtered: len(matched),
+	limit := req.Limit
+	if limit <= 0 {
+		limit = goroutineGroupsLimit
+	}
+	truncated := 0
+	if len(groups) > limit {
+		truncated = len(groups) - limit
+		groups = groups[:limit]
+	}
+
+	return golang.ResponseGetGoroutines{
+		Groups:    groups,
+		Total:     total,
+		Filtered:  len(matched),
+		Truncated: truncated,
 	}
 }
 

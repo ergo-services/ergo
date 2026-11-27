@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"ergo.services/ergo/act"
+	"ergo.services/ergo/app/system/runtime/golang"
+	"ergo.services/ergo/app/system/runtime/rust"
 	"ergo.services/ergo/gen"
 )
 
@@ -67,6 +69,10 @@ const (
 	inspectConnectionList           = "inspect_connection_list"
 	inspectConnectionListPeriod     = time.Second
 	inspectConnectionListIdlePeriod = 5 * time.Second
+
+	inspectRuntime           = "inspect_golang_runtime"
+	inspectRuntimePeriod     = time.Second
+	inspectRuntimeIdlePeriod = 5 * time.Second
 )
 
 var (
@@ -115,14 +121,9 @@ func Types() []any {
 		RequestGetRegistrarProxyRoutes{}, ResponseGetRegistrarProxyRoutes{},
 		RequestGetRegistrarApplicationRoutes{}, ResponseGetRegistrarApplicationRoutes{},
 		RequestGetMetaState{}, ResponseGetMetaState{},
-		RequestGetGoroutines{}, GoroutineGroup{}, ResponseGetGoroutines{},
-		RequestGetHeapProfile{}, HeapRecord{}, ResponseGetHeapProfile{},
 		RequestGetTypes{}, ResponseGetTypes{},
 		RequestGetErrors{}, ResponseGetErrors{},
 		RequestGetNetworkAtomCache{}, ResponseGetNetworkAtomCache{},
-		AtomLimitInfo{}, AtomPeerInfo{}, AtomGroupInfo{}, AtomInfo{},
-		RequestGetAtomSummary{}, ResponseGetAtomSummary{},
-		RequestGetAtomTable{}, ResponseGetAtomTable{},
 
 		RequestGetNode{}, ResponseGetNode{},
 		RequestGetNetwork{}, ResponseGetNetwork{},
@@ -632,11 +633,44 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 	case RequestGetRegistrarApplicationRoutes:
 		return i.responseRegistrarApplicationRoutes(r), nil
 
-	case RequestGetGoroutines:
+	case golang.RequestGetGoroutines:
 		return captureGoroutines(r), nil
 
-	case RequestGetHeapProfile:
+	case golang.RequestGetHeapProfile:
 		return captureHeapProfile(r), nil
+
+	case golang.RequestInspectRuntime:
+		_, err := i.SpawnRegister(inspectRuntime, factory_runtime, gen.ProcessOptions{LinkParent: true})
+		if err != nil && err != gen.ErrTaken {
+			return err, nil
+		}
+		forward := requestInspect{
+			pid: from,
+			ref: ref,
+		}
+		if err := i.Send(gen.Atom(inspectRuntime), forward); err != nil {
+			i.Log().Error("unable to forward the inspect request to %s: %s", gen.Atom(inspectRuntime), err)
+			return err, nil
+		}
+		return nil, nil // no reply
+
+	case golang.RequestGetRuntimeMetrics:
+		return readRuntimeMetrics(r), nil
+
+	case rust.RequestInspectRuntime:
+		return gen.ErrUnsupported, nil
+
+	case rust.RequestGetRuntimeMetrics:
+		return rust.ResponseGetRuntimeMetrics{Error: gen.ErrUnsupported}, nil
+
+	case rust.RequestGetRuntimeState:
+		return rust.ResponseGetRuntimeState{Error: gen.ErrUnsupported}, nil
+
+	case rust.RequestGetAtomSummary:
+		return rust.ResponseGetAtomSummary{Error: gen.ErrUnsupported}, nil
+
+	case rust.RequestGetAtomTable:
+		return rust.ResponseGetAtomTable{Error: gen.ErrUnsupported}, nil
 
 	case RequestGetTypes:
 		return i.responseTypes(r), nil
@@ -646,12 +680,6 @@ func (i *inspect) HandleCall(from gen.PID, ref gen.Ref, request any) (any, error
 
 	case RequestGetNetworkAtomCache:
 		return i.responseNetworkAtomCache(r), nil
-
-	case RequestGetAtomSummary:
-		return ResponseGetAtomSummary{Error: gen.ErrUnsupported}, nil
-
-	case RequestGetAtomTable:
-		return ResponseGetAtomTable{Error: gen.ErrUnsupported}, nil
 
 	case RequestGetNode:
 		return i.responseNode(), nil

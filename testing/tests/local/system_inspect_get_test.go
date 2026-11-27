@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"ergo.services/ergo/app/system/inspect"
+	"ergo.services/ergo/app/system/runtime/golang"
 	"ergo.services/ergo/gen"
 	"ergo.services/ergo/testing/check"
 	"ergo.services/ergo/testing/stage"
@@ -375,9 +376,9 @@ func TestSystemInspectGetGoroutines(t *testing.T) {
 		<-parked
 	}
 
-	out, ok := inspectGet(t, n, inspect.RequestGetGoroutines{
+	out, ok := inspectGet(t, n, golang.RequestGetGoroutines{
 		Stack: "inspectMeta",
-	}).(inspect.ResponseGetGoroutines)
+	}).(golang.ResponseGetGoroutines)
 	if ok == false {
 		t.Fatal("unexpected response to RequestGetGoroutines")
 	}

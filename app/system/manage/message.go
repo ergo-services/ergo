@@ -167,27 +167,6 @@ type ResponseDoAppUnload struct {
 	Error error
 }
 
-// atom limits
-
-type RequestDoSetRuntimeAtomLimit struct {
-	Limit uint64
-}
-
-type RequestDoSetAtomLimit struct {
-	Limit uint64
-}
-
-type RequestDoSetPeerAtomLimit struct {
-	Peer  gen.Atom
-	Limit uint64
-}
-
-type ResponseDoSetAtomLimit struct {
-	Previous uint64
-	Atoms    uint64
-	Error    error
-}
-
 // Types returns the wire-format types of the mutating plane for use in
 // gen.ApplicationSpec.Network.RegisterTypes.
 func Types() []any {
@@ -209,7 +188,5 @@ func Types() []any {
 		RequestDoAppStart{}, ResponseDoAppStart{},
 		RequestDoAppStop{}, ResponseDoAppStop{},
 		RequestDoAppUnload{}, ResponseDoAppUnload{},
-		RequestDoSetRuntimeAtomLimit{}, RequestDoSetAtomLimit{},
-		RequestDoSetPeerAtomLimit{}, ResponseDoSetAtomLimit{},
 	}
 }

@@ -8,23 +8,20 @@ import (
 
 type RequestInspectNode struct{}
 type ResponseInspectNode struct {
-	CRC32     string
-	Event     gen.Event
-	OS        string
-	Arch      string
-	Cores     int
-	Timezone  string
-	GoVersion string
-	Version   gen.Version
-	Creation  int64
+	CRC32          string
+	Event          gen.Event
+	OS             string
+	Arch           string
+	Cores          int
+	Timezone       string
+	RuntimeVersion string // go1.25.3 on a Go node, the version of rustc on a Rust one
+	Version        gen.Version
+	Creation       int64
 
-	// build information from debug.ReadBuildInfo() of the running node binary
-	BuildMain     string   // main module "path@version"
-	BuildRevision string   // VCS commit of the build (if available)
-	BuildModified bool     // VCS working tree was dirty at build time
-	BuildSettings []string // build settings as "key=value" (GOOS, GOARCH, -tags, -ldflags, vcs.time, ...)
-	BuildDeps     []string // dependency modules as "path@version", sorted
-	BuildReplaces []string // replace directives as "path => target@version" (e.g. local "=> ../foo")
+	// Build is the build of the node binary: golang.BuildInfo on a Go node,
+	// rust.BuildInfo on a Rust one (packages app/system/runtime/golang and
+	// app/system/runtime/rust)
+	Build any
 }
 
 type MessageInspectNode struct {
@@ -282,71 +279,6 @@ type ResponseGetProcessLookup struct {
 	Name  gen.Atom // empty when the process is not registered under a name
 	State gen.ProcessState
 	Error error
-}
-
-// goroutine dump
-
-type RequestGetGoroutines struct {
-	Stack   string // substring match in stack text
-	State   string // exact state match (running, chan receive, etc.)
-	MinWait int64  // minimum wait duration in seconds (0 = any)
-}
-
-type GoroutineInfo struct {
-	ID       int
-	State    string
-	Wait     string
-	Frames   []string
-	FullText string
-}
-
-type GoroutineGroup struct {
-	Count   int
-	State   string
-	WaitSec int64
-	Origin  string
-	Current string
-	Stack   string
-	IDs     []int
-}
-
-type ResponseGetGoroutines struct {
-	Groups   []GoroutineGroup
-	Total    int
-	Filtered int
-	Error    error
-}
-
-// heap profile
-
-type RequestGetHeapProfile struct {
-	MinBytes int64
-	Limit    int
-}
-
-type HeapRecord struct {
-	InuseBytes   int64
-	InuseObjects int64
-	AllocBytes   int64
-	AllocObjects int64
-	FreeObjects  int64
-	Stack        []string
-}
-
-type HeapStats struct {
-	TotalInuse   int64
-	TotalObjects int64
-	TotalAlloc   int64
-	TotalFree    int64
-}
-
-type ResponseGetHeapProfile struct {
-	Records      []HeapRecord
-	TotalInuse   int64
-	TotalAlloc   int64
-	TotalObjects int64
-	Truncated    int
-	Error        error
 }
 
 // process range (full scan with filters)
@@ -647,75 +579,6 @@ type RequestGetNetworkAtomCache struct {
 
 type ResponseGetNetworkAtomCache struct {
 	Atoms     []gen.RegisteredAtomInfo
-	Truncated int
-	Error     error
-}
-
-// Deprecated: use RequestGetNetworkAtomCache.
-type RequestGetAtoms = RequestGetNetworkAtomCache
-
-// Deprecated: use ResponseGetNetworkAtomCache.
-type ResponseGetAtoms = ResponseGetNetworkAtomCache
-
-type AtomLimitInfo struct {
-	Atoms   uint64
-	Limit   uint64
-	Refused uint64
-	SetBy   string
-}
-
-type AtomPeerInfo struct {
-	Peer      gen.Atom
-	Atoms     uint64
-	Limit     uint64
-	Refused   uint64
-	Exception bool
-}
-
-type AtomGroupInfo struct {
-	Key         string
-	Atoms       uint64
-	Bytes       uint64
-	Origin      string
-	OriginAtoms uint64
-}
-
-type AtomInfo struct {
-	Name   string
-	Origin string
-	Born   time.Time
-}
-
-type RequestGetAtomSummary struct{}
-
-type ResponseGetAtomSummary struct {
-	Atoms   uint64
-	Bytes   uint64
-	Long    uint64
-	Program uint64
-	Network uint64
-	Refused uint64
-	Runtime AtomLimitInfo
-	Node    AtomLimitInfo
-	Peer    AtomLimitInfo
-	Peers   []AtomPeerInfo
-	Groups  []AtomGroupInfo
-	Origins []AtomGroupInfo
-	Recent  []AtomInfo
-	Error   error
-}
-
-type RequestGetAtomTable struct {
-	Prefix string
-	Find   string
-	Origin string
-	Long   bool
-	Limit  int
-}
-
-type ResponseGetAtomTable struct {
-	Groups    []AtomGroupInfo
-	Atoms     []AtomInfo
 	Truncated int
 	Error     error
 }

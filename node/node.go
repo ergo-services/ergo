@@ -985,15 +985,6 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	info.MemoryUsed = rm.MemoryTotal - rm.MemoryReleased
 	info.MemoryPeak = rm.MemoryTotal
 	info.MemoryAlloc = rm.MemoryObjects
-	info.MemoryLimit = rm.MemoryLimit
-	info.HeapLive = rm.HeapLive
-	info.HeapGoal = rm.HeapGoal
-	info.Goroutines = rm.Goroutines
-	info.GCCycles = rm.GCCycles
-	info.HeapAllocObjects = rm.HeapAllocObjects
-	info.HeapFreeObjects = rm.HeapFreeObjects
-	info.CPUTimeGC = rm.CPUTimeGC
-	info.CPUTimeTotal = rm.CPUTimeTotal
 
 	utime, stime := osdep.ResourceUsage()
 	info.UserTime = utime
@@ -1061,13 +1052,6 @@ func (n *node) ShortInfo() (gen.NodeShortInfo, error) {
 	info.MemoryUsed = rmShort.MemoryTotal - rmShort.MemoryReleased
 	info.MemoryPeak = rmShort.MemoryTotal
 	info.MemoryAlloc = rmShort.MemoryObjects
-	info.MemoryLimit = rmShort.MemoryLimit
-	info.HeapLive = rmShort.HeapLive
-	info.HeapGoal = rmShort.HeapGoal
-	info.Goroutines = rmShort.Goroutines
-	info.GCCycles = rmShort.GCCycles
-	info.CPUTimeGC = rmShort.CPUTimeGC
-	info.CPUTimeTotal = rmShort.CPUTimeTotal
 
 	utime, stime := osdep.ResourceUsage()
 	info.UserTime = utime

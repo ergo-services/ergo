@@ -942,35 +942,16 @@ type NodeInfo struct {
 	// ApplicationsRunning is the number of currently running applications.
 	ApplicationsRunning int64
 
-	// MemoryUsed is the memory the Go runtime holds now, in bytes: everything it
-	// has mapped minus the heap pages returned to the OS.
+	// MemoryUsed is the memory the node holds now, in bytes. A Go node reports the
+	// memory the Go runtime holds: everything it has mapped minus the heap pages
+	// returned to the OS. A Rust node reports the memory of its OS process resident
+	// in RAM (RSS), 0 where the OS does not tell it.
 	MemoryUsed uint64
 
-	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
+	// MemoryAlloc is the memory occupied by live heap objects, in bytes. A Rust node
+	// knows it only with the counting allocator of the framework installed as the
+	// global one (ergo::lib::memory::Counting), and reports 0 without it.
 	MemoryAlloc uint64
-
-	// MemoryLimit is the soft memory limit set via GOMEMLIMIT, in bytes.
-	// MaxInt64 means no limit is set.
-	MemoryLimit uint64
-
-	// HeapLive is the heap memory occupied as of the last garbage collection, in bytes.
-	HeapLive uint64
-
-	// HeapGoal is the heap size that triggers the next garbage collection, in bytes.
-	HeapGoal uint64
-
-	// Goroutines is the current number of goroutines.
-	Goroutines int64
-
-	// GCCycles is the cumulative number of completed garbage collection cycles.
-	GCCycles uint64
-
-	// CPUTimeGC is the cumulative CPU time spent in garbage collection, in seconds.
-	CPUTimeGC float64
-
-	// CPUTimeTotal is the cumulative CPU time available to the process, in seconds,
-	// as defined by GOMAXPROCS. Includes idle time.
-	CPUTimeTotal float64
 
 	// UserTime is the user CPU time in nanoseconds.
 	UserTime int64
@@ -982,17 +963,11 @@ type NodeInfo struct {
 	// Useful in Observer and MCP for correlating logs across nodes in different timezones.
 	ServerTime time.Time
 
-	// HeapAllocObjects is the cumulative number of heap objects allocated. Sampling it
-	// twice gives the allocation rate over the interval; the counter itself only grows.
-	HeapAllocObjects uint64
-
-	// HeapFreeObjects is the cumulative number of heap objects freed. The difference
-	// with HeapAllocObjects is the number of objects currently alive.
-	HeapFreeObjects uint64
-
-	// MemoryPeak is the most memory the Go runtime has mapped since the node started,
-	// in bytes. It never decreases, and fragmentation can put it above the peak that
-	// was resident at any one moment.
+	// MemoryPeak is the most memory the node has held, in bytes; it never decreases.
+	// A Go node reports the most memory the Go runtime has mapped since the node
+	// started, and fragmentation can put it above the peak that was resident at any
+	// one moment. A Rust node reports the most memory of its OS process resident in
+	// RAM since the process started (peak RSS), 0 where the OS does not tell it.
 	MemoryPeak uint64
 }
 
@@ -1064,35 +1039,16 @@ type NodeShortInfo struct {
 	// Indexed as: [0]=Trace, [1]=Debug, [2]=Info, [3]=Warning, [4]=Error, [5]=Panic
 	LogMessages [6]uint64
 
-	// MemoryUsed is the memory the Go runtime holds now, in bytes: everything it
-	// has mapped minus the heap pages returned to the OS.
+	// MemoryUsed is the memory the node holds now, in bytes. A Go node reports the
+	// memory the Go runtime holds: everything it has mapped minus the heap pages
+	// returned to the OS. A Rust node reports the memory of its OS process resident
+	// in RAM (RSS), 0 where the OS does not tell it.
 	MemoryUsed uint64
 
-	// MemoryAlloc is the memory occupied by live heap objects, in bytes.
+	// MemoryAlloc is the memory occupied by live heap objects, in bytes. A Rust node
+	// knows it only with the counting allocator of the framework installed as the
+	// global one (ergo::lib::memory::Counting), and reports 0 without it.
 	MemoryAlloc uint64
-
-	// MemoryLimit is the soft memory limit set via GOMEMLIMIT, in bytes.
-	// MaxInt64 means no limit is set.
-	MemoryLimit uint64
-
-	// HeapLive is the heap memory occupied as of the last garbage collection, in bytes.
-	HeapLive uint64
-
-	// HeapGoal is the heap size that triggers the next garbage collection, in bytes.
-	HeapGoal uint64
-
-	// Goroutines is the current number of goroutines.
-	Goroutines int64
-
-	// GCCycles is the cumulative number of completed garbage collection cycles.
-	GCCycles uint64
-
-	// CPUTimeGC is the cumulative CPU time spent in garbage collection, in seconds.
-	CPUTimeGC float64
-
-	// CPUTimeTotal is the cumulative CPU time available to the process, in seconds,
-	// as defined by GOMAXPROCS. Includes idle time.
-	CPUTimeTotal float64
 
 	// UserTime is the user CPU time in nanoseconds.
 	UserTime int64
@@ -1111,9 +1067,11 @@ type NodeShortInfo struct {
 	// ServerTime is the current server time with timezone.
 	ServerTime time.Time
 
-	// MemoryPeak is the most memory the Go runtime has mapped since the node started,
-	// in bytes. It never decreases, and fragmentation can put it above the peak that
-	// was resident at any one moment.
+	// MemoryPeak is the most memory the node has held, in bytes; it never decreases.
+	// A Go node reports the most memory the Go runtime has mapped since the node
+	// started, and fragmentation can put it above the peak that was resident at any
+	// one moment. A Rust node reports the most memory of its OS process resident in
+	// RAM since the process started (peak RSS), 0 where the OS does not tell it.
 	MemoryPeak uint64
 }
 
