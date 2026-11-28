@@ -1289,8 +1289,6 @@ func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 
 	n.NetworkStop()
 	n.state.Store(int32(gen.NodeStateStopped))
-	// the incarnation id: what is made after this is not of this node
-	atomic.StoreInt64(&n.creation, 0)
 
 	n.tracingExporters.Range(func(k, _ any) bool {
 		n.TracingExporterDelete(k.(string))

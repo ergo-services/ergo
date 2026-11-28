@@ -181,7 +181,7 @@ func (rn *RemoteNode) Creation() int64 {
 	if rn.ov.creation != nil {
 		return rn.ov.creation()
 	}
-	return 0
+	return mockCreation
 }
 
 func (rn *RemoteNode) Disconnect() {

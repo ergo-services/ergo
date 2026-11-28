@@ -468,7 +468,7 @@ func (r *mockRemoteNode) Uptime() int64            { return 0 }
 func (r *mockRemoteNode) ConnectionUptime() int64  { return 0 }
 func (r *mockRemoteNode) Version() gen.Version     { return gen.Version{} }
 func (r *mockRemoteNode) Info() gen.RemoteNodeInfo { return gen.RemoteNodeInfo{Node: r.name} }
-func (r *mockRemoteNode) Creation() int64          { return 0 }
+func (r *mockRemoteNode) Creation() int64          { return mockCreation }
 func (r *mockRemoteNode) Disconnect()              {}
 
 // MockRemoteNode is the test-config handle for Network().GetNode(name).

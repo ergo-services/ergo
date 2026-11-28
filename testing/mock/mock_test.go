@@ -207,3 +207,28 @@ func TestRegisterEventRecordsOptions(t *testing.T) {
 	}
 	n.ShouldRegisterEvent().Name("commands").Open(true).Notify(false).Once().Assert()
 }
+
+// Every mock that reports a node epoch reports the one its synthesized PIDs,
+// aliases and refs carry: a test that mints an identifier from Creation and
+// compares it against what a mock handed back must find them equal, and neither
+// may be a value a test is likely to write by hand.
+func TestMockEpochIsOneValue(t *testing.T) {
+	rn := mock.NewRemoteNode()
+	child, err := rn.Spawn("worker", gen.ProcessOptions{})
+	check.NoError(t, err)
+
+	epochs := map[string]int64{
+		"Node":             mock.NewNode().Creation(),
+		"Core":             mock.NewCore().Creation(),
+		"RemoteNode":       rn.Creation(),
+		"a PID it spawned": child.Creation,
+	}
+	for name, epoch := range epochs {
+		if epoch != child.Creation {
+			t.Errorf("%s reports epoch %d, the spawned PID carries %d", name, epoch, child.Creation)
+		}
+		if epoch == 0 || epoch == 1 {
+			t.Errorf("%s reports epoch %d, which a test may write by hand", name, epoch)
+		}
+	}
+}

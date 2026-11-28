@@ -1215,7 +1215,7 @@ func (n *Node) Creation() int64 {
 	if n.ov.creation != nil {
 		return n.ov.creation()
 	}
-	return 1
+	return mockCreation
 }
 
 func (n *Node) Peers() []gen.Atom {

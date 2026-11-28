@@ -528,7 +528,7 @@ func (c *Core) Creation() int64 {
 	if c.ov.creation != nil {
 		return c.ov.creation()
 	}
-	return 0
+	return mockCreation
 }
 
 func (c *Core) PID() gen.PID {
