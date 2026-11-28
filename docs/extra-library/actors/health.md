@@ -28,7 +28,7 @@ The health actor follows a registration and heartbeat pattern:
 
 3. **Actors send heartbeats:** For signals with a timeout, the registering actor periodically sends `MessageHeartbeat`. If the heartbeat interval exceeds the timeout, the health actor marks the signal as down.
 
-4. **HTTP handlers read atomic state:** The HTTP handlers read pre-built JSON responses from atomic values. The actor goroutine rebuilds these atomic values after every state change. No mutexes or channels are involved in serving HTTP requests.
+4. **A probe is a call to the actor:** The endpoints are served by [meta/http](../meta-processes/README.md), whose routes point at the health actor, so a probe arrives as an ordinary request and is answered from the pre-built JSON the actor rebuilds after every state change. An actor that is gone, or too busy to answer before the request deadline runs out, never answers 200: the connection answers for it, with the same body and a status that says so.
 
 ```mermaid
 sequenceDiagram
@@ -141,21 +141,26 @@ options := health.Options{
 
 **CheckInterval** controls how frequently the actor checks for expired heartbeats. The actor sends itself a timer message at this interval and iterates over all signals with a non-zero timeout, marking expired ones as down. Shorter intervals detect failures faster but increase message processing overhead. For most applications, 1-2 seconds provides a good balance.
 
-**Mux** accepts an external `*http.ServeMux`. When provided, the health actor registers its handlers on this mux and skips starting its own HTTP server. This is useful when you want to serve health endpoints alongside other HTTP handlers on a single port, for example, combining with the [Metrics](metrics.md) actor.
+**Routes** accepts the routing table of a server the caller starts. When provided, the health actor adds its three routes to that table and starts no server of its own. This is how the probes share a port with something else.
 
 ```go
-mux := http.NewServeMux()
+import web "ergo.services/meta/http"
 
-healthOpts := health.Options{Mux: mux}
-node.SpawnRegister("health", health.Factory, gen.ProcessOptions{}, healthOpts)
+routes := web.NewRoutes()
+routes.Get("/custom", web.To(gen.Atom("custom")))
 
-metricsOpts := metrics.Options{Mux: mux}
-node.Spawn(metrics.Factory, gen.ProcessOptions{}, metricsOpts)
+node.SpawnRegister("health", health.Factory, gen.ProcessOptions{},
+    health.Options{Routes: routes})
 
-// Serve the shared mux yourself
+// the table is read when the server is created, so this comes after the actor started
+web.Serve(owner, web.AcceptorOptions{Port: 8080, Routes: routes})
 ```
 
-When `Mux` is set, `Host` and `Port` are ignored.
+The routes name the actor by the name it is registered under, so they keep pointing at the right process across a restart of the actor. An actor given `Routes` without a registered name refuses to start.
+
+When `Routes` is set, `Host` and `Port` are ignored: the server belongs to the caller. The process that starts it may not be the health actor itself, since meta/http refuses a route naming the process that spawned the server.
+
+`health.Routes(target, path)` builds the same three routes without an actor, for a caller assembling the whole table itself.
 
 ## Signal Registration
 
@@ -293,7 +298,7 @@ Each endpoint evaluates only signals registered for that specific probe. A signa
 
 **200 OK:** all signals for this probe are up, or no signals are registered.
 
-**503 Service Unavailable:** at least one signal for this probe is down.
+**503 Service Unavailable:** at least one signal for this probe is down, the actor could not answer, or its heartbeat check has stopped running.
 
 ### Response Format
 

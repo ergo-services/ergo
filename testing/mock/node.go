@@ -26,6 +26,7 @@ type Node struct {
 type nodeOverrides struct {
 	name                            func() gen.Atom
 	isAlive                         func() bool
+	state                           func() gen.NodeState
 	uptime                          func() int64
 	version                         func() gen.Version
 	frameworkVersion                func() gen.Version
@@ -155,6 +156,7 @@ func newNode(r recorder) *Node {
 
 func (n *Node) OnName(fn func() gen.Atom)                        { n.ov.name = fn }
 func (n *Node) OnIsAlive(fn func() bool)                         { n.ov.isAlive = fn }
+func (n *Node) OnState(fn func() gen.NodeState)                  { n.ov.state = fn }
 func (n *Node) OnUptime(fn func() int64)                         { n.ov.uptime = fn }
 func (n *Node) OnVersion(fn func() gen.Version)                  { n.ov.version = fn }
 func (n *Node) OnFrameworkVersion(fn func() gen.Version)         { n.ov.frameworkVersion = fn }
@@ -480,6 +482,13 @@ func (n *Node) Name() gen.Atom {
 		return n.ov.name()
 	}
 	return mockNode
+}
+
+func (n *Node) State() gen.NodeState {
+	if n.ov.state != nil {
+		return n.ov.state()
+	}
+	return gen.NodeStateRunning
 }
 
 func (n *Node) IsAlive() bool {

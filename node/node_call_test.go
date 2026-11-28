@@ -10,8 +10,7 @@ import (
 
 // newCallNode builds a node able to route responses on node level calls.
 func newCallNode() *node {
-	n := &node{name: "n@localhost"}
-	n.creation = 1
+	n := running(&node{name: "n@localhost"})
 	n.corePID = gen.PID{Node: n.name, ID: 1, Creation: 1}
 	n.log = createLog(gen.LogLevelInfo, func(gen.MessageLog, string) {})
 	return n

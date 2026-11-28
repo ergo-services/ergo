@@ -382,6 +382,13 @@ func (n *mockNode) Name() gen.Atom {
 	}
 	return n.nodeName
 }
+func (n *mockNode) State() gen.NodeState {
+	if n.ov.state != nil {
+		return n.ov.state()
+	}
+	return gen.NodeStateRunning
+}
+
 func (n *mockNode) IsAlive() bool {
 	if n.ov.isAlive != nil {
 		return n.ov.isAlive()

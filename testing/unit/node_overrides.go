@@ -17,6 +17,7 @@ import (
 type nodeOverrides struct {
 	name             func() gen.Atom
 	isAlive          func() bool
+	state            func() gen.NodeState
 	uptime           func() int64
 	version          func() gen.Version
 	frameworkVersion func() gen.Version
@@ -121,6 +122,7 @@ type nodeOverrides struct {
 
 func (n *mockNode) OnName(fn func() gen.Atom)                { n.ov.name = fn }
 func (n *mockNode) OnIsAlive(fn func() bool)                 { n.ov.isAlive = fn }
+func (n *mockNode) OnState(fn func() gen.NodeState)          { n.ov.state = fn }
 func (n *mockNode) OnUptime(fn func() int64)                 { n.ov.uptime = fn }
 func (n *mockNode) OnVersion(fn func() gen.Version)          { n.ov.version = fn }
 func (n *mockNode) OnFrameworkVersion(fn func() gen.Version) { n.ov.frameworkVersion = fn }

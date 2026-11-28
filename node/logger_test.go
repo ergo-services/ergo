@@ -16,7 +16,7 @@ func (stubLogger) Terminate()         {}
 
 // LoggerAdd must reject an empty name (which would later panic at logger[0]).
 func TestLoggerAddRejectsEmptyName(t *testing.T) {
-	n := &node{creation: 1}
+	n := running(&node{})
 	err := n.LoggerAdd("", stubLogger{})
 	check.ErrorIs(t, err, gen.ErrIncorrect)
 }
@@ -25,7 +25,7 @@ func TestLoggerAddRejectsEmptyName(t *testing.T) {
 // existence check and the store are serialized, so a second racing Add sees
 // ErrTaken instead of silently replacing (and leaking) the first.
 func TestLoggerAddConcurrentSameName(t *testing.T) {
-	n := &node{creation: 1, loggers: make(map[gen.LogLevel]*sync.Map)}
+	n := running(&node{loggers: make(map[gen.LogLevel]*sync.Map)})
 	for _, lvl := range []gen.LogLevel{
 		gen.LogLevelSystem, gen.LogLevelTrace, gen.LogLevelDebug, gen.LogLevelInfo,
 		gen.LogLevelWarning, gen.LogLevelError, gen.LogLevelPanic,
@@ -59,7 +59,7 @@ func TestLoggerAddConcurrentSameName(t *testing.T) {
 // LoggerDeletePID restores the process's prior log level (captured at
 // LoggerAddPID time) instead of a hardcoded Info, and clears the logger name.
 func TestLoggerDeletePIDRestoresLevel(t *testing.T) {
-	n := &node{creation: 1}
+	n := running(&node{})
 	n.log = createLog(gen.LogLevelInfo, func(gen.MessageLog, string) {})
 
 	pid := gen.PID{Node: "n@localhost", ID: 1, Creation: 1}

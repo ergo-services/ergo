@@ -104,7 +104,7 @@ type node struct {
 	waitprocesses   sync.WaitGroup
 	wait            chan struct{}
 	once            sync.Once
-	stopping        atomic.Bool // CAS-guard against concurrent Stop/StopForce
+	state           atomic.Int32 // gen.NodeState
 	stopForced      chan struct{}
 	forceOnce       sync.Once
 
@@ -229,6 +229,8 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 		ctrlc:      make(chan os.Signal, 1),
 		stopForced: make(chan struct{}),
 	}
+	node.state.Store(int32(gen.NodeStateStarting))
+
 	node.core = node
 	if extra.WrapCore != nil {
 		node.core = extra.WrapCore(node)
@@ -342,9 +344,26 @@ func Start(name gen.Atom, extra NodeOptionsExtra) (gen.Node, error) {
 		}
 	}
 
+	node.state.Store(int32(gen.NodeStateRunning))
+	node.publishCoreEvent(gen.MessageCoreNodeStarted{Applications: node.startedApplications()})
+
 	node.log.Info("node %s built with %q successfully started", node.name, node.framework)
 
 	return node, nil
+}
+
+// startedApplications lists what is running now, which at this point is what
+// NodeOptions.Applications asked for.
+func (n *node) startedApplications() []gen.Atom {
+	var names []gen.Atom
+	n.applications.Range(func(_, v any) bool {
+		app := v.(*application)
+		if app.isRunning() {
+			names = append(names, app.spec.Name)
+		}
+		return true
+	})
+	return names
 }
 
 //
@@ -357,6 +376,23 @@ func (n *node) Name() gen.Atom {
 
 func (n *node) IsAlive() bool {
 	return n.isRunning()
+}
+
+func (n *node) State() gen.NodeState {
+	return gen.NodeState(n.state.Load())
+}
+
+// moving into stopping is the guard against a second Stop
+func (n *node) beginStop() bool {
+	for {
+		state := gen.NodeState(n.state.Load())
+		if state == gen.NodeStateStopping || state == gen.NodeStateStopped {
+			return false
+		}
+		if n.state.CompareAndSwap(int32(state), int32(gen.NodeStateStopping)) {
+			return true
+		}
+	}
 }
 
 func (n *node) Uptime() int64 {
@@ -875,6 +911,7 @@ func (n *node) Info() (gen.NodeInfo, error) {
 	}
 
 	info.Name = n.name
+	info.State = n.State()
 	info.Uptime = n.Uptime()
 	info.Version = n.version
 	info.Framework = n.framework
@@ -1002,6 +1039,7 @@ func (n *node) ShortInfo() (gen.NodeShortInfo, error) {
 	}
 
 	info.Name = n.name
+	info.State = n.State()
 	info.Creation = atomic.LoadInt64(&n.creation)
 	info.Uptime = n.Uptime()
 	info.Version = n.version
@@ -1207,12 +1245,7 @@ func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 		n.forceOnce.Do(func() { close(n.stopForced) })
 	}
 
-	if n.isRunning() == false {
-		// already stopped
-		return
-	}
-	if n.stopping.CompareAndSwap(false, true) == false {
-		// another Stop/StopForce call already in flight
+	if n.beginStop() == false {
 		return
 	}
 
@@ -1255,6 +1288,8 @@ func (n *node) stop(force bool, shutdownTimeout time.Duration) {
 	}
 
 	n.NetworkStop()
+	n.state.Store(int32(gen.NodeStateStopped))
+	// the incarnation id: what is made after this is not of this node
 	atomic.StoreInt64(&n.creation, 0)
 
 	n.tracingExporters.Range(func(k, _ any) bool {
@@ -3290,7 +3325,11 @@ func (n *node) finishProcess(p *process, reason error, terminateReason error) {
 }
 
 func (n *node) isRunning() bool {
-	return atomic.LoadInt64(&n.creation) > 0
+	switch gen.NodeState(n.state.Load()) {
+	case gen.NodeStateStarting, gen.NodeStateRunning, gen.NodeStateStopping:
+		return true
+	}
+	return false
 }
 
 func (n *node) registerAlias(alias gen.Alias, p *process) error {

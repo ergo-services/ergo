@@ -391,8 +391,32 @@ func (p *port) readStdoutText(to any) error {
 	return out.Err()
 }
 
+// readStderr runs on a goroutine of its own, outside the boundary around Start.
 func (p *port) readStderr(to any) {
 	id := p.ID()
+
+	if lib.Recover() {
+		defer func() {
+			rcv := recover()
+			if rcv == nil {
+				return
+			}
+			p.Log().Panic("port stderr reader terminated - %#v at %s", rcv, lib.PanicOrigin())
+			message := MessagePortError{
+				ID:    id,
+				Tag:   p.options.Tag,
+				Error: gen.TerminateReasonPanic,
+			}
+			if err := p.Send(to, message); err != nil {
+				p.Log().Trace("unable to send MessagePortError: %s", err)
+			}
+			// killing the program ends the stdout reader Start waits on
+			if p.cmd != nil && p.cmd.Process != nil {
+				p.cmd.Process.Kill()
+			}
+		}()
+	}
+
 	out := bufio.NewScanner(p.errout)
 	if p.options.SplitFuncStderr != nil {
 		out.Split(p.options.SplitFuncStderr)

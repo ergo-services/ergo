@@ -1,7 +1,6 @@
 package node
 
 import (
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,8 +20,7 @@ func (b *blockingExporter) Terminate()                 {}
 // and spans that overflow its queue are dropped and counted rather than blocking. Guards
 // the tracing-decouple change.
 func TestTracingExporterDoesNotStallRouting(t *testing.T) {
-	n := &node{}
-	atomic.StoreInt64(&n.creation, 1) // isRunning()
+	n := running(&node{})
 	n.log = createLog(gen.LogLevelDisabled, nil)
 
 	ex := &blockingExporter{release: make(chan struct{})}

@@ -28,6 +28,18 @@ type MessageCoreApplicationStopped struct {
 	Reason error
 }
 
+// MessageCoreNodeStarted is published once the node has come up: the network,
+// the registrar and the applications of NodeOptions.Applications are running,
+// and StartNode is about to return. Applications started later through
+// Node.ApplicationStart are not in it.
+//
+// It is the first message on this bus and so the first to be pushed out of it:
+// a process that subscribes later will not see it. To ask what state the node
+// is in rather than wait for the transition, use Node.State.
+type MessageCoreNodeStarted struct {
+	Applications []Atom
+}
+
 // MessageCoreNodeStopping is published when a graceful node shutdown begins, before
 // any application is stopped. Drain is how long the node waits before stopping them.
 // StopForce does not publish it.

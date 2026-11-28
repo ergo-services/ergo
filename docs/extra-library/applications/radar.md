@@ -363,6 +363,6 @@ Align `scrape_interval` with `MetricsCollectInterval` in Radar options. The defa
 
 ## Relationship to Health and Metrics Actors
 
-Radar uses [Health](../actors/health.md) and [Metrics](../actors/metrics.md) actors internally. The helper functions in the `radar` package delegate to these actors by their internal registered names. If you need capabilities beyond what the helpers expose (embedding the metrics actor for direct Prometheus registry access, custom health actor behavior with `HandleSignalDown` callbacks, or shared mux with additional HTTP handlers), use the underlying actors directly.
+Radar uses [Health](../actors/health.md) and [Metrics](../actors/metrics.md) actors internally. The helper functions in the `radar` package delegate to these actors by their internal registered names. If you need capabilities beyond what the helpers expose (embedding the metrics actor to hold handles on its storage, custom health actor behavior with `HandleSignalDown` callbacks, or a routing table carrying handlers of your own), use the underlying actors directly.
 
 Radar is designed for the common case: production nodes that need standard health probes and Prometheus metrics with minimal setup. For advanced scenarios, the building blocks are available as separate packages.

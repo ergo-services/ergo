@@ -1,6 +1,7 @@
 package gen
 
 import (
+	"fmt"
 	"time"
 )
 
@@ -11,16 +12,56 @@ import (
 //
 // Most operations require the node to be in Running state (operational).
 // Read-only operations and cleanup methods work in all states.
+// NodeState is what a node is doing now.
+type NodeState int32
+
+const (
+	// NodeStateStarting means StartNode has not returned yet.
+	NodeStateStarting NodeState = 1
+	// NodeStateRunning means the network, the registrar and the applications of
+	// NodeOptions.Applications are up.
+	NodeStateRunning NodeState = 2
+	// NodeStateStopping means the node is tearing down: the applications are
+	// being stopped, the processes after them.
+	NodeStateStopping NodeState = 3
+	// NodeStateStopped means the node is gone.
+	NodeStateStopped NodeState = 4
+)
+
+func (s NodeState) String() string {
+	switch s {
+	case NodeStateStarting:
+		return "starting"
+	case NodeStateRunning:
+		return "running"
+	case NodeStateStopping:
+		return "stopping"
+	case NodeStateStopped:
+		return "stopped"
+	}
+	return fmt.Sprintf("state#%d", int32(s))
+}
+
 type Node interface {
 	// Name returns the node name.
 	// Format: "name@hostname"
 	// Available in all states.
 	Name() Atom
 
-	// IsAlive returns true if the node is running.
-	// Returns false if node is stopped or stopping.
+	// IsAlive reports whether the node has not stopped. A node that is tearing
+	// down is still alive: it stops being so once the teardown is over. Use
+	// State to tell the two apart.
 	// Available in all states.
 	IsAlive() bool
+
+	// State returns what the node is doing now.
+	//
+	// A process that needs to know whether the node has finished coming up asks
+	// here rather than waiting for MessageCoreNodeStarted: that message is the
+	// first on the CoreEvent bus and so the first to be pushed out of it, and a
+	// process subscribing later would wait for it forever.
+	// Available in all states.
+	State() NodeState
 
 	// Uptime returns node uptime in seconds since start.
 	// Returns 0 if node is stopped.
@@ -846,6 +887,10 @@ type NodeInfo struct {
 	// Name is the node name.
 	Name Atom
 
+	// State is what the node is doing now. NodeStateStopped never appears here:
+	// by then Info answers ErrNodeTerminated instead.
+	State NodeState
+
 	// Uptime is the node uptime in seconds since start.
 	Uptime int64
 
@@ -976,6 +1021,10 @@ type NodeInfo struct {
 type NodeShortInfo struct {
 	// Name is the node name.
 	Name Atom
+
+	// State is what the node is doing now. NodeStateStopped never appears here:
+	// by then ShortInfo answers ErrNodeTerminated instead.
+	State NodeState
 
 	// Creation is the node incarnation identifier. A different value means
 	// the node has been restarted.

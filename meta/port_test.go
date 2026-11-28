@@ -7,8 +7,10 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"ergo.services/ergo/gen"
+	"ergo.services/ergo/lib"
 	"ergo.services/ergo/testing/mock"
 )
 
@@ -233,6 +235,35 @@ func TestPortReadStderr(t *testing.T) {
 	got := recvMsg[MessagePortError](t, ch)
 	if got.Error == nil || got.Error.Error() != "oops" {
 		t.Fatalf("error = %v, want oops", got.Error)
+	}
+	w.Close()
+}
+
+// A split function is the caller's code running on a goroutine of its own, so a panic
+// in it costs the port and not the node.
+func TestPortReadStderrPanicIsContained(t *testing.T) {
+	if lib.Recover() == false {
+		t.Skip("the norecover tag compiles the boundary out")
+	}
+
+	r, w := io.Pipe()
+	mp, ch := metaSink()
+	p := &port{MetaProcess: mp, errout: r}
+	p.options.SplitFuncStderr = func(data []byte, atEOF bool) (int, []byte, error) {
+		panic("split")
+	}
+
+	done := make(chan struct{})
+	go func() { defer close(done); p.readStderr("to") }()
+	go w.Write([]byte("oops\n"))
+
+	if got := recvMsg[MessagePortError](t, ch); got.Error != gen.TerminateReasonPanic {
+		t.Fatalf("error = %v, want %v", got.Error, gen.TerminateReasonPanic)
+	}
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("the stderr reader did not return after the panic")
 	}
 	w.Close()
 }

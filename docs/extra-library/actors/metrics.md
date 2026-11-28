@@ -72,7 +72,7 @@ Default configuration:
 - **CollectInterval**: `10 seconds`
 - **TopN**: `50`
 
-`Host` and `Port` are defaulted **only in standalone mode**, which is when `Options.Shared` is nil. In shared mode the primary still starts the HTTP server and passes `Host` through as given - so an empty `Host` there is not `localhost`, it is every interface. Set it explicitly on a shared-mode primary unless exposing the endpoint publicly is what you want. `Path`, `CollectInterval` and `TopN` are defaulted in both modes.
+`Host` and `Port` are defaulted **only in standalone mode**, which is when `Options.Storage` is nil. In shared mode the primary still starts the HTTP server and passes `Host` through as given - so an empty `Host` there is not `localhost`, it is every interface. Set it explicitly on a shared-mode primary unless exposing the endpoint publicly is what you want. `Path`, `CollectInterval` and `TopN` are defaulted in both modes.
 
 ## Configuration
 
@@ -92,26 +92,29 @@ node.Spawn(metrics.Factory, gen.ProcessOptions{}, options)
 
 **Port** should not conflict with other services. Prometheus conventionally uses `9090`, Observer UI defaults to `9911`.
 
-**TopN** controls how many top entries are tracked for each metric group (mailbox depth, utilization, latency for processes; subscribers, published, deliveries for events). Higher values increase Prometheus cardinality.
+**TopN** controls how many top entries are tracked for each metric group (mailbox depth, utilization, latency for processes; subscribers, published, deliveries for events). Higher values increase the cardinality of the exposition.
 
 **CollectInterval** controls how frequently the actor queries node statistics. Collecting more frequently than your Prometheus scrape interval wastes resources.
 
-**Mux** accepts an external `*http.ServeMux`. The metrics actor registers its handler on this mux and skips starting its own HTTP server. Useful for serving metrics alongside other handlers on a single port:
+**Routes** accepts the routing table of a server the caller starts. The metrics actor adds its route to that table and starts no server of its own, which is how the exposition shares a port with something else:
 
 ```go
-mux := http.NewServeMux()
+import web "ergo.services/meta/http"
 
-metricsOpts := metrics.Options{
-    Mux:             mux,
-    CollectInterval: 5 * time.Second,
-}
-node.Spawn(metrics.Factory, gen.ProcessOptions{}, metricsOpts)
+routes := web.NewRoutes()
 
-healthOpts := health.Options{Mux: mux}
-node.SpawnRegister("health", health.Factory, gen.ProcessOptions{}, healthOpts)
+node.SpawnRegister("metrics", metrics.Factory, gen.ProcessOptions{},
+    metrics.Options{Routes: routes, CollectInterval: 5 * time.Second})
+node.SpawnRegister("health", health.Factory, gen.ProcessOptions{},
+    health.Options{Routes: routes})
+
+// the table is read when the server is created, so this comes after the actors started
+web.Serve(owner, web.AcceptorOptions{Port: 8080, Routes: routes})
 ```
 
-When `Mux` is set, `Host` and `Port` are ignored.
+The route names the actor by the name it is registered under, so it keeps pointing at the right process across a restart of the actor. An actor given `Routes` without a registered name refuses to start.
+
+When `Routes` is set, `Host` and `Port` are ignored: the server belongs to the caller. The process that starts it may not be one of these actors, since meta/http refuses a route naming the process that spawned the server.
 
 ## Base Metrics
 
@@ -182,36 +185,34 @@ When the registering process terminates, the metrics actor automatically unregis
 
 ### Embedding metrics.Actor
 
-For direct access to the Prometheus registry or periodic collection via `CollectMetrics`:
+A storage is a plain object, not something a process builds, so an actor embedding `metrics.Actor` registers its own metrics and takes handles on them in `Init`, before anything has started:
 
 ```go
 type AppMetrics struct {
     metrics.Actor
 
-    activeUsers prometheus.Gauge
-    registered  bool
+    activeUsers metrics.Handle
 }
 
 func (m *AppMetrics) Init(args ...any) (metrics.Options, error) {
-    m.activeUsers = prometheus.NewGauge(prometheus.GaugeOpts{
-        Name: "myapp_active_users",
-        Help: "Current number of active users",
-    })
+    store := metrics.NewStorage()
+    if err := store.RegisterGauge("myapp_active_users", "Current number of active users"); err != nil {
+        return metrics.Options{}, err
+    }
+
+    var err error
+    if m.activeUsers, err = store.Gauge("myapp_active_users"); err != nil {
+        return metrics.Options{}, err
+    }
 
     return metrics.Options{
+        Storage:         store,
         Port:            9090,
         CollectInterval: 5 * time.Second,
     }, nil
 }
 
 func (m *AppMetrics) CollectMetrics() error {
-    if m.registered == false {
-        if err := m.Registry().Register(m.activeUsers); err != nil {
-            return err
-        }
-        m.registered = true
-    }
-
     count, err := m.Call(userService, getActiveUsersMessage{})
     if err != nil {
         m.Log().Warning("failed to get user count: %s", err)
@@ -222,7 +223,7 @@ func (m *AppMetrics) CollectMetrics() error {
 }
 ```
 
-`Registry()` returns nil until `Init` has returned. The actor builds the registry afterwards, because whether it is a private registry or a `Shared` one is decided by the `Options` that `Init` hands back - so `m.Registry().MustRegister(...)` inside `Init` panics on a nil pointer. Build the collectors in `Init` and register them on the first `CollectMetrics`, which runs later on the actor's own goroutine.
+A handle taken from a storage writes it directly, with no message in between: this actor owns the storage. Any other process asks the actor for a handle instead, with `metrics.Gauge`, `metrics.Counter` or `metrics.Histogram`, and that handle carries the identifier in a message.
 
 For event-driven updates, implement `HandleMessage()` instead of `CollectMetrics()`:
 
@@ -267,24 +268,26 @@ When used through the [Radar](../applications/radar.md) application, the supervi
 
 ### Shared Mode
 
-A single metrics actor processes messages sequentially. Under high throughput, its mailbox becomes a bottleneck. Shared mode lets multiple metrics actor instances share the same Prometheus registry:
+A single metrics actor processes messages sequentially. Under high throughput, its mailbox becomes a bottleneck. Several actors given the same storage share the metrics of the node:
 
 ```go
-shared := metrics.NewShared()
+store := metrics.NewStorage()
 
 // Primary actor: owns HTTP endpoint and base metrics
 primaryOpts := metrics.Options{
-    Port:   9090,
-    Shared: shared,
+    Port:    9090,
+    Storage: store,
 }
 
 // Worker actors: handle custom metric updates only
 workerOpts := metrics.Options{
-    Shared: shared,
+    Storage: store,
 }
 ```
 
-The primary actor starts the HTTP server and collects base metrics. Workers only process custom metric messages. All actors write to the same registry through the shared object. Works well with `act.Pool` for automatic load distribution.
+The primary actor starts the HTTP server and collects base metrics. Workers only process custom metric messages. All of them write the same storage, and the exposition is the whole of them. Works well with `act.Pool` for automatic load distribution.
+
+Before reaching for a pool, note what a handle saves: a write by name carries the name and the label values on every observation and the receiving side looks both up, while a handle resolves them once and carries an identifier. That is usually the larger win.
 
 ## Integration with Prometheus
 

@@ -16,6 +16,7 @@ var (
 		gen.Env(""),
 		gen.LogLevel(0),
 		gen.ProcessState(0),
+		gen.NodeState(0),
 		gen.ProcessKind(""),
 		gen.MetaState(0),
 		gen.NetworkMode(0),
@@ -90,6 +91,7 @@ var (
 
 		gen.MessageCoreApplicationStarted{},
 		gen.MessageCoreApplicationStopped{},
+		gen.MessageCoreNodeStarted{},
 		gen.MessageCoreNodeStopping{},
 		gen.MessageCoreNodeConnected{},
 		gen.MessageCoreNodeDisconnected{},
